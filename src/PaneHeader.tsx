@@ -29,12 +29,7 @@ export function PaneHeader({ onSplit, onClose }: Props) {
       >
         <SquareSplitVertical size={13} strokeWidth={1.5} />
       </button>
-      <button
-        className="tool-btn"
-        title="패인 닫기 (⌘W)"
-        aria-label="패인 닫기"
-        onClick={onClose}
-      >
+      <button className="tool-btn" title="패인 닫기 (⌘W)" aria-label="패인 닫기" onClick={onClose}>
         <X size={13} strokeWidth={1.5} />
       </button>
     </div>

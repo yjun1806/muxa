@@ -123,7 +123,13 @@ function insert(node: TreeNode, targetId: string, dir: Dir, newPaneId: string): 
   if (node.type === "pane") {
     if (node.id !== targetId) return node;
     // 부모 컨텍스트를 모르는 경우(루트가 패인 등): 새 분할 노드로 감싼다
-    return { type: "split", id: newId(), dir, children: [node, makePane(newPaneId)], sizes: [50, 50] };
+    return {
+      type: "split",
+      id: newId(),
+      dir,
+      children: [node, makePane(newPaneId)],
+      sizes: [50, 50],
+    };
   }
 
   // 같은 방향 분할이고 대상이 직속 패인 자식이면 형제로 추가한다(중첩 대신 균등)
@@ -132,7 +138,11 @@ function insert(node: TreeNode, targetId: string, dir: Dir, newPaneId: string): 
     const half = node.sizes[idx] / 2;
     return {
       ...node,
-      children: [...node.children.slice(0, idx + 1), makePane(newPaneId), ...node.children.slice(idx + 1)],
+      children: [
+        ...node.children.slice(0, idx + 1),
+        makePane(newPaneId),
+        ...node.children.slice(idx + 1),
+      ],
       sizes: [...node.sizes.slice(0, idx), half, half, ...node.sizes.slice(idx + 1)],
     };
   }

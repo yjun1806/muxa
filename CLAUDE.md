@@ -29,7 +29,12 @@ muxa는 macOS 전용 터미널 기반 에이전틱 개발 환경 (Tauri 2 + Rust
 
 **pnpm** (루트 `pnpm-lock.yaml`). npm/yarn 섞지 않는다.
 
-## 검증
+## 검증 · 린트 · 포맷
 
-프론트 타입: `pnpm exec tsc --noEmit` · Rust: `cd src-tauri && cargo check`.
-UI·PTY 변경은 실행 중 `pnpm tauri dev`가 HMR/재빌드로 반영 — 인터랙티브 동작은 실제 창에서 확인한다.
+JS/TS는 **oxlint**(린트) + **oxfmt**(포맷), Rust는 **clippy** + **rustfmt**(rustup 공식). 설정: `.oxlintrc.json`, `.oxfmtrc.json`.
+
+- 타입: `pnpm exec tsc --noEmit`
+- JS/TS: `pnpm lint` · `pnpm fmt` (`fmt:check`로 확인만)
+- Rust: `cd src-tauri && cargo check` · `pnpm lint:rs` (clippy) · `pnpm fmt:rs` (rustfmt)
+- 커밋 전 기준: `pnpm lint && pnpm fmt:check && pnpm exec tsc --noEmit` 통과
+- UI·PTY 변경은 실행 중 `pnpm tauri dev`가 HMR/재빌드로 반영 — 인터랙티브 동작은 실제 창에서 확인한다.
