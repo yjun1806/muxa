@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "muxa 메인 창 기본 권한",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:default"]
+  "permissions": ["core:default", "core:window:allow-start-dragging", "dialog:default"]
 }

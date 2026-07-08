@@ -67,16 +67,39 @@ body,
   background: var(--btn-active);
 }
 
+/* 상단 드래그 바 (신호등 자리 확보 + 창 이동) */
+.titlebar {
+  height: 28px;
+  flex: 0 0 auto;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
 /* 좌측 워크스페이스 사이드바 */
 .sidebar {
   display: flex;
   flex-direction: column;
-  width: 160px;
+  width: 176px;
   flex: 0 0 auto;
   padding: 6px;
   gap: 4px;
   background: var(--panel);
   border-right: 1px solid var(--border);
+  transition: width 0.15s ease;
+}
+
+.sidebar.collapsed {
+  width: 48px;
+}
+
+.sidebar-head {
+  display: flex;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+}
+
+.sidebar.collapsed .sidebar-head {
+  justify-content: center;
 }
 
 .ws-list {
@@ -124,6 +147,30 @@ body,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.ws-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--btn-active);
+  color: var(--fg);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ws-item.active .ws-avatar {
+  background: var(--border-focus);
+  color: #ffffff;
+}
+
+.sidebar.collapsed .ws-item {
+  justify-content: center;
+  padding: 5px 0;
 }
 
 .ws-actions {

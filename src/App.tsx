@@ -10,6 +10,7 @@ function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeId, setActiveId] = useState<string>("");
   const [home, setHome] = useState<string | undefined>(undefined);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // 초기 워크스페이스 — 앱의 현재 디렉터리로. cwd를 먼저 알아야 셸이 옳은 위치에서 시작한다.
   useEffect(() => {
@@ -65,25 +66,31 @@ function App() {
   }, [workspaces]);
 
   return (
-    <div style={{ display: "flex", height: "100%", width: "100%" }}>
-      <Sidebar
-        workspaces={workspaces}
-        activeId={activeId}
-        onSelect={setActiveId}
-        onAdd={addAtHome}
-        onPick={addByPick}
-      />
-      <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
-        {workspaces.map((ws) => (
-          <WorkspaceView
-            key={ws.id}
-            tree={ws.tree}
-            focusedId={ws.focusedId}
-            active={ws.id === activeId}
-            cwd={ws.path}
-            onChange={(tree, focusedId) => updateWorkspace(ws.id, tree, focusedId)}
-          />
-        ))}
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", width: "100%" }}>
+      {/* 상단 드래그 바 — 신호등(traffic lights) 자리 확보 + 창 이동 */}
+      <div className="titlebar" data-tauri-drag-region />
+      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+        <Sidebar
+          workspaces={workspaces}
+          activeId={activeId}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
+          onSelect={setActiveId}
+          onAdd={addAtHome}
+          onPick={addByPick}
+        />
+        <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+          {workspaces.map((ws) => (
+            <WorkspaceView
+              key={ws.id}
+              tree={ws.tree}
+              focusedId={ws.focusedId}
+              active={ws.id === activeId}
+              cwd={ws.path}
+              onChange={(tree, focusedId) => updateWorkspace(ws.id, tree, focusedId)}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
