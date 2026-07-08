@@ -14,6 +14,13 @@ export function basename(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
+/** 표시용 경로 — 홈 접두를 ~로 축약. */
+export function displayPath(path: string | undefined, home: string | undefined): string {
+  if (!path) return "";
+  if (home && path.startsWith(home)) return "~" + path.slice(home.length);
+  return path;
+}
+
 export function createWorkspace(path?: string, name?: string): Workspace {
   const pane = makePane();
   return {

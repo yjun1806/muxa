@@ -29,27 +29,14 @@ body,
   overflow: hidden;
 }
 
-/* 패인별 헤더 (각 패인 상단) — 슬림하게 */
-.pane-header {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 1px;
-  height: 22px;
-  flex: 0 0 auto;
-  padding: 0 3px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--border);
-}
-
 .tool-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 18px;
+  width: 26px;
+  height: 26px;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -67,50 +54,83 @@ body,
   background: var(--btn-active);
 }
 
-/* 컬럼별 상단바 — 사이드바 경계로 2분할, 같은 높이로 연속처럼 보인다 (빈 영역 드래그) */
-.sidebar-top {
-  flex: 0 0 auto;
-  height: 36px;
-  border-bottom: 1px solid var(--border);
-}
-
-.content-col {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-}
-
-.content-top {
+/* 전체 폭 상단바 — 사이드바 폭과 무관하게 고정. 신호등 + 워크스페이스 액션 + 활성 정보 (빈 영역 드래그) */
+.topbar {
   display: flex;
   align-items: center;
-  gap: 4px;
-  height: 36px;
+  gap: 2px;
+  height: 38px;
   flex: 0 0 auto;
-  padding: 0 10px 0 6px;
+  padding-right: 10px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
 
-.content-title {
+.topbar-lights {
+  flex: 0 0 auto;
+  width: 72px;
+  height: 100%;
+}
+
+.topbar-ws {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
-  color: var(--muted);
-  font-size: 12px;
+  margin-left: 4px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+  color: var(--fg);
 }
 
-.content-title span {
+.topbar-ws-name {
+  flex: 0 1 auto;
+  font-size: 13px;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.topbar-ws-path {
+  flex: 0 1 auto;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar-spacer {
+  flex: 1;
+  height: 100%;
+}
+
+/* 콘텐츠 영역(활성 워크스페이스 뷰) */
 .content-body {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   position: relative;
+}
+
+/* 패인별 헤더 (각 패인 상단) — 슬림하게 */
+.pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1px;
+  height: 22px;
+  flex: 0 0 auto;
+  padding: 0 3px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.pane-header .tool-btn {
+  width: 20px;
+  height: 18px;
+  border-radius: 4px;
 }
 
 /* 좌측 워크스페이스 사이드바 */
@@ -125,7 +145,7 @@ body,
 }
 
 .sidebar.collapsed {
-  width: 64px;
+  width: 48px;
 }
 
 .ws-list {
@@ -198,31 +218,6 @@ body,
 .sidebar.collapsed .ws-item {
   justify-content: center;
   padding: 5px 0;
-}
-
-.ws-actions {
-  display: flex;
-  gap: 4px;
-  flex: 0 0 auto;
-  padding: 6px;
-}
-
-.ws-add {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  height: 28px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.ws-add:hover {
-  background: var(--btn-hover);
-  color: var(--muted-hover);
 }
 
 /* 패인 사이 드래그 리사이즈 구분선 (투명 히트 영역 + hover 강조) */

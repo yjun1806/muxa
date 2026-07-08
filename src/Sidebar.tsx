@@ -1,5 +1,3 @@
-import { Plus, FolderOpen } from "lucide-react";
-import { ICON } from "./icons";
 import type { Workspace } from "./workspace";
 
 interface Props {
@@ -7,16 +5,12 @@ interface Props {
   activeId: string;
   collapsed: boolean;
   onSelect: (id: string) => void;
-  onAdd: () => void; // 홈에 즉시 추가
-  onPick: () => void; // 폴더 선택해 추가
 }
 
-/** 좌측 워크스페이스 사이드바 — 수직 나열, 아바타/이름, 추가. 접힘 상태는 아바타만. */
-export function Sidebar({ workspaces, activeId, collapsed, onSelect, onAdd, onPick }: Props) {
+/** 좌측 워크스페이스 사이드바 — 목록만(추가 액션은 상단바로). 접힘 상태는 아바타만. */
+export function Sidebar({ workspaces, activeId, collapsed, onSelect }: Props) {
   return (
     <div className={`sidebar${collapsed ? " collapsed" : ""}`}>
-      {/* 신호등 자리 + 창 이동. 콘텐츠 상단바와 같은 높이로 창 상단을 2분할 */}
-      <div className="sidebar-top" data-tauri-drag-region />
       <div className="ws-list">
         {workspaces.map((ws, i) => (
           <button
@@ -30,27 +24,6 @@ export function Sidebar({ workspaces, activeId, collapsed, onSelect, onAdd, onPi
             {!collapsed && <span className="ws-badge">{i < 8 ? `⌘${i + 1}` : ""}</span>}
           </button>
         ))}
-      </div>
-
-      <div className="ws-actions">
-        <button
-          className="ws-add"
-          title="새 워크스페이스 (홈)"
-          aria-label="새 워크스페이스"
-          onClick={onAdd}
-        >
-          <Plus {...ICON} />
-        </button>
-        {!collapsed && (
-          <button
-            className="ws-add"
-            title="폴더 선택해 워크스페이스"
-            aria-label="폴더 선택"
-            onClick={onPick}
-          >
-            <FolderOpen {...ICON} />
-          </button>
-        )}
       </div>
     </div>
   );

@@ -3,8 +3,8 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { WorkspaceView } from "./WorkspaceView";
 import { Sidebar } from "./Sidebar";
-import { ContentHeader } from "./ContentHeader";
-import { type Workspace, createWorkspace } from "./workspace";
+import { TopBar } from "./TopBar";
+import { type Workspace, createWorkspace, displayPath } from "./workspace";
 import type { TreeNode } from "./tree";
 
 function App() {
@@ -66,23 +66,24 @@ function App() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [workspaces]);
 
-  const activeName = workspaces.find((w) => w.id === activeId)?.name;
+  const active = workspaces.find((w) => w.id === activeId);
 
   return (
-    <div style={{ display: "flex", height: "100%", width: "100%" }}>
-      <Sidebar
-        workspaces={workspaces}
-        activeId={activeId}
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", width: "100%" }}>
+      <TopBar
+        activeName={active?.name}
+        activePath={displayPath(active?.path, home)}
         collapsed={sidebarCollapsed}
-        onSelect={setActiveId}
+        onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
         onAdd={addAtHome}
         onPick={addByPick}
       />
-      <div className="content-col">
-        <ContentHeader
-          activeName={activeName}
+      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+        <Sidebar
+          workspaces={workspaces}
+          activeId={activeId}
           collapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
+          onSelect={setActiveId}
         />
         <div className="content-body">
           {workspaces.map((ws) => (
