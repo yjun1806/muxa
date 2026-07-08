@@ -9,6 +9,7 @@ import "@xterm/xterm/css/xterm.css";
 
 interface Props {
   paneId: string;
+  cwd?: string;
   focused: boolean;
   onFocus: () => void;
   onSplit: (dir: Dir) => void;
@@ -20,7 +21,7 @@ interface Props {
  * PTY 생명주기(spawn/write/resize/kill)를 이 컴포넌트가 캡슐화한다.
  * 컨테이너 크기 변화(창·분할·리사이즈)는 ResizeObserver가 fit으로 흡수한다.
  */
-export function TerminalPane({ paneId, focused, onFocus, onSplit, onClose }: Props) {
+export function TerminalPane({ paneId, cwd, focused, onFocus, onSplit, onClose }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
 
@@ -68,7 +69,7 @@ export function TerminalPane({ paneId, focused, onFocus, onSplit, onClose }: Pro
         unlistenExit();
         return;
       }
-      await invoke("pty_spawn", { paneId, cols: term.cols, rows: term.rows });
+      await invoke("pty_spawn", { paneId, cwd, cols: term.cols, rows: term.rows });
     })();
 
     return () => {
@@ -82,7 +83,8 @@ export function TerminalPane({ paneId, focused, onFocus, onSplit, onClose }: Pro
       term.dispose();
       termRef.current = null;
     };
-  }, [paneId]);
+    // cwd는 패인당 고정이라 재실행되지 않지만, effect가 실제로 의존하므로 명시한다
+  }, [paneId, cwd]);
 
   // 포커스가 이 패인으로 오면 xterm에 실제 DOM 포커스를 준다
   useEffect(() => {

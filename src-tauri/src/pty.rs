@@ -37,6 +37,7 @@ pub fn pty_spawn(
     app: AppHandle,
     state: State<'_, PtyState>,
     pane_id: String,
+    cwd: Option<String>,
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
@@ -48,8 +49,13 @@ pub fn pty_spawn(
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     let mut cmd = CommandBuilder::new(shell);
     cmd.arg("-l");
-    if let Ok(cwd) = std::env::current_dir() {
-        cmd.cwd(cwd);
+    // 워크스페이스 경로를 셸 cwd로. 없거나 유효하지 않으면 앱의 현재 디렉터리로 폴백
+    let dir = cwd
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_dir())
+        .or_else(|| std::env::current_dir().ok());
+    if let Some(dir) = dir {
+        cmd.cwd(dir);
     }
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
