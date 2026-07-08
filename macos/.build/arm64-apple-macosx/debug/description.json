@@ -1,0 +1,322 @@
+{
+  "builtTestProducts" : [
+
+  ],
+  "copyCommands" : {
+    "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/libghostty-fat.a" : {
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/yj/Documents/private/muxa/macos/GhosttyKit.xcframework/macos-arm64/libghostty-fat.a"
+        }
+      ],
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/libghostty-fat.a"
+        }
+      ]
+    }
+  },
+  "explicitTargetDependencyImportCheckingMode" : {
+    "none" : {
+
+    }
+  },
+  "generatedSourceTargetSet" : [
+
+  ],
+  "pluginDescriptions" : [
+
+  ],
+  "swiftCommands" : {
+    "C.muxa-arm64-apple-macosx-debug.module" : {
+      "executable" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "fileList" : "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/sources",
+      "importPath" : "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/yj/Documents/private/muxa/macos/Sources/muxa/GhosttyRuntime.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/yj/Documents/private/muxa/macos/Sources/muxa/TermView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/yj/Documents/private/muxa/macos/Sources/muxa/main.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/libghostty-fat.a"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/sources"
+        }
+      ],
+      "isLibrary" : false,
+      "moduleName" : "muxa",
+      "moduleOutputPath" : "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/Modules/muxa.swiftmodule",
+      "objects" : [
+        "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/GhosttyRuntime.swift.o",
+        "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/TermView.swift.o",
+        "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/main.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx13.0",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-j14",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-I",
+        "/Users/yj/Documents/private/muxa/macos/GhosttyKit.xcframework/macos-arm64/Headers",
+        "-Xcc",
+        "-I",
+        "-Xcc",
+        "/Users/yj/Documents/private/muxa/macos/GhosttyKit.xcframework/macos-arm64/Headers",
+        "-module-cache-path",
+        "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-Xfrontend",
+        "-entry-point-function-name",
+        "-Xfrontend",
+        "muxa_main",
+        "-F",
+        "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug",
+        "-swift-version",
+        "5",
+        "-plugin-path",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-I",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-L",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "macos"
+      ],
+      "outputFileMapPath" : "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/GhosttyRuntime.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/TermView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/main.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/Modules/muxa.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/yj/Documents/private/muxa/macos/Sources/muxa/GhosttyRuntime.swift",
+        "/Users/yj/Documents/private/muxa/macos/Sources/muxa/TermView.swift",
+        "/Users/yj/Documents/private/muxa/macos/Sources/muxa/main.swift"
+      ],
+      "tempsPath" : "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build",
+      "wholeModuleOptimization" : false
+    }
+  },
+  "swiftFrontendCommands" : {
+
+  },
+  "swiftTargetScanArgs" : {
+    "muxa" : [
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "-module-name",
+      "muxa",
+      "-package-name",
+      "macos",
+      "-c",
+      "/Users/yj/Documents/private/muxa/macos/Sources/muxa/GhosttyRuntime.swift",
+      "/Users/yj/Documents/private/muxa/macos/Sources/muxa/TermView.swift",
+      "/Users/yj/Documents/private/muxa/macos/Sources/muxa/main.swift",
+      "-I",
+      "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx13.0",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-j14",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-I",
+      "/Users/yj/Documents/private/muxa/macos/GhosttyKit.xcframework/macos-arm64/Headers",
+      "-Xcc",
+      "-I",
+      "-Xcc",
+      "/Users/yj/Documents/private/muxa/macos/GhosttyKit.xcframework/macos-arm64/Headers",
+      "-module-cache-path",
+      "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-Xfrontend",
+      "-entry-point-function-name",
+      "-Xfrontend",
+      "muxa_main",
+      "-F",
+      "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug",
+      "-swift-version",
+      "5",
+      "-plugin-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-I",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-L",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "macos",
+      "-driver-use-frontend-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+    ]
+  },
+  "targetDependencyMap" : {
+    "muxa" : [
+      "GhosttyKit"
+    ]
+  },
+  "testDiscoveryCommands" : {
+
+  },
+  "testEntryPointCommands" : {
+
+  },
+  "traitConfiguration" : {
+    "default" : {
+
+    }
+  },
+  "writeCommands" : {
+    "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa-entitlement.plist" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<entitlement-plist>"
+        },
+        {
+          "kind" : "virtual",
+          "name" : "<com.apple.security.get-task-allow>"
+        }
+      ],
+      "outputFilePath" : "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa-entitlement.plist"
+    },
+    "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/yj/Documents/private/muxa/macos/Sources/muxa/GhosttyRuntime.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/yj/Documents/private/muxa/macos/Sources/muxa/TermView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/yj/Documents/private/muxa/macos/Sources/muxa/main.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/sources"
+    },
+    "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.product/Objects.LinkFileList" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<link-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/GhosttyRuntime.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/TermView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/main.swift.o"
+        }
+      ],
+      "outputFilePath" : "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.product/Objects.LinkFileList"
+    },
+    "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt" : {
+      "alwaysOutOfDate" : true,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<swift-get-version>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+        }
+      ],
+      "outputFilePath" : "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+    }
+  }
+}

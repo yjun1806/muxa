@@ -1,0 +1,90 @@
+client:
+  name: basic
+  file-system: device-agnostic
+tools: {}
+targets:
+  "PackageStructure": ["<PackageStructure>"]
+  "main": ["<muxa-arm64-apple-macosx-debug.exe>","<muxa-arm64-apple-macosx-debug.module>"]
+  "muxa-arm64-apple-macosx-debug.exe": ["<muxa-arm64-apple-macosx-debug.exe>"]
+  "muxa-arm64-apple-macosx-debug.module": ["<muxa-arm64-apple-macosx-debug.module>"]
+  "test": ["<muxa-arm64-apple-macosx-debug.exe>","<muxa-arm64-apple-macosx-debug.module>"]
+default: "main"
+nodes:
+  "/Users/yj/Documents/private/muxa/macos/GhosttyKit.xcframework/":
+    is-directory-structure: true
+    content-exclusion-patterns: [".git",".build"]
+  "/Users/yj/Documents/private/muxa/macos/Sources/muxa/":
+    is-directory-structure: true
+    content-exclusion-patterns: [".git",".build"]
+  "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa":
+    is-mutated: true
+commands:
+  "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/libghostty-fat.a":
+    tool: copy-tool
+    inputs: ["/Users/yj/Documents/private/muxa/macos/GhosttyKit.xcframework/macos-arm64/libghostty-fat.a"]
+    outputs: ["/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/libghostty-fat.a"]
+    description: "Copying /Users/yj/Documents/private/muxa/macos/GhosttyKit.xcframework/macos-arm64/libghostty-fat.a"
+
+  "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa-entitlement.plist":
+    tool: write-auxiliary-file
+    inputs: ["<entitlement-plist>","<com.apple.security.get-task-allow>"]
+    outputs: ["/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa-entitlement.plist"]
+    description: "Write auxiliary file /Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa-entitlement.plist"
+
+  "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/sources":
+    tool: write-auxiliary-file
+    inputs: ["<sources-file-list>","/Users/yj/Documents/private/muxa/macos/Sources/muxa/GhosttyRuntime.swift","/Users/yj/Documents/private/muxa/macos/Sources/muxa/TermView.swift","/Users/yj/Documents/private/muxa/macos/Sources/muxa/main.swift"]
+    outputs: ["/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/sources"]
+    description: "Write auxiliary file /Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/sources"
+
+  "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.product/Objects.LinkFileList":
+    tool: write-auxiliary-file
+    inputs: ["<link-file-list>","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/GhosttyRuntime.swift.o","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/TermView.swift.o","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/main.swift.o"]
+    outputs: ["/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.product/Objects.LinkFileList"]
+    description: "Write auxiliary file /Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.product/Objects.LinkFileList"
+
+  "/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt":
+    tool: write-auxiliary-file
+    inputs: ["<swift-get-version>","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"]
+    outputs: ["/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"]
+    always-out-of-date: "true"
+    description: "Write auxiliary file /Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+
+  "<muxa-arm64-apple-macosx-debug.exe>":
+    tool: phony
+    inputs: ["<muxa-arm64-apple-macosx-debug.exe-CodeSigning>"]
+    outputs: ["<muxa-arm64-apple-macosx-debug.exe>"]
+
+  "<muxa-arm64-apple-macosx-debug.module>":
+    tool: phony
+    inputs: ["/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/GhosttyRuntime.swift.o","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/TermView.swift.o","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/main.swift.o","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/Modules/muxa.swiftmodule"]
+    outputs: ["<muxa-arm64-apple-macosx-debug.module>"]
+
+  "C.muxa-arm64-apple-macosx-debug.exe":
+    tool: shell
+    inputs: ["/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/GhosttyRuntime.swift.o","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/TermView.swift.o","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/main.swift.o","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.product/Objects.LinkFileList"]
+    outputs: ["/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa"]
+    description: "Linking ./.build/arm64-apple-macosx/debug/muxa"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-lghostty-fat","-F","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug","-L","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug","-o","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa","-module-name","muxa","-Xlinker","-no_warn_duplicate_libraries","-emit-executable","-Xlinker","-alias","-Xlinker","_muxa_main","-Xlinker","_main","-Xlinker","-rpath","-Xlinker","@loader_path","@/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.product/Objects.LinkFileList","-Xlinker","-rpath","-Xlinker","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-6.2/macosx","-target","arm64-apple-macosx13.0","-framework","AppKit","-framework","Metal","-framework","MetalKit","-framework","CoreText","-framework","CoreVideo","-framework","QuartzCore","-framework","Carbon","-framework","UniformTypeIdentifiers","-Xlinker","-add_ast_path","-Xlinker","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/Modules/muxa.swiftmodule","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g"]
+
+  "C.muxa-arm64-apple-macosx-debug.exe-entitlements":
+    tool: shell
+    inputs: ["/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa-entitlement.plist"]
+    outputs: ["<muxa-arm64-apple-macosx-debug.exe-CodeSigning>"]
+    description: "Applying debug entitlements to ./.build/arm64-apple-macosx/debug/muxa"
+    args: ["codesign","--force","--sign","-","--entitlements","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa-entitlement.plist","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa"]
+
+  "C.muxa-arm64-apple-macosx-debug.module":
+    tool: shell
+    inputs: ["/Users/yj/Documents/private/muxa/macos/Sources/muxa/GhosttyRuntime.swift","/Users/yj/Documents/private/muxa/macos/Sources/muxa/TermView.swift","/Users/yj/Documents/private/muxa/macos/Sources/muxa/main.swift","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/libghostty-fat.a","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/sources"]
+    outputs: ["/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/GhosttyRuntime.swift.o","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/TermView.swift.o","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/main.swift.o","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/Modules/muxa.swiftmodule"]
+    description: "Compiling Swift Module 'muxa' (3 sources)"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-module-name","muxa","-emit-dependencies","-emit-module","-emit-module-path","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/Modules/muxa.swiftmodule","-output-file-map","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/output-file-map.json","-incremental","-c","@/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/muxa.build/sources","-I","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/Modules","-target","arm64-apple-macosx13.0","-incremental","-enable-batch-mode","-serialize-diagnostics","-index-store-path","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/index/store","-Onone","-enable-testing","-j14","-DSWIFT_PACKAGE","-DDEBUG","-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE","-I","/Users/yj/Documents/private/muxa/macos/GhosttyKit.xcframework/macos-arm64/Headers","-Xcc","-I","-Xcc","/Users/yj/Documents/private/muxa/macos/GhosttyKit.xcframework/macos-arm64/Headers","-module-cache-path","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug/ModuleCache","-parseable-output","-Xfrontend","-entry-point-function-name","-Xfrontend","muxa_main","-F","/Users/yj/Documents/private/muxa/macos/.build/arm64-apple-macosx/debug","-swift-version","5","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g","-Xcc","-isysroot","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-Xcc","-fPIC","-Xcc","-g","-package-name","macos"]
+
+  "PackageStructure":
+    tool: package-structure-tool
+    inputs: ["/Users/yj/Documents/private/muxa/macos/GhosttyKit.xcframework/","/Users/yj/Documents/private/muxa/macos/Sources/muxa/","/Users/yj/Documents/private/muxa/macos/Package.swift","/Users/yj/Documents/private/muxa/macos/Package.resolved"]
+    outputs: ["<PackageStructure>"]
+    description: "Planning build"
+    allow-missing-inputs: true
+
