@@ -15,6 +15,8 @@ interface Props {
 export function Sidebar({ workspaces, activeId, collapsed, onSelect, onAdd, onPick }: Props) {
   return (
     <div className={`sidebar${collapsed ? " collapsed" : ""}`}>
+      {/* 신호등 자리 + 창 이동. 콘텐츠 상단바와 같은 높이로 창 상단을 2분할 */}
+      <div className="sidebar-top" data-tauri-drag-region />
       <div className="ws-list">
         {workspaces.map((ws, i) => (
           <button

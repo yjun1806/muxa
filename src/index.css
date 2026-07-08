@@ -67,25 +67,32 @@ body,
   background: var(--btn-active);
 }
 
-/* 상단바 — 신호등 자리 + 사이드바 토글 + 활성 워크스페이스 제목 (빈 영역 전체 드래그) */
-.titlebar {
+/* 컬럼별 상단바 — 사이드바 경계로 2분할, 같은 높이로 연속처럼 보인다 (빈 영역 드래그) */
+.sidebar-top {
+  flex: 0 0 auto;
+  height: 36px;
+  border-bottom: 1px solid var(--border);
+}
+
+.content-col {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.content-top {
   display: flex;
   align-items: center;
   gap: 4px;
   height: 36px;
   flex: 0 0 auto;
-  padding-right: 10px;
+  padding: 0 10px 0 6px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
 
-.titlebar-lights {
-  flex: 0 0 auto;
-  width: 70px;
-  height: 100%;
-}
-
-.titlebar-title {
+.content-title {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -94,10 +101,16 @@ body,
   font-size: 12px;
 }
 
-.titlebar-title span {
+.content-title span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.content-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
 }
 
 /* 좌측 워크스페이스 사이드바 */
@@ -106,15 +119,13 @@ body,
   flex-direction: column;
   width: 176px;
   flex: 0 0 auto;
-  padding: 6px;
-  gap: 4px;
   background: var(--panel);
   border-right: 1px solid var(--border);
   transition: width 0.15s ease;
 }
 
 .sidebar.collapsed {
-  width: 48px;
+  width: 64px;
 }
 
 .ws-list {
@@ -123,6 +134,7 @@ body,
   gap: 2px;
   flex: 1;
   min-height: 0;
+  padding: 6px;
   overflow-y: auto;
 }
 
@@ -192,6 +204,7 @@ body,
   display: flex;
   gap: 4px;
   flex: 0 0 auto;
+  padding: 6px;
 }
 
 .ws-add {

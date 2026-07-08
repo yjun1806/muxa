@@ -3,7 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { WorkspaceView } from "./WorkspaceView";
 import { Sidebar } from "./Sidebar";
-import { TopBar } from "./TopBar";
+import { ContentHeader } from "./ContentHeader";
 import { type Workspace, createWorkspace } from "./workspace";
 import type { TreeNode } from "./tree";
 
@@ -69,22 +69,22 @@ function App() {
   const activeName = workspaces.find((w) => w.id === activeId)?.name;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", width: "100%" }}>
-      <TopBar
-        activeName={activeName}
+    <div style={{ display: "flex", height: "100%", width: "100%" }}>
+      <Sidebar
+        workspaces={workspaces}
+        activeId={activeId}
         collapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
+        onSelect={setActiveId}
+        onAdd={addAtHome}
+        onPick={addByPick}
       />
-      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-        <Sidebar
-          workspaces={workspaces}
-          activeId={activeId}
+      <div className="content-col">
+        <ContentHeader
+          activeName={activeName}
           collapsed={sidebarCollapsed}
-          onSelect={setActiveId}
-          onAdd={addAtHome}
-          onPick={addByPick}
+          onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
         />
-        <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+        <div className="content-body">
           {workspaces.map((ws) => (
             <WorkspaceView
               key={ws.id}
