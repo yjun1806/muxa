@@ -1,0 +1,20 @@
+[package]
+name = "muxa"
+version = "0.0.0"
+description = "터미널 기반 에이전틱 개발 환경"
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+# Tauri는 데스크탑에서 rlib, 모바일에서 cdylib/staticlib을 쓴다
+name = "muxa_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+portable-pty = "0.8"

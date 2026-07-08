@@ -10,11 +10,12 @@
 
 ## 핵심 아이디어
 
-- 경로 기반 워크스페이스 + 워크스페이스별 터미널 탭 (cmux에서 살린 것)
+- 경로 기반 워크스페이스 + 자유 화면 분할(세로/가로·임의 중첩) — 여러 에이전트 세션을 동시에 감시
+- 에이전트 알림: OSC 감지로 "어느 세션이 나를 기다리는가"를 패인 단위로 표시
 - 파일 익스플로러, 렌더링되는 Markdown 뷰어, 코드 뷰어 — 에디터는 없다, 읽기 전용
 - git 가시성: 에이전트가 뭘 바꿨는지 diff·히스토리·실시간 배지로 바로 확인
 - git worktree 기반 에이전트 병렬 실행
 
 ## 스택
 
-Tauri 2 + Rust 코어(alacritty_terminal, git2, notify) + React/TypeScript. 근거는 설계 문서 참고.
+Tauri 2 (macOS 전용) + Rust 코어(alacritty_terminal, git2, notify) + React/TypeScript. 근거는 설계 문서 참고.
