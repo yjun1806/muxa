@@ -5,13 +5,14 @@ import { WorkspaceView } from "./WorkspaceView";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { type Workspace, createWorkspace, displayPath } from "./workspace";
+import type { SidebarMode } from "./sidebarMode";
 import type { TreeNode } from "./tree";
 
 function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeId, setActiveId] = useState<string>("");
   const [home, setHome] = useState<string | undefined>(undefined);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>("expanded");
 
   // 초기 워크스페이스 — 앱의 현재 디렉터리로. cwd를 먼저 알아야 셸이 옳은 위치에서 시작한다.
   useEffect(() => {
@@ -73,16 +74,16 @@ function App() {
       <TopBar
         activeName={active?.name}
         activePath={displayPath(active?.path, home)}
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
-        onAdd={addAtHome}
+        mode={sidebarMode}
+        onSetMode={setSidebarMode}
+        onAddHome={addAtHome}
         onPick={addByPick}
       />
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
         <Sidebar
           workspaces={workspaces}
           activeId={activeId}
-          collapsed={sidebarCollapsed}
+          mode={sidebarMode}
           onSelect={setActiveId}
         />
         <div className="content-body">

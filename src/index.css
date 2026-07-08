@@ -3,15 +3,16 @@
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
 
   /* 라이트 테마 팔레트 (DOM 색 중앙화 — 향후 D12 테마 토글은 여기만 교체) */
-  --bg: #ffffff; /* 패인 영역·앱 배경 */
-  --panel: #f3f4f6; /* 툴바 */
-  --border: #e2e5e9; /* 패인 테두리(비포커스)·툴바 구분선 */
-  --border-focus: #0d9488; /* 포커스 패인 강조(청록) */
-  --muted: #6b7280; /* 아이콘 기본 */
-  --muted-hover: #1f2937; /* 아이콘 hover */
-  --fg: #1f2937; /* 강조 텍스트 */
+  --bg: #ffffff; /* 콘텐츠·패인 배경 */
+  --panel: #f3f4f6; /* 상단바·사이드바(한 덩어리 회색) */
+  --border: #e2e5e9;
+  --border-focus: #0d9488; /* 포커스·활성 강조(청록) */
+  --muted: #6b7280;
+  --muted-hover: #1f2937;
+  --fg: #1f2937;
   --btn-hover: #e5e7eb;
   --btn-active: #d1d5db;
+  --shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
 }
 
 * {
@@ -25,8 +26,7 @@ body,
 #root {
   height: 100%;
   width: 100%;
-  /* 앱 루트에는 스크롤바가 생기지 않는다 — 스크롤은 각 xterm 뷰포트가 담당한다 */
-  overflow: hidden;
+  overflow: hidden; /* 앱 루트엔 스크롤바 없음 — 스크롤은 각 xterm 뷰포트 */
 }
 
 .tool-btn {
@@ -54,16 +54,16 @@ body,
   background: var(--btn-active);
 }
 
-/* 전체 폭 상단바 — 사이드바 폭과 무관하게 고정. 신호등 + 워크스페이스 액션 + 활성 정보 (빈 영역 드래그) */
+/* 전체 폭 상단바 — 사이드바와 같은 회색이라 세로로 이어져 한 덩어리로 보인다.
+   콘텐츠(흰색)와는 색 대비로 갈림. 경계선 없음. 빈 영역 드래그. */
 .topbar {
   display: flex;
   align-items: center;
   gap: 2px;
-  height: 38px;
+  height: 40px;
   flex: 0 0 auto;
   padding-right: 10px;
   background: var(--panel);
-  border-bottom: 1px solid var(--border);
 }
 
 .topbar-lights {
@@ -72,6 +72,83 @@ body,
   height: 100%;
 }
 
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* hover 팝오버 메뉴 (모드 선택 · 새 워크스페이스 분기) */
+.menu-anchor {
+  position: relative;
+}
+
+.menu-pop {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 208px;
+  padding: 4px;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  z-index: 100;
+}
+
+.menu-anchor:hover .menu-pop {
+  display: flex;
+}
+
+.menu-label {
+  padding: 4px 8px 2px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+}
+
+.menu-item:hover {
+  background: var(--btn-hover);
+}
+
+.menu-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 16px;
+  color: var(--border-focus);
+}
+
+.menu-text {
+  flex: 1;
+}
+
+.menu-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* 상단바 워크스페이스 정보 */
 .topbar-ws {
   display: flex;
   align-items: center;
@@ -114,7 +191,7 @@ body,
   position: relative;
 }
 
-/* 패인별 헤더 (각 패인 상단) — 슬림하게 */
+/* 패인별 헤더 — 슬림 */
 .pane-header {
   display: flex;
   align-items: center;
@@ -133,21 +210,26 @@ body,
   border-radius: 4px;
 }
 
-/* 좌측 워크스페이스 사이드바 — 닫히면 width 0으로 슬라이드해 완전히 사라진다 */
+/* 좌측 워크스페이스 사이드바 — 상단바와 같은 회색으로 이어짐 */
 .sidebar {
   display: flex;
   flex-direction: column;
-  width: 176px;
   flex: 0 0 auto;
+  position: relative;
   background: var(--panel);
   border-right: 1px solid var(--border);
-  overflow: hidden;
   transition: width 0.15s ease;
 }
 
-.sidebar.collapsed {
-  width: 0;
-  border-right: none;
+.sidebar-expanded {
+  width: 208px;
+}
+.sidebar-icon,
+.sidebar-hover {
+  width: 52px;
+}
+.sidebar-slim {
+  width: 14px;
 }
 
 .ws-list {
@@ -156,9 +238,21 @@ body,
   gap: 2px;
   flex: 1;
   min-height: 0;
-  width: 176px; /* 고정 폭 — 닫힘 애니메이션 시 내용이 찌그러지지 않고 슬라이드된다 */
   padding: 6px;
   overflow-y: auto;
+}
+
+/* 호버 펼침 — 목록이 오버레이로 열림(콘텐츠는 안 밀림) */
+.sidebar.peeking .ws-list {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 208px;
+  height: 100%;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  z-index: 60;
 }
 
 .ws-item {
@@ -186,19 +280,6 @@ body,
   color: var(--fg);
 }
 
-.ws-badge {
-  min-width: 22px;
-  font-size: 10px;
-  opacity: 0.6;
-}
-
-.ws-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .ws-avatar {
   display: flex;
   align-items: center;
@@ -218,7 +299,49 @@ body,
   color: #ffffff;
 }
 
-/* 패인 사이 드래그 리사이즈 구분선 (투명 히트 영역 + hover 강조) */
+.ws-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-badge {
+  min-width: 22px;
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+/* 아이콘 모드 — 아바타만 가운데 */
+.sidebar-icon .ws-item,
+.sidebar-hover:not(.peeking) .ws-item {
+  justify-content: center;
+  padding: 5px 0;
+}
+
+/* 슬림 모드 — 얇은 위치 바 */
+.sidebar-slim .ws-list {
+  padding: 6px 0;
+  align-items: center;
+}
+.sidebar-slim .ws-item {
+  justify-content: center;
+  padding: 3px 0;
+  background: transparent;
+}
+.ws-bar {
+  width: 4px;
+  height: 22px;
+  border-radius: 2px;
+  background: var(--muted);
+  opacity: 0.5;
+}
+.ws-item.active .ws-bar {
+  background: var(--border-focus);
+  opacity: 1;
+}
+
+/* 패인 사이 드래그 리사이즈 구분선 */
 .divider {
   z-index: 10;
   background: transparent;
