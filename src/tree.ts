@@ -41,28 +41,68 @@ export interface Rect {
   height: number;
 }
 
-/** 트리를 사각형(%)으로 펼친다. 각 패인 id → 화면 내 위치·크기. */
+/** 구분선 하나 — 분할 노드의 child[index]와 child[index+1] 사이 경계(모두 % 단위). */
+export interface Divider {
+  key: string;
+  splitId: string;
+  index: number;
+  dir: Dir;
+  pos: number; // 축 방향 경계 위치(%)
+  cross: number; // 교차축 시작(%)
+  crossSize: number; // 교차축 길이(%)
+  axisPct: number; // 이 분할 노드의 축 길이(%) — px 변환용
+  sizes: number[]; // 분할 노드의 현재 sizes 스냅샷
+}
+
+export interface Layout {
+  panes: Map<string, Rect>;
+  dividers: Divider[];
+}
+
+/** 트리를 패인 사각형(%)과 구분선 목록으로 펼친다. */
 export function computeLayout(
   node: TreeNode,
   rect: Rect = { left: 0, top: 0, width: 100, height: 100 },
-  out: Map<string, Rect> = new Map(),
-): Map<string, Rect> {
+  acc: Layout = { panes: new Map(), dividers: [] },
+): Layout {
   if (node.type === "pane") {
-    out.set(node.id, rect);
-    return out;
+    acc.panes.set(node.id, rect);
+    return acc;
   }
   const total = node.sizes.reduce((a, b) => a + b, 0);
+  const axisLen = node.dir === "row" ? rect.width : rect.height;
   let offset = 0;
   node.children.forEach((child, i) => {
-    const frac = node.sizes[i] / total;
+    const span = (node.sizes[i] / total) * axisLen;
     const childRect =
       node.dir === "row"
-        ? { left: rect.left + offset, top: rect.top, width: rect.width * frac, height: rect.height }
-        : { left: rect.left, top: rect.top + offset, width: rect.width, height: rect.height * frac };
-    offset += node.dir === "row" ? rect.width * frac : rect.height * frac;
-    computeLayout(child, childRect, out);
+        ? { left: rect.left + offset, top: rect.top, width: span, height: rect.height }
+        : { left: rect.left, top: rect.top + offset, width: rect.width, height: span };
+    offset += span;
+    computeLayout(child, childRect, acc);
+    // 마지막 자식 뒤에는 구분선이 없다
+    if (i < node.children.length - 1) {
+      acc.dividers.push({
+        key: `${node.id}:${i}`,
+        splitId: node.id,
+        index: i,
+        dir: node.dir,
+        pos: node.dir === "row" ? rect.left + offset : rect.top + offset,
+        cross: node.dir === "row" ? rect.top : rect.left,
+        crossSize: node.dir === "row" ? rect.height : rect.width,
+        axisPct: axisLen,
+        sizes: node.sizes,
+      });
+    }
   });
-  return out;
+  return acc;
+}
+
+/** 분할 노드의 sizes를 교체한다(구분선 드래그). */
+export function setSplitSizes(node: TreeNode, splitId: string, sizes: number[]): TreeNode {
+  if (node.type === "pane") return node;
+  if (node.id === splitId) return { ...node, sizes };
+  return { ...node, children: node.children.map((c) => setSplitSizes(c, splitId, sizes)) };
 }
 
 /**

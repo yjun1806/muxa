@@ -63,3 +63,14 @@ body,
 .tool-btn:active {
   background: var(--btn-active);
 }
+
+/* 패인 사이 드래그 리사이즈 구분선 (투명 히트 영역 + hover 강조) */
+.divider {
+  z-index: 10;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+
+.divider:hover {
+  background: color-mix(in srgb, var(--border-focus) 30%, transparent);
+}
