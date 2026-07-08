@@ -1,43 +1,20 @@
-import { Plus, FolderOpen, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Plus, FolderOpen } from "lucide-react";
+import { ICON } from "./icons";
 import type { Workspace } from "./workspace";
 
 interface Props {
   workspaces: Workspace[];
   activeId: string;
   collapsed: boolean;
-  onToggleCollapse: () => void;
   onSelect: (id: string) => void;
   onAdd: () => void; // 홈에 즉시 추가
   onPick: () => void; // 폴더 선택해 추가
 }
 
-/** 좌측 워크스페이스 사이드바 — 접기/펼치기, 수직 나열, ⌘1-8 힌트, 추가. */
-export function Sidebar({
-  workspaces,
-  activeId,
-  collapsed,
-  onToggleCollapse,
-  onSelect,
-  onAdd,
-  onPick,
-}: Props) {
+/** 좌측 워크스페이스 사이드바 — 수직 나열, 아바타/이름, 추가. 접힘 상태는 아바타만. */
+export function Sidebar({ workspaces, activeId, collapsed, onSelect, onAdd, onPick }: Props) {
   return (
     <div className={`sidebar${collapsed ? " collapsed" : ""}`}>
-      <div className="sidebar-head">
-        <button
-          className="tool-btn"
-          title={collapsed ? "사이드바 펼치기" : "사이드바 접기"}
-          aria-label={collapsed ? "사이드바 펼치기" : "사이드바 접기"}
-          onClick={onToggleCollapse}
-        >
-          {collapsed ? (
-            <PanelLeftOpen size={16} strokeWidth={1.5} />
-          ) : (
-            <PanelLeftClose size={16} strokeWidth={1.5} />
-          )}
-        </button>
-      </div>
-
       <div className="ws-list">
         {workspaces.map((ws, i) => (
           <button
@@ -60,7 +37,7 @@ export function Sidebar({
           aria-label="새 워크스페이스"
           onClick={onAdd}
         >
-          <Plus size={16} strokeWidth={1.5} />
+          <Plus {...ICON} />
         </button>
         {!collapsed && (
           <button
@@ -69,7 +46,7 @@ export function Sidebar({
             aria-label="폴더 선택"
             onClick={onPick}
           >
-            <FolderOpen size={16} strokeWidth={1.5} />
+            <FolderOpen {...ICON} />
           </button>
         )}
       </div>

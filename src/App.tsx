@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { WorkspaceView } from "./WorkspaceView";
 import { Sidebar } from "./Sidebar";
+import { TopBar } from "./TopBar";
 import { type Workspace, createWorkspace } from "./workspace";
 import type { TreeNode } from "./tree";
 
@@ -65,16 +66,20 @@ function App() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [workspaces]);
 
+  const activeName = workspaces.find((w) => w.id === activeId)?.name;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", width: "100%" }}>
-      {/* 상단 드래그 바 — 신호등(traffic lights) 자리 확보 + 창 이동 */}
-      <div className="titlebar" data-tauri-drag-region />
+      <TopBar
+        activeName={activeName}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
+      />
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
         <Sidebar
           workspaces={workspaces}
           activeId={activeId}
           collapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
           onSelect={setActiveId}
           onAdd={addAtHome}
           onPick={addByPick}

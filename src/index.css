@@ -67,12 +67,37 @@ body,
   background: var(--btn-active);
 }
 
-/* 상단 드래그 바 (신호등 자리 확보 + 창 이동) */
+/* 상단바 — 신호등 자리 + 사이드바 토글 + 활성 워크스페이스 제목 (빈 영역 전체 드래그) */
 .titlebar {
-  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
   flex: 0 0 auto;
+  padding-right: 10px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
+}
+
+.titlebar-lights {
+  flex: 0 0 auto;
+  width: 70px;
+  height: 100%;
+}
+
+.titlebar-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.titlebar-title span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 좌측 워크스페이스 사이드바 */
@@ -90,16 +115,6 @@ body,
 
 .sidebar.collapsed {
   width: 48px;
-}
-
-.sidebar-head {
-  display: flex;
-  justify-content: flex-end;
-  flex: 0 0 auto;
-}
-
-.sidebar.collapsed .sidebar-head {
-  justify-content: center;
 }
 
 .ws-list {

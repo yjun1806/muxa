@@ -1,4 +1,5 @@
-import { SquareSplitHorizontal, SquareSplitVertical, X } from "lucide-react";
+import { Columns2, Rows2, X } from "lucide-react";
+import { ICON_SM } from "./icons";
 import type { Dir } from "./tree";
 
 interface Props {
@@ -19,7 +20,7 @@ export function PaneHeader({ onSplit, onClose }: Props) {
         aria-label="세로 분할"
         onClick={() => onSplit("row")}
       >
-        <SquareSplitHorizontal size={13} strokeWidth={1.5} />
+        <Columns2 {...ICON_SM} />
       </button>
       <button
         className="tool-btn"
@@ -27,10 +28,10 @@ export function PaneHeader({ onSplit, onClose }: Props) {
         aria-label="가로 분할"
         onClick={() => onSplit("col")}
       >
-        <SquareSplitVertical size={13} strokeWidth={1.5} />
+        <Rows2 {...ICON_SM} />
       </button>
       <button className="tool-btn" title="패인 닫기 (⌘W)" aria-label="패인 닫기" onClick={onClose}>
-        <X size={13} strokeWidth={1.5} />
+        <X {...ICON_SM} />
       </button>
     </div>
   );
