@@ -9,14 +9,19 @@ import type { TreeNode } from "./tree";
 function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeId, setActiveId] = useState<string>("");
+  const [home, setHome] = useState<string | undefined>(undefined);
 
   // 초기 워크스페이스 — 앱의 현재 디렉터리로. cwd를 먼저 알아야 셸이 옳은 위치에서 시작한다.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const dir = await invoke<string | null>("current_dir");
+      const [dir, hd] = await Promise.all([
+        invoke<string | null>("current_dir"),
+        invoke<string | null>("home_dir"),
+      ]);
       if (cancelled) return;
-      const ws = createWorkspace(dir ?? undefined);
+      setHome(hd ?? undefined);
+      const ws = createWorkspace(dir ?? hd ?? undefined);
       setWorkspaces([ws]);
       setActiveId(ws.id);
     })();
@@ -29,13 +34,20 @@ function App() {
     setWorkspaces((prev) => prev.map((w) => (w.id === id ? { ...w, tree, focusedId } : w)));
   }, []);
 
-  const addWorkspace = useCallback(async () => {
-    const dir = await open({ directory: true, multiple: false });
-    if (typeof dir !== "string") return;
-    const ws = createWorkspace(dir);
+  const addWorkspace = useCallback((path?: string) => {
+    const ws = createWorkspace(path);
     setWorkspaces((prev) => [...prev, ws]);
     setActiveId(ws.id);
   }, []);
+
+  // "+" — 다이얼로그 없이 홈(루트)에 즉시 새 워크스페이스
+  const addAtHome = useCallback(() => addWorkspace(home), [addWorkspace, home]);
+
+  // 폴더 선택 — 피커는 홈에서 시작
+  const addByPick = useCallback(async () => {
+    const dir = await open({ directory: true, multiple: false, defaultPath: home });
+    if (typeof dir === "string") addWorkspace(dir);
+  }, [addWorkspace, home]);
 
   // ⌘1-8 워크스페이스 전환
   useEffect(() => {
@@ -58,7 +70,8 @@ function App() {
         workspaces={workspaces}
         activeId={activeId}
         onSelect={setActiveId}
-        onAdd={addWorkspace}
+        onAdd={addAtHome}
+        onPick={addByPick}
       />
       <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
         {workspaces.map((ws) => (

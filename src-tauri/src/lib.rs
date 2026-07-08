@@ -11,7 +11,8 @@ pub fn run() {
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kill,
-            sys::current_dir
+            sys::current_dir,
+            sys::home_dir
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

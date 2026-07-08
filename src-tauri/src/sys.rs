@@ -7,3 +7,9 @@ pub fn current_dir() -> Option<String> {
         .ok()
         .map(|p| p.to_string_lossy().into_owned())
 }
+
+/// 홈 디렉터리. "+" 즉시 워크스페이스·폴더 피커 기본 경로에 사용.
+#[tauri::command]
+pub fn home_dir() -> Option<String> {
+    std::env::var("HOME").ok()
+}

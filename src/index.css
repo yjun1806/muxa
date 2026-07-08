@@ -126,10 +126,17 @@ body,
   white-space: nowrap;
 }
 
+.ws-actions {
+  display: flex;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
 .ws-add {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex: 1;
   height: 28px;
   border: none;
   border-radius: 6px;
