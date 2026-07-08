@@ -1,70 +1,98 @@
-import { useEffect, useRef } from "react";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import "@xterm/xterm/css/xterm.css";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { TerminalPane } from "./TerminalPane";
+import {
+  type Dir,
+  type TreeNode,
+  makePane,
+  splitPane,
+  closePane,
+  computeLayout,
+  collectPaneIds,
+  firstPaneId,
+  siblingPaneId,
+} from "./tree";
 
 function App() {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [tree, setTree] = useState<TreeNode>(() => makePane());
+  const [focusedId, setFocusedId] = useState<string>(() => firstPaneId(tree));
 
+  // 특정 패인을 직접 분할한다(패인 헤더 버튼이 자기 id로 호출).
+  const splitPaneById = useCallback(
+    (id: string, dir: Dir) => {
+      const { tree: next, newPaneId } = splitPane(tree, id, dir);
+      setTree(next);
+      setFocusedId(newPaneId);
+    },
+    [tree],
+  );
+
+  const closePaneById = useCallback(
+    (id: string) => {
+      const next = closePane(tree, id);
+      setTree(next);
+      if (!collectPaneIds(next).includes(focusedId)) {
+        setFocusedId(firstPaneId(next));
+      }
+    },
+    [tree, focusedId],
+  );
+
+  // 키바인딩은 포커스된 패인을 대상으로 (⌘ 조합은 앱 레이어 — 터미널 Ctrl/vim과 충돌 없음)
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const term = new Terminal({
-      fontFamily: "Menlo, Monaco, monospace",
-      fontSize: 13,
-      cursorBlink: true,
-      theme: { background: "#1e242b", foreground: "#d6dde4" },
-    });
-    const fit = new FitAddon();
-    term.loadAddon(fit);
-    term.open(container);
-    fit.fit();
-
-    // 입력(키) → PTY
-    const onData = term.onData((data) => {
-      void invoke("pty_write", { data });
-    });
-
-    // 터미널 그리드 크기 변경 → PTY 리사이즈(SIGWINCH)
-    const onResize = term.onResize(({ cols, rows }) => {
-      void invoke("pty_resize", { cols, rows });
-    });
-
-    // PTY 출력 → 터미널. 바이트로 받아 xterm이 UTF-8 디코딩(멀티바이트 경계 안전)
-    const outputUnlisten = listen<number[]>("pty://output", (e) => {
-      term.write(new Uint8Array(e.payload));
-    });
-    const exitUnlisten = listen("pty://exit", () => {
-      term.write("\r\n\x1b[90m[프로세스 종료됨]\x1b[0m\r\n");
-    });
-
-    // 현재 그리드 크기로 PTY 생성
-    void invoke("pty_spawn", { cols: term.cols, rows: term.rows });
-
-    // 창 리사이즈 → fit (fit이 term.onResize를 유발해 PTY까지 전파)
-    const onWindowResize = () => fit.fit();
-    window.addEventListener("resize", onWindowResize);
-
-    term.focus();
-
-    return () => {
-      onData.dispose();
-      onResize.dispose();
-      window.removeEventListener("resize", onWindowResize);
-      void outputUnlisten.then((fn) => fn());
-      void exitUnlisten.then((fn) => fn());
-      term.dispose();
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.metaKey) return;
+      const k = e.key.toLowerCase();
+      if (k === "d") {
+        e.preventDefault();
+        e.stopPropagation();
+        splitPaneById(focusedId, e.shiftKey ? "col" : "row");
+      } else if (k === "w") {
+        e.preventDefault();
+        e.stopPropagation();
+        closePaneById(focusedId);
+      } else if (k === "]") {
+        e.preventDefault();
+        e.stopPropagation();
+        setFocusedId(siblingPaneId(tree, focusedId, 1));
+      } else if (k === "[") {
+        e.preventDefault();
+        e.stopPropagation();
+        setFocusedId(siblingPaneId(tree, focusedId, -1));
+      }
     };
-  }, []);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [splitPaneById, closePaneById, tree, focusedId]);
+
+  const layout = useMemo(() => computeLayout(tree), [tree]);
+  const paneIds = useMemo(() => collectPaneIds(tree), [tree]);
 
   return (
-    <div
-      ref={containerRef}
-      style={{ height: "100%", width: "100%", padding: 8, background: "#1e242b" }}
-    />
+    <div style={{ position: "relative", height: "100%", width: "100%", background: "var(--bg)" }}>
+      {paneIds.map((id) => {
+        const r = layout.get(id)!;
+        return (
+          <div
+            key={id}
+            style={{
+              position: "absolute",
+              left: `${r.left}%`,
+              top: `${r.top}%`,
+              width: `${r.width}%`,
+              height: `${r.height}%`,
+            }}
+          >
+            <TerminalPane
+              paneId={id}
+              focused={id === focusedId}
+              onFocus={() => setFocusedId(id)}
+              onSplit={(dir) => splitPaneById(id, dir)}
+              onClose={() => closePaneById(id)}
+            />
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

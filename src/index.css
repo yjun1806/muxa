@@ -1,6 +1,16 @@
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+
+  /* 라이트 테마 팔레트 (DOM 색 중앙화 — 향후 D12 테마 토글은 여기만 교체) */
+  --bg: #ffffff; /* 패인 영역·앱 배경 */
+  --panel: #f3f4f6; /* 툴바 */
+  --border: #e2e5e9; /* 패인 테두리(비포커스)·툴바 구분선 */
+  --border-focus: #0d9488; /* 포커스 패인 강조(청록) */
+  --muted: #6b7280; /* 아이콘 기본 */
+  --muted-hover: #1f2937; /* 아이콘 hover */
+  --btn-hover: #e5e7eb;
+  --btn-active: #d1d5db;
 }
 
 * {
@@ -14,4 +24,42 @@ body,
 #root {
   height: 100%;
   width: 100%;
+  /* 앱 루트에는 스크롤바가 생기지 않는다 — 스크롤은 각 xterm 뷰포트가 담당한다 */
+  overflow: hidden;
+}
+
+/* 패인별 헤더 (각 패인 상단) — 슬림하게 */
+.pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1px;
+  height: 22px;
+  flex: 0 0 auto;
+  padding: 0 3px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.tool-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 18px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.tool-btn:hover {
+  background: var(--btn-hover);
+  color: var(--muted-hover);
+}
+
+.tool-btn:active {
+  background: var(--btn-active);
 }
