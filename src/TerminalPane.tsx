@@ -1,11 +1,23 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { PaneHeader } from "./PaneHeader";
+import { SearchBar } from "./SearchBar";
 import type { Dir } from "./tree";
 import "@xterm/xterm/css/xterm.css";
+
+// 검색 매치 하이라이트 스타일
+const SEARCH_OPTS = {
+  decorations: {
+    matchBackground: "#ffe082",
+    matchOverviewRuler: "#ffb300",
+    activeMatchBackground: "#ff9800",
+    activeMatchColorOverviewRuler: "#e65100",
+  },
+};
 
 interface Props {
   paneId: string;
@@ -24,6 +36,9 @@ interface Props {
 export function TerminalPane({ paneId, cwd, focused, onFocus, onSplit, onClose }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
+  const searchRef = useRef<SearchAddon | null>(null);
+  const queryRef = useRef("");
+  const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -39,12 +54,33 @@ export function TerminalPane({ paneId, cwd, focused, onFocus, onSplit, onClose }
     termRef.current = term;
     const fit = new FitAddon();
     term.loadAddon(fit);
+    const search = new SearchAddon();
+    term.loadAddon(search);
+    searchRef.current = search;
     term.open(container);
     safeFit(fit);
 
     const onData = term.onData((data) => {
+      console.log("[IME] onData", JSON.stringify(data));
       void invoke("pty_write", { paneId, data });
     });
+
+    // [임시 진단] IME 이벤트 순서 추적 — 원인 확정 후 제거
+    const ta = term.textarea;
+    const dStart = () => console.log("[IME] compositionstart");
+    const dUpdate = (e: CompositionEvent) =>
+      console.log("[IME] compositionupdate", JSON.stringify(e.data));
+    const dEnd = (e: CompositionEvent) =>
+      console.log("[IME] compositionend", JSON.stringify(e.data));
+    const dKey = (e: KeyboardEvent) =>
+      console.log(
+        "[IME] keydown",
+        JSON.stringify({ key: e.key, keyCode: e.keyCode, isComposing: e.isComposing }),
+      );
+    ta?.addEventListener("compositionstart", dStart);
+    ta?.addEventListener("compositionupdate", dUpdate);
+    ta?.addEventListener("compositionend", dEnd);
+    ta?.addEventListener("keydown", dKey);
     const onResize = term.onResize(({ cols, rows }) => {
       void invoke("pty_resize", { paneId, cols, rows });
     });
@@ -76,12 +112,17 @@ export function TerminalPane({ paneId, cwd, focused, onFocus, onSplit, onClose }
       disposed = true;
       onData.dispose();
       onResize.dispose();
+      ta?.removeEventListener("compositionstart", dStart);
+      ta?.removeEventListener("compositionupdate", dUpdate);
+      ta?.removeEventListener("compositionend", dEnd);
+      ta?.removeEventListener("keydown", dKey);
       ro.disconnect();
       unlistenOut?.();
       unlistenExit?.();
       void invoke("pty_kill", { paneId });
       term.dispose();
       termRef.current = null;
+      searchRef.current = null;
     };
     // cwd는 패인당 고정이라 재실행되지 않지만, effect가 실제로 의존하므로 명시한다
   }, [paneId, cwd]);
@@ -91,10 +132,36 @@ export function TerminalPane({ paneId, cwd, focused, onFocus, onSplit, onClose }
     if (focused) termRef.current?.focus();
   }, [focused]);
 
+  // ⌘F — 포커스된 패인에서 검색 열기
+  useEffect(() => {
+    if (!focused) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        e.stopPropagation();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [focused]);
+
+  const onSearchChange = (q: string) => {
+    queryRef.current = q;
+    if (q) searchRef.current?.findNext(q, { ...SEARCH_OPTS, incremental: true });
+    else searchRef.current?.clearDecorations();
+  };
+  const closeSearch = () => {
+    setSearchOpen(false);
+    searchRef.current?.clearDecorations();
+    termRef.current?.focus();
+  };
+
   return (
     <div
       onMouseDown={onFocus}
       style={{
+        position: "relative",
         display: "flex",
         flexDirection: "column",
         height: "100%",
@@ -105,6 +172,14 @@ export function TerminalPane({ paneId, cwd, focused, onFocus, onSplit, onClose }
       }}
     >
       <PaneHeader onSplit={onSplit} onClose={onClose} />
+      {searchOpen && (
+        <SearchBar
+          onChange={onSearchChange}
+          onNext={() => searchRef.current?.findNext(queryRef.current, SEARCH_OPTS)}
+          onPrev={() => searchRef.current?.findPrevious(queryRef.current, SEARCH_OPTS)}
+          onClose={closeSearch}
+        />
+      )}
       <div ref={containerRef} style={{ flex: 1, minHeight: 0, width: "100%", padding: 2 }} />
     </div>
   );

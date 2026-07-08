@@ -356,6 +356,34 @@ body,
   opacity: 1;
 }
 
+/* 패인 검색바 (우상단 오버레이) */
+.search-bar {
+  position: absolute;
+  top: 26px;
+  right: 8px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.search-input {
+  width: 160px;
+  height: 22px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 12px;
+  outline: none;
+}
+
 /* 패인 사이 드래그 리사이즈 구분선 */
 .divider {
   z-index: 10;
