@@ -4,46 +4,41 @@ import { invoke } from "@tauri-apps/api/core";
 import { WorkspaceView } from "./WorkspaceView";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
-import { type Workspace, createWorkspace, displayPath } from "./workspace";
-import type { SidebarMode } from "./sidebarMode";
-import type { TreeNode } from "./tree";
+import { displayPath } from "./workspace";
+import { useStore } from "./store";
 
 function App() {
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [activeId, setActiveId] = useState<string>("");
-  const [home, setHome] = useState<string | undefined>(undefined);
-  const [sidebarMode, setSidebarMode] = useState<SidebarMode>("expanded");
+  const workspaces = useStore((s) => s.workspaces);
+  const activeId = useStore((s) => s.activeId);
+  const sidebarMode = useStore((s) => s.sidebarMode);
+  const setActiveId = useStore((s) => s.setActiveId);
+  const setSidebarMode = useStore((s) => s.setSidebarMode);
+  const addWorkspace = useStore((s) => s.addWorkspace);
+  const updateWorkspace = useStore((s) => s.updateWorkspace);
 
-  // 초기 워크스페이스 — 앱의 현재 디렉터리로. cwd를 먼저 알아야 셸이 옳은 위치에서 시작한다.
+  const [home, setHome] = useState<string | undefined>(undefined);
+
+  // 홈 경로 조회 + (복원된 게 없으면) 초기 워크스페이스 생성.
+  // persist는 localStorage 동기 복원이라 이 시점엔 이미 저장분이 로드돼 있다.
+  // store는 getState()로 비반응형 접근 → 마운트 1회 실행([] deps).
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const [dir, hd] = await Promise.all([
-        invoke<string | null>("current_dir"),
-        invoke<string | null>("home_dir"),
-      ]);
+      const hd = await invoke<string | null>("home_dir");
       if (cancelled) return;
       setHome(hd ?? undefined);
-      const ws = createWorkspace(dir ?? hd ?? undefined);
-      setWorkspaces([ws]);
-      setActiveId(ws.id);
+      if (useStore.getState().workspaces.length === 0) {
+        const dir = await invoke<string | null>("current_dir");
+        if (cancelled) return;
+        useStore.getState().ensureInitial(dir ?? hd ?? undefined);
+      }
     })();
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const updateWorkspace = useCallback((id: string, tree: TreeNode, focusedId: string) => {
-    setWorkspaces((prev) => prev.map((w) => (w.id === id ? { ...w, tree, focusedId } : w)));
-  }, []);
-
-  const addWorkspace = useCallback((path?: string) => {
-    const ws = createWorkspace(path);
-    setWorkspaces((prev) => [...prev, ws]);
-    setActiveId(ws.id);
-  }, []);
-
-  // "+" — 다이얼로그 없이 홈(루트)에 즉시 새 워크스페이스
+  // "+" — 홈에 즉시 새 워크스페이스
   const addAtHome = useCallback(() => addWorkspace(home), [addWorkspace, home]);
 
   // 폴더 선택 — 피커는 홈에서 시작
@@ -65,7 +60,7 @@ function App() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [workspaces]);
+  }, [workspaces, setActiveId]);
 
   const active = workspaces.find((w) => w.id === activeId);
 
