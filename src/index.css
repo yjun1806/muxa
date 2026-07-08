@@ -133,7 +133,7 @@ body,
   border-radius: 4px;
 }
 
-/* 좌측 워크스페이스 사이드바 */
+/* 좌측 워크스페이스 사이드바 — 닫히면 width 0으로 슬라이드해 완전히 사라진다 */
 .sidebar {
   display: flex;
   flex-direction: column;
@@ -141,11 +141,13 @@ body,
   flex: 0 0 auto;
   background: var(--panel);
   border-right: 1px solid var(--border);
+  overflow: hidden;
   transition: width 0.15s ease;
 }
 
 .sidebar.collapsed {
-  width: 48px;
+  width: 0;
+  border-right: none;
 }
 
 .ws-list {
@@ -154,6 +156,7 @@ body,
   gap: 2px;
   flex: 1;
   min-height: 0;
+  width: 176px; /* 고정 폭 — 닫힘 애니메이션 시 내용이 찌그러지지 않고 슬라이드된다 */
   padding: 6px;
   overflow-y: auto;
 }
@@ -213,11 +216,6 @@ body,
 .ws-item.active .ws-avatar {
   background: var(--border-focus);
   color: #ffffff;
-}
-
-.sidebar.collapsed .ws-item {
-  justify-content: center;
-  padding: 5px 0;
 }
 
 /* 패인 사이 드래그 리사이즈 구분선 (투명 히트 영역 + hover 강조) */
