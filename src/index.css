@@ -9,6 +9,7 @@
   --border-focus: #0d9488; /* 포커스 패인 강조(청록) */
   --muted: #6b7280; /* 아이콘 기본 */
   --muted-hover: #1f2937; /* 아이콘 hover */
+  --fg: #1f2937; /* 강조 텍스트 */
   --btn-hover: #e5e7eb;
   --btn-active: #d1d5db;
 }
@@ -64,6 +65,82 @@ body,
 
 .tool-btn:active {
   background: var(--btn-active);
+}
+
+/* 좌측 워크스페이스 사이드바 */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 160px;
+  flex: 0 0 auto;
+  padding: 6px;
+  gap: 4px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+}
+
+.ws-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.ws-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+}
+
+.ws-item:hover {
+  background: var(--btn-hover);
+  color: var(--muted-hover);
+}
+
+.ws-item.active {
+  background: var(--btn-active);
+  color: var(--fg);
+}
+
+.ws-badge {
+  min-width: 22px;
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.ws-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.ws-add:hover {
+  background: var(--btn-hover);
+  color: var(--muted-hover);
 }
 
 /* 패인 사이 드래그 리사이즈 구분선 (투명 히트 영역 + hover 강조) */
