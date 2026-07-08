@@ -319,6 +319,21 @@ body,
   padding: 5px 0;
 }
 
+/* 아이콘/슬림 모드 호버 이름 툴팁 (fixed — 스크롤 컨테이너에 안 잘림) */
+.ws-tip {
+  position: fixed;
+  z-index: 200;
+  transform: translateY(-50%);
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--fg);
+  color: #ffffff;
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: var(--shadow);
+}
+
 /* 슬림 모드 — 얇은 위치 바 */
 .sidebar-slim .ws-list {
   padding: 6px 0;
