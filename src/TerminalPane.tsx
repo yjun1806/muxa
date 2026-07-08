@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { PaneHeader } from "./PaneHeader";
 import { SearchBar } from "./SearchBar";
+import { reduceIme, shouldRedirectToInput } from "./ime";
 import type { Dir } from "./tree";
 import "@xterm/xterm/css/xterm.css";
 
@@ -60,27 +61,30 @@ export function TerminalPane({ paneId, cwd, focused, onFocus, onSplit, onClose }
     term.open(container);
     safeFit(fit);
 
+    // 한글 IME 우회(WKWebView는 composition 이벤트를 안 줘 xterm이 모음을 흘린다).
+    // 조합 중인 글자만 우리가 붙들고(composing), 그 외(확정 문자·삭제·화살표·히스토리)는 셸에 위임한다.
+    // 제어키가 onData로 오면 조합 세션 경계이므로 composing을 리셋한다.
+    const ta = term.textarea;
+    let composing = "";
     const onData = term.onData((data) => {
-      console.log("[IME] onData", JSON.stringify(data));
+      composing = "";
       void invoke("pty_write", { paneId, data });
     });
 
-    // [임시 진단] IME 이벤트 순서 추적 — 원인 확정 후 제거
-    const ta = term.textarea;
-    const dStart = () => console.log("[IME] compositionstart");
-    const dUpdate = (e: CompositionEvent) =>
-      console.log("[IME] compositionupdate", JSON.stringify(e.data));
-    const dEnd = (e: CompositionEvent) =>
-      console.log("[IME] compositionend", JSON.stringify(e.data));
-    const dKey = (e: KeyboardEvent) =>
-      console.log(
-        "[IME] keydown",
-        JSON.stringify({ key: e.key, keyCode: e.keyCode, isComposing: e.isComposing }),
-      );
-    ta?.addEventListener("compositionstart", dStart);
-    ta?.addEventListener("compositionupdate", dUpdate);
-    ta?.addEventListener("compositionend", dEnd);
-    ta?.addEventListener("keydown", dKey);
+    // 문자·Enter·Backspace·IME 조합 keydown을 xterm에서 격리 → 브라우저 기본 input 이벤트로 유도
+    term.attachCustomKeyEventHandler((e) => !(e.type === "keydown" && shouldRedirectToInput(e)));
+    // input을 document 캡처 단계에서 가로채(=xterm보다 먼저) 조합을 직접 처리한다
+    const onInput = (e: Event) => {
+      if (e.target !== ta || !ta) return;
+      e.stopPropagation(); // xterm의 자체 input 처리(자음만 유출)를 막는다
+      const ie = e as InputEvent;
+      const r = reduceIme(composing, { inputType: ie.inputType, data: ie.data, value: ta.value });
+      composing = r.composing;
+      if (r.resetValue !== null) ta.value = r.resetValue;
+      if (r.writes) void invoke("pty_write", { paneId, data: r.writes });
+    };
+    document.addEventListener("input", onInput, true);
+
     const onResize = term.onResize(({ cols, rows }) => {
       void invoke("pty_resize", { paneId, cols, rows });
     });
@@ -112,10 +116,7 @@ export function TerminalPane({ paneId, cwd, focused, onFocus, onSplit, onClose }
       disposed = true;
       onData.dispose();
       onResize.dispose();
-      ta?.removeEventListener("compositionstart", dStart);
-      ta?.removeEventListener("compositionupdate", dUpdate);
-      ta?.removeEventListener("compositionend", dEnd);
-      ta?.removeEventListener("keydown", dKey);
+      document.removeEventListener("input", onInput, true);
       ro.disconnect();
       unlistenOut?.();
       unlistenExit?.();
