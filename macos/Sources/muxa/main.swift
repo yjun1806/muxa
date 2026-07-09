@@ -47,7 +47,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.center()
 
         // 크롬(상단바·사이드바) + 활성 워크스페이스(Bonsplit 탭바·분할)를 SwiftUI로 렌더.
-        window.contentView = NSHostingView(rootView: ContentView(state: state, home: SystemPaths.home))
+        let hosting = NSHostingView(rootView: ContentView(state: state, home: SystemPaths.home))
+        // safe-area를 끈다 — 안 그러면 SwiftUI가 타이틀바 아래로 콘텐츠를 밀어 상단바가
+        // 신호등과 다른 줄로 분리된다(두 줄). 꺼야 콘텐츠가 타이틀바 밑까지 올라와 한 줄이 된다.
+        hosting.safeAreaRegions = []
+        window.contentView = hosting
 
         window.makeKeyAndOrderFront(nil)
         self.window = window
