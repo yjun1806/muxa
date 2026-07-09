@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import GhosttyKit
 
 /// 워크스페이스 하나의 분할 터미널 트리를 렌더한다. (src/WorkspaceView.tsx의 AppKit 이식)
@@ -147,20 +148,22 @@ final class WorkspaceView: NSView {
 
     // MARK: 키바인딩 — ⌘D 분할 / ⌘W 닫기 / ⌘] ⌘[ 포커스 이동
     // performKeyEquivalent는 first responder(TermView)의 keyDown보다 먼저 호출된다.
+    // 물리 keyCode로 판별한다 — charactersIgnoringModifiers는 한글 등 자판 언어를 타서
+    // ⌘D의 D가 "ㅇ"으로 오면 매칭에 실패한다.
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.modifierFlags.contains(.command) else { return false }
-        switch event.charactersIgnoringModifiers {
-        case "d":
+        switch Int(event.keyCode) {
+        case kVK_ANSI_D:
             split(event.modifierFlags.contains(.shift) ? .col : .row)
             return true
-        case "w":
+        case kVK_ANSI_W:
             closeFocused()
             return true
-        case "]":
+        case kVK_ANSI_RightBracket:
             focusSibling(1)
             return true
-        case "[":
+        case kVK_ANSI_LeftBracket:
             focusSibling(-1)
             return true
         default:
