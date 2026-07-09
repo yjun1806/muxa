@@ -4,7 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "muxa",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v14)], // SwiftUI @Observable·최신 API
     targets: [
         .executableTarget(
             name: "muxa",
