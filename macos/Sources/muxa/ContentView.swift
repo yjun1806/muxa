@@ -6,6 +6,7 @@ struct ContentView: View {
     let state: AppState
     let home: String
     @State private var showGitPanel = false
+    @State private var diffTarget: GitDiffTarget?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,6 +24,15 @@ struct ContentView: View {
             }
         }
         .background(Color.pPanel)
+        .sheet(item: $diffTarget) { target in
+            DiffView(target: target, dir: activeDir ?? "") { diffTarget = nil }
+        }
+    }
+
+    /// 활성 프로젝트의 실효 폴더 경로(git·diff 대상).
+    private var activeDir: String? {
+        guard let ws = state.activeWorkspace else { return nil }
+        return ws.activeProject?.path ?? ws.path
     }
 
     /// 전체 폭 상단바 한 줄 — 신호등 · 사이드바/워크스페이스 컨트롤 · 프로젝트 탭 · 우측 경로.
@@ -76,7 +86,7 @@ struct ContentView: View {
                     .id(project.id)
                 if showGitPanel {
                     Rectangle().fill(Color.pBorder).frame(width: 1)
-                    GitPanel(dir: project.path ?? ws.path)
+                    GitPanel(dir: project.path ?? ws.path) { diffTarget = $0 }
                 }
             }
         } else {

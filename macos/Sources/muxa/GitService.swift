@@ -38,10 +38,34 @@ enum GitService {
         return parseStatus(result.stdout)
     }
 
-    /// 파일 하나의 diff(unified). 언스테이지 우선, 없으면 스테이지된 것.
-    static func diff(path: String, in dir: String, staged: Bool) async -> String {
-        let args = staged ? ["diff", "--cached", "--", path] : ["diff", "--", path]
-        return await run(args, in: dir).stdout
+    /// 변경 파일 하나의 diff(unified). 상태에 맞는 명령을 고른다.
+    static func fileDiff(_ change: GitFileChange, in dir: String) async -> String {
+        if change.isUntracked {
+            // 추적 안 됨 → 전체를 추가로 표시(exit 1이지만 stdout에 diff가 있다)
+            return await run(["diff", "--no-color", "--no-index", "--", "/dev/null", change.path], in: dir).stdout
+        }
+        if change.worktree != " " {
+            return await run(["diff", "--no-color", "--", change.path], in: dir).stdout // 언스테이지 변경
+        }
+        return await run(["diff", "--no-color", "--cached", "--", change.path], in: dir).stdout // 스테이지만
+    }
+
+    /// 최근 커밋 목록(히스토리).
+    static func log(in dir: String, limit: Int = 40) async -> [GitCommit] {
+        // \u{1f}(unit separator)로 필드 구분 — 제목에 포함될 일이 없다.
+        let format = "%H%x1f%h%x1f%s%x1f%an%x1f%ar"
+        let result = await run(["log", "-n", "\(limit)", "--pretty=format:\(format)"], in: dir)
+        guard result.exitCode == 0 else { return [] }
+        return result.stdout.split(separator: "\n").compactMap { line in
+            let f = String(line).components(separatedBy: "\u{1f}")
+            guard f.count == 5 else { return nil }
+            return GitCommit(hash: f[0], shortHash: f[1], subject: f[2], author: f[3], date: f[4])
+        }
+    }
+
+    /// 커밋 하나의 상세(메시지 + 변경 통계 + diff).
+    static func commitDiff(_ hash: String, in dir: String) async -> String {
+        await run(["show", "--no-color", "--stat", "-p", hash], in: dir).stdout
     }
 
     // MARK: 파싱 (porcelain v1 --branch)
@@ -94,6 +118,16 @@ struct GitStatus {
     let changes: [GitFileChange]
 
     var isClean: Bool { changes.isEmpty }
+}
+
+/// 커밋 하나(히스토리 항목).
+struct GitCommit: Identifiable {
+    var id: String { hash }
+    let hash: String
+    let shortHash: String
+    let subject: String
+    let author: String
+    let date: String // 상대 시간("2 hours ago")
 }
 
 /// 변경된 파일 하나. index=스테이지 상태(X), worktree=언스테이지 상태(Y).
