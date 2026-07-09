@@ -15,7 +15,10 @@ struct WorkspaceHost: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: WorkspaceHostView, context: Context) {
-        nsView.sync()
+        // sync()는 프레임·first responder를 바꿔 SwiftUI 레이아웃을 재무효화한다.
+        // 레이아웃 패스 중 동기 실행하면 "Update Constraints" 재귀 루프로 창이 크래시하므로
+        // 다음 런루프로 미뤄 패스 밖에서 실행한다.
+        DispatchQueue.main.async { [weak nsView] in nsView?.sync() }
     }
 }
 
@@ -29,12 +32,17 @@ final class WorkspaceHostView: NSView {
         self.state = state
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
     }
 
     required init?(coder: NSCoder) { fatalError("unsupported") }
 
     override var isFlipped: Bool { true }
+
+    // 시스템 배경색을 여기서 칠한다 — 외관 변경 시 AppKit이 자동 재호출해 라이트/다크로 따라온다.
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {
+        layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+    }
 
     override func layout() {
         super.layout()

@@ -13,7 +13,7 @@ final class PaneContainerView: NSView {
 
     var focused: Bool = false {
         didSet {
-            layer?.borderColor = (focused ? Palette.borderFocus : Palette.border).cgColor
+            needsDisplay = true // updateLayer에서 테두리색을 다시 칠한다
             term.isFocused = focused
         }
     }
@@ -25,9 +25,7 @@ final class PaneContainerView: NSView {
         super.init(frame: .zero)
 
         wantsLayer = true
-        layer?.backgroundColor = Palette.bg.cgColor
         layer?.borderWidth = 1
-        layer?.borderColor = Palette.border.cgColor
 
         addSubview(header)
         addSubview(term)
@@ -36,6 +34,13 @@ final class PaneContainerView: NSView {
     required init?(coder: NSCoder) { fatalError("unsupported") }
 
     override var isFlipped: Bool { true } // 좌상단 원점 — 헤더가 위
+
+    // 레이어 색은 여기서 칠한다 — 외관(라이트/다크) 변경 시 AppKit이 자동 재호출해 색을 재해결한다.
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {
+        layer?.backgroundColor = Palette.bg.cgColor
+        layer?.borderColor = (focused ? Palette.borderFocus : Palette.border).cgColor
+    }
 
     override func layout() {
         super.layout()
