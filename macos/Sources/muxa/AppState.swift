@@ -1,3 +1,4 @@
+import Bonsplit
 import Foundation
 import GhosttyKit
 import Observation
@@ -16,6 +17,8 @@ final class AppState {
 
     @ObservationIgnored private let app: ghostty_app_t
     @ObservationIgnored private var stores: [String: TerminalStore] = [:]
+    /// 워크스페이스별 저장된 분할 트리(재시작 복원용). 아직 안 연 워크스페이스 것도 보존한다.
+    @ObservationIgnored private var savedLayouts: [String: ExternalTreeNode] = [:]
 
     init(app: ghostty_app_t) {
         self.app = app
@@ -26,9 +29,10 @@ final class AppState {
     }
 
     /// 워크스페이스의 터미널 스토어(없으면 생성). 표시 시점에 lazy 생성된다.
+    /// 첫 생성 시 저장된 분할 트리를 넘겨 복원한다(있으면).
     func store(for workspace: Workspace) -> TerminalStore {
         if let s = stores[workspace.id] { return s }
-        let s = TerminalStore(app: app, cwd: workspace.path)
+        let s = TerminalStore(app: app, cwd: workspace.path, restoreTree: savedLayouts[workspace.id])
         stores[workspace.id] = s
         return s
     }
@@ -63,12 +67,14 @@ final class AppState {
         save()
     }
 
-    // MARK: 영속 (메타데이터만 — Bonsplit 레이아웃 복원은 후속)
+    // MARK: 영속 (메타데이터 + 워크스페이스별 분할 트리)
 
     private struct Persisted: Codable {
         var workspaces: [Workspace]
         var activeId: String
         var sidebarMode: SidebarMode
+        // 구버전(v3) 파일엔 없음 → 옵셔널(decodeIfPresent)로 하위호환. PTY는 복원 안 됨(새 셸).
+        var layouts: [String: ExternalTreeNode]?
     }
 
     private static let fileURL: URL = {
@@ -79,7 +85,12 @@ final class AppState {
     }()
 
     func save() {
-        let snapshot = Persisted(workspaces: workspaces, activeId: activeId, sidebarMode: sidebarMode)
+        // 인스턴스화된 스토어의 현재 분할 트리를 반영한다. 아직 안 채워진(빈) 스토어는 스킵해
+        // 저장된 좋은 레이아웃을 빈 트리로 덮어쓰지 않는다. 안 연 워크스페이스 것은 그대로 보존.
+        for (id, store) in stores where !store.controller.allTabIds.isEmpty {
+            savedLayouts[id] = store.controller.treeSnapshot()
+        }
+        let snapshot = Persisted(workspaces: workspaces, activeId: activeId, sidebarMode: sidebarMode, layouts: savedLayouts)
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         try? data.write(to: Self.fileURL, options: .atomic)
     }
@@ -91,6 +102,7 @@ final class AppState {
         workspaces = snapshot.workspaces
         activeId = snapshot.activeId
         sidebarMode = snapshot.sidebarMode
+        savedLayouts = snapshot.layouts ?? [:]
     }
 }
 

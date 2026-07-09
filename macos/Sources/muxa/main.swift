@@ -107,6 +107,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    /// 종료 직전 현재 분할 레이아웃을 저장한다 — split/탭 변경은 자체 save를 안 부르므로 여기서 확정.
+    func applicationWillTerminate(_ notification: Notification) {
+        state?.save()
+    }
 }
 
 // AppDelegate가 @MainActor라 top-level(nonisolated)에서 직접 못 만든다 — 메인 스레드 실행이 보장되므로 assumeIsolated.
