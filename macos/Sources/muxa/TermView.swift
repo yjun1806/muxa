@@ -11,6 +11,14 @@ import GhosttyKit
 final class TermView: NSView, NSTextInputClient {
     private(set) var surface: ghostty_surface_t?
 
+    /// 논리 포커스 — 포커스된 패인의 서피스만 커서를 활성화해 시각적으로 구분된다.
+    var isFocused: Bool = false {
+        didSet {
+            guard let surface, isFocused != oldValue else { return }
+            ghostty_surface_set_focus(surface, isFocused)
+        }
+    }
+
     /// IME 조합 중(preedit) 텍스트. NSTextInputClient가 채운다.
     private var markedText = NSMutableAttributedString()
 

@@ -23,9 +23,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "muxa M0 — 한글 IME 게이트"
+        window.title = "muxa — 분할 터미널 (⌘D 세로 · ⌘⇧D 가로 · ⌘W 닫기 · ⌘] ⌘[ 이동)"
         window.center()
-        window.contentView = TermView(app: app)
+        window.contentView = WorkspaceView(app: app)
         window.makeKeyAndOrderFront(nil)
         self.window = window
 
