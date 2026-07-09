@@ -77,7 +77,8 @@ final class TermView: NSView, NSTextInputClient {
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        syncScaleAndSize()
+        // 배율 변화(모니터 이동)면 Metal 레이어 배율부터 화면에 맞춘다 — 이게 빠지면 글자가 작아진다(cmux).
+        syncScaleAndSize(force: true)
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -89,24 +90,39 @@ final class TermView: NSView, NSTextInputClient {
     /// SwiftUI 레이아웃 협상이 잠깐 작은 크기를 제안했다가 되돌리는 오실레이션에서
     /// 매번 ghostty를 리사이즈하면 레이아웃 재무효화 루프(창 크래시)로 번진다.
     private var lastBacking: NSSize = .zero
-    private var lastScale: NSSize = .zero
+    private var lastScale: CGFloat = 0
+
+    /// 현재 화면 배율 — convertToBacking(뷰 백킹, 모니터 이동 시 stale 가능)이 아니라 창의
+    /// backingScaleFactor를 진실원천으로 쓴다(cmux). 최소 1.0.
+    private var currentScale: CGFloat {
+        max(1.0, window?.backingScaleFactor ?? layer?.contentsScale ?? NSScreen.main?.backingScaleFactor ?? 2.0)
+    }
 
     /// force=true면 값이 같아 보여도 재전달 + 리드로우한다 — 모니터 이동처럼 뷰 좌표는 그대로여도
     /// 화면 배율·물리 해상도가 바뀌었을 때 강제로 다시 맞춘다.
     private func syncScaleAndSize(force: Bool = false) {
         guard let surface, frame.width > 0, frame.height > 0 else { return }
-        let backing = convertToBacking(frame)
-        let scale = NSSize(
-            width: backing.size.width / frame.size.width,
-            height: backing.size.height / frame.size.height
-        )
+        let scale = currentScale
+
         if force || scale != lastScale {
-            ghostty_surface_set_content_scale(surface, scale.width, scale.height)
+            // Metal 레이어 배율을 화면에 맞춘다(cmux) — set_content_scale만으론 부족하고,
+            // 이 레이어 배율이 어긋나면 새 모니터에서 셀이 작게 래스터화돼 글자가 작아진다.
+            if let layer {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                layer.contentsScale = scale
+                CATransaction.commit()
+            }
+            ghostty_surface_set_content_scale(surface, scale, scale)
             lastScale = scale
         }
-        if force || backing.size != lastBacking {
-            ghostty_surface_set_size(surface, UInt32(backing.size.width), UInt32(backing.size.height))
-            lastBacking = backing.size
+
+        let pixelWidth = UInt32((frame.size.width * scale).rounded())
+        let pixelHeight = UInt32((frame.size.height * scale).rounded())
+        let pixel = NSSize(width: CGFloat(pixelWidth), height: CGFloat(pixelHeight))
+        if force || pixel != lastBacking {
+            ghostty_surface_set_size(surface, pixelWidth, pixelHeight)
+            lastBacking = pixel
         }
         // 모니터 이동 시에만 리드로우 — 일반 레이아웃 경로에서 refresh를 부르면 오실레이션 위험.
         if force { ghostty_surface_refresh(surface) }
