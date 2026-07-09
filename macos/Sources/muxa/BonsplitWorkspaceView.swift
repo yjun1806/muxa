@@ -7,8 +7,10 @@ struct BonsplitWorkspaceView: View {
     let store: TerminalStore
 
     var body: some View {
-        BonsplitView(controller: store.controller) { tab, _ in
-            TerminalRepresentable(term: store.term(for: tab.id))
+        BonsplitView(controller: store.controller) { tab, paneId in
+            TerminalRepresentable(term: store.term(for: tab.id)) {
+                store.controller.focusPane(paneId)
+            }
         } emptyPane: { paneId in
             emptyPane(paneId)
         }

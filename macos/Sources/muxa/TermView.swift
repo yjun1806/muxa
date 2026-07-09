@@ -57,7 +57,11 @@ final class TermView: NSView, NSTextInputClient {
 
     required init?(coder: NSCoder) { fatalError("unsupported") }
 
+    /// 창이 다른 모니터로 이동하는 것을 감지하는 관찰 토큰(배율·해상도 재동기화용).
+    private var screenObserver: NSObjectProtocol?
+
     deinit {
+        if let token = screenObserver { NotificationCenter.default.removeObserver(token) }
         if let surface { ghostty_surface_free(surface) }
     }
 
@@ -79,30 +83,60 @@ final class TermView: NSView, NSTextInputClient {
     private var lastBacking: NSSize = .zero
     private var lastScale: NSSize = .zero
 
-    private func syncScaleAndSize() {
+    /// force=true면 값이 같아 보여도 재전달 + 리드로우한다 — 모니터 이동처럼 뷰 좌표는 그대로여도
+    /// 화면 배율·물리 해상도가 바뀌었을 때 강제로 다시 맞춘다.
+    private func syncScaleAndSize(force: Bool = false) {
         guard let surface, frame.width > 0, frame.height > 0 else { return }
         let backing = convertToBacking(frame)
         let scale = NSSize(
             width: backing.size.width / frame.size.width,
             height: backing.size.height / frame.size.height
         )
-        if scale != lastScale {
+        if force || scale != lastScale {
             ghostty_surface_set_content_scale(surface, scale.width, scale.height)
             lastScale = scale
         }
-        if backing.size != lastBacking {
+        if force || backing.size != lastBacking {
             ghostty_surface_set_size(surface, UInt32(backing.size.width), UInt32(backing.size.height))
             lastBacking = backing.size
         }
+        // 모니터 이동 시에만 리드로우 — 일반 레이아웃 경로에서 refresh를 부르면 오실레이션 위험.
+        if force { ghostty_surface_refresh(surface) }
+    }
+
+    /// 창이 속한 화면의 디스플레이 ID를 libghostty에 알린다(모니터별 색·리프레시 특성).
+    private func syncDisplayID() {
+        guard let surface,
+              let num = window?.screen?.deviceDescription[.init("NSScreenNumber")] as? NSNumber
+        else { return }
+        ghostty_surface_set_display_id(surface, num.uint32Value)
     }
 
     // MARK: 포커스
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        // 포커스는 WorkspaceView.focusCurrent / WorkspaceHostView가 활성 패인에만 준다.
-        // 여기서 makeFirstResponder를 부르면 분할 시 두 TermView가 서로 뺏으며 churn한다.
+        syncDisplayID()
         syncScaleAndSize()
+
+        // 창이 다른 모니터로 이동하면(배율/해상도 변화) 재동기화한다.
+        // 배율이 같은 화면으로 옮기면 viewDidChangeBackingProperties가 안 떠서 이 알림으로 잡는다.
+        if let token = screenObserver {
+            NotificationCenter.default.removeObserver(token)
+            screenObserver = nil
+        }
+        if let window {
+            screenObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didChangeScreenNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.syncDisplayID()
+                    self?.syncScaleAndSize(force: true)
+                }
+            }
+        }
     }
 
     override func becomeFirstResponder() -> Bool {
