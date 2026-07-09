@@ -60,13 +60,14 @@ muxa의 차별화 축은 터미널 품질이 아니다(그건 cmux가 이미 잘
 | D8 | 코드 뷰어 | CodeMirror 6 읽기 전용 | **유지 가능** — 뷰어는 입력 표면이 아니라 IME 결손이 무해. WKWebView 안에서 재사용(M2에서 네이티브 대안과 비교) |
 | D9 | 상태 저장 | SQLite | 유지. Swift에서는 GRDB 경유 |
 | D10 | 이름 | muxa | mux 계보 유지. GitHub·crates.io 충돌 없음 확인(2026-07) |
-| D11 | 화면 분할 | 재귀 split 트리 (세로/가로 임의 중첩) | 유지 — 스택 무관 결정. 구현된 `src/tree.ts` 순수 로직을 Swift로 이식 |
+| D11 | 화면 분할 | **폐기(→D18).** ~~재귀 split 트리 자체 구현(`tree.ts`/`WorkspaceView` 수동 레이아웃)~~ | 자체 구현이 극도로 타이밍 민감한 AppKit Auto Layout 제약 크래시(수동 setFrame vs 자동 제약 충돌)로 이어짐. 분할·탭을 검증된 라이브러리로 대체 |
 | D12 | 사용자 설정 | 파일 기반 (`~/.config/muxa/`) | 유지. **v2 보너스: libghostty라 cmux처럼 ghostty config(폰트·테마) 재사용 경로가 열림** — 직접 구축 부담 감소 |
 | D13 | **셸 플랫폼 (v2)** | **Swift + SwiftUI/AppKit 네이티브 앱, macOS 전용** | WKWebView IME 결손(1절)으로 WebView 셸 자체가 결격. Electron도 xterm keydown 아키텍처 한계로 기각 — 한글 입력을 1급 요구로 두면 네이티브 NSTextInputClient만 근본 해결 |
 | D14 | **터미널 엔진·렌더러 (v2)** | **libghostty (GhosttyKit macOS 임베딩)** | cmux·Kytos 검증 경로. PTY·VT·GPU 렌더·리사이즈 리플로우·스크롤백을 성숙 엔진이 담당 — v1 최대 리스크 2개(attach 지연·리플로우 버그)가 소거됨. SwiftTerm 대비: IME는 직접 구현이나 참조 구현 존재(D15), 렌더링·성숙도 우위 |
 | D15 | **한글 IME (v2)** | **NSTextInputClient 직접 구현, Ghostty 업스트림 SurfaceView(MIT) 참조** | Ghostty macOS 앱이 동일 구조의 완성 구현을 가짐. cmux는 GPL — 코드 복사 금지, 구조 참고만(cmux PR #125가 한글 수정 사례) |
 | D16 | **UI 프레임워크 (v2)** | **SwiftUI + AppKit 하이브리드** | cmux 패턴(@main SwiftUI + AppDelegate). 크롬(사이드바·패널)은 SwiftUI로 빠르게, 터미널 서피스·키 라우팅은 AppKit NSView |
 | D17 | **마이그레이션 전략 (v2)** | **같은 리포 `macos/` 신설 + M0 IME PoC 게이트, 패리티까지 Tauri 공존** | 매몰비용 없이 전제(IME+임베딩)부터 검증. 실패 시 SwiftTerm 폴백(D14 재검토). `tree.ts` 이식, React UI는 시각 스펙으로 활용 |
+| D18 | **분할·탭 엔진 (v2)** | **Bonsplit (`almonk/bonsplit`, MIT) 채택** | 분할·탭·드래그·리사이즈를 자체 구현하다 AppKit 제약 크래시에 소진(D11 폐기). cmux가 libghostty 터미널에 실전 사용하는 SwiftUI 분할 라이브러리를 채택 — 크래시·리사이즈 지터가 구조적으로 소멸. MIT라 라이선스 자유. 각 패인=`BonsplitView` content로 `TermView`(NSViewRepresentable) 호스팅. 워크스페이스별 `BonsplitController`+`TerminalStore`(`[TabID:TermView]`), 분할/닫기는 `BonsplitDelegate`로 터미널 생명주기 연결. 교훈: 검증된 라이브러리 우선(자체 구현보다) |
 
 ### 터미널 엔진 검토 상세 (D3·D4) — v1 이력 (D14로 대체, 판단 과정 보존용)
 
