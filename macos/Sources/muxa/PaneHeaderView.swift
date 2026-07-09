@@ -19,6 +19,7 @@ final class PaneHeaderView: NSView {
         buttons = [row, col, close]
 
         super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false // 수동 프레임 — 제약 엔진 제외
         wantsLayer = true
         buttons.forEach { addSubview($0) }
     }

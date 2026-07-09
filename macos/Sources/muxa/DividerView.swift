@@ -18,6 +18,7 @@ final class DividerView: NSView {
         self.divider = divider
         self.onResize = onResize
         super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false // 수동 프레임 — 제약 엔진 제외
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
     }

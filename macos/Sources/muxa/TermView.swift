@@ -33,6 +33,7 @@ final class TermView: NSView, NSTextInputClient {
 
     init(app: ghostty_app_t, cwd: String?) {
         super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false // 수동 프레임 — 제약 엔진 제외
 
         var config = ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_MACOS
@@ -99,7 +100,8 @@ final class TermView: NSView, NSTextInputClient {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        window?.makeFirstResponder(self)
+        // 포커스는 WorkspaceView.focusCurrent / WorkspaceHostView가 활성 패인에만 준다.
+        // 여기서 makeFirstResponder를 부르면 분할 시 두 TermView가 서로 뺏으며 churn한다.
         syncScaleAndSize()
     }
 

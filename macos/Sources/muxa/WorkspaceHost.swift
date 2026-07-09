@@ -94,7 +94,7 @@ final class WorkspaceHostView: NSView {
 
     private func layoutActive() {
         for view in views.values where !view.isHidden {
-            view.frame = bounds
+            if view.frame != bounds { view.frame = bounds } // 같은 값 재설정 방지(제약 루프)
         }
     }
 

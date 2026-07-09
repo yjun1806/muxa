@@ -26,6 +26,7 @@ final class WorkspaceView: NSView {
         self.focusedId = tab.focusedId
         self.onTreeChange = onTreeChange
         super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false // 수동 프레임 — 제약 엔진 제외(split 폭주 방지)
     }
 
     required init?(coder: NSCoder) { fatalError("unsupported") }
@@ -48,11 +49,14 @@ final class WorkspaceView: NSView {
             containers[id] = nil
         }
 
+        // 모든 setFrame은 값이 바뀔 때만 — 같은 값 재설정도 제약을 마킹해, 매 레이아웃 패스마다
+        // 반복하면 창 제약 패스가 수렴 못 하고 폭주(크래시)한다. (분할=뷰 다수일 때 특히)
         let layout = computeLayout(tree)
         for id in ids {
             let view = container(for: id)
             if let r = layout.panes[id] {
-                view.frame = pixelRect(r)
+                let f = pixelRect(r)
+                if view.frame != f { view.frame = f }
             }
             view.focused = (id == focusedId)
         }
@@ -67,7 +71,8 @@ final class WorkspaceView: NSView {
         for d in layout.dividers {
             let view = dividerView(for: d)
             view.divider = d
-            view.frame = dividerPixelRect(d)
+            let f = dividerPixelRect(d)
+            if view.frame != f { view.frame = f }
         }
     }
 

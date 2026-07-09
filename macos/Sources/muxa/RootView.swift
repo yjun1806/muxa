@@ -28,6 +28,10 @@ final class RootView: NSView {
                 self?.setTerminalFrame(rect)
             }
         )
+        // 터미널 호스트는 수동 프레임으로 배치한다 — Auto Layout 제약 엔진에서 제외해야
+        // split(자식 다수)에서 자동 생성 제약과 수동 프레임이 충돌해 제약 패스가 폭주(크래시)하지 않는다.
+        host.translatesAutoresizingMaskIntoConstraints = false
+
         addSubview(hosting) // 아래: 크롬
         addSubview(host) // 위: 터미널(크롬의 빈 자리에 겹쳐 보인다)
 
@@ -47,7 +51,7 @@ final class RootView: NSView {
 
     override func layout() {
         super.layout()
-        chrome.frame = bounds
-        if termFrame != .zero { terminalHost.frame = termFrame }
+        if chrome.frame != bounds { chrome.frame = bounds }
+        if termFrame != .zero, terminalHost.frame != termFrame { terminalHost.frame = termFrame }
     }
 }

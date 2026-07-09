@@ -10,6 +10,7 @@ final class IconButton: NSButton {
     init(symbol: String, tip: String, pointSize: CGFloat = 12, handler: @escaping () -> Void) {
         self.handler = handler
         super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false // 수동 프레임 — 제약 엔진 제외
 
         let config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
         image = NSImage(systemSymbolName: symbol, accessibilityDescription: tip)?

@@ -13,6 +13,7 @@ final class PaneContainerView: NSView {
 
     var focused: Bool = false {
         didSet {
+            guard focused != oldValue else { return } // 매 레이아웃마다 redraw churn 방지
             needsDisplay = true // updateLayer에서 테두리색을 다시 칠한다
             term.isFocused = focused
         }
@@ -23,6 +24,7 @@ final class PaneContainerView: NSView {
         self.term = term
         self.header = PaneHeaderView(onSplit: onSplit, onClose: onClose)
         super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false // 수동 프레임 — 제약 엔진 제외
 
         wantsLayer = true
         layer?.borderWidth = 1
@@ -44,13 +46,16 @@ final class PaneContainerView: NSView {
 
     override func layout() {
         super.layout()
-        // 1px 테두리 안쪽에 헤더·터미널을 배치
-        header.frame = NSRect(x: 1, y: 1, width: bounds.width - 2, height: headerHeight)
-        term.frame = NSRect(
+        // 1px 테두리 안쪽에 헤더·터미널을 배치. setFrame은 값이 바뀔 때만(같은 값 재설정도
+        // 제약을 마킹해 매 패스 반복 시 창 제약 루프 크래시).
+        let headerFrame = NSRect(x: 1, y: 1, width: bounds.width - 2, height: headerHeight)
+        if header.frame != headerFrame { header.frame = headerFrame }
+        let termFrame = NSRect(
             x: 1,
             y: 1 + headerHeight,
             width: bounds.width - 2,
             height: bounds.height - headerHeight - 2
         )
+        if term.frame != termFrame { term.frame = termFrame }
     }
 }
