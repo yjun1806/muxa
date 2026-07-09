@@ -53,7 +53,5 @@ let package = Package(
         ),
         // vendor/ghostty에서 zig로 빌드한 산출물 (심링크)
         .binaryTarget(name: "GhosttyKit", path: "GhosttyKit.xcframework"),
-        // 순수 로직(Tree 등) 단위 테스트
-        .testTarget(name: "muxaTests", dependencies: ["muxa"]),
     ]
 )

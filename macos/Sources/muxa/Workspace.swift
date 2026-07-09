@@ -1,23 +1,15 @@
 import Foundation
 
-/// 탭 하나 = 제목 + 자기 분할 트리 + 포커스. (DESIGN.md 4.1 — 워크스페이스별 터미널 탭)
-/// 이름을 TermTab으로 둔 이유: SwiftUI(macOS 15+)에 Tab 타입이 있어 충돌하기 때문.
-struct TermTab: Codable, Identifiable {
-    let id: String
-    var title: String
-    var tree: TreeNode
-    var focusedId: String
-}
-
-/// 워크스페이스 하나 = 경로 + 터미널 탭 N개. (src/workspace.ts 확장)
+/// 워크스페이스 = 경로 + 표시 이름. 분할·탭 상태는 Bonsplit(TerminalStore)이 소유하므로
+/// 여기엔 메타데이터만 둔다. (src/workspace.ts 이식, Bonsplit 이관으로 tree/tabs 제거)
 struct Workspace: Codable, Identifiable {
     let id: String
     var path: String? // 셸 cwd. 초기 워크스페이스는 프로세스 cwd라 nil일 수 있다
     var name: String // 표시 이름(경로 basename)
-    var tabs: [TermTab]
-    var activeTabId: String
+}
 
-    var activeTab: TermTab? { tabs.first { $0.id == activeTabId } }
+func newId() -> String {
+    UUID().uuidString
 }
 
 func basename(_ path: String) -> String {
@@ -33,18 +25,6 @@ func displayPath(_ path: String?, home: String?) -> String {
     return path
 }
 
-func createTab(title: String = "터미널") -> TermTab {
-    let pane = makePane()
-    return TermTab(id: newId(), title: title, tree: pane, focusedId: pane.id)
-}
-
 func createWorkspace(path: String? = nil, name: String? = nil) -> Workspace {
-    let tab = createTab()
-    return Workspace(
-        id: newId(),
-        path: path,
-        name: name ?? (path.map(basename) ?? "workspace"),
-        tabs: [tab],
-        activeTabId: tab.id
-    )
+    Workspace(id: newId(), path: path, name: name ?? (path.map(basename) ?? "workspace"))
 }

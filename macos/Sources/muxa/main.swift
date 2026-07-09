@@ -1,4 +1,6 @@
 import AppKit
+import Bonsplit
+import Carbon.HIToolbox
 import GhosttyKit
 import SwiftUI
 
@@ -10,11 +12,12 @@ guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == GHOSTTY_SU
     fatalError("ghostty_init failed")
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var runtime: GhosttyRuntime?
     private var state: AppState?
     private var window: NSWindow?
-    private var store: TerminalStore? // [PoC] Bonsplit 터미널 스토어
+    private var keyMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard let runtime = GhosttyRuntime(), let app = runtime.app else {
@@ -23,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.runtime = runtime
 
         // 저장된 세션 복원(없으면 현재 디렉토리로 초기 워크스페이스 생성)
-        let state = AppState()
+        let state = AppState(app: app)
         state.load()
         state.ensureInitial(path: SystemPaths.currentDir ?? SystemPaths.home)
         self.state = state
@@ -42,10 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.backgroundColor = Palette.panel // 타이틀바(=창 배경)를 상단바와 같은 회색으로
         window.center()
 
-        // [PoC] Bonsplit 워크스페이스 — 분할·탭을 Bonsplit이 관리(수동 레이아웃 제거).
-        let store = TerminalStore(app: app, cwd: SystemPaths.currentDir ?? SystemPaths.home)
-        self.store = store
-        window.contentView = NSHostingView(rootView: BonsplitWorkspaceView(store: store))
+        // 크롬(사이드바) + 활성 워크스페이스(Bonsplit 탭바·분할)를 SwiftUI로 렌더.
+        window.contentView = NSHostingView(rootView: ContentView(state: state, home: SystemPaths.home))
 
         // 상단바 컨트롤을 타이틀바 신호등 오른쪽(.leading)에 얹는다 — SwiftUI 콘텐츠에 넣으면 가려진다.
         let accessory = NSTitlebarAccessoryViewController()
@@ -58,14 +59,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
         self.window = window
 
+        // 단축키 — 포커스된 터미널이 키를 먼저 먹으므로 로컬 모니터로 가로챈다.
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            MainActor.assumeIsolated {
+                self.handleShortcut(event) ? nil : event
+            }
+        }
+
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// ⌘1-8 워크스페이스 · ⌘T 새 터미널 · ⌘D/⌘⇧D 분할 · ⌘W 탭 닫기.
+    /// 물리 keyCode로 판별한다 — charactersIgnoringModifiers는 한글 자판에서 어긋난다.
+    private func handleShortcut(_ event: NSEvent) -> Bool {
+        guard event.window === window, event.modifierFlags.contains(.command),
+              let state else { return false }
+        let shift = event.modifierFlags.contains(.shift)
+
+        // ⌘1-8: 워크스페이스 전환 (숫자는 자판 무관하게 charactersIgnoringModifiers로)
+        if let s = event.charactersIgnoringModifiers, let n = Int(s),
+           n >= 1, n <= 8, state.workspaces.indices.contains(n - 1) {
+            state.setActiveId(state.workspaces[n - 1].id)
+            return true
+        }
+
+        guard let ws = state.activeWorkspace else { return false }
+        let controller = state.store(for: ws).controller
+
+        switch Int(event.keyCode) {
+        case kVK_ANSI_T:
+            _ = state.store(for: ws).newTerminal(inPane: controller.focusedPaneId)
+            return true
+        case kVK_ANSI_D:
+            _ = controller.splitPane(orientation: shift ? .vertical : .horizontal)
+            return true
+        case kVK_ANSI_W:
+            if let pane = controller.focusedPaneId, let tab = controller.selectedTab(inPane: pane) {
+                _ = controller.closeTab(tab.id, inPane: pane)
+            }
+            return true
+        default:
+            return false
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }
 
-let delegate = AppDelegate()
-let app = NSApplication.shared
-app.setActivationPolicy(.regular)
-app.delegate = delegate
-app.run()
+// AppDelegate가 @MainActor라 top-level(nonisolated)에서 직접 못 만든다 — 메인 스레드 실행이 보장되므로 assumeIsolated.
+MainActor.assumeIsolated {
+    let delegate = AppDelegate()
+    let app = NSApplication.shared
+    app.setActivationPolicy(.regular)
+    app.delegate = delegate // delegate는 weak지만 run()이 블록되는 동안 이 스코프가 유지한다
+    app.run()
+}
