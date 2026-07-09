@@ -1,25 +1,21 @@
 import AppKit
 import SwiftUI
 
-/// 워크스페이스 하위 프로젝트 탭바(상단). 각 프로젝트 = 독립 분할 레이아웃(Bonsplit) 하나.
-/// 크롬식 탭 — 클릭 전환, ✕ 닫기(마지막 하나는 유지), + 로 새 프로젝트/워크트리 추가.
+/// 워크스페이스 하위 프로젝트 탭 묶음 — 상단바 한 줄에 임베드된다(별도 줄 아님).
+/// 각 프로젝트 = 독립 분할 레이아웃(Bonsplit) 하나. 크롬식 탭 — 클릭 전환,
+/// ✕ 닫기(마지막 하나는 유지), + 로 새 프로젝트/워크트리 추가.
 struct ProjectTabBar: View {
     let state: AppState
     let workspace: Workspace
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 2) {
-                ForEach(workspace.projects) { project in
-                    tab(project)
-                }
-                addButton
-                Spacer(minLength: 0)
+        HStack(spacing: 2) {
+            ForEach(workspace.projects) { project in
+                tab(project)
             }
-            .padding(.horizontal, 6)
+            addButton
         }
-        .frame(height: 34)
-        .background(Color.pPanel)
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     @ViewBuilder

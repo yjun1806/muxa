@@ -24,33 +24,39 @@ struct ContentView: View {
         .background(Color.pPanel)
     }
 
-    /// 전체 폭 상단바 — 신호등(좌상단) 자리를 비우고 그 오른쪽에 컨트롤을 둔다.
-    /// fullSizeContentView라 콘텐츠가 타이틀바까지 올라와 신호등이 이 줄 위에 뜬다.
+    /// 전체 폭 상단바 한 줄 — 신호등 · 사이드바/워크스페이스 컨트롤 · 프로젝트 탭 · 우측 경로.
+    /// 타이틀바와 프로젝트 헤더를 한 줄로 합친다(두 줄로 따로 놀지 않게). fullSizeContentView라
+    /// 콘텐츠가 타이틀바까지 올라와 신호등이 이 줄 위에 뜬다.
     private var topBar: some View {
-        HStack(spacing: 0) {
-            Color.clear.frame(width: 72) // 신호등 3개 확보
+        HStack(spacing: 8) {
+            Color.clear.frame(width: 68) // 신호등 3개 확보
             TopBarControls(state: state, home: home)
-            Spacer(minLength: 0)
+            if let ws = state.activeWorkspace {
+                Rectangle().fill(Color.pBorder).frame(width: 1, height: 16)
+                ProjectTabBar(state: state, workspace: ws)
+                Spacer(minLength: 12)
+                // 우측: 워크스페이스 · 활성 프로젝트 실효 경로
+                Text(displayPath(ws.activeProject?.path ?? ws.path, home: home))
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.pMuted)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                    .padding(.trailing, 12)
+            } else {
+                Spacer(minLength: 0)
+            }
         }
-        .frame(height: 32)
+        .frame(height: 38)
         .background(Color.pPanel)
     }
 
-    /// 활성 워크스페이스 열 = 프로젝트 탭바 + 활성 프로젝트의 Bonsplit(탭·분할).
+    /// 활성 워크스페이스 열 = 활성 프로젝트의 Bonsplit(터미널 탭·분할). 프로젝트 탭은 상단바에 있다.
     @ViewBuilder
     private var workspaceColumn: some View {
-        if let ws = state.activeWorkspace {
-            VStack(spacing: 0) {
-                ProjectTabBar(state: state, workspace: ws)
-                Rectangle().fill(Color.pBorder).frame(height: 1)
-                if let project = ws.activeProject {
-                    // 프로젝트별 안정 identity — 전환해도 store(터미널들)는 AppState가 유지한다.
-                    BonsplitWorkspaceView(store: state.store(for: project, in: ws))
-                        .id(project.id)
-                } else {
-                    Color.pBg
-                }
-            }
+        if let ws = state.activeWorkspace, let project = ws.activeProject {
+            // 프로젝트별 안정 identity — 전환해도 store(터미널들)는 AppState가 유지한다.
+            BonsplitWorkspaceView(store: state.store(for: project, in: ws))
+                .id(project.id)
         } else {
             Color.pBg
         }

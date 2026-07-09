@@ -1,9 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// 타이틀바에 얹는 상단바 컨트롤 — 신호등 바로 오른쪽 같은 줄에 표시된다.
-/// (src/SidebarControls.tsx + TopBar.tsx 이식) NSTitlebarAccessoryViewController.view로 호스팅한다.
-/// SwiftUI 콘텐츠에 넣으면 타이틀바 프레임에 가려지므로, 액세서리로 직접 얹는다.
+/// 상단바 왼쪽 클러스터 — 사이드바 모드 메뉴 + 새 워크스페이스 메뉴.
+/// (src/SidebarControls.tsx 이식) ContentView 상단바 한 줄에 프로젝트 탭과 함께 배치된다.
 struct TopBarControls: View {
     let state: AppState
     let home: String
@@ -39,24 +38,8 @@ struct TopBarControls: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .help("새 워크스페이스")
-
-            if let ws = state.activeWorkspace {
-                Rectangle().fill(Color.pBorder).frame(width: 1, height: 16)
-                    .padding(.horizontal, 6)
-                Image(systemName: "folder").font(.system(size: 12)).foregroundStyle(Color.pMuted)
-                Text(ws.name)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color.pFg)
-                // 실제 cwd는 활성 프로젝트 경로(없으면 워크스페이스 경로 상속)
-                Text(displayPath(ws.activeProject?.path ?? ws.path, home: home))
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.pMuted)
-                    .lineLimit(1)
-                    .frame(maxWidth: 360, alignment: .leading)
-            }
         }
         .padding(.horizontal, 8)
-        .frame(height: 28)
         .fixedSize(horizontal: true, vertical: false)
     }
 
