@@ -1,27 +1,15 @@
 import AppKit
 import Carbon.HIToolbox
 import GhosttyKit
-import SwiftUI
+import Observation
 
-/// SwiftUI에 임베드되는 터미널 호스트. 모든 (워크스페이스, 탭)의 WorkspaceView를 살려 두고
+/// AppKit 터미널 호스트. 모든 (워크스페이스, 탭)의 WorkspaceView를 살려 두고
 /// 활성 워크스페이스의 활성 탭만 표시한다 — 전환·백그라운드에서도 서피스·PTY가 유지된다.
 /// 트리 변경은 onTreeChange로 AppState에 저장하고, ⌘1-8·⌘T·⌘⇧W를 여기서 처리한다.
-struct WorkspaceHost: NSViewRepresentable {
-    let app: ghostty_app_t
-    let state: AppState
-
-    func makeNSView(context: Context) -> WorkspaceHostView {
-        WorkspaceHostView(app: app, state: state)
-    }
-
-    func updateNSView(_ nsView: WorkspaceHostView, context: Context) {
-        // sync()는 프레임·first responder를 바꿔 SwiftUI 레이아웃을 재무효화한다.
-        // 레이아웃 패스 중 동기 실행하면 "Update Constraints" 재귀 루프로 창이 크래시하므로
-        // 다음 런루프로 미뤄 패스 밖에서 실행한다.
-        DispatchQueue.main.async { [weak nsView] in nsView?.sync() }
-    }
-}
-
+///
+/// SwiftUI(NSViewRepresentable)에 임베드하지 않는다 — 분할 시 내부 레이아웃이 SwiftUI
+/// 제약 패스를 재귀 무효화해 창이 크래시하기 때문. RootView가 형제 뷰로 얹고,
+/// 상태 변경은 observeAndSync()가 @Observable을 직접 관찰해 sync()를 다시 돌린다.
 final class WorkspaceHostView: NSView {
     private let app: ghostty_app_t
     private let state: AppState
@@ -49,7 +37,19 @@ final class WorkspaceHostView: NSView {
         layoutActive()
     }
 
-    /// SwiftUI 상태 변경 시 호출 — 탭 뷰 생성/제거, 활성만 표시.
+    /// @Observable 상태(workspaces·activeId·activeTab)를 직접 관찰해 변할 때마다 sync를 다시 돈다.
+    /// SwiftUI 밖 AppKit 뷰라 자동 갱신이 없으므로 withObservationTracking으로 대신한다.
+    /// (SwiftUI에 임베드하면 분할 레이아웃이 제약 패스를 재귀 무효화해 크래시하기 때문에 분리했다.)
+    func observeAndSync() {
+        withObservationTracking {
+            sync()
+        } onChange: { [weak self] in
+            // onChange는 변경 "직전"에 한 번 불린다 — 다음 런루프에서 재구독하며 sync를 다시 돈다.
+            DispatchQueue.main.async { self?.observeAndSync() }
+        }
+    }
+
+    /// 탭 뷰 생성/제거 + 활성만 표시 + 활성 패인 포커스.
     func sync() {
         let allTabIds = Set(state.workspaces.flatMap { $0.tabs.map(\.id) })
         for (id, view) in views where !allTabIds.contains(id) {
@@ -64,11 +64,18 @@ final class WorkspaceHostView: NSView {
             }
         }
         layoutActive()
-        if let activeView = views[activeTabId] {
-            window?.makeFirstResponder(nil)
-            activeView.focusActivePane()
+        // 리포커스는 활성 탭이 실제로 바뀐 경우에만 — 트리 변경(분할/드래그)마다 하면 포커스가 튄다.
+        let active = activeTabId
+        if active != lastFocusedTabId {
+            lastFocusedTabId = active
+            if let activeView = views[active] {
+                window?.makeFirstResponder(nil)
+                activeView.focusActivePane()
+            }
         }
     }
+
+    private var lastFocusedTabId: String?
 
     private var activeTabId: String {
         state.activeWorkspace?.activeTabId ?? ""

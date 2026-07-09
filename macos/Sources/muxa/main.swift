@@ -41,9 +41,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.backgroundColor = Palette.panel // 타이틀바(=창 배경)를 상단바와 같은 회색으로
         window.center()
 
-        window.contentView = NSHostingView(
-            rootView: ContentView(app: app, state: state, home: SystemPaths.home)
-        )
+        // 크롬(SwiftUI)과 터미널(AppKit)을 형제로 담는 RootView.
+        // 터미널을 SwiftUI에 임베드하면 분할 레이아웃이 제약 패스를 재귀 무효화해 크래시하기 때문.
+        window.contentView = RootView(app: app, state: state, home: SystemPaths.home)
 
         // 상단바 컨트롤을 타이틀바 신호등 오른쪽(.leading)에 얹는다 — SwiftUI 콘텐츠에 넣으면 가려진다.
         let accessory = NSTitlebarAccessoryViewController()
