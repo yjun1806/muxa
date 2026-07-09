@@ -54,7 +54,7 @@ muxa의 차별화 축은 터미널 품질이 아니다(그건 cmux가 이미 잘
 | D2 | 셸 플랫폼 | **폐기(v2 →D13).** ~~Tauri 2 (Rust 백엔드 + 시스템 WebView)~~ | 폐기 사유: WKWebView IME composition 이벤트 결손 실측(1절). 원래 근거(Electron 메모리 탈락, mac 전용)는 유효했으나 한글 입력 결격이 우선 |
 | D3 | 터미널 엔진 | **폐기(v2 →D14).** ~~alacritty_terminal 크레이트~~ | v1 기각 사유("libghostty는 WebView와 안 붙음")가 네이티브 전환으로 소멸 → libghostty 채택 가능해짐 |
 | D4 | 터미널 렌더러 | **폐기(v2 →D14).** ~~WebView 쪽 thin view~~ | 렌더러 교체 출구로 남겨뒀던 libghostty가 본선이 됨 |
-| D5 | git 백엔드 | git2 (libgit2 바인딩) → **v2: libgit2 C API 직접 또는 SwiftGit2, M3에서 확정** | Swift 전환으로 바인딩 계층만 재검토. libgit2 자체는 유지 |
+| D5 | git 백엔드 | ~~libgit2~~ → **`git` CLI 셸아웃 확정(M3)** | 의존성·벤더링 0(GhosttyKit만으로 빌드 복잡), diff·log·blame이 CLI로 간단, 워크트리(M4)가 CLI 전용이라 M3·M4 일관, cmux도 CLI. 대형 리포 성능은 FSEvents 부분갱신(M2)으로 보완. `GitService`가 백그라운드 Process로 실행 |
 | D6 | 파일 워칭 | notify 크레이트 → **v2: FSEvents (macOS 네이티브)** | Swift에서 FSEvents 직접 사용이 더 단순 |
 | D7 | 프론트엔드 | **폐기(v2 →D16).** ~~React + TypeScript~~ | 크롬 UI는 SwiftUI로. 읽기 전용 뷰어는 WKWebView 재사용 허용(3절 불변식 3) |
 | D8 | 코드 뷰어 | CodeMirror 6 읽기 전용 | **유지 가능** — 뷰어는 입력 표면이 아니라 IME 결손이 무해. WKWebView 안에서 재사용(M2에서 네이티브 대안과 비교) |
