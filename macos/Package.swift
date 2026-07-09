@@ -5,10 +5,17 @@ import PackageDescription
 let package = Package(
     name: "muxa",
     platforms: [.macOS(.v14)], // SwiftUI @Observable·최신 API
+    dependencies: [
+        // 분할·탭 SwiftUI 프레임워크(MIT). cmux가 libghostty 터미널에 실전 사용.
+        .package(url: "https://github.com/almonk/bonsplit.git", from: "1.1.1"),
+    ],
     targets: [
         .executableTarget(
             name: "muxa",
-            dependencies: ["GhosttyKit"],
+            dependencies: [
+                "GhosttyKit",
+                .product(name: "Bonsplit", package: "bonsplit"),
+            ],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("Metal"),

@@ -1,0 +1,14 @@
+{
+  "pins" : [
+    {
+      "identity" : "bonsplit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/almonk/bonsplit.git",
+      "state" : {
+        "revision" : "7c322f078c388438e4b7896a86c57598aa7e203d",
+        "version" : "1.1.1"
+      }
+    }
+  ],
+  "version" : 2
+}
