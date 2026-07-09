@@ -12,6 +12,7 @@ guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == GHOSTTY_SU
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var runtime: GhosttyRuntime?
+    private var state: AppState?
     private var window: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -20,16 +21,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.runtime = runtime
 
+        // 저장된 세션 복원(없으면 현재 디렉토리로 초기 워크스페이스 생성)
+        let state = AppState()
+        state.load()
+        state.ensureInitial(path: SystemPaths.currentDir ?? SystemPaths.home)
+        self.state = state
+
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: 1000, height: 680),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        window.title = "muxa — SwiftUI 검증"
+        window.title = "muxa"
         window.center()
         window.contentView = NSHostingView(
-            rootView: TerminalSurface(app: app, cwd: SystemPaths.currentDir ?? SystemPaths.home)
+            rootView: ContentView(app: app, state: state, home: SystemPaths.home)
         )
         window.makeKeyAndOrderFront(nil)
         self.window = window

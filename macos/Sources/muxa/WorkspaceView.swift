@@ -18,11 +18,11 @@ final class WorkspaceView: NSView {
     private var termViews: [String: TermView] = [:]
     private var dividerViews: [DividerView] = []
 
-    init(app: ghostty_app_t, workspace: Workspace, onTreeChange: @escaping (TreeNode, String) -> Void) {
+    init(app: ghostty_app_t, tab: TermTab, cwd: String?, onTreeChange: @escaping (TreeNode, String) -> Void) {
         self.app = app
-        self.cwd = workspace.path
-        self.tree = workspace.tree
-        self.focusedId = workspace.focusedId
+        self.cwd = cwd
+        self.tree = tab.tree
+        self.focusedId = tab.focusedId
         self.onTreeChange = onTreeChange
         super.init(frame: .zero)
     }
@@ -84,7 +84,7 @@ final class WorkspaceView: NSView {
         )
     }
 
-    private func dividerPixelRect(_ d: Divider) -> NSRect {
+    private func dividerPixelRect(_ d: SplitDivider) -> NSRect {
         let thickness: CGFloat = 6
         if d.dir == .row {
             return NSRect(
@@ -141,7 +141,7 @@ final class WorkspaceView: NSView {
         focusCurrent()
     }
 
-    private func resize(_ d: Divider, by pointerDelta: CGFloat) {
+    private func resize(_ d: SplitDivider, by pointerDelta: CGFloat) {
         let axisPx = d.axisPct / 100 * (d.dir == .row ? bounds.width : bounds.height)
         guard axisPx > 0 else { return }
         let total = d.sizes.reduce(0, +)

@@ -63,7 +63,8 @@ struct Rect: Equatable {
 }
 
 /// 구분선 하나 — 분할 노드의 child[index]와 child[index+1] 사이 경계(모두 % 단위).
-struct Divider: Equatable {
+/// SwiftUI.Divider와 충돌하지 않도록 SplitDivider로 둔다.
+struct SplitDivider: Equatable {
     var key: String
     var splitId: String
     var index: Int
@@ -77,7 +78,7 @@ struct Divider: Equatable {
 
 struct Layout {
     var panes: [String: Rect] = [:]
-    var dividers: [Divider] = []
+    var dividers: [SplitDivider] = []
 }
 
 /// 트리를 패인 사각형(%)과 구분선 목록으로 펼친다.
@@ -105,7 +106,7 @@ private func computeLayout(_ node: TreeNode, rect: Rect, into acc: inout Layout)
             computeLayout(child, rect: childRect, into: &acc)
             // 마지막 자식 뒤에는 구분선이 없다
             if i < children.count - 1 {
-                acc.dividers.append(Divider(
+                acc.dividers.append(SplitDivider(
                     key: "\(id):\(i)",
                     splitId: id,
                     index: i,

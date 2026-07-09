@@ -8,7 +8,7 @@ final class DividerView: NSView {
     private let dir: Dir
     private let onResize: (CGFloat) -> Void
 
-    init(divider: Divider, onResize: @escaping (CGFloat) -> Void) {
+    init(divider: SplitDivider, onResize: @escaping (CGFloat) -> Void) {
         self.dir = divider.dir
         self.onResize = onResize
         super.init(frame: .zero)
