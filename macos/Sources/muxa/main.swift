@@ -131,6 +131,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
+    /// 종료 확인 — 실행 중인 터미널 세션이 다 닫히므로 실수 종료를 막는다.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "muxa를 종료할까요?"
+        alert.informativeText = "실행 중인 터미널 세션이 모두 종료됩니다."
+        alert.addButton(withTitle: "종료") // 첫 버튼 = 기본(Enter)
+        alert.addButton(withTitle: "취소")
+        return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
+    }
+
     /// 종료 직전 현재 분할 레이아웃을 저장한다 — split/탭 변경은 자체 save를 안 부르므로 여기서 확정.
     func applicationWillTerminate(_ notification: Notification) {
         state?.save()
