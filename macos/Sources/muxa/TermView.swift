@@ -28,7 +28,7 @@ final class TermView: NSView, NSTextInputClient {
 
     override var acceptsFirstResponder: Bool { true }
 
-    init(app: ghostty_app_t) {
+    init(app: ghostty_app_t, cwd: String?) {
         super.init(frame: .zero)
 
         var config = ghostty_surface_config_new()
@@ -39,7 +39,16 @@ final class TermView: NSView, NSTextInputClient {
         config.userdata = Unmanaged.passUnretained(self).toOpaque()
         config.scale_factor = Double(NSScreen.main?.backingScaleFactor ?? 2.0)
         config.context = GHOSTTY_SURFACE_CONTEXT_WINDOW
-        self.surface = ghostty_surface_new(app, &config)
+
+        // working_directory는 const char* — surface_new가 읽는 동안만 유효하면 된다
+        if let cwd {
+            self.surface = cwd.withCString { ptr in
+                config.working_directory = ptr
+                return ghostty_surface_new(app, &config)
+            }
+        } else {
+            self.surface = ghostty_surface_new(app, &config)
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("unsupported") }

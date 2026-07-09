@@ -6,7 +6,8 @@
 import Foundation
 
 /// row: 좌우 나란히(세로 분할) / col: 위아래(가로 분할)
-enum Dir {
+/// String raw로 두어 Codable·Equatable을 자동 합성한다(세션 직렬화).
+enum Dir: String, Codable {
     case row
     case col
 }
@@ -197,5 +198,49 @@ private func removeFrom(_ node: TreeNode, targetId: String) -> TreeNode? {
         if newChildren.isEmpty { return nil }
         if newChildren.count == 1 { return newChildren[0] } // collapse
         return .split(id: id, dir: dir, children: newChildren, sizes: newSizes)
+    }
+}
+
+// MARK: - 직렬화 (세션 복구)
+// tree.ts의 JSON 형태({type,id,dir,children,sizes})와 호환되도록 수동 구현한다.
+
+extension TreeNode: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case type, id, dir, children, sizes
+    }
+
+    private enum NodeType: String, Codable {
+        case pane, split
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try c.decode(String.self, forKey: .id)
+        switch try c.decode(NodeType.self, forKey: .type) {
+        case .pane:
+            self = .pane(id: id)
+        case .split:
+            self = .split(
+                id: id,
+                dir: try c.decode(Dir.self, forKey: .dir),
+                children: try c.decode([TreeNode].self, forKey: .children),
+                sizes: try c.decode([Double].self, forKey: .sizes)
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case let .pane(id):
+            try c.encode(NodeType.pane, forKey: .type)
+            try c.encode(id, forKey: .id)
+        case let .split(id, dir, children, sizes):
+            try c.encode(NodeType.split, forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(dir, forKey: .dir)
+            try c.encode(children, forKey: .children)
+            try c.encode(sizes, forKey: .sizes)
+        }
     }
 }

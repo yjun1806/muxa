@@ -11,15 +11,19 @@ import GhosttyKit
 /// 전환한다 — 기존 WorkspaceView.tsx처럼 상위가 tree를 갖고 onChange로 위임하는 형태.
 final class WorkspaceView: NSView {
     private let app: ghostty_app_t
+    private let cwd: String?
     private var tree: TreeNode
     private var focusedId: String
+    private let onTreeChange: (TreeNode, String) -> Void
     private var termViews: [String: TermView] = [:]
     private var dividerViews: [DividerView] = []
 
-    init(app: ghostty_app_t) {
+    init(app: ghostty_app_t, workspace: Workspace, onTreeChange: @escaping (TreeNode, String) -> Void) {
         self.app = app
-        self.tree = makePane()
-        self.focusedId = firstPaneId(tree)
+        self.cwd = workspace.path
+        self.tree = workspace.tree
+        self.focusedId = workspace.focusedId
+        self.onTreeChange = onTreeChange
         super.init(frame: .zero)
     }
 
@@ -64,7 +68,7 @@ final class WorkspaceView: NSView {
 
     private func termView(for id: String) -> TermView {
         if let existing = termViews[id] { return existing }
-        let view = TermView(app: app)
+        let view = TermView(app: app, cwd: cwd)
         termViews[id] = view
         addSubview(view, positioned: .below, relativeTo: nil) // 구분선 아래
         return view
@@ -107,6 +111,7 @@ final class WorkspaceView: NSView {
         focusedId = result.newPaneId
         relayout()
         focusCurrent()
+        onTreeChange(tree, focusedId)
     }
 
     private func closeFocused() {
@@ -117,16 +122,23 @@ final class WorkspaceView: NSView {
         tree = next
         relayout()
         focusCurrent()
+        onTreeChange(tree, focusedId)
     }
 
     private func focusSibling(_ delta: Int) {
         focusedId = siblingPaneId(tree, focusedId: focusedId, delta: delta)
         relayout()
         focusCurrent()
+        onTreeChange(tree, focusedId)
     }
 
     private func focusCurrent() {
         window?.makeFirstResponder(termViews[focusedId])
+    }
+
+    /// 활성 워크스페이스로 전환됐을 때 RootView가 호출 — 포커스 패인에 first responder를 준다.
+    func focusActivePane() {
+        focusCurrent()
     }
 
     private func resize(_ d: Divider, by pointerDelta: CGFloat) {
@@ -144,6 +156,7 @@ final class WorkspaceView: NSView {
         newSizes[d.index + 1] = b
         tree = setSplitSizes(tree, splitId: d.splitId, sizes: newSizes)
         relayout()
+        onTreeChange(tree, focusedId)
     }
 
     // MARK: 키바인딩 — ⌘D 분할 / ⌘W 닫기 / ⌘] ⌘[ 포커스 이동
