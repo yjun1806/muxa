@@ -7,17 +7,33 @@ struct ContentView: View {
     let home: String
 
     var body: some View {
-        // 사이드바는 오버레이로 떠 있고, 레이아웃엔 접힌 폭(baseWidth)만 예약한다 —
-        // hover peek로 펼쳐져도 콘텐츠(워크스페이스)가 밀리지 않는다.
-        HStack(spacing: 0) {
-            Color.clear.frame(width: state.sidebarMode.baseWidth)
-            Rectangle().fill(Color.pBorder).frame(width: 1)
-            workspaceArea
+        VStack(spacing: 0) {
+            topBar
+            Rectangle().fill(Color.pBorder).frame(height: 1)
+            // 사이드바는 오버레이로 떠 있고, 레이아웃엔 접힌 폭(baseWidth)만 예약한다 —
+            // hover peek로 펼쳐져도 콘텐츠(워크스페이스)가 밀리지 않는다.
+            HStack(spacing: 0) {
+                Color.clear.frame(width: state.sidebarMode.baseWidth)
+                Rectangle().fill(Color.pBorder).frame(width: 1)
+                workspaceArea
+            }
+            .overlay(alignment: .topLeading) {
+                SidebarSUI(state: state)
+            }
         }
         .background(Color.pPanel)
-        .overlay(alignment: .topLeading) {
-            SidebarSUI(state: state)
+    }
+
+    /// 전체 폭 상단바 — 신호등(좌상단) 자리를 비우고 그 오른쪽에 컨트롤을 둔다.
+    /// fullSizeContentView라 콘텐츠가 타이틀바까지 올라와 신호등이 이 줄 위에 뜬다.
+    private var topBar: some View {
+        HStack(spacing: 0) {
+            Color.clear.frame(width: 72) // 신호등 3개 확보
+            TopBarControls(state: state, home: home)
+            Spacer(minLength: 0)
         }
+        .frame(height: 32)
+        .background(Color.pPanel)
     }
 
     @ViewBuilder

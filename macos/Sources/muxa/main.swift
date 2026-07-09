@@ -33,28 +33,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1000, height: 680),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.title = "muxa"
-        // 타이틀바를 투명·제목숨김으로 만들어 신호등만 남기고, 상단바 컨트롤은 액세서리로 그 줄에 얹는다(Tauri식)
+        // 콘텐츠를 타이틀바까지 끌어올리고(fullSizeContentView) 신호등만 남긴다. 상단바 컨트롤은
+        // SwiftUI 본문 최상단에 직접 둔다 — 타이틀바 액세서리는 렌더가 불안정해 비어 보였다.
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true // 빈 영역 드래그로 창 이동(Tauri drag-region 대체)
-        window.backgroundColor = Palette.panel // 타이틀바(=창 배경)를 상단바와 같은 회색으로
+        window.backgroundColor = Palette.panel // 창 배경을 상단바와 같은 회색으로
         window.center()
 
-        // 크롬(사이드바) + 활성 워크스페이스(Bonsplit 탭바·분할)를 SwiftUI로 렌더.
+        // 크롬(상단바·사이드바) + 활성 워크스페이스(Bonsplit 탭바·분할)를 SwiftUI로 렌더.
         window.contentView = NSHostingView(rootView: ContentView(state: state, home: SystemPaths.home))
-
-        // 상단바 컨트롤을 타이틀바 신호등 오른쪽(.leading)에 얹는다 — SwiftUI 콘텐츠에 넣으면 가려진다.
-        let accessory = NSTitlebarAccessoryViewController()
-        accessory.layoutAttribute = .leading
-        let controls = NSHostingView(rootView: TopBarControls(state: state, home: SystemPaths.home))
-        controls.sizingOptions = [.intrinsicContentSize]
-        accessory.view = controls
-        window.addTitlebarAccessoryViewController(accessory)
 
         window.makeKeyAndOrderFront(nil)
         self.window = window
