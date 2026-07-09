@@ -3,21 +3,22 @@ import Foundation
 import GhosttyKit
 import Observation
 
-/// 앱 전역 상태 + 영속. (src/store.ts 이식) 워크스페이스 목록·활성·사이드바 모드를 소유하고,
-/// 워크스페이스마다 TerminalStore(Bonsplit 컨트롤러 + 터미널들)를 lazy 생성·유지한다.
+/// 앱 전역 상태 + 영속. 워크스페이스(사이드바) ⊃ 프로젝트(상단 탭) ⊃ 터미널 탭(Bonsplit).
+/// 프로젝트마다 TerminalStore(Bonsplit 컨트롤러) 하나를 lazy 생성·유지한다.
 ///
-/// 재시작 시 워크스페이스 목록·cwd·사이드바 모드가 복원된다(분할 레이아웃 복원은 후속).
-/// PTY는 프로세스라 복원 불가 → 각 워크스페이스는 초기 터미널 1개로 시작한다.
+/// 재시작 시 워크스페이스·프로젝트·사이드바 모드 + 프로젝트별 분할 트리가 복원된다.
+/// PTY는 프로세스라 복원 불가 → 각 탭은 프로젝트 cwd에서 새 셸로 시작한다.
 @MainActor
 @Observable
 final class AppState {
     private(set) var workspaces: [Workspace] = []
-    private(set) var activeId: String = ""
+    private(set) var activeId: String = "" // 활성 워크스페이스
     private(set) var sidebarMode: SidebarMode = .expanded
 
     @ObservationIgnored private let app: ghostty_app_t
+    /// 프로젝트 id → TerminalStore. 프로젝트가 독립 분할 레이아웃 하나를 소유한다.
     @ObservationIgnored private var stores: [String: TerminalStore] = [:]
-    /// 워크스페이스별 저장된 분할 트리(재시작 복원용). 아직 안 연 워크스페이스 것도 보존한다.
+    /// 프로젝트 id → 저장된 분할 트리(재시작 복원용). 아직 안 연 프로젝트 것도 보존한다.
     @ObservationIgnored private var savedLayouts: [String: ExternalTreeNode] = [:]
 
     init(app: ghostty_app_t) {
@@ -28,12 +29,23 @@ final class AppState {
         workspaces.first { $0.id == activeId }
     }
 
-    /// 워크스페이스의 터미널 스토어(없으면 생성). 표시 시점에 lazy 생성된다.
-    /// 첫 생성 시 저장된 분할 트리를 넘겨 복원한다(있으면).
-    func store(for workspace: Workspace) -> TerminalStore {
-        if let s = stores[workspace.id] { return s }
-        let s = TerminalStore(app: app, cwd: workspace.path, restoreTree: savedLayouts[workspace.id])
-        stores[workspace.id] = s
+    /// 활성 워크스페이스의 활성 프로젝트.
+    var activeProject: Project? {
+        activeWorkspace?.activeProject
+    }
+
+    /// 활성 워크스페이스의 활성 프로젝트 스토어(단축키 대상 — ⌘T/⌘D/⌘W/⌘F).
+    var activeStore: TerminalStore? {
+        guard let ws = activeWorkspace, let project = ws.activeProject else { return nil }
+        return store(for: project, in: ws)
+    }
+
+    /// 프로젝트의 터미널 스토어(없으면 생성). cwd는 프로젝트 경로(없으면 워크스페이스 경로 상속).
+    func store(for project: Project, in workspace: Workspace) -> TerminalStore {
+        if let s = stores[project.id] { return s }
+        let cwd = project.path ?? workspace.path
+        let s = TerminalStore(app: app, cwd: cwd, restoreTree: savedLayouts[project.id])
+        stores[project.id] = s
         return s
     }
 
@@ -67,28 +79,85 @@ final class AppState {
         save()
     }
 
-    // MARK: 영속 (메타데이터 + 워크스페이스별 분할 트리)
+    // MARK: 프로젝트 액션 (활성 워크스페이스 대상)
+
+    /// 활성 워크스페이스에서 프로젝트를 전환한다.
+    func setActiveProject(_ projectId: String) {
+        updateActiveWorkspace { ws in
+            guard ws.projects.contains(where: { $0.id == projectId }) else { return ws }
+            var next = ws
+            next.activeProjectId = projectId
+            return next
+        }
+    }
+
+    /// 새 프로젝트(워크트리 등)를 활성 워크스페이스에 추가하고 활성화한다.
+    @discardableResult
+    func addProject(name: String, path: String?) -> Project? {
+        let project = createProject(name: name, path: path)
+        updateActiveWorkspace { ws in
+            var next = ws
+            next.projects.append(project)
+            next.activeProjectId = project.id
+            return next
+        }
+        return activeWorkspace == nil ? nil : project
+    }
+
+    /// 활성 워크스페이스에서 프로젝트를 앞/뒤로 순환 전환한다(⌘⇧] / ⌘⇧[).
+    func cycleProject(forward: Bool) {
+        guard let ws = activeWorkspace, ws.projects.count > 1,
+              let idx = ws.projects.firstIndex(where: { $0.id == ws.activeProjectId }) else { return }
+        let count = ws.projects.count
+        let next = (idx + (forward ? 1 : count - 1)) % count
+        setActiveProject(ws.projects[next].id)
+    }
+
+    /// 프로젝트를 닫는다(마지막 하나는 남긴다). 활성이면 인접 프로젝트로 전환.
+    func closeProject(_ projectId: String) {
+        stores[projectId] = nil
+        savedLayouts[projectId] = nil
+        updateActiveWorkspace { ws in
+            guard ws.projects.count > 1,
+                  let idx = ws.projects.firstIndex(where: { $0.id == projectId }) else { return ws }
+            var next = ws
+            next.projects.remove(at: idx)
+            if next.activeProjectId == projectId {
+                next.activeProjectId = next.projects[min(idx, next.projects.count - 1)].id
+            }
+            return next
+        }
+    }
+
+    /// 활성 워크스페이스를 불변 갱신한다(immutable — 새 배열로 교체).
+    private func updateActiveWorkspace(_ transform: (Workspace) -> Workspace) {
+        guard let idx = workspaces.firstIndex(where: { $0.id == activeId }) else { return }
+        var next = workspaces
+        next[idx] = transform(workspaces[idx])
+        workspaces = next
+        save()
+    }
+
+    // MARK: 영속 (메타데이터 + 프로젝트별 분할 트리)
 
     private struct Persisted: Codable {
         var workspaces: [Workspace]
         var activeId: String
         var sidebarMode: SidebarMode
-        // 구버전(v3) 파일엔 없음 → 옵셔널(decodeIfPresent)로 하위호환. PTY는 복원 안 됨(새 셸).
-        var layouts: [String: ExternalTreeNode]?
+        var layouts: [String: ExternalTreeNode]? // 프로젝트 id → 트리. PTY는 복원 안 됨(새 셸).
     }
 
     private static let fileURL: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let dir = base.appendingPathComponent("muxa", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("state.v3.json")
+        return dir.appendingPathComponent("state.v4.json") // v4: 프로젝트 계층 추가
     }()
 
     func save() {
-        // 인스턴스화된 스토어의 현재 분할 트리를 반영한다. 아직 안 채워진(빈) 스토어는 스킵해
-        // 저장된 좋은 레이아웃을 빈 트리로 덮어쓰지 않는다. 안 연 워크스페이스 것은 그대로 보존.
-        for (id, store) in stores where !store.controller.allTabIds.isEmpty {
-            savedLayouts[id] = store.controller.treeSnapshot()
+        // 인스턴스화된 스토어(=열린 프로젝트)의 현재 분할 트리를 반영한다. 빈 스토어는 스킵.
+        for (projectId, store) in stores where !store.controller.allTabIds.isEmpty {
+            savedLayouts[projectId] = store.controller.treeSnapshot()
         }
         let snapshot = Persisted(workspaces: workspaces, activeId: activeId, sidebarMode: sidebarMode, layouts: savedLayouts)
         guard let data = try? JSONEncoder().encode(snapshot) else { return }

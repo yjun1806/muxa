@@ -76,12 +76,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return true
         }
 
-        guard let ws = state.activeWorkspace else { return false }
-        let controller = state.store(for: ws).controller
+        // ⌘⇧[ / ⌘⇧] : 프로젝트 전환(브라우저 탭 관례)
+        if shift, Int(event.keyCode) == kVK_ANSI_LeftBracket {
+            state.cycleProject(forward: false)
+            return true
+        }
+        if shift, Int(event.keyCode) == kVK_ANSI_RightBracket {
+            state.cycleProject(forward: true)
+            return true
+        }
+
+        guard let store = state.activeStore else { return false }
+        let controller = store.controller
 
         switch Int(event.keyCode) {
         case kVK_ANSI_T:
-            _ = state.store(for: ws).newTerminal(inPane: controller.focusedPaneId)
+            _ = store.newTerminal(inPane: controller.focusedPaneId)
             return true
         case kVK_ANSI_D:
             _ = controller.splitPane(orientation: shift ? .vertical : .horizontal)
@@ -92,7 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return true
         case kVK_ANSI_F:
-            state.store(for: ws).focusedTerm?.startSearch()
+            store.focusedTerm?.startSearch()
             return true
         default:
             return false

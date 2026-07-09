@@ -1,11 +1,26 @@
 import Foundation
 
-/// 워크스페이스 = 경로 + 표시 이름. 분할·탭 상태는 Bonsplit(TerminalStore)이 소유하므로
-/// 여기엔 메타데이터만 둔다. (src/workspace.ts 이식, Bonsplit 이관으로 tree/tabs 제거)
+/// 프로젝트 = 한 폴더에서 시작하는 탭 묶음(독립 분할 레이아웃 = Bonsplit 1개).
+/// 워크스페이스 하위. 경로는 워크스페이스 폴더를 상속하거나, 워크트리면 자체 경로를 가진다.
+/// 분할·탭 상태는 Bonsplit(TerminalStore)이 소유하므로 여기엔 메타만 둔다.
+struct Project: Codable, Identifiable {
+    let id: String
+    var name: String
+    var path: String? // nil이면 워크스페이스 경로 상속. 워크트리면 자체 경로.
+}
+
+/// 워크스페이스 = 메인 폴더(레포) + 프로젝트 묶음. 사이드바 최상위.
+/// (src/workspace.ts 이식, 프로젝트 계층 추가)
 struct Workspace: Codable, Identifiable {
     let id: String
-    var path: String? // 셸 cwd. 초기 워크스페이스는 프로세스 cwd라 nil일 수 있다
+    var path: String? // 메인 시작 폴더. 초기 워크스페이스는 프로세스 cwd라 nil일 수 있다
     var name: String // 표시 이름(경로 basename)
+    var projects: [Project]
+    var activeProjectId: String
+
+    var activeProject: Project? {
+        projects.first { $0.id == activeProjectId }
+    }
 }
 
 func newId() -> String {
@@ -25,6 +40,20 @@ func displayPath(_ path: String?, home: String?) -> String {
     return path
 }
 
+/// 기본 프로젝트 1개(= 메인 폴더)를 가진 워크스페이스를 만든다.
 func createWorkspace(path: String? = nil, name: String? = nil) -> Workspace {
-    Workspace(id: newId(), path: path, name: name ?? (path.map(basename) ?? "workspace"))
+    let wsName = name ?? (path.map(basename) ?? "workspace")
+    let mainProject = Project(id: newId(), name: "메인", path: nil) // nil = 워크스페이스 경로 상속
+    return Workspace(
+        id: newId(),
+        path: path,
+        name: wsName,
+        projects: [mainProject],
+        activeProjectId: mainProject.id
+    )
+}
+
+/// 새 프로젝트(워크트리 등) — 자체 경로 지정 가능(nil이면 워크스페이스 경로 상속).
+func createProject(name: String, path: String? = nil) -> Project {
+    Project(id: newId(), name: name, path: path)
 }

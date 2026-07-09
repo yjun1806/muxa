@@ -15,7 +15,7 @@ struct ContentView: View {
             HStack(spacing: 0) {
                 Color.clear.frame(width: state.sidebarMode.baseWidth)
                 Rectangle().fill(Color.pBorder).frame(width: 1)
-                workspaceArea
+                workspaceColumn
             }
             .overlay(alignment: .topLeading) {
                 SidebarSUI(state: state)
@@ -36,12 +36,21 @@ struct ContentView: View {
         .background(Color.pPanel)
     }
 
+    /// 활성 워크스페이스 열 = 프로젝트 탭바 + 활성 프로젝트의 Bonsplit(탭·분할).
     @ViewBuilder
-    private var workspaceArea: some View {
+    private var workspaceColumn: some View {
         if let ws = state.activeWorkspace {
-            // 워크스페이스별 안정 identity — 전환해도 store(터미널들)는 AppState가 유지한다.
-            BonsplitWorkspaceView(store: state.store(for: ws))
-                .id(ws.id)
+            VStack(spacing: 0) {
+                ProjectTabBar(state: state, workspace: ws)
+                Rectangle().fill(Color.pBorder).frame(height: 1)
+                if let project = ws.activeProject {
+                    // 프로젝트별 안정 identity — 전환해도 store(터미널들)는 AppState가 유지한다.
+                    BonsplitWorkspaceView(store: state.store(for: project, in: ws))
+                        .id(project.id)
+                } else {
+                    Color.pBg
+                }
+            }
         } else {
             Color.pBg
         }
