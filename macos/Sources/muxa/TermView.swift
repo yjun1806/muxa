@@ -72,13 +72,27 @@ final class TermView: NSView, NSTextInputClient {
         syncScaleAndSize()
     }
 
+    /// 마지막으로 libghostty에 전달한 백킹 크기·스케일 — 같은 값이면 재전달을 건너뛴다.
+    /// SwiftUI 레이아웃 협상이 잠깐 작은 크기를 제안했다가 되돌리는 오실레이션에서
+    /// 매번 ghostty를 리사이즈하면 레이아웃 재무효화 루프(창 크래시)로 번진다.
+    private var lastBacking: NSSize = .zero
+    private var lastScale: NSSize = .zero
+
     private func syncScaleAndSize() {
         guard let surface, frame.width > 0, frame.height > 0 else { return }
         let backing = convertToBacking(frame)
-        let xScale = backing.size.width / frame.size.width
-        let yScale = backing.size.height / frame.size.height
-        ghostty_surface_set_content_scale(surface, xScale, yScale)
-        ghostty_surface_set_size(surface, UInt32(backing.size.width), UInt32(backing.size.height))
+        let scale = NSSize(
+            width: backing.size.width / frame.size.width,
+            height: backing.size.height / frame.size.height
+        )
+        if scale != lastScale {
+            ghostty_surface_set_content_scale(surface, scale.width, scale.height)
+            lastScale = scale
+        }
+        if backing.size != lastBacking {
+            ghostty_surface_set_size(surface, UInt32(backing.size.width), UInt32(backing.size.height))
+            lastBacking = backing.size
+        }
     }
 
     // MARK: 포커스

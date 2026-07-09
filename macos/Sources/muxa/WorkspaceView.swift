@@ -17,7 +17,7 @@ final class WorkspaceView: NSView {
     private var focusedId: String
     private let onTreeChange: (TreeNode, String) -> Void
     private var containers: [String: PaneContainerView] = [:]
-    private var dividerViews: [DividerView] = []
+    private var dividerViews: [String: DividerView] = [:] // key: SplitDivider.key
 
     init(app: ghostty_app_t, tab: TermTab, cwd: String?, onTreeChange: @escaping (TreeNode, String) -> Void) {
         self.app = app
@@ -57,14 +57,26 @@ final class WorkspaceView: NSView {
             view.focused = (id == focusedId)
         }
 
-        // 구분선 재배치(간단화: 매번 새로 구성)
-        dividerViews.forEach { $0.removeFromSuperview() }
-        dividerViews = layout.dividers.map { d in
-            let v = DividerView(divider: d) { [weak self] delta in self?.resize(d, by: delta) }
-            v.frame = dividerPixelRect(d)
-            addSubview(v)
-            return v
+        // 구분선 재사용 — 매 레이아웃마다 재생성하면 레이아웃 도중 서브뷰 추가/제거가
+        // 다시 레이아웃을 트리거해 무한 루프(창 크래시)가 된다. key로 매칭해 프레임만 갱신한다.
+        let keys = Set(layout.dividers.map(\.key))
+        for (key, view) in dividerViews where !keys.contains(key) {
+            view.removeFromSuperview()
+            dividerViews[key] = nil
         }
+        for d in layout.dividers {
+            let view = dividerView(for: d)
+            view.divider = d
+            view.frame = dividerPixelRect(d)
+        }
+    }
+
+    private func dividerView(for d: SplitDivider) -> DividerView {
+        if let existing = dividerViews[d.key] { return existing }
+        let view = DividerView(divider: d) { [weak self] div, delta in self?.resize(div, by: delta) }
+        dividerViews[d.key] = view
+        addSubview(view) // 컨테이너 위(컨테이너는 .below로 추가됨)
+        return view
     }
 
     private func container(for id: String) -> PaneContainerView {
