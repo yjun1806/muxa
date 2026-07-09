@@ -5,6 +5,7 @@ import SwiftUI
 struct ContentView: View {
     let state: AppState
     let home: String
+    @State private var showGitPanel = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,6 +36,7 @@ struct ContentView: View {
                 Rectangle().fill(Color.pBorder).frame(width: 1, height: 16)
                 ProjectTabBar(state: state, workspace: ws)
                 Spacer(minLength: 12)
+                gitToggle
                 // 우측: 워크스페이스 · 활성 프로젝트 실효 경로
                 Text(displayPath(ws.activeProject?.path ?? ws.path, home: home))
                     .font(.system(size: 11))
@@ -50,13 +52,33 @@ struct ContentView: View {
         .background(Color.pPanel)
     }
 
-    /// 활성 워크스페이스 열 = 활성 프로젝트의 Bonsplit(터미널 탭·분할). 프로젝트 탭은 상단바에 있다.
+    /// Git 패널 토글 버튼(상단바 우측).
+    private var gitToggle: some View {
+        Button { showGitPanel.toggle() } label: {
+            Image(systemName: "arrow.triangle.branch")
+                .font(.system(size: 12))
+                .foregroundStyle(showGitPanel ? Color.pFg : Color.pMuted)
+        }
+        .buttonStyle(.plain)
+        .frame(width: 24, height: 24)
+        .background(showGitPanel ? Color.pBtnActive.opacity(0.6) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .help("Git 패널")
+    }
+
+    /// 활성 워크스페이스 열 = 활성 프로젝트의 Bonsplit(터미널 탭·분할) + (옵션) 우측 Git 패널.
     @ViewBuilder
     private var workspaceColumn: some View {
         if let ws = state.activeWorkspace, let project = ws.activeProject {
-            // 프로젝트별 안정 identity — 전환해도 store(터미널들)는 AppState가 유지한다.
-            BonsplitWorkspaceView(store: state.store(for: project, in: ws))
-                .id(project.id)
+            HStack(spacing: 0) {
+                // 프로젝트별 안정 identity — 전환해도 store(터미널들)는 AppState가 유지한다.
+                BonsplitWorkspaceView(store: state.store(for: project, in: ws))
+                    .id(project.id)
+                if showGitPanel {
+                    Rectangle().fill(Color.pBorder).frame(width: 1)
+                    GitPanel(dir: project.path ?? ws.path)
+                }
+            }
         } else {
             Color.pBg
         }
