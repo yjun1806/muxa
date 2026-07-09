@@ -25,6 +25,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.runtime = runtime
 
+        setupMainMenu() // ⌘Q(종료)·⌘H(가리기) — 메뉴가 없으면 ⌘Q가 안 묶인다
+
         // 저장된 세션 복원(없으면 현재 디렉토리로 초기 워크스페이스 생성)
         let state = AppState(app: app)
         state.load()
@@ -111,6 +113,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         default:
             return false
         }
+    }
+
+    /// 최소 메인 메뉴 — App 메뉴에 종료(⌘Q)·가리기(⌘H)만. Edit 메뉴의 ⌘C/⌘V는 터미널
+    /// 복사·붙여넣기(ghostty가 직접 처리)를 가로채므로 넣지 않는다.
+    private func setupMainMenu() {
+        let mainMenu = NSMenu()
+        let appItem = NSMenuItem()
+        mainMenu.addItem(appItem)
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "muxa 가리기", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "muxa 종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu
+        NSApp.mainMenu = mainMenu
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
