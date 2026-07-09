@@ -24,10 +24,34 @@ final class GhosttyRuntime {
             let runtime = Unmanaged<GhosttyRuntime>.fromOpaque(userdata).takeUnretainedValue()
             DispatchQueue.main.async { runtime.tick() }
         }
-        runtime.action_cb = { _, _, action in
-            // M0: 앱 크롬 액션(타이틀 변경·벨 등)은 처리하지 않는다
-            _ = action
-            return false
+        runtime.action_cb = { _, target, action in
+            // 스크롤백 검색 액션만 처리(⌘F). 나머지 앱 크롬 액션은 무시.
+            // 서피스 userdata(=TermView) 복원은 read_clipboard_cb와 동일 패턴.
+            guard target.tag == GHOSTTY_TARGET_SURFACE,
+                  let userdata = ghostty_surface_userdata(target.target.surface)
+            else { return false }
+            let view = Unmanaged<TermView>.fromOpaque(userdata).takeUnretainedValue()
+
+            switch action.tag {
+            case GHOSTTY_ACTION_START_SEARCH:
+                let needle = action.action.start_search.needle.flatMap { String(cString: $0) }
+                DispatchQueue.main.async { view.onStartSearch(needle) }
+                return true
+            case GHOSTTY_ACTION_END_SEARCH:
+                DispatchQueue.main.async { view.onEndSearch() }
+                return true
+            case GHOSTTY_ACTION_SEARCH_TOTAL:
+                // ssize_t, -1 = 미확정 센티넬. 무가드 UInt 캐스팅 금지.
+                let total = action.action.search_total.total
+                DispatchQueue.main.async { view.onSearchTotal(total >= 0 ? Int(total) : nil) }
+                return true
+            case GHOSTTY_ACTION_SEARCH_SELECTED:
+                let selected = action.action.search_selected.selected
+                DispatchQueue.main.async { view.onSearchSelected(selected >= 0 ? Int(selected) : nil) }
+                return true
+            default:
+                return false
+            }
         }
         runtime.read_clipboard_cb = { userdata, _, state in
             // userdata는 서피스 쪽 userdata = TermView

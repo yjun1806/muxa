@@ -98,6 +98,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 _ = controller.closeTab(tab.id, inPane: pane)
             }
             return true
+        case kVK_ANSI_F:
+            state.store(for: ws).focusedTerm?.startSearch()
+            return true
         default:
             return false
         }

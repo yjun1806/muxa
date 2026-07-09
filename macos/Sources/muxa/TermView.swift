@@ -22,6 +22,9 @@ final class TermView: NSView, NSTextInputClient {
     /// 이 패인이 클릭으로 포커스됐을 때 상위(WorkspaceView)에 알린다 — 논리 focusedId 갱신용.
     var onFocus: (() -> Void)?
 
+    /// 스크롤백 검색 상태(⌘F). 검색 오버레이가 관측하고, ghostty 검색 액션이 갱신한다.
+    let search = SearchState()
+
     /// IME 조합 중(preedit) 텍스트. NSTextInputClient가 채운다.
     private var markedText = NSMutableAttributedString()
 
@@ -52,6 +55,11 @@ final class TermView: NSView, NSTextInputClient {
             }
         } else {
             self.surface = ghostty_surface_new(app, &config)
+        }
+
+        // 검색어를 ghostty로 밀어넣는 브리지 — 전용 API가 없어 binding-action 문자열로만 가능(cmux 동일).
+        search.applyNeedle = { [weak self] needle in
+            self?.performBindingAction("search:\(needle)")
         }
     }
 
@@ -153,6 +161,44 @@ final class TermView: NSView, NSTextInputClient {
         window?.makeFirstResponder(self)
         onFocus?()
     }
+
+    // MARK: 스크롤백 검색 — ghostty binding-action 문자열로 구동 (cmux 이식)
+
+    /// 키바인드 액션을 이름 문자열로 서피스에 전달한다(검색 전용 C API가 없다).
+    @discardableResult
+    func performBindingAction(_ action: String) -> Bool {
+        guard let surface else { return false }
+        return action.withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
+    }
+
+    /// ⌘F — ghostty 검색 시작. 엔진이 START_SEARCH 액션으로 되돌려주면 오버레이가 뜬다.
+    func startSearch() { performBindingAction("start_search") }
+
+    /// 검색 종료 — 오버레이를 닫고 포커스를 터미널로 되돌린다.
+    func closeSearch() {
+        performBindingAction("end_search")
+        search.active = false
+        search.reset()
+        window?.makeFirstResponder(self)
+    }
+
+    func searchNext() { performBindingAction("navigate_search:next") }
+    func searchPrevious() { performBindingAction("navigate_search:previous") }
+
+    // ghostty→앱 검색 액션 훅 (GhosttyRuntime.action_cb가 메인 스레드에서 호출)
+
+    func onStartSearch(_ needle: String?) {
+        if let needle, !needle.isEmpty { search.needle = needle }
+        search.active = true
+    }
+
+    func onEndSearch() {
+        search.active = false
+        search.reset()
+    }
+
+    func onSearchTotal(_ total: Int?) { search.total = total }
+    func onSearchSelected(_ selected: Int?) { search.selected = selected }
 
     // MARK: 키 입력 — Ghostty SurfaceView_AppKit.keyDown 이식
 

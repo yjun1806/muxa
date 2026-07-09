@@ -42,6 +42,13 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         terms[tabId] = nil // TermView deinit이 서피스 free
     }
 
+    /// 현재 포커스된 패인에 보이는 터미널(단축키 대상 — ⌘F 등). 없으면 nil.
+    var focusedTerm: TermView? {
+        guard let pane = controller.focusedPaneId,
+              let tab = controller.selectedTab(inPane: pane) else { return nil }
+        return term(for: tab.id)
+    }
+
     /// tabId에 대응하는 터미널 뷰(없으면 생성). 패인 내용 렌더에서 호출한다.
     func term(for tabId: TabID) -> TermView {
         if let t = terms[tabId] { return t }

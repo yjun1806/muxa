@@ -8,8 +8,12 @@ struct BonsplitWorkspaceView: View {
 
     var body: some View {
         BonsplitView(controller: store.controller) { tab, paneId in
-            TerminalRepresentable(term: store.term(for: tab.id)) {
-                store.controller.focusPane(paneId)
+            let term = store.term(for: tab.id)
+            ZStack(alignment: .topTrailing) {
+                TerminalRepresentable(term: term) {
+                    store.controller.focusPane(paneId)
+                }
+                SearchOverlay(term: term) // active일 때만 우상단에 뜬다
             }
         } emptyPane: { paneId in
             emptyPane(paneId)
