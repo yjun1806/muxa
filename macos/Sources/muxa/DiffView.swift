@@ -18,6 +18,21 @@ enum GitDiffTarget: Identifiable {
         case .commit(_, let subject): return subject
         }
     }
+
+    /// 탭 라벨(짧게).
+    var tabTitle: String {
+        switch self {
+        case .file(let change): return basename(change.path)
+        case .commit(let hash, _): return String(hash.prefix(7))
+        }
+    }
+
+    var tabIcon: String {
+        switch self {
+        case .file: return "plusminus"
+        case .commit: return "clock"
+        }
+    }
 }
 
 /// unified diff 뷰어(시트). +초록/-빨강/@@ 청록으로 라인 색을 준다. 읽기 전용.
@@ -55,7 +70,7 @@ struct DiffView: View {
                 }
             }
         }
-        .frame(minWidth: 720, minHeight: 520)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.pBg)
         .task(id: target.id) { await load() }
     }

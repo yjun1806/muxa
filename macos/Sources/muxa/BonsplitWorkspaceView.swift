@@ -8,17 +8,30 @@ struct BonsplitWorkspaceView: View {
 
     var body: some View {
         BonsplitView(controller: store.controller) { tab, paneId in
-            let term = store.term(for: tab.id)
+            tabContent(tab.id, paneId: paneId)
+        } emptyPane: { paneId in
+            emptyPane(paneId)
+        }
+        .onAppear { store.ensureInitialTerminal() }
+    }
+
+    /// 탭 내용 — 터미널이거나 diff 뷰어(모달 아님, 이 패인의 탭으로 렌더).
+    @ViewBuilder
+    private func tabContent(_ tabId: TabID, paneId: PaneID) -> some View {
+        switch store.content(for: tabId) {
+        case .terminal:
+            let term = store.term(for: tabId)
             ZStack(alignment: .topTrailing) {
                 TerminalRepresentable(term: term) {
                     store.controller.focusPane(paneId)
                 }
                 SearchOverlay(term: term) // active일 때만 우상단에 뜬다
             }
-        } emptyPane: { paneId in
-            emptyPane(paneId)
+        case .diff(let target):
+            DiffView(target: target, dir: store.workingDir ?? "") {
+                _ = store.controller.closeTab(tabId, inPane: paneId)
+            }
         }
-        .onAppear { store.ensureInitialTerminal() }
     }
 
     /// 분할로 생긴 빈 패인 — 새 터미널을 만든다.

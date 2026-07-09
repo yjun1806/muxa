@@ -3,6 +3,12 @@ import Bonsplit
 import GhosttyKit
 import Observation
 
+/// Bonsplit 탭이 담는 내용 — 터미널이거나 뷰어(diff 등). B(뷰어)에서 md/code 추가 예정.
+enum TabContent {
+    case terminal
+    case diff(GitDiffTarget)
+}
+
 /// 워크스페이스 하나의 터미널 집합 + Bonsplit 분할·탭 컨트롤러. (cmux DockSplitStore 대응)
 ///
 /// Bonsplit이 분할 트리·탭 레이아웃을 SwiftUI로 관리하고, 우리는 tabId마다 TermView 하나를
@@ -16,6 +22,11 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     @ObservationIgnored private let app: ghostty_app_t
     @ObservationIgnored private let cwd: String?
     @ObservationIgnored private var terms: [TabID: TermView] = [:]
+    /// 터미널이 아닌 탭(diff 등)의 내용. 없으면 .terminal.
+    @ObservationIgnored private var tabContent: [TabID: TabContent] = [:]
+
+    /// 이 스토어(프로젝트)의 시작 폴더 — diff/뷰어 탭이 참조한다.
+    var workingDir: String? { cwd }
 
     /// 최초 표시 시 복원할 저장된 분할 트리(없으면 초기 터미널 1개). ensureInitialTerminal에서 소비.
     @ObservationIgnored private var restoreTree: ExternalTreeNode?
@@ -45,16 +56,23 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         newTerminal(inPane: pane)
     }
 
-    /// 탭이 닫히면 그 터미널(PTY·서피스)을 해제한다.
+    /// 탭이 닫히면 그 터미널(PTY·서피스)·뷰어 상태를 해제한다.
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         terms[tabId] = nil // TermView deinit이 서피스 free
+        tabContent[tabId] = nil
     }
 
-    /// 현재 포커스된 패인에 보이는 터미널(단축키 대상 — ⌘F 등). 없으면 nil.
+    /// 현재 포커스된 패인의 터미널(단축키 대상 — ⌘F 등). diff 등 비-터미널 탭이면 nil.
     var focusedTerm: TermView? {
         guard let pane = controller.focusedPaneId,
-              let tab = controller.selectedTab(inPane: pane) else { return nil }
+              let tab = controller.selectedTab(inPane: pane),
+              case .terminal = content(for: tab.id) else { return nil }
         return term(for: tab.id)
+    }
+
+    /// 탭의 내용 종류(터미널이거나 diff 등 뷰어).
+    func content(for tabId: TabID) -> TabContent {
+        tabContent[tabId] ?? .terminal
     }
 
     /// tabId에 대응하는 터미널 뷰(없으면 생성). 패인 내용 렌더에서 호출한다.
@@ -69,6 +87,22 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     @discardableResult
     func newTerminal(inPane pane: PaneID? = nil) -> TabID? {
         controller.createTab(title: "터미널", icon: "terminal", inPane: pane)
+    }
+
+    /// diff를 현재 포커스 패인의 새 탭으로 연다(모달 아님). 같은 대상 탭이 있으면 그걸 선택.
+    @discardableResult
+    func openDiff(_ target: GitDiffTarget) -> TabID? {
+        if let existing = tabContent.first(where: {
+            if case .diff(let t) = $0.value { return t.id == target.id }
+            return false
+        })?.key {
+            controller.selectTab(existing)
+            return existing
+        }
+        guard let tabId = controller.createTab(title: target.tabTitle, icon: target.tabIcon, inPane: controller.focusedPaneId) else { return nil }
+        tabContent[tabId] = .diff(target)
+        controller.selectTab(tabId) // 새 diff 탭을 바로 앞으로
+        return tabId
     }
 
     /// 최초 표시 시: 저장된 트리가 있으면 복원, 없으면 초기 터미널 1개.
