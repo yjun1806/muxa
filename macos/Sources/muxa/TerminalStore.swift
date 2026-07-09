@@ -62,20 +62,4 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             newTerminal()
         }
     }
-
-    /// [PoC] 분할 크래시 검증용 — 가로/세로로 두 번 분할하고 각 빈 패인에 터미널을 넣는다.
-    func debugAutoSplit() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-            guard let self else { return }
-            if let p = self.controller.splitPane(orientation: .horizontal) {
-                self.newTerminal(inPane: p)
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-                guard let self else { return }
-                if let p = self.controller.splitPane(orientation: .vertical) {
-                    self.newTerminal(inPane: p)
-                }
-            }
-        }
-    }
 }
