@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// 좌측 워크스페이스 사이드바. (src/Sidebar.tsx 이식) 4모드: expanded/icon/slim/hover.
-/// hover는 마우스를 올리면 잠시 expanded로 펼쳐진다(폭 확장).
+/// hover는 마우스를 올리면 잠시 expanded로 펼쳐진다 — 콘텐츠를 밀지 않고 위에 뜬다(오버레이,
+/// ContentView가 접힌 폭만 예약). peek 중엔 우측 그림자로 떠 있음을 표시한다.
 struct SidebarSUI: View {
     let state: AppState
     @State private var peeking = false
@@ -10,13 +11,7 @@ struct SidebarSUI: View {
         (state.sidebarMode == .hover && peeking) ? .expanded : state.sidebarMode
     }
 
-    private var width: CGFloat {
-        switch effectiveMode {
-        case .expanded: return 208
-        case .icon, .hover: return 52
-        case .slim: return 14
-        }
-    }
+    private var width: CGFloat { effectiveMode.baseWidth }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -29,6 +24,11 @@ struct SidebarSUI: View {
         .frame(width: width, alignment: .top)
         .frame(maxHeight: .infinity)
         .background(Color.pPanel)
+        .overlay(alignment: .trailing) {
+            if peeking { Rectangle().fill(Color.pBorder).frame(width: 1) }
+        }
+        .shadow(color: peeking ? .black.opacity(0.28) : .clear, radius: peeking ? 10 : 0, x: 2)
+        .animation(.easeOut(duration: 0.12), value: peeking)
         .onHover { hovering in
             if state.sidebarMode == .hover { peeking = hovering }
         }

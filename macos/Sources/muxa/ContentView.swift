@@ -7,12 +7,17 @@ struct ContentView: View {
     let home: String
 
     var body: some View {
+        // 사이드바는 오버레이로 떠 있고, 레이아웃엔 접힌 폭(baseWidth)만 예약한다 —
+        // hover peek로 펼쳐져도 콘텐츠(워크스페이스)가 밀리지 않는다.
         HStack(spacing: 0) {
-            SidebarSUI(state: state)
+            Color.clear.frame(width: state.sidebarMode.baseWidth)
             Rectangle().fill(Color.pBorder).frame(width: 1)
             workspaceArea
         }
         .background(Color.pPanel)
+        .overlay(alignment: .topLeading) {
+            SidebarSUI(state: state)
+        }
     }
 
     @ViewBuilder
