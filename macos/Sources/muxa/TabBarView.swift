@@ -14,7 +14,9 @@ struct TabBarView: View {
                 Button {
                     state.addTab(wsId: ws.id)
                 } label: {
-                    Image(systemName: "plus").font(.system(size: 11))
+                    Image(systemName: "plus")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.pMuted)
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 4)
@@ -23,7 +25,7 @@ struct TabBarView: View {
             }
             .padding(.horizontal, 8)
             .frame(height: 30)
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(Color.pPanel)
         }
     }
 
@@ -33,20 +35,26 @@ struct TabBarView: View {
         HStack(spacing: 6) {
             Text(tab.title)
                 .font(.system(size: 11))
+                .foregroundStyle(active ? Color.pFg : Color.pMuted)
                 .lineLimit(1)
             if ws.tabs.count > 1 {
                 Button {
                     state.closeTab(wsId: ws.id, tabId: tab.id)
                 } label: {
-                    Image(systemName: "xmark").font(.system(size: 8))
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8))
+                        .foregroundStyle(Color.pMuted)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 10)
-        .background(active ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.08))
+        .background(active ? Color.pBg : Color.pBtnHover.opacity(0.5))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(active ? Color.pBorderFocus : Color.clear, lineWidth: 1)
+        )
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .contentShape(Rectangle())
         .onTapGesture {

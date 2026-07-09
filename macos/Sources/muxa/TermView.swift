@@ -19,6 +19,9 @@ final class TermView: NSView, NSTextInputClient {
         }
     }
 
+    /// 이 패인이 클릭으로 포커스됐을 때 상위(WorkspaceView)에 알린다 — 논리 focusedId 갱신용.
+    var onFocus: (() -> Void)?
+
     /// IME 조합 중(preedit) 텍스트. NSTextInputClient가 채운다.
     private var markedText = NSMutableAttributedString()
 
@@ -98,6 +101,7 @@ final class TermView: NSView, NSTextInputClient {
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        onFocus?()
     }
 
     // MARK: 키 입력 — Ghostty SurfaceView_AppKit.keyDown 이식

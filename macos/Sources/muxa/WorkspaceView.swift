@@ -5,7 +5,8 @@ import GhosttyKit
 /// 워크스페이스 하나의 분할 터미널 트리를 렌더한다. (src/WorkspaceView.tsx의 AppKit 이식)
 ///
 /// computeLayout으로 각 패인의 사각형(%)을 계산해 절대 프레임으로 배치한다.
-/// id별 TermView를 재사용하므로 트리가 재구성돼도 서피스·PTY가 유지된다.
+/// 각 패인은 PaneContainerView(헤더 + TermView)로 감싸며, id별로 재사용하므로
+/// 트리가 재구성돼도 서피스·PTY가 유지된다.
 ///
 /// M1 초기: tree/focusedId를 이 뷰가 소유한다. 세션 복구(상위 소유)를 붙일 때 controlled로
 /// 전환한다 — 기존 WorkspaceView.tsx처럼 상위가 tree를 갖고 onChange로 위임하는 형태.
@@ -15,7 +16,7 @@ final class WorkspaceView: NSView {
     private var tree: TreeNode
     private var focusedId: String
     private let onTreeChange: (TreeNode, String) -> Void
-    private var termViews: [String: TermView] = [:]
+    private var containers: [String: PaneContainerView] = [:]
     private var dividerViews: [DividerView] = []
 
     init(app: ghostty_app_t, tab: TermTab, cwd: String?, onTreeChange: @escaping (TreeNode, String) -> Void) {
@@ -41,19 +42,19 @@ final class WorkspaceView: NSView {
     private func relayout() {
         let ids = collectPaneIds(tree)
 
-        // 트리에서 사라진 패인의 TermView 제거(PTY 종료)
-        for (id, view) in termViews where !ids.contains(id) {
+        // 트리에서 사라진 패인의 컨테이너 제거(PTY 종료)
+        for (id, view) in containers where !ids.contains(id) {
             view.removeFromSuperview()
-            termViews[id] = nil
+            containers[id] = nil
         }
 
         let layout = computeLayout(tree)
         for id in ids {
-            let view = termView(for: id)
+            let view = container(for: id)
             if let r = layout.panes[id] {
                 view.frame = pixelRect(r)
             }
-            view.isFocused = (id == focusedId)
+            view.focused = (id == focusedId)
         }
 
         // 구분선 재배치(간단화: 매번 새로 구성)
@@ -66,10 +67,17 @@ final class WorkspaceView: NSView {
         }
     }
 
-    private func termView(for id: String) -> TermView {
-        if let existing = termViews[id] { return existing }
-        let view = TermView(app: app, cwd: cwd)
-        termViews[id] = view
+    private func container(for id: String) -> PaneContainerView {
+        if let existing = containers[id] { return existing }
+        let term = TermView(app: app, cwd: cwd)
+        term.onFocus = { [weak self] in self?.setFocus(id) }
+        let view = PaneContainerView(
+            paneId: id,
+            term: term,
+            onSplit: { [weak self] dir in self?.split(paneId: id, dir: dir) },
+            onClose: { [weak self] in self?.closePane(paneId: id) }
+        )
+        containers[id] = view
         addSubview(view, positioned: .below, relativeTo: nil) // 구분선 아래
         return view
     }
@@ -103,10 +111,11 @@ final class WorkspaceView: NSView {
         }
     }
 
-    // MARK: 트리 변환 (키바인딩에서 호출)
+    // MARK: 트리 변환 (패인 헤더 버튼·키바인딩에서 호출)
 
-    private func split(_ dir: Dir) {
-        let result = splitPane(tree, targetId: focusedId, dir: dir)
+    /// 특정 패인을 dir 방향으로 분할한다(헤더 버튼은 자기 패인을, 단축키는 focusedId를 대상으로).
+    private func split(paneId: String, dir: Dir) {
+        let result = splitPane(tree, targetId: paneId, dir: dir)
         tree = result.tree
         focusedId = result.newPaneId
         relayout()
@@ -114,14 +123,23 @@ final class WorkspaceView: NSView {
         onTreeChange(tree, focusedId)
     }
 
-    private func closeFocused() {
-        let next = closePane(tree, targetId: focusedId)
+    private func closePane(paneId: String) {
+        let next = muxa.closePane(tree, targetId: paneId)
+        // 닫은 게 포커스 패인이면 첫 패인으로 포커스 이동
         if !collectPaneIds(next).contains(focusedId) {
             focusedId = firstPaneId(next)
         }
         tree = next
         relayout()
         focusCurrent()
+        onTreeChange(tree, focusedId)
+    }
+
+    /// 클릭으로 포커스된 패인을 논리 focusedId로 반영(테두리·저장 갱신).
+    private func setFocus(_ paneId: String) {
+        guard focusedId != paneId else { return }
+        focusedId = paneId
+        for (id, view) in containers { view.focused = (id == paneId) }
         onTreeChange(tree, focusedId)
     }
 
@@ -133,10 +151,10 @@ final class WorkspaceView: NSView {
     }
 
     private func focusCurrent() {
-        window?.makeFirstResponder(termViews[focusedId])
+        window?.makeFirstResponder(containers[focusedId]?.term)
     }
 
-    /// 활성 워크스페이스로 전환됐을 때 RootView가 호출 — 포커스 패인에 first responder를 준다.
+    /// 활성 워크스페이스로 전환됐을 때 상위(WorkspaceHostView)가 호출 — 포커스 패인에 first responder를 준다.
     func focusActivePane() {
         focusCurrent()
     }
@@ -168,10 +186,10 @@ final class WorkspaceView: NSView {
         guard event.modifierFlags.contains(.command) else { return false }
         switch Int(event.keyCode) {
         case kVK_ANSI_D:
-            split(event.modifierFlags.contains(.shift) ? .col : .row)
+            split(paneId: focusedId, dir: event.modifierFlags.contains(.shift) ? .col : .row)
             return true
         case kVK_ANSI_W:
-            closeFocused()
+            closePane(paneId: focusedId)
             return true
         case kVK_ANSI_RightBracket:
             focusSibling(1)

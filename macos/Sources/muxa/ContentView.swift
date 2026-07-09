@@ -12,17 +12,19 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             TopBarSUI(state: state, home: home, pickFolder: pickFolder)
-            Divider()
+            Rectangle().fill(Color.pBorder).frame(height: 1)
             HStack(spacing: 0) {
                 SidebarSUI(state: state)
-                Divider()
+                Rectangle().fill(Color.pBorder).frame(width: 1)
                 VStack(spacing: 0) {
                     TabBarView(state: state)
-                    Divider()
+                    Rectangle().fill(Color.pBorder).frame(height: 1)
                     WorkspaceHost(app: app, state: state)
                 }
             }
         }
+        .background(Color.pPanel)
+        .ignoresSafeArea() // 타이틀바 영역까지 콘텐츠가 차지 (상단바가 신호등 줄에)
     }
 
     private func pickFolder() {
@@ -38,52 +40,74 @@ struct ContentView: View {
 }
 
 /// 상단바 — 사이드바 모드·새 워크스페이스 메뉴 + 활성 워크스페이스 이름/경로. (TopBar.tsx + SidebarControls.tsx)
+/// 웹 `.topbar`: panel 회색, 28px, 좌측 72px 신호등 자리, 워크스페이스 정보는 좌측 경계선으로 구분.
 private struct TopBarSUI: View {
     let state: AppState
     let home: String
     let pickFolder: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            Color.clear.frame(width: 64) // 신호등 영역
+        HStack(spacing: 2) {
+            Color.clear.frame(width: 72) // 신호등 영역
 
             Menu {
-                ForEach(SidebarMode.allCases, id: \.self) { mode in
-                    Button {
-                        state.setSidebarMode(mode)
-                    } label: {
-                        Label("\(mode.label) — \(mode.hint)",
-                              systemImage: state.sidebarMode == mode ? "checkmark" : "")
+                Picker("사이드바", selection: sidebarBinding) {
+                    ForEach(SidebarMode.allCases, id: \.self) { mode in
+                        Text("\(mode.label) — \(mode.hint)").tag(mode)
                     }
                 }
+                .pickerStyle(.inline)
             } label: {
                 Image(systemName: "sidebar.left")
+                    .foregroundStyle(Color.pMuted)
             }
             .menuStyle(.borderlessButton)
-            .frame(width: 24)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("사이드바 표시 모드")
 
             Menu {
-                Button("홈에서 열기") { state.addWorkspace(path: home) }
-                Button("폴더 선택…") { pickFolder() }
+                Button {
+                    state.addWorkspace(path: home)
+                } label: {
+                    Label("홈에서 열기", systemImage: "house")
+                }
+                Button {
+                    pickFolder()
+                } label: {
+                    Label("폴더 선택…", systemImage: "folder")
+                }
             } label: {
                 Image(systemName: "plus")
+                    .foregroundStyle(Color.pMuted)
             }
             .menuStyle(.borderlessButton)
-            .frame(width: 24)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("새 워크스페이스")
 
             if let ws = state.activeWorkspace {
+                Rectangle().fill(Color.pBorder).frame(width: 1, height: 16)
+                    .padding(.horizontal, 6)
                 Image(systemName: "folder")
-                    .foregroundStyle(.secondary)
-                Text(ws.name).font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.pMuted)
+                Text(ws.name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.pFg)
                 Text(displayPath(ws.path, home: home))
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.pMuted)
                     .lineLimit(1)
             }
             Spacer()
         }
-        .padding(.horizontal, 8)
-        .frame(height: 30)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.horizontal, 6)
+        .frame(height: 28) // 신호등 줄 높이에 맞춤 (Tauri식)
+        .background(Color.pPanel)
+    }
+
+    private var sidebarBinding: Binding<SidebarMode> {
+        Binding(get: { state.sidebarMode }, set: { state.setSidebarMode($0) })
     }
 }
