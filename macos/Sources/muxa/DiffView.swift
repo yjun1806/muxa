@@ -1,14 +1,18 @@
 import SwiftUI
 
-/// diff를 열 대상 — 변경 파일 또는 커밋. .sheet(item:)용 Identifiable.
+/// diff를 열 대상 — 변경 파일·커밋·워크트리 전체. .sheet(item:)용 Identifiable.
 enum GitDiffTarget: Identifiable {
     case file(GitFileChange)
     case commit(hash: String, subject: String)
+    /// 워크트리 전체 통합 diff. base=nil이면 HEAD 대비(현재 미커밋 전체),
+    /// base 지정이면 세션 기준선 대비(이번 세션 전체 = 커밋+미커밋).
+    case all(base: String?)
 
     var id: String {
         switch self {
         case .file(let change): return "f:\(change.path)"
         case .commit(let hash, _): return "c:\(hash)"
+        case .all(let base): return "all:\(base ?? "HEAD")"
         }
     }
 
@@ -16,6 +20,7 @@ enum GitDiffTarget: Identifiable {
         switch self {
         case .file(let change): return change.path
         case .commit(_, let subject): return subject
+        case .all(let base): return base == nil ? "전체 변경" : "이번 세션 전체 변경"
         }
     }
 
@@ -24,6 +29,7 @@ enum GitDiffTarget: Identifiable {
         switch self {
         case .file(let change): return basename(change.path)
         case .commit(let hash, _): return String(hash.prefix(7))
+        case .all(let base): return base == nil ? "전체 변경" : "세션 전체"
         }
     }
 
@@ -31,7 +37,14 @@ enum GitDiffTarget: Identifiable {
         switch self {
         case .file: return "plusminus"
         case .commit: return "clock"
+        case .all: return "rectangle.stack"
         }
+    }
+
+    /// 여러 파일을 한 번에 훑는 통합 diff인지 — CodeHTML 파일 경계 sticky 헤더 여부.
+    var isAggregate: Bool {
+        if case .all = self { return true }
+        return false
     }
 }
 
@@ -66,7 +79,8 @@ struct DiffView: View {
                 centerLabel("변경 내용 없음")
             } else {
                 CodeWebView(
-                    html: CodeHTML.diff(lines: lines, dark: GhosttyRuntime.systemIsDark, stageable: hunkStageable),
+                    html: CodeHTML.diff(lines: lines, dark: GhosttyRuntime.systemIsDark,
+                                        stageable: hunkStageable, aggregate: target.isAggregate),
                     onMessage: hunkStageable ? { idx in Task { @MainActor in await stageHunk(idx) } } : nil,
                     busy: applying
                 )
@@ -86,21 +100,36 @@ struct DiffView: View {
         (dir as NSString).appendingPathComponent(rel)
     }
 
-    /// 파일 diff일 때만 부모 디렉토리에 FileWatcher를 건다(커밋 diff는 불변이라 감시 불필요).
+    /// 감시 대상 결정 — 파일 diff는 부모 디렉토리, 통합 diff는 워크트리 루트를 감시한다.
+    /// 커밋 diff는 불변이라 감시하지 않는다(nil).
     private func fileWatcher() -> FileWatcher? {
-        guard case .file(let initial) = target else { return nil }
-        let abs = absolutePath(initial.opPath)
-        return FileWatcher(path: (abs as NSString).deletingLastPathComponent)
+        switch target {
+        case .file(let initial):
+            let abs = absolutePath(initial.opPath)
+            return FileWatcher(path: (abs as NSString).deletingLastPathComponent)
+        case .all:
+            return FileWatcher(path: dir) // 워크트리 전체 — 아무 파일이나 바뀌면 재로드(git 패널과 같은 패턴)
+        case .commit:
+            return nil
+        }
     }
 
-    /// FSEvents는 부모 디렉토리 전체(재귀)를 알린다 → 이 파일 mtime이 실제 바뀐 경우만 재로드.
+    /// FSEvents는 부모 디렉토리 전체(재귀)를 알린다 → 재로드 판단.
     /// 스테이지 재적용 중(applying)이면 건너뛴다 — runStage 끝의 load()가 최신을 반영한다.
     private func reloadIfChanged() async {
-        guard !applying, case .file(let initial) = target else { return }
-        let abs = absolutePath(initial.opPath)
-        let m = (try? FileManager.default.attributesOfItem(atPath: abs)[.modificationDate]) as? Date
-        guard m != lastMTime else { return }
-        await load()
+        guard !applying else { return }
+        switch target {
+        case .file(let initial):
+            // 이 파일 mtime이 실제 바뀐 경우만 재로드(FSEvents 재귀 소음·스테이지 무시).
+            let abs = absolutePath(initial.opPath)
+            let m = (try? FileManager.default.attributesOfItem(atPath: abs)[.modificationDate]) as? Date
+            guard m != lastMTime else { return }
+            await load()
+        case .all:
+            await load() // 워크트리 전체라 특정 파일 판별 없이 항상 재로드(0.3s 디바운스됨)
+        case .commit:
+            return
+        }
     }
 
     /// diff 대상이 변경 파일일 때만 값이 있다(.commit은 읽기 전용). load()가 최신 status로 채운다.
@@ -233,6 +262,9 @@ struct DiffView: View {
         case .commit(let hash, _):
             change = nil
             text = await GitService.commitDiff(hash, in: dir)
+        case .all(let base):
+            change = nil // 통합 diff는 개별 파일 스테이지 없음(집계 뷰)
+            text = await GitService.worktreeDiff(base: base ?? "HEAD", in: dir)
         }
         lines = text.components(separatedBy: "\n")
         loaded = true

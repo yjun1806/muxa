@@ -54,6 +54,9 @@ enum CodeHTML {
               background:\(t.addBg);border:1px solid \(t.addFg);border-radius:4px;padding:0 8px;cursor:pointer;user-select:none;}
         .stagebtn:hover{background:\(t.addFg);color:\(t.bg);}
         html[data-busy] .stagebtn{opacity:.45;pointer-events:none;}
+        .filehdr{position:sticky;top:0;z-index:3;background:\(t.gutter);color:\(t.fg);font-weight:600;
+              padding:6px 16px;border-top:1px solid \(t.hunk);border-bottom:1px solid \(t.hunk);
+              white-space:pre;overflow:hidden;text-overflow:ellipsis;}
         </style></head><body><div class="wrap">\(body)</div>\(script)</body></html>
         """
     }
@@ -77,13 +80,25 @@ enum CodeHTML {
         return page("<table class=\"code\">\(rows)</table>", theme: t)
     }
 
+    /// `diff --git a/… b/…` 헤더 줄에서 표시용 파일 경로를 뽑는다(리네임은 b/ 새 경로 우선).
+    private static func filePath(fromDiffHeader line: String) -> String {
+        if let r = line.range(of: " b/") { return String(line[r.upperBound...]) }
+        return line.split(separator: " ").last.map(String.init) ?? line
+    }
+
     /// unified diff 줄들 → 색칠된 diff 뷰(줄 앞 문자로 add/del/hunk/meta 구분).
     /// `stageable`이면 hunk(@@ 헤더)마다 '스테이지' 버튼을 붙이고, 클릭 시 hunk 인덱스를 Swift로 postMessage 한다.
-    static func diff(lines: [String], dark: Bool, stageable: Bool = false) -> String {
+    /// `aggregate`(통합 diff)면 `diff --git` 경계마다 파일 경로 sticky 헤더를 세워 여러 파일을 한 번에 훑게 한다.
+    static func diff(lines: [String], dark: Bool, stageable: Bool = false, aggregate: Bool = false) -> String {
         let t = Theme.of(dark: dark)
         var body = ""
         var hunkIndex = -1
         for line in lines {
+            if aggregate, line.hasPrefix("diff ") {
+                // 파일 경계 — sticky 헤더로 경로를 세우고 원본 `diff --git` 줄은 생략(중복 제거).
+                body += "<div class=\"filehdr\">\(esc(filePath(fromDiffHeader: line)))</div>"
+                continue
+            }
             if line.hasPrefix("@@") {
                 hunkIndex += 1
                 let text = "<span class=\"hunktext\">\(esc(line))</span>"

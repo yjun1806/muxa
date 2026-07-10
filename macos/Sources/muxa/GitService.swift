@@ -50,6 +50,24 @@ enum GitService {
         return await run(["diff", "--no-color", "--cached", "--", change.path], in: dir).stdout // 스테이지만
     }
 
+    /// 워크트리 전체 통합 diff — 파일 하나씩이 아니라 변경 전체를 한 번에 훑는다.
+    /// `git diff <base>`(추적 파일의 커밋+미커밋 변경)에, untracked 파일 각각을 /dev/null 대비
+    /// diff로 합성해 붙인다(git diff <base>는 untracked를 안 보여줌). 순수 셸아웃·파싱.
+    /// - base "HEAD": 현재 미커밋 전체. 세션 기준선을 주면 base..worktree(이번 세션 전체).
+    static func worktreeDiff(base: String = "HEAD", in dir: String) async -> String {
+        var parts: [String] = []
+        let tracked = await run(["diff", "--no-color", base], in: dir).stdout
+        if !tracked.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append(tracked) }
+        // untracked 파일은 status로 목록을 얻어 각각 /dev/null 대비 diff로 합성(fileDiff의 untracked 분기와 동일).
+        if let status = await status(in: dir) {
+            for change in status.changes where change.isUntracked {
+                let d = await run(["diff", "--no-color", "--no-index", "--", "/dev/null", change.opPath], in: dir).stdout
+                if !d.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append(d) }
+            }
+        }
+        return parts.joined(separator: "\n")
+    }
+
     /// 최근 커밋 목록(히스토리). range를 주면 `<base>..HEAD` 같은 범위로 제한한다(세션 커밋용).
     static func log(in dir: String, limit: Int = 40, range: String? = nil) async -> [GitCommit] {
         // \u{1f}(unit separator)로 필드 구분 — 제목에 포함될 일이 없다.

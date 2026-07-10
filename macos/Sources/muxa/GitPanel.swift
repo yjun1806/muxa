@@ -218,6 +218,8 @@ struct GitPanel: View {
                 if status.isClean {
                     label("변경 없음")
                 } else {
+                    wholeDiffToolbar
+                    Rectangle().fill(Color.pBorder).frame(height: 1)
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
                             section("스테이지됨", status.staged, staged: true)
@@ -230,6 +232,28 @@ struct GitPanel: View {
         } else {
             label("불러오는 중…")
         }
+    }
+
+    /// 변경사항 도구줄 — 워크트리 전체를 한 번에 훑는 통합 diff 서브탭을 연다.
+    private var wholeDiffToolbar: some View {
+        HStack(spacing: 6) {
+            wholeDiffButton("전체 변경 diff", base: nil)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10).frame(height: 28)
+    }
+
+    /// 통합 diff 열기 버튼 — base=nil이면 미커밋 전체, base 지정이면 세션 기준선 이후 전체.
+    private func wholeDiffButton(_ title: String, base: String?) -> some View {
+        Button { onOpenDiff(.all(base: base)) } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "rectangle.stack").font(.system(size: 10, weight: .bold))
+                Text(title).font(.system(size: 11))
+            }
+            .foregroundStyle(Color.pFg)
+        }
+        .buttonStyle(.plain)
+        .help("변경 파일 전체를 한 화면에서 훑기")
     }
 
     /// 섹션(스테이지됨/변경) — 헤더 + 일괄 스테이지·언스테이지 버튼 + 파일 행들.
@@ -350,12 +374,15 @@ struct GitPanel: View {
         }
     }
 
-    /// 세션 도구줄 — 커밋 수 + "여기까지 봤음"(기준선을 현재 HEAD로 리셋).
+    /// 세션 도구줄 — 커밋 수 + 세션 전체 diff + "여기까지 봤음"(기준선을 현재 HEAD로 리셋).
     private var sessionToolbar: some View {
         HStack(spacing: 6) {
             Text("이번 세션 커밋").font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.pMuted)
             Text("\(sessionCommits.count)").font(.system(size: 10, design: .monospaced)).foregroundStyle(Color.pMuted.opacity(0.7))
             Spacer(minLength: 0)
+            if let base = sessionBase {
+                wholeDiffButton("세션 전체", base: base) // base..worktree = 이번 세션 전체(커밋+미커밋)
+            }
             Button(action: onResetBaseline) {
                 HStack(spacing: 3) {
                     Image(systemName: "checkmark.circle").font(.system(size: 10))
