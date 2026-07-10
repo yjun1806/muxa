@@ -43,3 +43,40 @@ prebuilt는 self-contained라 libintl·zlib·freetype·imgui 등 C/C++ 의존성
 | `GHOSTTYKIT_SHA256` | 그 SHA의 prebuilt 아카이브 SHA256 |
 
 두 값의 대응표는 cmux 리포 `scripts/ghosttykit-checksums.txt`(`<ghostty_sha> <sha256>`)에 있다. libghostty의 embed API는 "signatures in flux"라, 업그레이드는 muxa 소스가 새 C API와 맞는지 확인하는 의식적 이벤트로만 한다.
+
+## 에이전트 통합 (muxa notify · 훅 · 스크롤백)
+
+muxa는 에이전트(Claude Code 등)와 매끄럽게 물리는 세 기능을 갖췄지만, 셋 다 사용자 환경 설정이 있어야 켜진다. `scripts/install-integration.sh`가 이 세 관문을 한 번에 처리한다.
+
+| 기능 | 무엇을 켜나 | 설정 위치 |
+|---|---|---|
+| **muxa-notify CLI** | 훅이 앱 소켓에 상태/재개 신호를 쓴다 | `~/.local/bin/muxa-notify` 심링크 |
+| **Claude Code 훅** | 권한 대기·턴 완료를 결정론적으로 배지·알림에 반영 | `~/.claude/settings.json` |
+| **스크롤백 재출력** | 세션 복원 시 이전 화면을 되살린다 | `~/.zshrc`·`~/.bashrc` |
+
+### 사용법 — dry-run 먼저, 그다음 --apply
+
+이 스크립트는 사용자 시스템 파일을 건드리므로 **기본이 dry-run**이다. 무엇을 바꿀지 먼저 눈으로 확인하고 `--apply`로 실제 적용한다.
+
+```bash
+./scripts/install-integration.sh              # 1. dry-run — 무엇을 할지 출력만
+./scripts/install-integration.sh --apply       # 2. 실제 적용
+./scripts/install-integration.sh --apply --resume   # (선택) 재개 훅까지
+```
+
+- **안전** — 파일 수정 전 항상 `*.bak.<timestamp>` 백업. **멱등**이라 여러 번 돌려도 심링크·훅·스니펫이 중복되지 않는다(이미 있으면 스킵).
+- **바이너리 자동 탐지** — `macos/.build/release/muxa-notify`(우선) → `.build/debug/muxa-notify` 순. 둘 다 없으면 먼저 `cd macos && swift build`(릴리스는 `-c release`)하라고 안내하고 멈춘다.
+- **jq** — `settings.json`은 jq가 있으면 기존 설정을 보존한 채 병합한다. 없으면 수동으로 붙일 JSON을 출력만 한다(`brew install jq`).
+
+### 각 기능이 켜는 것
+
+1. **muxa-notify 심링크** — 빌드 산물을 `~/.local/bin/muxa-notify`로 심링크한다. 훅은 이 이름(PATH)으로 CLI를 부른다. `~/.local/bin`이 PATH에 없으면 안내가 뜬다. 소켓 경로는 앱이 각 셸에 `MUXA_SOCK` env로 주입하므로 CLI 인자가 필요 없다. muxa-notify는 소켓 실패해도 exit 0이라 에이전트 흐름을 막지 않는다.
+
+2. **Claude Code 훅** — `~/.claude/settings.json`의 `hooks`에 프리셋을 등록한다.
+   - `Notification` → `muxa-notify --state waiting --category needs-permission` (권한/알림 대기)
+   - `Stop` → `muxa-notify --state done --category turn-complete` (턴 완료)
+   - `--resume` 시 `SessionStart`(matcher `resume`) → 세션 ID를 stdin JSON에서 뽑아 재개 명령을 탭에 바인딩
+
+   > **주의(스키마 검증됨, 2026-07 기준 `code.claude.com/docs/en/hooks`)**: Claude Code는 `CLAUDE_SESSION_ID`를 env로 노출하지 **않는다**. `session_id`는 훅 stdin의 JSON으로만 온다. 그래서 재개 훅은 `jq -r .session_id`로 파싱해 `--resume-command`에 넣는다(런타임에 `jq` 필요). Notification/Stop 프리셋은 env·인자 의존이 없어 그대로 동작한다.
+
+3. **스크롤백 재출력 스니펫** — `~/.zshrc`·`~/.bashrc`에 마커(`# >>> muxa scrollback restore >>>`)로 감싼 한 줄을 추가한다. muxa가 세션 복원 시 심는 `MUXA_RESTORE_SCROLLBACK_FILE`을 셸 시작에서 `cat`하고 지워 이전 화면을 되살린다.
