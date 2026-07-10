@@ -32,12 +32,19 @@ swift build                 # 빌드 (SPM)
 - **뷰어 라이브 리로드** ✅ — 열린 코드/md가 디스크에서 바뀌면 자동 재로드
 - **세션 복원 정합성** ✅ — 트리는 터미널만(`layoutSnapshot`), 문서/diff는 `SavedViewer`로 별도 복원
 
-## 다음 할 일
+## 최근 완료 (ultracode 워크플로 + 적대적 리뷰 수정)
 
-- **gh 배지** — GitHub PR/CI 상태(gh CLI).
-- **익스플로러 reveal** — 파일 열 때 트리에서 선택/스크롤. 인라인 이름변경(현재 NSAlert 프롬프트).
-- **diff 인라인 스테이지**·**브랜치 전환·pull/push UI**.
-- **서브탭 재시작 시 선택·순서 완전 복원**(현재 재오픈만, 선택은 터미널 우선).
+- **서브탭·활성 칸 완전 복원** ✅ — `PaneSnapshot.leaf.focused`(커스텀 Codable 하위호환), 복원 후 활성 칸+선택탭 복구
+- **익스플로러 reveal + 인라인 이름변경** ✅ — 파일 열면 트리 펼침+선택+스크롤; 셀 인라인 편집(편집 중 리로드 보류로 데이터손실 방지)
+- **git 브랜치 전환 + pull/push** ✅ — `GitService+Branch`; Git 헤더 브랜치 메뉴 + pull/push 버튼
+- **diff 인라인 스테이지** ✅ — hunk 단위(WKWebView→Swift 메시지 + `git apply --cached`) + 파일 전체 스테이지/언스테이지 도구줄; 스테이지 후 최신 status 재조회
+- **gh 배지** ✅ — `GitService+GH`; Git 헤더에 PR#·상태색·CI 롤업(gh 미설치/미인증 전경로 가드)
+
+## 다음 할 일 (백로그)
+
+- 실기기 검증: 위 5개 + 세션복원(활성칸)·2단 서브탭·문서영속 — 눈으로 아직
+- 남은 저심각 항목: pull/push 타임아웃·취소, diff 도구줄 stale 배너 clear, runResult 대량출력 파이프(현재 실위험 낮음)
+- 원격 트래킹 브랜치 체크아웃, hunk 언스테이지, PR 배지 폴링
 
 ## 핵심 아키텍처
 
