@@ -4,6 +4,7 @@ import SwiftUI
 /// 바이너리·대형 파일은 가드. 읽기 전용.
 struct CodeView: View {
     let target: FileViewTarget
+    var chrome: Bool = true // 그룹 서브탭 안에서는 서브탭 바가 헤더 역할이라 자체 헤더를 숨긴다
     var onClose: () -> Void
 
     @State private var html = ""
@@ -16,8 +17,10 @@ struct CodeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ViewerHeader(icon: "doc.text", title: target.path, onClose: onClose)
-            Rectangle().fill(Color.pBorder).frame(height: 1)
+            if chrome {
+                ViewerHeader(icon: "doc.text", title: target.path, onClose: onClose)
+                Rectangle().fill(Color.pBorder).frame(height: 1)
+            }
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -4,6 +4,7 @@ import SwiftUI
 /// 표·체크박스·코드 하이라이트·mermaid·이미지 지원. 읽기 전용. .html은 원문 그대로 렌더.
 struct MarkdownView: View {
     let target: FileViewTarget
+    var chrome: Bool = true // 그룹 서브탭 안에서는 자체 헤더 숨김(서브탭 바가 헤더 역할)
     var onClose: () -> Void
 
     @State private var content = ""
@@ -18,12 +19,14 @@ struct MarkdownView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ViewerHeader(
-                icon: isHTML ? "chevron.left.forwardslash.chevron.right" : "doc.richtext",
-                title: target.path,
-                onClose: onClose
-            )
-            Rectangle().fill(Color.pBorder).frame(height: 1)
+            if chrome {
+                ViewerHeader(
+                    icon: isHTML ? "chevron.left.forwardslash.chevron.right" : "doc.richtext",
+                    title: target.path,
+                    onClose: onClose
+                )
+                Rectangle().fill(Color.pBorder).frame(height: 1)
+            }
             content(for: state)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

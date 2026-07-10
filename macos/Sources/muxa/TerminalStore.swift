@@ -3,11 +3,11 @@ import Bonsplit
 import GhosttyKit
 import Observation
 
-/// Bonsplit 탭이 담는 내용 — 터미널이거나 뷰어(diff 등). B(뷰어)에서 md/code 추가 예정.
+/// Bonsplit 탭이 담는 내용 — 터미널(개별 탭)이거나 그룹 탭(문서·diff 묶음).
+/// 문서/diff는 종류별로 그룹 탭 하나에 서브탭으로 모인다(2단 탭). 상태는 `groups`가 소유.
 enum TabContent {
     case terminal
-    case diff(GitDiffTarget)
-    case file(FileViewTarget)
+    case group(TabGroupKind)
 }
 
 /// 워크스페이스 하나의 터미널 집합 + Bonsplit 분할·탭 컨트롤러. (cmux DockSplitStore 대응)
@@ -23,8 +23,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     @ObservationIgnored private let app: ghostty_app_t
     @ObservationIgnored private let cwd: String?
     @ObservationIgnored private var terms: [TabID: TermView] = [:]
-    /// 터미널이 아닌 탭(diff 등)의 내용. 없으면 .terminal.
+    /// 터미널이 아닌 탭의 종류(그룹). 없으면 .terminal.
     @ObservationIgnored private var tabContent: [TabID: TabContent] = [:]
+    /// 그룹 탭(TabID) → 서브탭 상태(문서·diff 묶음). TabGroupView가 관측한다.
+    @ObservationIgnored private var groups: [TabID: TabGroupState] = [:]
 
     /// 백그라운드 활동(●)으로 배지가 붙은 탭들(A). 프로젝트 배지가 이걸 파생·관측한다.
     var badgedTabs: Set<TabID> = []
@@ -38,15 +40,18 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     /// 최초 표시 시 복원할 저장된 분할 트리(없으면 초기 터미널 1개). ensureInitialTerminal에서 소비.
     @ObservationIgnored private var restoreTree: ExternalTreeNode?
+    /// 재시작 시 다시 열 문서/커밋 diff(터미널 복원 후 재오픈). ensureInitialTerminal에서 소비.
+    @ObservationIgnored private var restoreViewers: [SavedViewer]
     /// 복원 replay 중에는 delegate 부작용(자동 새 터미널 생성)을 막는다.
     @ObservationIgnored private var restoring = false
     /// ensureInitialTerminal 1회 보장 — Bonsplit이 초기 "Welcome" 탭을 넣어 allTabIds가 비지 않으므로 플래그로 판별.
     @ObservationIgnored private var initialized = false
 
-    init(app: ghostty_app_t, cwd: String?, restoreTree: ExternalTreeNode? = nil) {
+    init(app: ghostty_app_t, cwd: String?, restoreTree: ExternalTreeNode? = nil, restoreViewers: [SavedViewer] = []) {
         self.app = app
         self.cwd = cwd
         self.restoreTree = restoreTree
+        self.restoreViewers = restoreViewers
         // keepAllAlive — 탭 전환 시 뷰(WKWebView 뷰어·터미널)를 파괴/재생성하지 않고 유지한다.
         // 기본 .recreateOnSwitch는 전환마다 뷰어를 재로드(굼뜸·상태 손실)해서 부적합.
         var config = BonsplitConfiguration(contentViewLifecycle: .keepAllAlive)
@@ -76,6 +81,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         terms[tabId] = nil // TermView deinit이 서피스 free
         tabContent[tabId] = nil
+        groups[tabId] = nil // 그룹 탭이면 서브탭 상태도 해제
         badgedTabs.remove(tabId)
     }
 
@@ -138,8 +144,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     private func groupRank(_ content: TabContent) -> Int {
         switch content {
         case .terminal: return 0
-        case .file: return 1
-        case .diff: return 2
+        case .group(.documents): return 1
+        case .group(.diffs): return 2
         }
     }
 
@@ -154,42 +160,65 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         _ = controller.reorderTab(tabId, toIndex: dest)
     }
 
-    /// diff를 현재 포커스 패인의 새 탭으로 연다(모달 아님). 같은 대상 탭이 있으면 그걸 선택.
+    /// diff를 문서/diff 그룹 탭의 서브탭으로 연다.
     @discardableResult
     func openDiff(_ target: GitDiffTarget) -> TabID? {
-        if let existing = tabContent.first(where: {
-            if case .diff(let t) = $0.value { return t.id == target.id }
-            return false
-        })?.key {
-            controller.selectTab(existing)
-            return existing
+        openInGroup(.diff(target))
+    }
+
+    /// 파일을 문서 그룹 탭의 서브탭으로 연다. 종류(md/코드)는 렌더에서 FileViewTarget.kind로 분기.
+    @discardableResult
+    func openFile(_ path: String) -> TabID? {
+        openInGroup(.file(FileViewTarget(path: path)))
+    }
+
+    /// 그룹 탭 상태 접근 — BonsplitWorkspaceView가 .group 탭 렌더 시 사용.
+    func group(for tabId: TabID) -> TabGroupState? { groups[tabId] }
+
+    /// 서브탭 닫기 → 그룹이 비면 그룹 탭 자체를 닫는다.
+    func closeGroupItem(_ tabId: TabID, itemId: String) {
+        guard let state = groups[tabId] else { return }
+        if state.remove(itemId) {
+            _ = controller.closeTab(tabId) // didCloseTab에서 groups 정리
+        }
+    }
+
+    // MARK: 2단 탭 — 문서/diff는 종류별 그룹 탭 하나에 서브탭으로 모은다
+    //
+    // 상단 탭바엔 종류별 그룹 탭([문서]/[변경])이 하나씩 서고, 그 아래에 서브탭(개별 파일/커밋)이
+    // 뜬다. 같은 항목을 다시 열면 그 그룹을 선택하고 해당 서브탭으로 전환한다.
+
+    @discardableResult
+    private func openInGroup(_ item: GroupItemContent) -> TabID? {
+        let kind = item.kind
+        // 1) 이미 어느 그룹에 이 항목이 있으면 그 그룹 선택 + 서브탭 선택.
+        if let (tabId, state) = groups.first(where: { $0.value.items.contains { $0.id == item.id } }) {
+            state.selectedId = item.id
+            controller.selectTab(tabId)
+            return tabId
         }
         let pane = controller.focusedPaneId
-        guard let tabId = controller.createTab(title: target.tabTitle, icon: target.tabIcon, inPane: pane) else { return nil }
-        tabContent[tabId] = .diff(target)
-        regroup(tabId, inPane: pane) // diff끼리 묶기
-        controller.selectTab(tabId) // 새 diff 탭을 바로 앞으로
+        // 2) 포커스 패인에 같은 종류 그룹 탭이 있으면 거기에 서브탭 추가.
+        if let pane, let tabId = groupTab(ofKind: kind, inPane: pane) {
+            groups[tabId]?.add(item)
+            controller.selectTab(tabId)
+            return tabId
+        }
+        // 3) 새 그룹 탭 생성.
+        guard let tabId = controller.createTab(title: kind.title, icon: kind.icon, inPane: pane) else { return nil }
+        tabContent[tabId] = .group(kind)
+        groups[tabId] = TabGroupState(first: item)
+        regroup(tabId, inPane: pane)
+        controller.selectTab(tabId)
         return tabId
     }
 
-    /// 파일을 현재 포커스 패인의 새 탭(뷰어)으로 연다. 같은 경로 탭이 있으면 그걸 선택.
-    /// diff와 동일한 dedup→createTab 패턴. 종류(md/코드)는 렌더에서 FileViewTarget.kind로 분기.
-    @discardableResult
-    func openFile(_ path: String) -> TabID? {
-        let target = FileViewTarget(path: path)
-        if let existing = tabContent.first(where: {
-            if case .file(let t) = $0.value { return t.id == target.id }
+    /// 패인 안에서 주어진 종류의 그룹 탭을 찾는다(종류별 최대 1개).
+    private func groupTab(ofKind kind: TabGroupKind, inPane pane: PaneID) -> TabID? {
+        controller.tabs(inPane: pane).first { tab in
+            if case .group(let k) = content(for: tab.id) { return k == kind }
             return false
-        })?.key {
-            controller.selectTab(existing)
-            return existing
-        }
-        let pane = controller.focusedPaneId
-        guard let tabId = controller.createTab(title: target.tabTitle, icon: target.tabIcon, inPane: pane) else { return nil }
-        tabContent[tabId] = .file(target)
-        regroup(tabId, inPane: pane) // 문서끼리 묶기
-        controller.selectTab(tabId)
-        return tabId
+        }?.id
     }
 
     /// 최초 표시 시: 저장된 트리가 있으면 복원, 없으면 초기 터미널 1개.
@@ -218,6 +247,34 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         } else {
             for id in controller.allTabIds { controller.updateTab(id, title: "터미널", icon: "terminal") }
         }
+        // 터미널 복원 후 문서/커밋 diff를 다시 연다(그룹 탭으로 재생성).
+        let viewers = restoreViewers
+        restoreViewers = []
+        let firstTerminal = controller.allTabIds.first
+        for v in viewers {
+            if let f = v.file { _ = openFile(f) }
+            else if let h = v.commit { _ = openDiff(.commit(hash: h, subject: v.commitSubject ?? h)) }
+        }
+        // 복원 직후엔 터미널을 앞에 둔다(뷰어가 선택된 채 뜨지 않게).
+        if let firstTerminal { controller.selectTab(firstTerminal) }
+    }
+
+    /// 세션 저장용 — 열린 문서/커밋 diff 목록(순서 보존). 파일 diff는 제외.
+    func savedViewers() -> [SavedViewer] {
+        var out: [SavedViewer] = []
+        for state in groups.values {
+            for item in state.items {
+                switch item {
+                case .file(let t):
+                    out.append(SavedViewer(file: t.path, commit: nil, commitSubject: nil))
+                case .diff(let target):
+                    if case .commit(let hash, let subject) = target {
+                        out.append(SavedViewer(file: nil, commit: hash, commitSubject: subject))
+                    }
+                }
+            }
+        }
+        return out
     }
 
     // MARK: 세션 레이아웃 저장 — 뷰어/diff 탭을 뺀 터미널 전용 스냅샷

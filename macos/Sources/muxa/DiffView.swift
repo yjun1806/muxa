@@ -40,6 +40,7 @@ enum GitDiffTarget: Identifiable {
 struct DiffView: View {
     let target: GitDiffTarget
     let dir: String
+    var chrome: Bool = true // 그룹 서브탭 안에서는 자체 헤더 숨김
     var onClose: () -> Void
 
     @State private var lines: [String] = []
@@ -47,8 +48,10 @@ struct DiffView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Rectangle().fill(Color.pBorder).frame(height: 1)
+            if chrome {
+                header
+                Rectangle().fill(Color.pBorder).frame(height: 1)
+            }
             if !loaded {
                 centerLabel("불러오는 중…")
             } else if lines.isEmpty {

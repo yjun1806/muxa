@@ -27,19 +27,10 @@ struct BonsplitWorkspaceView: View {
                 }
                 SearchOverlay(term: term) // active일 때만 우상단에 뜬다
             }
-        case .diff(let target):
-            DiffView(target: target, dir: store.workingDir ?? "") {
-                _ = store.controller.closeTab(tabId, inPane: paneId)
-            }
-        case .file(let target):
-            switch target.kind {
-            case .markdown, .html:
-                MarkdownView(target: target) {
-                    _ = store.controller.closeTab(tabId, inPane: paneId)
-                }
-            case .code:
-                CodeView(target: target) {
-                    _ = store.controller.closeTab(tabId, inPane: paneId)
+        case .group:
+            if let state = store.group(for: tabId) {
+                TabGroupView(group: state, dir: store.workingDir ?? "") { itemId in
+                    store.closeGroupItem(tabId, itemId: itemId)
                 }
             }
         }

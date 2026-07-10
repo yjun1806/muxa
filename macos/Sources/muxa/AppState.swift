@@ -23,6 +23,8 @@ final class AppState {
     @ObservationIgnored private var stores: [String: TerminalStore] = [:]
     /// 프로젝트 id → 저장된 분할 트리(재시작 복원용). 아직 안 연 프로젝트 것도 보존한다.
     @ObservationIgnored private var savedLayouts: [String: ExternalTreeNode] = [:]
+    /// 프로젝트 id → 저장된 열린 문서/커밋 diff(재시작 복원용).
+    @ObservationIgnored private var savedViewers: [String: [SavedViewer]] = [:]
 
     init(app: ghostty_app_t) {
         self.app = app
@@ -47,7 +49,8 @@ final class AppState {
     func store(for project: Project, in workspace: Workspace) -> TerminalStore {
         if let s = stores[project.id] { return s }
         let cwd = project.path ?? workspace.path
-        let s = TerminalStore(app: app, cwd: cwd, restoreTree: savedLayouts[project.id])
+        let s = TerminalStore(app: app, cwd: cwd, restoreTree: savedLayouts[project.id],
+                              restoreViewers: savedViewers[project.id] ?? [])
         let pid = project.id
         s.onProjectActivity = { [weak self] in MainActor.assumeIsolated { self?.markProjectBadge(pid) } }
         stores[project.id] = s
@@ -160,6 +163,7 @@ final class AppState {
         var activeId: String
         var sidebarMode: SidebarMode
         var layouts: [String: ExternalTreeNode]? // 프로젝트 id → 트리. PTY는 복원 안 됨(새 셸).
+        var viewers: [String: [SavedViewer]]?    // 프로젝트 id → 열린 문서/커밋 diff.
     }
 
     private static let fileURL: URL = {
@@ -172,9 +176,11 @@ final class AppState {
     func save() {
         // 인스턴스화된 스토어(=열린 프로젝트)의 현재 분할 트리를 반영한다. 빈 스토어는 스킵.
         for (projectId, store) in stores where !store.controller.allTabIds.isEmpty {
-            savedLayouts[projectId] = store.layoutSnapshot() // 뷰어/diff 탭 제외(터미널만 복원)
+            savedLayouts[projectId] = store.layoutSnapshot() // 트리는 터미널만(뷰어는 아래 목록으로 복원)
+            savedViewers[projectId] = store.savedViewers()   // 열린 문서/커밋 diff 목록
         }
-        let snapshot = Persisted(workspaces: workspaces, activeId: activeId, sidebarMode: sidebarMode, layouts: savedLayouts)
+        let snapshot = Persisted(workspaces: workspaces, activeId: activeId, sidebarMode: sidebarMode,
+                                 layouts: savedLayouts, viewers: savedViewers)
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         try? data.write(to: Self.fileURL, options: .atomic)
     }
@@ -187,6 +193,7 @@ final class AppState {
         activeId = snapshot.activeId
         sidebarMode = snapshot.sidebarMode
         savedLayouts = snapshot.layouts ?? [:]
+        savedViewers = snapshot.viewers ?? [:]
     }
 }
 
