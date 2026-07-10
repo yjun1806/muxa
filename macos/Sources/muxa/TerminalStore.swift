@@ -695,6 +695,17 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 그룹 탭 상태 접근 — BonsplitWorkspaceView가 .group 탭 렌더 시 사용.
     func group(for tabId: TabID) -> TabGroupState? { groups[tabId] }
 
+    /// ⌘W — 활성 칸의 선택 탭을 닫는다. 그룹 탭(문서/변경)이면 서브탭이 둘 이상일 땐 **선택 서브탭만** 닫고,
+    /// 하나뿐이면 그룹 탭째 닫는다(closeGroupItem이 빈 그룹은 탭까지 정리). 터미널 탭은 통째로 닫는다.
+    func closeActiveTab() {
+        guard let pane = controller.focusedPaneId, let tab = controller.selectedTab(inPane: pane) else { return }
+        if case .group = content(for: tab.id), let g = group(for: tab.id), let sel = g.selected {
+            closeGroupItem(tab.id, itemId: sel.id)
+        } else {
+            _ = controller.closeTab(tab.id, inPane: pane)
+        }
+    }
+
     /// 서브탭 닫기 → 그룹이 비면 그룹 탭 자체를 닫는다.
     func closeGroupItem(_ tabId: TabID, itemId: String) {
         guard let state = groups[tabId] else { return }

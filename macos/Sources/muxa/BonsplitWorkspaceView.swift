@@ -27,6 +27,8 @@ struct BonsplitWorkspaceView: View {
     @ViewBuilder
     private func tabContent(_ tabId: TabID, paneId: PaneID) -> some View {
         paneBody(tabId, paneId: paneId)
+            // 활성(포커스) 칸을 청록 테두리로 상시 강조하고 비활성 칸은 살짝 어둡게 — "지금 어느 칸인지" 즉시 짚는다.
+            .overlay(FocusBorder(store: store, paneId: paneId))
             // 상시 에이전트 상태 테두리(waiting=주황·done=초록) 위에 순간 활동 플래시를 얹는다.
             .overlay(AgentStateBorder(store: store, tabId: tabId))
             .overlay(ActivityFlashBorder(store: store, tabId: tabId))
@@ -103,6 +105,28 @@ private struct EmptyProjectView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.pBg)
+    }
+}
+
+/// 활성(포커스) 칸 강조 — Bonsplit의 `focusedPaneId`(@Observable)를 읽어 포커스 전환 시 자동 재렌더된다.
+/// 활성 칸엔 청록 테두리, 비활성 칸엔 옅은 어둠을 얹어 "지금 입력이 가는 칸"을 확실히 구분한다.
+/// 분할이 하나면 늘 활성이라 dim 없이 테두리만(무해). 상태/활동 테두리와 배타적: 활성 칸은 그 칸을 봤다는 뜻이라
+/// 에이전트 상태 테두리(waiting/done)가 해제되므로 청록·주황이 겹치지 않는다.
+private struct FocusBorder: View {
+    let store: TerminalStore
+    let paneId: PaneID
+
+    var body: some View {
+        let focused = store.controller.focusedPaneId == paneId
+        ZStack {
+            // 비활성 칸은 살짝 어둡게 — 활성 칸이 도드라진다(터미널 가독성 유지를 위해 옅게).
+            Rectangle().fill(.black).opacity(focused ? 0 : 0.16)
+            RoundedRectangle(cornerRadius: 4)
+                .strokeBorder(Color.pBorderFocus, lineWidth: 3)
+                .opacity(focused ? 1 : 0)
+        }
+        .animation(.easeInOut(duration: 0.15), value: focused)
+        .allowsHitTesting(false)
     }
 }
 

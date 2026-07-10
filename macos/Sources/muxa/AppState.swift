@@ -27,6 +27,26 @@ final class AppState {
     /// 상단바 토글 버튼·단축키(⌘⇧E/⌘⇧G)·알림이 이 상태를 연다.
     var showExplorer = false
     var showGitPanel = false
+    /// 우측 도구 패널(익스플로러·Git) 폭 — 좌측 경계 드래그로 리사이즈, 영속. 드래그 중엔 persist:false로
+    /// 갱신하고 손을 뗄 때 true로 저장한다(매 프레임 디스크 쓰기 방지).
+    private(set) var explorerWidth: CGFloat = AppState.defaultPanelWidth
+    private(set) var gitPanelWidth: CGFloat = AppState.defaultPanelWidth
+
+    static let defaultPanelWidth: CGFloat = 280
+    static let panelWidthRange: ClosedRange<CGFloat> = 180 ... 720
+    static func clampPanelWidth(_ w: CGFloat) -> CGFloat {
+        min(max(w, panelWidthRange.lowerBound), panelWidthRange.upperBound)
+    }
+
+    func setExplorerWidth(_ w: CGFloat, persist: Bool) {
+        explorerWidth = Self.clampPanelWidth(w)
+        if persist { save() }
+    }
+
+    func setGitPanelWidth(_ w: CGFloat, persist: Bool) {
+        gitPanelWidth = Self.clampPanelWidth(w)
+        if persist { save() }
+    }
 
     /// ⌘K 빠른 전환기(명령 팔레트) 표시 상태 — 세션 영속 대상 아님. 단축키가 토글한다.
     var showQuickSwitch = false
@@ -236,9 +256,7 @@ final class AppState {
         case .split(let vertical):
             _ = controller.splitPane(orientation: vertical ? .vertical : .horizontal)
         case .closeTab:
-            if let pane = controller.focusedPaneId, let tab = controller.selectedTab(inPane: pane) {
-                _ = controller.closeTab(tab.id, inPane: pane)
-            }
+            store.closeActiveTab() // 그룹 탭이면 서브탭 우선 닫기(store가 판단)
         case .find:
             store.focusedTerm?.startSearch()
         case .focusPane(let direction):
@@ -552,11 +570,15 @@ final class AppState {
         var activeId: String
         var sidebarMode: SidebarMode
         var layouts: [String: PaneSnapshot]? // 프로젝트 id → 통합 스냅샷(터미널·문서·diff 전부).
+        var explorerWidth: Double? // 도구 패널 폭(리사이즈, 나중에 추가된 필드라 옵셔널 하위호환).
+        var gitPanelWidth: Double?
 
         init(workspaces: [Workspace], activeId: String, sidebarMode: SidebarMode,
-             layouts: [String: PaneSnapshot]?, version: Int = currentVersion) {
+             layouts: [String: PaneSnapshot]?, explorerWidth: Double?, gitPanelWidth: Double?,
+             version: Int = currentVersion) {
             self.version = version
             self.workspaces = workspaces; self.activeId = activeId; self.sidebarMode = sidebarMode; self.layouts = layouts
+            self.explorerWidth = explorerWidth; self.gitPanelWidth = gitPanelWidth
         }
 
         // layouts는 포맷이 바뀔 수 있어 관대하게 디코드 — 옛 포맷이면 nil로 두고 워크스페이스는 보존한다.
@@ -568,6 +590,8 @@ final class AppState {
             activeId = try c.decode(String.self, forKey: .activeId)
             sidebarMode = try c.decode(SidebarMode.self, forKey: .sidebarMode)
             layouts = (try? c.decodeIfPresent([String: PaneSnapshot].self, forKey: .layouts)) ?? nil
+            explorerWidth = try c.decodeIfPresent(Double.self, forKey: .explorerWidth)
+            gitPanelWidth = try c.decodeIfPresent(Double.self, forKey: .gitPanelWidth)
         }
     }
 
@@ -580,7 +604,8 @@ final class AppState {
             savedLayouts[projectId] = store.snapshot()
         }
         let snapshot = Persisted(workspaces: workspaces, activeId: activeId, sidebarMode: sidebarMode,
-                                 layouts: savedLayouts)
+                                 layouts: savedLayouts, explorerWidth: Double(explorerWidth),
+                                 gitPanelWidth: Double(gitPanelWidth))
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         try? data.write(to: Self.fileURL, options: .atomic)
     }
@@ -592,6 +617,8 @@ final class AppState {
         workspaces = snapshot.workspaces
         activeId = snapshot.activeId
         sidebarMode = snapshot.sidebarMode
+        if let w = snapshot.explorerWidth { explorerWidth = Self.clampPanelWidth(CGFloat(w)) }
+        if let w = snapshot.gitPanelWidth { gitPanelWidth = Self.clampPanelWidth(CGFloat(w)) }
         // 복원 직전 상한·손상 방어를 통과시킨다(순수 함수). 비대·변조된 스냅샷의 복원 폭주를 막는다.
         savedLayouts = SnapshotSanitize.clampAll(snapshot.layouts ?? [:])
     }

@@ -43,8 +43,7 @@ struct FileExplorerPanel: View {
             }
             Spacer(minLength: 0)
         }
-        .frame(width: 280)
-        .frame(maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity) // 폭은 상위(ContentView)가 리사이즈로 지정
         .background(Color.pPanel)
     }
 

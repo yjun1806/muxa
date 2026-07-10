@@ -92,8 +92,10 @@ struct ContentView: View {
                 BonsplitWorkspaceView(store: state.store(for: project, in: ws))
                     .id(project.id)
                 if state.showExplorer {
-                    Rectangle().fill(Color.pBorder).frame(width: 1)
-                    // 파일 클릭 → 뷰어 탭. 우클릭 "여기에서 터미널 열기" → 그 폴더로 새 프로젝트.
+                    // 좌측 경계 드래그로 폭 조절(영속). 파일 클릭 → 뷰어 탭. 우클릭 "여기에서 터미널 열기".
+                    PanelResizeHandle(width: state.explorerWidth, range: AppState.panelWidthRange) { w, committed in
+                        state.setExplorerWidth(w, persist: committed)
+                    }
                     FileExplorerPanel(
                         root: project.path ?? ws.path,
                         revealPath: state.store(for: project, in: ws).lastOpenedFilePath,
@@ -101,16 +103,20 @@ struct ContentView: View {
                         onOpenFile: { state.store(for: project, in: ws).openFile($0) },
                         onOpenTerminal: { dir in state.addProject(name: basename(dir), path: dir) }
                     )
+                    .frame(width: state.explorerWidth)
                 }
                 if state.showGitPanel {
-                    Rectangle().fill(Color.pBorder).frame(width: 1)
-                    // 파일/커밋 클릭 → 활성 프로젝트의 새 탭으로 diff를 연다(모달 아님).
+                    // 파일/커밋 클릭 → 활성 프로젝트의 새 탭으로 diff를 연다(모달 아님). 좌측 경계로 폭 조절.
+                    PanelResizeHandle(width: state.gitPanelWidth, range: AppState.panelWidthRange) { w, committed in
+                        state.setGitPanelWidth(w, persist: committed)
+                    }
                     GitPanel(
                         dir: project.path ?? ws.path,
                         sessionBase: project.sessionBaseHead,
                         onResetBaseline: { state.resetSessionBaseline(projectId: project.id, cwd: project.path ?? ws.path) },
                         onSendReview: { state.store(for: project, in: ws).injectToTerminal($0) }
                     ) { state.store(for: project, in: ws).openDiff($0) }
+                    .frame(width: state.gitPanelWidth)
                 }
             }
         } else {

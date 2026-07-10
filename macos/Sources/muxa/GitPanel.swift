@@ -60,8 +60,7 @@ struct GitPanel: View {
             }
             Spacer(minLength: 0)
         }
-        .frame(width: 280)
-        .frame(maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity) // 폭은 상위(ContentView)가 리사이즈로 지정
         .background(Color.pPanel)
         .task(id: dir) {
             gh = nil // 프로젝트 전환 시 이전 PR 배지 즉시 제거(네트워크 대기 동안 stale 방지)
