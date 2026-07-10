@@ -53,7 +53,10 @@ struct WorktreePicker: View {
                 VStack(alignment: .leading, spacing: 0) {
                     if !worktrees.isEmpty {
                         sectionLabel("기존 워크트리")
-                        ForEach(worktrees) { existingRow($0) }
+                        // 첫 항목은 메인 워크트리(제거 불가). 나머지에만 휴지통 노출.
+                        ForEach(Array(worktrees.enumerated()), id: \.element.id) { i, wt in
+                            existingRow(wt, isMain: i == 0)
+                        }
                     }
                     sectionLabel("새 워크트리")
                     newForm
@@ -63,19 +66,49 @@ struct WorktreePicker: View {
         }
     }
 
-    private func existingRow(_ wt: GitWorktree) -> some View {
-        Button { onPick(wt.displayName, wt.path) } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "arrow.triangle.branch").font(.system(size: 11)).foregroundStyle(Color.pMuted)
-                Text(wt.displayName).font(.system(size: 12)).foregroundStyle(Color.pFg).lineLimit(1)
-                Spacer(minLength: 8)
-                Text(displayPath(wt.path, home: SystemPaths.home))
-                    .font(.system(size: 10)).foregroundStyle(Color.pMuted).lineLimit(1).truncationMode(.head)
+    private func existingRow(_ wt: GitWorktree, isMain: Bool) -> some View {
+        HStack(spacing: 8) {
+            Button { onPick(wt.displayName, wt.path) } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.triangle.branch").font(.system(size: 11)).foregroundStyle(Color.pMuted)
+                    Text(wt.displayName).font(.system(size: 12)).foregroundStyle(Color.pFg).lineLimit(1)
+                    if isMain {
+                        Text("메인").font(.system(size: 9)).foregroundStyle(Color.pMuted)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(Color.pBorder).clipShape(Capsule())
+                    }
+                    Spacer(minLength: 8)
+                    Text(displayPath(wt.path, home: SystemPaths.home))
+                        .font(.system(size: 10)).foregroundStyle(Color.pMuted).lineLimit(1).truncationMode(.head)
+                }
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 16).frame(height: 30).contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .help(wt.path)
+            // 메인 워크트리는 제거 불가. 비강제 remove라 변경사항이 있으면 git이 거부한다.
+            if !isMain {
+                Button { remove(wt) } label: {
+                    Image(systemName: "trash").font(.system(size: 11)).foregroundStyle(Color.pMuted)
+                }
+                .buttonStyle(.plain).disabled(busy)
+                .help("워크트리 제거")
+            }
         }
-        .buttonStyle(.plain)
-        .help(wt.path)
+        .padding(.horizontal, 16).frame(height: 30)
+    }
+
+    /// 워크트리 제거(비강제) → 목록 갱신. dirty면 git이 거부하고 사유를 보인다.
+    private func remove(_ wt: GitWorktree) {
+        busy = true
+        errorMessage = nil
+        Task {
+            if let msg = await GitService.worktreeRemove(wt.path, in: dir) {
+                errorMessage = msg
+            } else {
+                await load()
+            }
+            busy = false
+        }
     }
 
     private var newForm: some View {
