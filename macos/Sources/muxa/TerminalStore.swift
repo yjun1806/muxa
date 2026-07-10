@@ -82,7 +82,21 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 복원 replay 중에는 delegate 부작용(자동 새 터미널 생성)을 막는다.
     @ObservationIgnored private var restoring = false
     /// ensureInitialTerminal 1회 보장 — Bonsplit이 초기 "Welcome" 탭을 넣어 allTabIds가 비지 않으므로 플래그로 판별.
-    @ObservationIgnored private var initialized = false
+    /// 관측 대상(뷰가 showEmptyState에서 읽음) — 초기화 전엔 빈 상태 뷰를 띄우지 않게 게이트한다.
+    private(set) var initialized = false
+    /// 이 스토어에 살아있는 탭이 하나라도 있는지(관측 대상). controller.allTabIds는 관측 불가라
+    /// 탭 생성·닫기 경계에서 syncHasTabs로 동기화한다 — 뷰가 빈 상태 분기에 쓴다.
+    private(set) var hasTabs = false
+
+    /// 메인 영역에 빈 상태 뷰("터미널 없음")를 띄울지 — 초기화가 끝났는데 살아있는 탭이 하나도 없을 때만.
+    /// 초기화 전(ensureInitialTerminal 이전)엔 곧 초기 터미널이 생기므로 빈 상태를 띄우지 않는다(깜빡임 방지).
+    var showEmptyState: Bool { initialized && !hasTabs }
+
+    /// 관측 가능한 hasTabs를 컨트롤러 실제 상태로 맞춘다 — 탭 수가 0↔양수로 바뀌는 경계에서 호출한다.
+    private func syncHasTabs() {
+        let next = !controller.allTabIds.isEmpty
+        if hasTabs != next { hasTabs = next }
+    }
 
     init(app: ghostty_app_t, cwd: String?, restoreSnap: PaneSnapshot? = nil,
          commandFinishedThresholdNs: UInt64 = 8_000_000_000,
@@ -153,6 +167,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         resetCoalescers(for: tabId) // 배지·알림 병합 이력 해제(맵 누수 방지)
         manualTitles[tabId] = nil // 수동 지정 제목 해제
         engineTitles[tabId] = nil // 엔진 제목 캐시 해제
+        syncHasTabs() // 마지막 탭이 닫히면 빈 상태 뷰로 전환(관측 갱신)
         persist()
     }
 
@@ -629,6 +644,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     func newTerminal(inPane pane: PaneID? = nil) -> TabID? {
         let id = controller.createTab(title: "터미널", icon: "terminal", inPane: pane)
         if let id { regroup(id, inPane: pane ?? controller.focusedPaneId) }
+        syncHasTabs() // 빈 상태에서 새 터미널을 열면 BonsplitView로 복귀(관측 갱신)
         persist()
         return id
     }
@@ -711,6 +727,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         groups[tabId] = TabGroupState(first: item)
         regroup(tabId, inPane: pane)
         controller.selectTab(tabId)
+        syncHasTabs() // 빈 상태에서 문서/diff를 열어도 메인 영역 복귀(관측 갱신)
         return tabId
     }
 
@@ -742,6 +759,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         if controller.allTabIds.isEmpty {
             _ = controller.createTab(title: "터미널", icon: "terminal", inPane: nil)
         }
+        syncHasTabs() // 초기 탭 확정 → 빈 상태 게이트(showEmptyState) 해제
         ready = true // 이후 탭/뷰어 변경은 즉시 저장(⌘Q 없이도 복원되게)
     }
 

@@ -596,6 +596,21 @@ final class AppState {
         savedLayouts = SnapshotSanitize.clampAll(snapshot.layouts ?? [:])
     }
 
+    // MARK: 스크롤백 파일 GC (복원 시 새 tabId 발급으로 남는 고아 파일 정리 — 디스크 누수 방지)
+
+    /// 세션 복원이 끝난 뒤 호출 — 유효 tabId 집합이 확정된 안전 시점에 고아 스크롤백 파일을 정리한다.
+    /// 유효 집합 = (1) 열린 스토어의 살아있는 tabId + (2) savedLayouts 스냅샷이 참조하는 파일 경로.
+    /// lazy 미개방 프로젝트의 스크롤백은 (2)로 보존되고, 어디에도 없고 유예를 넘긴 파일만 지운다(안전 최우선).
+    func collectScrollbackGarbage() {
+        var referenced: Set<String> = []
+        for snap in savedLayouts.values { referenced.formUnion(snap.scrollbackPaths()) }
+        var live: Set<String> = []
+        for store in stores.values {
+            for tabId in store.controller.allTabIds { live.insert(tabId.uuid.uuidString) }
+        }
+        ScrollbackStore.collectGarbage(liveTabIds: live, referencedPaths: referenced)
+    }
+
     // MARK: 세션 수명 (크래시 마커 — 더티 종료 감지)
 
     /// 직전 실행이 더티(크래시/강제종료) 종료였는지. 시작 시 beginSession이 판정해 넣는다.

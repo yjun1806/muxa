@@ -38,6 +38,17 @@ indirect enum PaneSnapshot: Codable {
         }
     }
 
+    /// 이 스냅샷 트리가 참조하는 모든 스크롤백 파일 경로(터미널 탭). 순수 — 스크롤백 GC가
+    /// '아직 복원에 필요한 파일'을 고아 판정에서 제외(보존)하는 데 쓴다. lazy 미개방 프로젝트의 파일도 여기로 잡힌다.
+    func scrollbackPaths() -> Set<String> {
+        switch self {
+        case .leaf(let tabs, _, _):
+            return Set(tabs.compactMap { $0.scrollbackFile })
+        case .split(_, _, let first, let second):
+            return first.scrollbackPaths().union(second.scrollbackPaths())
+        }
+    }
+
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CaseKey.self)
         switch self {

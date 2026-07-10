@@ -7,10 +7,17 @@ struct BonsplitWorkspaceView: View {
     let store: TerminalStore
 
     var body: some View {
-        BonsplitView(controller: store.controller) { tab, paneId in
-            tabContent(tab.id, paneId: paneId)
-        } emptyPane: { paneId in
-            emptyPane(paneId)
+        Group {
+            if store.showEmptyState {
+                // 프로젝트의 모든 탭이 런타임에 닫혀(exit·⌘W) 살아있는 터미널이 없을 때 — 빈 상태 뷰.
+                EmptyProjectView(store: store)
+            } else {
+                BonsplitView(controller: store.controller) { tab, paneId in
+                    tabContent(tab.id, paneId: paneId)
+                } emptyPane: { paneId in
+                    emptyPane(paneId)
+                }
+            }
         }
         .onAppear { store.ensureInitialTerminal() }
     }
@@ -62,6 +69,40 @@ struct BonsplitWorkspaceView: View {
         .background(Color.pBg)
         .contentShape(Rectangle())
         .onTapGesture { store.controller.focusPane(paneId) }
+    }
+}
+
+/// 프로젝트의 모든 탭이 런타임에 닫혀 살아있는 터미널이 없을 때 메인 영역에 뜨는 빈 상태 뷰.
+/// 자동으로 새 터미널을 강제 생성하지 않는다(사용자가 의도적으로 다 닫았을 수 있음) — 버튼(⌘T)으로 다시 연다.
+/// 앱 최초 실행/복원 시 초기 터미널 보장은 store.ensureInitialTerminal이 그대로 담당한다(이건 런타임에 다 닫은 경우).
+private struct EmptyProjectView: View {
+    let store: TerminalStore
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "terminal")
+                .font(.system(size: 34))
+                .foregroundStyle(Color.pMuted)
+            Text("터미널이 없습니다")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Color.pFg)
+            Button {
+                store.newTerminal()
+            } label: {
+                Label("새 터미널", systemImage: "plus")
+                    .font(.system(size: 13))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(Color.pBtnHover, in: RoundedRectangle(cornerRadius: 6))
+                    .foregroundStyle(Color.pFg)
+            }
+            .buttonStyle(.plain)
+            Text("⌘T")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.pMuted)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.pBg)
     }
 }
 

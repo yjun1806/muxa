@@ -106,4 +106,59 @@ enum ScrollbackStore {
     static func delete(for tabId: TabID) {
         try? FileManager.default.removeItem(at: fileURL(for: tabId))
     }
+
+    // MARK: 고아 파일 GC — 복원 시 새 tabId 발급으로 남는 이전 파일 정리 (디스크 누수 방지)
+    //
+    // 복원은 controller.createTab이 새 UUID를 발급하므로 이전 tabId 이름의 스크롤백 파일이 고아가 된다.
+    // "삭제 대상 판정"은 순수 함수(orphans)로 뽑아 테스트하고, 스캔·삭제(부작용)만 경계(collectGarbage)에 둔다.
+
+    /// GC의 mtime 유예(초) — 참조 집합이 곧 진실이지만, 방금 쓰였는데 아직 어디에도 안 실린
+    /// 파일을 실수로 지우지 않게 유예 안쪽(최근)에 수정된 파일은 무조건 보존한다(활성 파일 방어, 안전 최우선).
+    static let orphanGraceInterval: TimeInterval = 3600 // 1시간
+
+    /// 스크롤백 파일 하나의 GC 판정 입력(순수) — 경로·tabId키(파일명에서 .txt 제거)·수정시각.
+    struct ScrollbackFile: Equatable {
+        let path: String
+        let tabIdKey: String
+        let modified: Date
+    }
+
+    /// 삭제해도 안전한 '고아' 파일 경로를 고른다(순수, 부작용 없음).
+    /// 보존(=삭제 안 함) 조건 — 하나라도 참이면 남긴다:
+    ///  1) 살아있는 탭의 파일(tabIdKey ∈ liveTabIds)
+    ///  2) 스냅샷이 아직 참조하는 파일(path ∈ referencedPaths) — 아직 안 연 lazy 프로젝트의 스크롤백 보존
+    ///  3) 최근(now-modified < grace) 수정 — 방금 쓰였는데 아직 참조에 안 실린 파일 방어(의심되면 안 지움)
+    static func orphans(in files: [ScrollbackFile], liveTabIds: Set<String>,
+                        referencedPaths: Set<String>, now: Date,
+                        graceInterval: TimeInterval) -> [String] {
+        files.filter { file in
+            if liveTabIds.contains(file.tabIdKey) { return false }
+            if referencedPaths.contains(file.path) { return false }
+            if now.timeIntervalSince(file.modified) < graceInterval { return false }
+            return true
+        }.map(\.path)
+    }
+
+    /// 세션 복원이 끝난 뒤 호출 — 살아있는 탭·스냅샷 참조 어디에도 없고 유예를 넘긴 고아 파일을 지운다.
+    /// 스캔·삭제(부작용)만 여기, 판정은 orphans(순수)에 위임한다. 판정 못 하면(스캔 실패) 아무것도 안 지운다.
+    static func collectGarbage(liveTabIds: Set<String>, referencedPaths: Set<String>,
+                               now: Date = Date(), graceInterval: TimeInterval = orphanGraceInterval) {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]) else { return }
+        let files: [ScrollbackFile] = entries.compactMap { url in
+            guard url.pathExtension == "txt" else { return nil }
+            // mtime을 못 읽으면 distantFuture로 둬(=항상 유예 안쪽) 절대 삭제 대상이 안 되게 한다(안전).
+            let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey])
+                .contentModificationDate) ?? Date.distantFuture
+            return ScrollbackFile(path: url.path,
+                                  tabIdKey: url.deletingPathExtension().lastPathComponent,
+                                  modified: modified)
+        }
+        for path in orphans(in: files, liveTabIds: liveTabIds, referencedPaths: referencedPaths,
+                            now: now, graceInterval: graceInterval) {
+            try? fm.removeItem(at: URL(fileURLWithPath: path))
+        }
+    }
 }

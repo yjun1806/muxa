@@ -92,6 +92,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         NSApp.activate(ignoringOtherApps: true)
+
+        // 세션 복원이 정착된 뒤(초기 렌더 → 활성 스토어의 ensureInitialTerminal 완료) 고아 스크롤백 파일 정리.
+        // 미개방 프로젝트의 파일은 savedLayouts가 참조하므로 보존된다(collectScrollbackGarbage 주석). 부작용이라 메인 async로 미룬다.
+        DispatchQueue.main.async { [weak state] in state?.collectScrollbackGarbage() }
     }
 
     /// 설정 파일 변경 감지 시 재로드·재적용 — 파싱은 순수 함수(MuxaConfig.parse) 그대로, 여기선 결과만 반영한다.
