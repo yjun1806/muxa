@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.runtime = runtime
 
+        setAppIcon() // Dock 아이콘 — bare 실행(.app 번들 아님)이라 런타임에 직접 설정
         ShikiHighlighter.shared.warmUp() // 코드 하이라이터를 미리 로드 — 첫 코드 파일도 즉시 뜨게
         NotificationService.shared.requestAuthorizationIfPossible() // 데스크톱 알림 권한(번들일 때만)
         setupMainMenu() // ⌘Q(종료)·⌘H(가리기) — 메뉴가 없으면 ⌘Q가 안 묶인다
@@ -137,6 +138,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// 최소 메인 메뉴 — App 메뉴에 종료(⌘Q)·가리기(⌘H)만. Edit 메뉴의 ⌘C/⌘V는 터미널
     /// 복사·붙여넣기(ghostty가 직접 처리)를 가로채므로 넣지 않는다.
+    /// bare 실행(.app 번들 아님)에선 Info.plist 아이콘이 없어 Dock이 기본 실행 아이콘을 쓴다.
+    /// 번들 리소스 AppIcon.png를 런타임에 applicationIconImage로 얹어 Dock·⌘Tab 아이콘을 muxa로. 재생성 = scripts/build-appicon.
+    private func setAppIcon() {
+        guard let url = Bundle.module.url(forResource: "AppIcon", withExtension: "png"),
+              let image = NSImage(contentsOf: url) else { return }
+        NSApp.applicationIconImage = image
+    }
+
     private func setupMainMenu() {
         let mainMenu = NSMenu()
         let appItem = NSMenuItem()

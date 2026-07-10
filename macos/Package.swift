@@ -25,6 +25,8 @@ let package = Package(
                 .copy("Resources/codeviewer"),
                 // 파일 익스플로러 컬러 아이콘(Material Icon Theme 슬림 번들 + icons.json).
                 .copy("Resources/fileicons"),
+                // 앱 아이콘(1024) — bare 실행에서도 Dock 아이콘을 이걸로 설정한다(main.swift). 재생성 = scripts/build-appicon.
+                .copy("Resources/AppIcon.png"),
             ],
             linkerSettings: [
                 .linkedFramework("AppKit"),
