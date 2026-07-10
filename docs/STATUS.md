@@ -1,4 +1,4 @@
-# muxa 진행 상태 · 인수인계 (2026-07-09)
+# muxa 진행 상태 · 인수인계 (2026-07-10)
 
 > 다음 세션이 여기서 이어간다. 설계 원천은 [DESIGN.md](DESIGN.md), 이 문서는 **현재 상태·다음 할 일**만.
 
@@ -9,66 +9,63 @@
 cd macos
 swift build                 # 빌드 (SPM)
 .build/debug/muxa           # 실행 (창 뜸)
-# UI/PTY 변경은 재빌드+재실행으로 확인. 인터랙티브 동작은 실제 창에서.
+# UI 변경은 재빌드+재실행. pkill로 죽이면 세션 저장(applicationWillTerminate) 안 됨 — ⌘Q로 정상 종료해야 복원됨.
 ```
 
 커밋 자유(private), push만 승인. 커밋 트레일러 금지. 응답은 한국어.
 
 ## 마일스톤 진행
 
-- **M0 (IME·임베딩 게이트)** ✅ — 한글 IME 검증 완료.
-- **M1 (터미널 코어)** ✅ — 워크스페이스 · Bonsplit 분할/탭 · ⌘F 검색 · 세션 복원 · 사이드바 4모드(hover 오버레이) · 모니터 스케일 · ghostty config 재사용.
-- **추가 (M1 범위 밖)** ✅ — **프로젝트 계층**(워크스페이스⊃프로젝트⊃탭), 상단바 한 줄 통합, ⌘Q 메뉴+종료 확인, 접힌 사이드바 호버 이름.
-- **M3 (git 읽기) — "C"** ✅ 읽기 부분 완성 — Git 상태 패널(브랜치·↑↓·변경파일) + diff 뷰 + 히스토리(커밋). **diff는 모달 아니라 활성 패인의 탭**으로 뜸.
-- **B (익스플로러 + md/코드 뷰어)** ✅ — 우측 접이식 파일 트리(GitPanel 형제) → 파일 클릭 → 뷰어 탭. 다형 탭에 `.file(FileViewTarget)` 추가. md는 네이티브 렌더(블록 파서 + AttributedString 인라인), 코드는 monospace+줄번호. 대형/바이너리 가드. FSEvents(`FileWatcher`)로 익스플로러 트리·git 패널 자동 갱신(뷰어 탭 리로드는 후속).
-- **A (알림/완료 감지)** ✅ — `action_cb` 4케이스(DESKTOP_NOTIFICATION·COMMAND_FINISHED·RING_BELL·PROGRESS_REPORT). 백그라운드 탭 배지(Bonsplit `isDirty`)·프로젝트 ● 배지·macOS 알림(번들일 때만, bare 바이너리는 Dock 바운스). 보고 있는 탭(first responder+key창)은 억제.
-- **M4 (git 워크트리 자동화)** ✅ — `GitService` worktree list/add/remove, `WorktreePicker` 시트(기존 목록+생성 폼), `.worktrees/<branch>` + info/exclude 등록. repoRoot는 `--git-common-dir`(링크 워크트리 안전). gh 레이어는 후속.
+- **M0 IME·임베딩** ✅ · **M1 터미널 코어** ✅ (워크스페이스·Bonsplit 분할/탭·⌘F·세션복원·사이드바 4모드·모니터 스케일)
+- **M2 보는 눈 + 알림** ✅ — 익스플로러 + md/코드 뷰어 + FSEvents + 알림 배지 (아래 상세)
+- **M3 git 읽기(C)** ✅ — 상태 패널·diff 탭·히스토리
+- **M4 워크트리** ✅ — 워크트리 list/add/remove·WorktreePicker·`.worktrees/<branch>`+exclude. **git 쓰기(스테이징/커밋)는 남음**
+- **뷰어 라이브러리** ✅ — **md/HTML = WKWebView + markdown-it·highlight.js·mermaid**(`Resources/mdviewer`), **코드 = Shiki**(VSCode 문법)
+- **익스플로러 VSCode급 1단계** ✅ — **NSOutlineView 전환** + git색·컨텍스트메뉴(여기서 터미널 열기)·선택 하이라이트·키보드 네비
 
-## 다음 할 일 (백로그)
+## 다음 할 일
 
-- **뷰어 탭 라이브 리로드** — 현재 FSEvents는 익스플로러·git 패널만 갱신. 열린 md/코드 뷰어 탭도 자기 파일 변경 시 재로드하게(각 뷰가 `FileWatcher` 또는 공유 워처 구독).
-- **md 고급 렌더**(mermaid·표·이미지) → WKWebView 경로. `MarkdownView`만 교체하면 됨(뷰 격리). WebKit 링크 + 번들 JS 에셋 필요.
-- **코드 신택스 하이라이트** — 현재 monospace 평문. `DiffView`의 라인 렌더와 공통화 여지.
-- **gh 레이어**(PR 번호·CI 배지) — `GhService`로 격리 예정. 레포가 GitHub + `gh` 로그인 시. 현재 `gh` 설치·인증됨(account: youngjunkim-aha).
-- **세션 복원 시 뷰어/diff 탭 제외** — 현재 복원 replay가 모든 탭을 터미널로 되살림(뷰어·diff는 임시라 제외 TODO).
-- **워크트리 제거 UI** — `GitService.worktreeRemove`는 있으나 확인 다이얼로그 액션 미연결(비파괴 기본).
+- **탭 추가 버튼 위치** — 지금 상단바에 있음. 분할 버튼 옆(탭바)이 정위치. Bonsplit이 탭바를 그려서 못 끼움 → `manaflow-ai/bonsplit` fork(`SplitActionButton` config 있음)로 전환하면 가능. **의존성 교체(almonk→manaflow) 리스크 검토 필요.**
+- **파일 아이콘 Material** — 지금 NSWorkspace 시스템 아이콘(밋밋). Material Icon Theme(MIT SVG) 번들 + 매핑 코드젠. `FileIcon.image` 한 함수만 교체하면 됨(격리).
+- **탭 그룹핑** — 문서 탭끼리·diff 탭끼리 묶기.
+- **git 쓰기(M4 나머지)** — 스테이징/커밋 UI(GitPanel에 변경 파일 목록 있음).
+- **익스플로러 VSCode급 2단계** — 인덴트 가이드·호버·reveal·인라인 이름변경·새파일/삭제·트리 구조 라이브 갱신(reloadItem).
+- **뷰어 탭 라이브 리로드**·**gh 배지**·**세션복원 시 뷰어/diff 탭 제외**·**워크트리 제거 UI**.
 
-## 핵심 아키텍처 (재개에 필요)
+## 핵심 아키텍처
 
-- **3계층**: `Workspace{path,projects[]}` ⊃ `Project{name,path?}`(path nil=워크스페이스 상속, 워크트리면 자체) ⊃ Bonsplit 탭/분할. `AppState.stores`는 **프로젝트 id로 키잉**.
-- **다형 탭**: `TabContent = .terminal | .diff(GitDiffTarget)`. `TerminalStore.content(for:)`로 분기, `BonsplitWorkspaceView`가 렌더. 뷰어는 `openDiff`처럼 `store.openXxx`로 탭 생성.
-- **분할·탭 = Bonsplit**(MIT, SPM 1.1.1). 자체 tree.ts 폐기(크래시). `TerminalStore`(BonsplitDelegate) + `TerminalRepresentable`.
-- **git = CLI 셸아웃**(D5 확정). `GitService`(백그라운드 Process): status/diff/log/show. libgit2 안 씀.
-- **상단바**: `fullSizeContentView` + `NSHostingView.safeAreaRegions=[]`(안 그러면 신호등과 두 줄로 갈라짐). ContentView 최상단 한 줄에 사이드바컨트롤·프로젝트탭·경로·git토글.
-- **영속**: `state.v4.json`(App Support/muxa). 워크스페이스·프로젝트·사이드바모드 + 프로젝트별 `treeSnapshot`. ⌘Q(applicationWillTerminate) 시 저장.
+- **3계층**: `Workspace{path,projects[]}` ⊃ `Project{name,path?}` ⊃ Bonsplit 탭/분할. `AppState.stores`는 프로젝트 id 키잉.
+- **다형 탭**: `TabContent = .terminal | .diff(GitDiffTarget) | .file(FileViewTarget)`. `BonsplitWorkspaceView`가 렌더 분기. `store.openFile`/`openDiff`로 탭 생성(경로 dedup).
+- **Bonsplit**(almonk, SPM 1.1.1). `TerminalStore`(BonsplitDelegate). **config `keepAllAlive`** — 탭 전환 시 뷰 유지(재렌더 방지). Bonsplit이 초기 "Welcome"/star 탭을 자동 생성 → `ensureInitialTerminal`이 복원/신규 탭 만든 뒤 selected 옮기고 welcome 닫음.
+- **코드 뷰어**: `ShikiHighlighter`(싱글턴, 오프스크린 WKWebView 1개가 shiki `codeToTokens` 계산) → `CodeTextView`(NSTextView)가 토큰을 attributed로 네이티브 렌더 + 줄번호 ruler. shiki는 **JS RegExp 엔진(wasm 없음)** esbuild IIFE 단일 번들(`Resources/codeviewer/shiki.bundle.js`, 재번들은 scratchpad `shiki-build`: npm shiki@4 + esbuild).
+- **md/HTML 뷰어**: `MarkdownWebView`(WKWebView) + `Resources/mdviewer/shell.html`. `.html`은 raw 렌더.
+- **익스플로러**: `FileExplorerOutline`(NSOutlineView Representable+Coordinator) + `FileCellView`/`FileRowView`. `FileNode`는 class(참조 동일성). git색 = `GitService.statusMap`(porcelain -z + 조상 폴더 전파). `FileIcon`(NSWorkspace 1차).
+- **git = CLI 셸아웃**. `GitService`(+`GitService+Worktree`, `+Explorer`). `repoRoot`는 `--git-common-dir`(링크 워크트리 안전).
+- **터미널 테마**: `GhosttyRuntime`가 시스템 외관 기반 배경/전경 폴백을 `config_load_string`으로 주입(사용자 config 있으면 덮음) + `set_color_scheme`. (사용자 config는 `~/.config/ghostty/config` — 확장자 없는 파일이어야 ghostty가 읽음)
+- **알림 배지(A)**: `action_cb` 4케이스 → `TermView`(tabId 보유)가 `isVisibleToUser`(**firstResponder+key창**) 아니면 배지. 탭 점=Bonsplit isDirty, 프로젝트 ●=`AppState.badgedProjects`. 알림=`NotificationService`(번들 가드).
+- **영속**: `state.v4.json`. ⌘Q(applicationWillTerminate) 시 저장.
 
-## 사용자 미검증 항목 (구현·빌드·크래시0 확인, 눈으로는 아직)
+## 사용자 미검증 항목 (빌드·크래시0, 눈으로는 아직)
 
-작업자가 화면 녹화 권한이 없어 못 본 것 — 다음 세션에서 사용자가 확인 필요:
-1. ⌘F 검색 오버레이 실제 동작(한글 검색·카운터·Enter 이동)
-2. hover 사이드바 모드 오버레이 시각
-3. 세션 복원(분할 만들고 ⌘Q→재실행)
-4. 모니터 이동 시 글자 크기
-5. git 패널·diff 탭·히스토리 실제 표시
-6. **B** 익스플로러: 폴더 토글 아이콘(상단바)·트리 펼침·파일 클릭→뷰어 탭·md 렌더·코드 줄번호·중복 클릭 dedup
-7. **A** 배지: 백그라운드 터미널에서 명령 완료/벨 시 탭 점·프로젝트 ● 표시, 보고 있는 탭은 억제, 탭/프로젝트 보면 해제. (알림은 .app 번들 전엔 Dock 바운스만)
-8. **M4** 워크트리: `+`→워크트리… 시트에서 기존 목록·새 워크트리 생성, 생성 후 프로젝트 탭으로 열림
-9. **B-2** FSEvents 자동 갱신: 익스플로러/git 패널을 연 채 외부에서 파일 추가·삭제·수정 → 트리·상태 자동 반영
+1. **코드뷰어** Shiki 하이라이트·줄번호·파일 열기 속도(네이티브 전환 후)
+2. **md 뷰어** 표·mermaid·코드블록·다크테마
+3. **익스플로러** 트리·아이콘·git색·우클릭 메뉴(터미널 열기)·선택·키보드
+4. **세션 복원** ⌘Q 종료 후 재시작 시 탭/분할 유지
+5. **알림 배지** 백그라운드 완료/벨 시 탭·프로젝트 ● + 억제/해제
+6. **M4 워크트리** 시트 생성·프로젝트 열림
+7. 터미널 라이트 테마·탭 제목·⌘F·모니터 스케일
 
-## 이번 세션에서 밝힌 함정 (재발 방지)
+## 이번 세션 함정 (재발 방지)
 
-- 모니터 변경 글자 작아짐 = `layer.contentsScale=window.backingScaleFactor`(CATransaction) 누락. `set_content_scale`만으론 부족(cmux 대조).
-- 빈 타이틀바 = NSTitlebarAccessoryViewController 렌더 불안정 → 본문 상단바 + fullSizeContentView.
-- 상단바 두 줄 = SwiftUI safe-area → `safeAreaRegions=[]`.
-- ⌘Q 안 됨 = 메인 메뉴 부재 → App 메뉴 추가. Edit 메뉴 ⌘C/⌘V는 터미널 복사/붙여넣기(ghostty) 가로채니 넣지 말 것.
-- 세션 복원 replay: `splitPane(withTab:nil)`=빈 패인, `restoring` 플래그로 delegate 자동생성 억제.
-
-## 알려진 한계 (백로그)
-
-- 세션 복원 시 옛 diff 탭이 터미널로 되살아남(diff는 임시라 복원 대상 아님 — 복원 때 제외 처리 TODO).
-- git 패널 자동 갱신 없음(프로젝트 전환·수동 버튼만) → B의 FSEvents에서.
+- **NSTextView 본문 clip** = `isHorizontallyResizable=true`인데 `maxSize` 안 줌 → 줄번호만 보이고 텍스트 안 뜸. minSize/maxSize 필수.
+- **코드뷰어 굼뜸** = 파일마다 새 WKWebView(web 프로세스 스폰). 해결: 오프스크린 하이라이터 1개 공유 + 네이티브 NSTextView 표시.
+- **탭 전환 재렌더** = Bonsplit 기본 `.recreateOnSwitch`. → `keepAllAlive`.
+- **배지 무력화** = `TermView.isFocused`가 어디서도 대입 안 돼 항상 false. → `isVisibleToUser`를 `window?.firstResponder === self`로.
+- **세션 복원 터미널 안 뜸** = welcome 탭이 selected인 채 닫혀 선택 사라짐. → 복원 탭 먼저 selectTab 후 welcome 닫기.
+- **Shiki 오프라인** = esm.sh ?bundle은 동적 import라 file:// 실패. JS RegExp 엔진(wasm 제거) + esbuild IIFE 단일 파일이 정답.
+- (기존) 모니터 스케일=layer.contentsScale, 빈 타이틀바=본문 상단바, 상단바 두 줄=safeAreaRegions=[], ⌘Q=메인 메뉴, 복원 replay=restoring 플래그.
 
 ## 참조 (scratchpad, 커밋 금지)
 
-- `cmux-ref` (GPL) — 검색·스케일·Bonsplit 사용 원본. `bonsplit-ref` (MIT main) — 풍부한 API.
-- ghostty 헤더: `macos/vendor/ghostty/include/ghostty.h`.
+- `cmux-ref`(GPL) — 익스플로러 NSOutlineView·git 상태 전파 구조 참고. `bonsplit-mf`(manaflow fork) — SplitActionButton 등 풍부한 API.
+- `shiki-build` — shiki 번들 재생성(code-entry.js + esbuild).
