@@ -18,6 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var state: AppState?
     private var window: NSWindow?
     private var keyMonitor: Any?
+    /// 단축키 판정 테이블 — 설정 로드 후 재정의를 얹어 교체한다(그전까진 기본 테이블).
+    private var keymap = KeymapResolver.default
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard let runtime = GhosttyRuntime(), let app = runtime.app else {
@@ -31,6 +33,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // muxa 설정(~/.config/muxa/config) 로드 — 없으면 전부 기본값. 폰트·테마는 ghostty config 재사용(GhosttyRuntime). (DESIGN 4.6)
         let config = MuxaConfigLoader.load()
+        // 단축키 테이블 — 설정의 keybinding 재정의를 기본 위에 얹는다(없으면 기본 그대로). (DESIGN 7)
+        keymap = KeymapResolver(overrides: config.keybindings)
 
         // 저장된 세션 복원(없으면 설정의 기본 경로/현재 디렉토리로 초기 워크스페이스 생성)
         let state = AppState(app: app, config: config)
@@ -78,61 +82,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    /// ⌘1-8 워크스페이스 · ⌘T 새 터미널 · ⌘D/⌘⇧D 분할 · ⌘W 탭 닫기 · ⌘⇧E/⌘⇧G 도구 패널 토글.
-    /// 물리 keyCode로 판별한다 — charactersIgnoringModifiers는 한글 자판에서 어긋난다.
+    /// 로컬 키 모니터의 착지점 — 판정은 KeymapResolver(순수)에 위임하고, 매치되면 실행 후 소비(true),
+    /// 미매치면 통과(false → 포커스된 터미널이 먹는다). 우리 창 이벤트만 대상. (DESIGN 7 라우팅 규칙)
     private func handleShortcut(_ event: NSEvent) -> Bool {
-        guard event.window === window, event.modifierFlags.contains(.command),
-              let state else { return false }
-        let shift = event.modifierFlags.contains(.shift)
+        guard event.window === window, let state else { return false }
+        guard let action = keymap.resolve(keyCode: Int(event.keyCode),
+                                          characters: event.charactersIgnoringModifiers,
+                                          flags: event.modifierFlags) else { return false }
+        return perform(action, state: state)
+    }
 
-        // ⌘1-8: 워크스페이스 전환 (숫자는 자판 무관하게 charactersIgnoringModifiers로)
-        if let s = event.charactersIgnoringModifiers, let n = Int(s),
-           n >= 1, n <= 8, state.workspaces.indices.contains(n - 1) {
+    /// 크롬 동작 실행 — 성공(소비)이면 true. 활성 스토어가 필요한 동작은 없으면 통과(false).
+    private func perform(_ action: KeymapAction, state: AppState) -> Bool {
+        switch action {
+        case .switchWorkspace(let n):
+            guard state.workspaces.indices.contains(n - 1) else { return false }
             state.setActiveId(state.workspaces[n - 1].id)
             return true
+        case .cycleProject(let forward):
+            state.cycleProject(forward: forward); return true
+        case .toggleExplorer:
+            state.toggleExplorer(); return true
+        case .toggleGitPanel:
+            state.toggleGitPanel(); return true
+        case .newTerminal, .split, .closeTab, .find, .focusPane, .cycleTab:
+            guard let store = state.activeStore else { return false }
+            return perform(action, store: store)
         }
+    }
 
-        // ⌘⇧[ / ⌘⇧] : 프로젝트 전환(브라우저 탭 관례)
-        if shift, Int(event.keyCode) == kVK_ANSI_LeftBracket {
-            state.cycleProject(forward: false)
-            return true
-        }
-        if shift, Int(event.keyCode) == kVK_ANSI_RightBracket {
-            state.cycleProject(forward: true)
-            return true
-        }
-
-        // ⌘⇧E / ⌘⇧G : 도구 패널(익스플로러·Git) 토글
-        if shift, Int(event.keyCode) == kVK_ANSI_E {
-            state.toggleExplorer()
-            return true
-        }
-        if shift, Int(event.keyCode) == kVK_ANSI_G {
-            state.toggleGitPanel()
-            return true
-        }
-
-        guard let store = state.activeStore else { return false }
+    /// 활성 스토어(분할·탭 컨트롤러)를 대상으로 하는 동작 실행.
+    private func perform(_ action: KeymapAction, store: TerminalStore) -> Bool {
         let controller = store.controller
-
-        switch Int(event.keyCode) {
-        case kVK_ANSI_T:
+        switch action {
+        case .newTerminal:
             _ = store.newTerminal(inPane: controller.focusedPaneId)
-            return true
-        case kVK_ANSI_D:
-            _ = controller.splitPane(orientation: shift ? .vertical : .horizontal)
-            return true
-        case kVK_ANSI_W:
+        case .split(let vertical):
+            _ = controller.splitPane(orientation: vertical ? .vertical : .horizontal)
+        case .closeTab:
             if let pane = controller.focusedPaneId, let tab = controller.selectedTab(inPane: pane) {
                 _ = controller.closeTab(tab.id, inPane: pane)
             }
-            return true
-        case kVK_ANSI_F:
+        case .find:
             store.focusedTerm?.startSearch()
-            return true
+        case .focusPane(let direction):
+            controller.navigateFocus(direction: direction)
+        case .cycleTab(let forward):
+            forward ? controller.selectNextTab() : controller.selectPreviousTab()
         default:
-            return false
+            return false // 스토어 비대상 동작은 상위 perform이 이미 처리 — 방어적 폴백.
         }
+        return true
     }
 
     /// 최소 메인 메뉴 — App 메뉴에 종료(⌘Q)·가리기(⌘H)만. Edit 메뉴의 ⌘C/⌘V는 터미널

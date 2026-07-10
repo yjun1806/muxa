@@ -16,13 +16,17 @@ struct MuxaConfig: Equatable {
     var commandFinishedThresholdSec: Double
     /// 첫 실행 시 초기 워크스페이스로 열 경로(없으면 현재 디렉토리/홈).
     var defaultWorkspacePath: String?
+    /// 단축키 재정의: 동작 이름 → 조합 문자열(예: `new_terminal → "cmd+t"`). 비면 기본 테이블 그대로.
+    /// KeymapResolver가 기본 테이블 위에 얹는다 — 파싱 실패한 항목은 조용히 무시. (DESIGN 7)
+    var keybindings: [String: String]
 
     /// 전부 기본값(= 빈 설정 파일과 동일). 각 항목의 단일 진실 원천.
     static let defaults = MuxaConfig(
         sidebarMode: .expanded,
         confirmQuit: true,
         commandFinishedThresholdSec: 8,
-        defaultWorkspacePath: nil
+        defaultWorkspacePath: nil,
+        keybindings: [:]
     )
 
     /// 완료 배지 임계를 나노초로 환산 — TerminalStore가 이 단위로 비교한다. 음수는 0으로 클램프.
@@ -41,8 +45,21 @@ extension MuxaConfig {
             confirmQuit: pairs["confirm_quit"].flatMap(parseBool) ?? defaults.confirmQuit,
             commandFinishedThresholdSec: pairs["command_finished_threshold_sec"].flatMap(Double.init)
                 ?? defaults.commandFinishedThresholdSec,
-            defaultWorkspacePath: pairs["default_workspace_path"] ?? defaults.defaultWorkspacePath
+            defaultWorkspacePath: pairs["default_workspace_path"] ?? defaults.defaultWorkspacePath,
+            keybindings: extractKeybindings(pairs)
         )
+    }
+
+    /// `keybind.<action> = <combo>` 형식 항목만 골라 `동작 이름 → 조합 문자열`로 뽑는다(순수).
+    /// 예: `keybind.new_terminal = cmd+t`. 재정의가 없으면 빈 사전(기본 테이블 유지).
+    static func extractKeybindings(_ pairs: [String: String]) -> [String: String] {
+        let prefix = "keybind."
+        return pairs.reduce(into: [:]) { acc, kv in
+            guard kv.key.hasPrefix(prefix) else { return }
+            let action = String(kv.key.dropFirst(prefix.count))
+            guard !action.isEmpty else { return }
+            acc[action] = kv.value
+        }
     }
 
     /// 원문을 `key → value` 사전으로 분해한다(순수). 빈 줄·`#` 주석 줄·`=` 없는 줄은 건너뛴다.
