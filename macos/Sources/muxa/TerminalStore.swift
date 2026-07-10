@@ -39,6 +39,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     private(set) var flashingTabs: Set<TabID> = []
     /// 배지가 하나라도 생기면 상위(AppState)에 알린다 — 프로젝트 탭 ● 표시용.
     @ObservationIgnored var onProjectActivity: (() -> Void)?
+    /// 데스크톱 알림을 띄워야 할 때 상위(AppState)에 위임한다 — 라우팅 컨텍스트(프로젝트·워크스페이스)는
+    /// 스토어가 모르므로 AppState가 붙인다. 이 스토어는 tabId·제목·본문만 넘긴다.
+    @ObservationIgnored var onNotify: ((TabID, String, String) -> Void)?
     /// 탭/뷰어 구성이 바뀔 때 상위(AppState)에 알린다 — 즉시 세션 저장(⌘Q 없이도 복원되게).
     @ObservationIgnored var onStateChange: (() -> Void)?
     /// 초기 복원이 끝난 뒤에만 저장을 트리거한다(복원 중 중간 상태 저장 방지).
@@ -151,6 +154,14 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         return true
     }
 
+    /// 알림/배지 클릭으로 이 탭을 앞으로 가져온다 — 그 칸을 선택·포커스하고 배지를 끈다.
+    /// 소유(terms/groups에 존재)하지 않으면 무동작.
+    func revealTab(_ tabId: TabID) {
+        guard terms[tabId] != nil || groups[tabId] != nil else { return }
+        controller.selectTab(tabId)
+        clearTabBadge(tabId)
+    }
+
     /// 사용자가 탭을 보면 배지를 끈다.
     func clearTabBadge(_ tabId: TabID) {
         guard badgedTabs.contains(tabId) else { return }
@@ -206,7 +217,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             if visible {
                 flashPane(tabId)
             } else {
-                NotificationService.shared.notify(title: title, body: body)
+                // 알림 발사는 AppState에 위임(컨텍스트 부착) — 미배선 시엔 컨텍스트 없이 폴백.
+                if let onNotify { onNotify(tabId, title, body) } else { NotificationService.shared.notify(title: title, body: body) }
                 markBadge(tabId)
             }
         }

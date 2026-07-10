@@ -55,6 +55,29 @@ final class AppState {
         }
     }
 
+    // MARK: 알림 → 원클릭 검토 동선 (배지·시스템 알림 클릭)
+
+    /// 스토어(프로젝트)가 요청한 데스크톱 알림에 라우팅 컨텍스트를 붙여 발사한다.
+    /// 워크스페이스 id는 프로젝트 소속으로 파생(단일 진실 원천) — 스토어는 몰라도 된다.
+    private func emitNotification(projectId: String, tabId: TabID, title: String, body: String) {
+        let workspaceId = workspaces.first { $0.projects.contains { $0.id == projectId } }?.id ?? ""
+        let context = NotifyContext(workspaceId: workspaceId, projectId: projectId, tabId: tabId.uuid.uuidString)
+        NotificationService.shared.notify(title: title, body: body, context: context)
+    }
+
+    /// 배지·시스템 알림 클릭의 공통 착지점 — 대상 프로젝트로 이동 + Git 패널 오픈 + (있으면) 그 탭 선택 + 앱 활성화.
+    /// 배지 클릭·알림 클릭이 이 한 메서드를 공유한다("원클릭 검토" 동선의 단일 구현).
+    func revealActivity(projectId: String, tabId: String? = nil) {
+        guard let ws = workspaces.first(where: { $0.projects.contains { $0.id == projectId } }) else { return }
+        setActiveId(ws.id)        // 대상 워크스페이스로
+        setActiveProject(projectId) // 그 안의 프로젝트로 (+배지 해제)
+        if let tabId, let uuid = UUID(uuidString: tabId), let store = stores[projectId] {
+            store.revealTab(TabID(uuid: uuid))
+        }
+        showGitPanel = true       // 도구 패널(Git) 자동 오픈 — 무엇이 바뀌었는지 바로 체크
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     var activeWorkspace: Workspace? {
         workspaces.first { $0.id == activeId }
     }
@@ -87,6 +110,10 @@ final class AppState {
         let s = TerminalStore(app: app, cwd: cwd, restoreSnap: savedLayouts[project.id])
         let pid = project.id
         s.onProjectActivity = { [weak self] in MainActor.assumeIsolated { self?.markProjectBadge(pid) } }
+        // 데스크톱 알림에 라우팅 컨텍스트(프로젝트·워크스페이스)를 붙여 발사 — 클릭 시 원클릭 검토로 이어짐.
+        s.onNotify = { [weak self] tabId, title, body in
+            MainActor.assumeIsolated { self?.emitNotification(projectId: pid, tabId: tabId, title: title, body: body) }
+        }
         // 탭/뷰어가 바뀔 때마다 즉시 저장 — ⌘Q 없이(pkill·크래시) 종료돼도 다음 실행에 복원.
         s.onStateChange = { [weak self] in MainActor.assumeIsolated { self?.save() } }
         stores[project.id] = s

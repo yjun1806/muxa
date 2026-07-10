@@ -34,6 +34,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state.load()
         state.ensureInitial(path: SystemPaths.currentDir ?? SystemPaths.home)
         state.startNotifyServer() // 훅 알림 소켓 리스너 시작 — `muxa notify`가 결정론적 신호를 보낸다
+        // 시스템 알림 클릭 → 프로젝트 활성 + Git 패널(원클릭 검토 동선). 라우팅 소유는 AppState.
+        NotificationService.shared.onActivate = { [weak state] ctx in
+            state?.revealActivity(projectId: ctx.projectId, tabId: ctx.tabId)
+        }
         self.state = state
 
         let window = NSWindow(

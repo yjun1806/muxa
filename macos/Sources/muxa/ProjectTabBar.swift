@@ -63,7 +63,15 @@ struct ProjectTabBar: View {
                 .stroke(active ? Color.pBorder : Color.clear, lineWidth: 1)
         )
         .contentShape(Rectangle())
-        .onTapGesture { state.setActiveProject(project.id) }
+        .onTapGesture {
+            // 배지(●) 있는 프로젝트로 이동하면 자동으로 Git 패널까지 연다(원클릭 검토 동선).
+            // 배지 없는 일반 전환은 패널을 강제로 열지 않는다.
+            if state.badgedProjects.contains(project.id) {
+                state.revealActivity(projectId: project.id)
+            } else {
+                state.setActiveProject(project.id)
+            }
+        }
         .help(project.path.map { displayPath($0, home: SystemPaths.home) } ?? "워크스페이스 폴더")
     }
 
