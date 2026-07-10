@@ -200,20 +200,15 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     @discardableResult
     private func openInGroup(_ item: GroupItemContent) -> TabID? {
         let kind = item.kind
-        // 1) 이미 어느 그룹에 이 항목이 있으면 그 그룹 선택 + 서브탭 선택.
-        if let (tabId, state) = groups.first(where: { $0.value.items.contains { $0.id == item.id } }) {
-            state.selectedId = item.id
-            controller.selectTab(tabId)
-            return tabId
-        }
         let pane = controller.focusedPaneId
-        // 2) 포커스 패인에 같은 종류 그룹 탭이 있으면 거기에 서브탭 추가.
+        // dedup은 '포커스 패인' 기준 — 다른 패인에 같은 파일이 열려 있어도, 지금 활성 패인에 연다.
+        // 1) 포커스 패인에 같은 종류 그룹 탭이 있으면 거기서 처리(add가 중복이면 선택만, 아니면 추가).
         if let pane, let tabId = groupTab(ofKind: kind, inPane: pane) {
             groups[tabId]?.add(item)
             controller.selectTab(tabId)
             return tabId
         }
-        // 3) 새 그룹 탭 생성.
+        // 2) 없으면 포커스 패인에 새 그룹 탭 생성.
         guard let tabId = controller.createTab(title: kind.title, icon: kind.icon, inPane: pane) else { return nil }
         tabContent[tabId] = .group(kind)
         groups[tabId] = TabGroupState(first: item)
