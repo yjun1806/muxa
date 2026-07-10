@@ -40,6 +40,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     @ObservationIgnored private var restoreTree: ExternalTreeNode?
     /// 복원 replay 중에는 delegate 부작용(자동 새 터미널 생성)을 막는다.
     @ObservationIgnored private var restoring = false
+    /// ensureInitialTerminal 1회 보장 — Bonsplit이 초기 "Welcome" 탭을 넣어 allTabIds가 비지 않으므로 플래그로 판별.
+    @ObservationIgnored private var initialized = false
 
     init(app: ghostty_app_t, cwd: String?, restoreTree: ExternalTreeNode? = nil) {
         self.app = app
@@ -155,12 +157,18 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     /// 최초 표시 시: 저장된 트리가 있으면 복원, 없으면 초기 터미널 1개.
     func ensureInitialTerminal() {
-        guard controller.allTabIds.isEmpty else { return }
-        if let tree = restoreTree {
-            restoreTree = nil
-            restore(tree)
+        guard !initialized else { return }
+        initialized = true
+        if controller.allTabIds.isEmpty {
+            // 컨트롤러가 비어있으면(예상 밖) muxa가 직접 채운다.
+            if let tree = restoreTree { restoreTree = nil; restore(tree) } else { newTerminal() }
         } else {
-            newTerminal()
+            // Bonsplit이 컨트롤러 생성 시 자동으로 넣는 "Welcome"/star 탭을 터미널로 라벨링해 재활용한다.
+            // (저장 트리와의 정합 복원은 후속 — 지금은 이 탭이 첫 터미널이 된다)
+            for id in controller.allTabIds {
+                controller.updateTab(id, title: "터미널", icon: "terminal")
+            }
+            restoreTree = nil
         }
     }
 

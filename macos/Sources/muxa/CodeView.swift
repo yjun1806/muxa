@@ -35,16 +35,18 @@ struct CodeView: View {
             ScrollView([.vertical, .horizontal]) {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
-                        HStack(alignment: .top, spacing: 12) {
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
                             Text("\(i + 1)")
                                 .font(.system(size: 12, design: .monospaced))
                                 .foregroundStyle(Color.pMuted.opacity(0.6))
                                 .frame(minWidth: 40, alignment: .trailing)
+                            // 코드는 줄바꿈하지 않는다 — 자연 폭 + 가로 스크롤(lineLimit1·fixedSize).
                             Text(line.isEmpty ? " " : line)
                                 .font(.system(size: 12, design: .monospaced))
                                 .foregroundStyle(Color.pFg)
                                 .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                         }
                         .padding(.horizontal, 12)
                     }

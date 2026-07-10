@@ -11,6 +11,14 @@ final class GhosttyRuntime {
     init?() {
         // 사용자 ghostty 설정(폰트·테마)이 있으면 그대로 재사용한다 (DESIGN.md D12 보너스)
         guard let config = ghostty_config_new() else { return nil }
+        // 시스템 외관에 맞춘 배경/전경 폴백을 먼저 깐다 — 사용자 config가 theme를 지정하면 아래
+        // load_default_files가 덮는다(사용자 우선). 설정이 없으면 ghostty 기본 테마가 다크라, 라이트
+        // 시스템에서도 터미널만 다크로 어긋나므로 muxa 팔레트에 맞춰 폴백한다(Palette.bg/fg 대응).
+        let dark = Self.systemIsDark
+        let fallback = dark
+            ? "background = 1b1b1d\nforeground = e4e4e7"
+            : "background = ffffff\nforeground = 1f2937"
+        fallback.withCString { ghostty_config_load_string(config, $0, UInt(strlen($0)), "muxa-fallback") }
         ghostty_config_load_default_files(config)
         ghostty_config_load_recursive_files(config)
         ghostty_config_finalize(config)
@@ -108,6 +116,13 @@ final class GhosttyRuntime {
         guard let app = ghostty_app_new(&runtime, config) else { return nil }
         self.app = app
         ghostty_app_set_focus(app, true)
+        // 현재 시스템 외관을 ghostty에 알린다(theme = light:,dark: 설정 시 자동 전환에 사용).
+        ghostty_app_set_color_scheme(app, dark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
+    }
+
+    /// 현재 시스템 외관이 다크인가 — 터미널 폴백 테마·color scheme 판정.
+    static var systemIsDark: Bool {
+        NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
 
     func tick() {
