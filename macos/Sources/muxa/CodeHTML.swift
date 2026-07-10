@@ -40,9 +40,9 @@ enum CodeHTML {
         .wrap{font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;padding:8px 0;}
         table.code{border-collapse:collapse;width:max-content;min-width:100%;}
         table.code td{padding:0;vertical-align:top;}
-        td.ln{width:1%;white-space:nowrap;text-align:right;padding:0 16px 0 16px;color:\(t.muted);
+        td.ln{width:1%;white-space:nowrap;text-align:right;padding:0 18px 0 16px;color:\(t.muted);
               user-select:none;position:sticky;left:0;background:\(t.bg);border-right:1px solid \(t.gutter);}
-        td.src{white-space:pre;padding:0 16px 0 28px;}
+        td.src{white-space:pre;padding:0 16px 0 44px;}
         .dl{white-space:pre;padding:0 16px;}
         .add{color:\(t.addFg);background:\(t.addBg);}
         .del{color:\(t.delFg);background:\(t.delBg);}

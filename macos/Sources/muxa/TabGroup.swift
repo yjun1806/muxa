@@ -9,13 +9,30 @@ struct SavedViewer: Codable {
     let commitSubject: String?
 }
 
-/// 탭 그룹 종류 — 문서(md/코드) 묶음, 변경(diff) 묶음. 터미널은 그룹이 아니라 개별 탭.
+/// 탭 그룹 종류 — 문서(md)·HTML·코드·변경(diff)을 각각 묶는다. 터미널은 그룹이 아니라 개별 탭.
 enum TabGroupKind: Equatable {
-    case documents
+    case documents // 마크다운
+    case html
+    case code
     case diffs
 
-    var title: String { self == .documents ? "문서" : "변경" }
-    var icon: String { self == .documents ? "doc.on.doc" : "plusminus" }
+    var title: String {
+        switch self {
+        case .documents: return "문서"
+        case .html: return "HTML"
+        case .code: return "코드"
+        case .diffs: return "변경"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .documents: return "doc.richtext"
+        case .html: return "chevron.left.forwardslash.chevron.right"
+        case .code: return "curlybraces"
+        case .diffs: return "plusminus"
+        }
+    }
 }
 
 /// 그룹 안의 한 서브탭 내용 — 파일 뷰어이거나 diff. id로 dedup·선택한다.
@@ -46,7 +63,12 @@ enum GroupItemContent: Identifiable {
 
     var kind: TabGroupKind {
         switch self {
-        case .file: return .documents
+        case .file(let t):
+            switch t.kind {
+            case .markdown: return .documents
+            case .html: return .html
+            case .code: return .code
+            }
         case .diff: return .diffs
         }
     }

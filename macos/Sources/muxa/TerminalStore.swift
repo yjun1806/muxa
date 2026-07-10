@@ -140,12 +140,14 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     // 탭바에서 "문서는 문서끼리, diff는 diff끼리" 인접하도록 종류별 rank로 정렬 위치를 잡는다.
     // 복원 중엔 저장된 순서를 존중하므로 건너뛴다.
 
-    /// 탭 종류 정렬 순위 — 터미널(0) < 문서(1) < diff(2). 같은 순위는 생성 순서 유지.
+    /// 탭 종류 정렬 순위 — 터미널(0) < 문서(1) < HTML(2) < 코드(3) < 변경(4). 같은 순위는 생성 순서 유지.
     private func groupRank(_ content: TabContent) -> Int {
         switch content {
         case .terminal: return 0
         case .group(.documents): return 1
-        case .group(.diffs): return 2
+        case .group(.html): return 2
+        case .group(.code): return 3
+        case .group(.diffs): return 4
         }
     }
 
