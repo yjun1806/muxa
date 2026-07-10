@@ -47,6 +47,8 @@ struct DiffView: View {
     @State private var loaded = false
     @State private var applying = false
     @State private var stageError: String?
+    @State private var watcher: FileWatcher? // 파일 diff만 디스크 변경 감시(커밋 diff는 불변이라 nil)
+    @State private var lastMTime: Date?      // 이 파일 실제 변경만 재로드(FSEvents 재귀 소음·스테이지 무시)
     /// 현재 파일의 최신 변경 상태 — 스테이지/언스테이지로 index·worktree가 바뀌므로 target의
     /// 캡처값(stale)이 아니라 매 로드마다 git status에서 다시 읽어 라우팅·버튼 판단에 쓴다.
     @State private var change: GitFileChange?
@@ -65,13 +67,40 @@ struct DiffView: View {
             } else {
                 CodeWebView(
                     html: CodeHTML.diff(lines: lines, dark: GhosttyRuntime.systemIsDark, stageable: hunkStageable),
-                    onMessage: hunkStageable ? { idx in Task { @MainActor in await stageHunk(idx) } } : nil
+                    onMessage: hunkStageable ? { idx in Task { @MainActor in await stageHunk(idx) } } : nil,
+                    busy: applying
                 )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.pBg)
-        .task(id: target.id) { await load() }
+        .task(id: target.id) {
+            await load()
+            watcher = fileWatcher() // 파일 diff면 부모 디렉토리 감시 시작(커밋 diff는 nil)
+        }
+        .onChange(of: watcher?.changeSeq) { _, _ in Task { await reloadIfChanged() } }
+    }
+
+    /// 절대 경로(repo dir + 상대경로). status의 opPath는 repo 루트 기준 상대경로다.
+    private func absolutePath(_ rel: String) -> String {
+        (dir as NSString).appendingPathComponent(rel)
+    }
+
+    /// 파일 diff일 때만 부모 디렉토리에 FileWatcher를 건다(커밋 diff는 불변이라 감시 불필요).
+    private func fileWatcher() -> FileWatcher? {
+        guard case .file(let initial) = target else { return nil }
+        let abs = absolutePath(initial.opPath)
+        return FileWatcher(path: (abs as NSString).deletingLastPathComponent)
+    }
+
+    /// FSEvents는 부모 디렉토리 전체(재귀)를 알린다 → 이 파일 mtime이 실제 바뀐 경우만 재로드.
+    /// 스테이지 재적용 중(applying)이면 건너뛴다 — runStage 끝의 load()가 최신을 반영한다.
+    private func reloadIfChanged() async {
+        guard !applying, case .file(let initial) = target else { return }
+        let abs = absolutePath(initial.opPath)
+        let m = (try? FileManager.default.attributesOfItem(atPath: abs)[.modificationDate]) as? Date
+        guard m != lastMTime else { return }
+        await load()
     }
 
     /// diff 대상이 변경 파일일 때만 값이 있다(.commit은 읽기 전용). load()가 최신 status로 채운다.
@@ -198,6 +227,8 @@ struct DiffView: View {
             let fresh = (await GitService.status(in: dir))?.changes.first { $0.opPath == path }
             let cur = fresh ?? initial
             change = cur
+            // 워처 재로드 판별용 기준 mtime 갱신(스테이지는 worktree 파일 mtime을 바꾸지 않아 중복 재로드 없음).
+            lastMTime = (try? FileManager.default.attributesOfItem(atPath: absolutePath(cur.opPath))[.modificationDate]) as? Date
             text = await GitService.fileDiff(cur, in: dir)
         case .commit(let hash, _):
             change = nil

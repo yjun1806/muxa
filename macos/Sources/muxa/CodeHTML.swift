@@ -53,6 +53,7 @@ enum CodeHTML {
         .stagebtn{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:\(t.addFg);
               background:\(t.addBg);border:1px solid \(t.addFg);border-radius:4px;padding:0 8px;cursor:pointer;user-select:none;}
         .stagebtn:hover{background:\(t.addFg);color:\(t.bg);}
+        html[data-busy] .stagebtn{opacity:.45;pointer-events:none;}
         </style></head><body><div class="wrap">\(body)</div>\(script)</body></html>
         """
     }
