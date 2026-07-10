@@ -20,16 +20,13 @@ swift build                 # 빌드 (SPM)
 - **M1 (터미널 코어)** ✅ — 워크스페이스 · Bonsplit 분할/탭 · ⌘F 검색 · 세션 복원 · 사이드바 4모드(hover 오버레이) · 모니터 스케일 · ghostty config 재사용.
 - **추가 (M1 범위 밖)** ✅ — **프로젝트 계층**(워크스페이스⊃프로젝트⊃탭), 상단바 한 줄 통합, ⌘Q 메뉴+종료 확인, 접힌 사이드바 호버 이름.
 - **M3 (git 읽기) — "C"** ✅ 읽기 부분 완성 — Git 상태 패널(브랜치·↑↓·변경파일) + diff 뷰 + 히스토리(커밋). **diff는 모달 아니라 활성 패인의 탭**으로 뜸.
-- **B (익스플로러 + md/코드 뷰어)** ✅ — 우측 접이식 파일 트리(GitPanel 형제) → 파일 클릭 → 뷰어 탭. 다형 탭에 `.file(FileViewTarget)` 추가. md는 네이티브 렌더(블록 파서 + AttributedString 인라인), 코드는 monospace+줄번호. 대형/바이너리 가드. FSEvents 라이브 리로드는 B-2로 남김.
+- **B (익스플로러 + md/코드 뷰어)** ✅ — 우측 접이식 파일 트리(GitPanel 형제) → 파일 클릭 → 뷰어 탭. 다형 탭에 `.file(FileViewTarget)` 추가. md는 네이티브 렌더(블록 파서 + AttributedString 인라인), 코드는 monospace+줄번호. 대형/바이너리 가드. FSEvents(`FileWatcher`)로 익스플로러 트리·git 패널 자동 갱신(뷰어 탭 리로드는 후속).
 - **A (알림/완료 감지)** ✅ — `action_cb` 4케이스(DESKTOP_NOTIFICATION·COMMAND_FINISHED·RING_BELL·PROGRESS_REPORT). 백그라운드 탭 배지(Bonsplit `isDirty`)·프로젝트 ● 배지·macOS 알림(번들일 때만, bare 바이너리는 Dock 바운스). 보고 있는 탭(first responder+key창)은 억제.
 - **M4 (git 워크트리 자동화)** ✅ — `GitService` worktree list/add/remove, `WorktreePicker` 시트(기존 목록+생성 폼), `.worktrees/<branch>` + info/exclude 등록. repoRoot는 `--git-common-dir`(링크 워크트리 안전). gh 레이어는 후속.
 
-## 다음 할 일
+## 다음 할 일 (백로그)
 
-### B-2. FSEvents 라이브 리로드 (다음)
-- `FileWatcher`(FSEventStream, 디바운스) — 익스플로러 트리 갱신 · 열린 뷰어 탭 리로드 · git 패널 자동갱신을 하나로 공유. 무시 경로(.git·node_modules)는 `FileTree.ignored` 재사용.
-
-### 후속 (백로그)
+- **뷰어 탭 라이브 리로드** — 현재 FSEvents는 익스플로러·git 패널만 갱신. 열린 md/코드 뷰어 탭도 자기 파일 변경 시 재로드하게(각 뷰가 `FileWatcher` 또는 공유 워처 구독).
 - **md 고급 렌더**(mermaid·표·이미지) → WKWebView 경로. `MarkdownView`만 교체하면 됨(뷰 격리). WebKit 링크 + 번들 JS 에셋 필요.
 - **코드 신택스 하이라이트** — 현재 monospace 평문. `DiffView`의 라인 렌더와 공통화 여지.
 - **gh 레이어**(PR 번호·CI 배지) — `GhService`로 격리 예정. 레포가 GitHub + `gh` 로그인 시. 현재 `gh` 설치·인증됨(account: youngjunkim-aha).
@@ -56,6 +53,7 @@ swift build                 # 빌드 (SPM)
 6. **B** 익스플로러: 폴더 토글 아이콘(상단바)·트리 펼침·파일 클릭→뷰어 탭·md 렌더·코드 줄번호·중복 클릭 dedup
 7. **A** 배지: 백그라운드 터미널에서 명령 완료/벨 시 탭 점·프로젝트 ● 표시, 보고 있는 탭은 억제, 탭/프로젝트 보면 해제. (알림은 .app 번들 전엔 Dock 바운스만)
 8. **M4** 워크트리: `+`→워크트리… 시트에서 기존 목록·새 워크트리 생성, 생성 후 프로젝트 탭으로 열림
+9. **B-2** FSEvents 자동 갱신: 익스플로러/git 패널을 연 채 외부에서 파일 추가·삭제·수정 → 트리·상태 자동 반영
 
 ## 이번 세션에서 밝힌 함정 (재발 방지)
 

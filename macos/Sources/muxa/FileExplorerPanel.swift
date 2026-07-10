@@ -11,6 +11,7 @@ struct FileExplorerPanel: View {
 
     @State private var expanded: Set<String> = []
     @State private var cache: [String: [FileNode]] = [:]
+    @State private var watcher: FileWatcher?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -24,7 +25,11 @@ struct FileExplorerPanel: View {
                     }
                     .padding(.vertical, 4)
                 }
-                .task(id: root) { await load(root) }
+                .task(id: root) {
+                    await load(root)
+                    watcher = FileWatcher(path: root) // B-2: 파일 변경 시 트리 자동 갱신
+                }
+                .onChange(of: watcher?.changeSeq) { _, _ in reloadChanged() }
             } else {
                 label("프로젝트 경로 없음")
             }
@@ -78,6 +83,14 @@ struct FileExplorerPanel: View {
     private func load(_ dir: String) async {
         let nodes = await Task.detached { FileTree.children(of: dir) }.value
         cache[dir] = nodes
+    }
+
+    /// FSEvents 변경 → 이미 캐시된(=화면에 있는) 디렉토리만 다시 읽는다.
+    private func reloadChanged() {
+        let dirs = Set((watcher?.lastPaths ?? []).map { ($0 as NSString).deletingLastPathComponent })
+        for d in dirs where cache[d] != nil {
+            Task { await load(d) }
+        }
     }
 }
 

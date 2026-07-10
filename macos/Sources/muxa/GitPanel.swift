@@ -15,6 +15,7 @@ struct GitPanel: View {
     @State private var status: GitStatus?
     @State private var commits: [GitCommit] = []
     @State private var loaded = false
+    @State private var watcher: FileWatcher?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -37,7 +38,11 @@ struct GitPanel: View {
         .frame(width: 280)
         .frame(maxHeight: .infinity)
         .background(Color.pPanel)
-        .task(id: dir) { await refresh() }
+        .task(id: dir) {
+            await refresh()
+            if let dir { watcher = FileWatcher(path: dir) } // B-2: 변경 시 git 패널 자동 갱신
+        }
+        .onChange(of: watcher?.changeSeq) { _, _ in Task { await refresh() } }
     }
 
     private var header: some View {
