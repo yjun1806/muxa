@@ -28,12 +28,10 @@ final class TermView: NSView, NSTextInputClient {
 
     /// 이 뷰가 담긴 Bonsplit 탭 — 배지 라우팅용(A). TerminalStore.term(for:)에서 주입.
     var tabId: TabID?
-    /// 백그라운드 활동(완료·벨·알림)으로 배지(●)를 울릴 때 — store가 세팅.
-    var onBadgeActivity: ((TabID) -> Void)?
+    /// 백그라운드 주의 신호(완료·벨·알림)를 store로 넘긴다 — 억제 판정·배지·알림은 store가 결정.
+    var onSignal: ((TerminalSignal) -> Void)?
     /// 이 탭을 사용자가 보게 됐을 때 배지 클리어 — store가 세팅.
     var onClearBadge: ((TabID) -> Void)?
-    /// 데스크톱 알림(OSC 9/777)을 시스템 알림으로 — store가 세팅.
-    var onNotify: ((String, String) -> Void)?
     /// 셸이 종료(exit)돼 libghostty가 서피스 닫기를 요청할 때 — 이 탭만 닫는다. store가 세팅.
     var onRequestClose: ((TabID) -> Void)?
 
@@ -233,32 +231,24 @@ final class TermView: NSView, NSTextInputClient {
     func onSearchTotal(_ total: Int?) { search.total = total }
     func onSearchSelected(_ selected: Int?) { search.selected = selected }
 
-    // MARK: 알림·완료 감지 (A) — action_cb가 메인에서 호출. 사용자가 안 보는 탭이면 배지(●).
+    // MARK: 알림·완료 감지 (A) — action_cb가 메인에서 호출. 신호 종류만 store로 넘긴다.
+    //
+    // "지금 이 탭이 보이나?" 판정과 배지/알림 억제(짧은 명령·벨 연타·보이는 칸)는 store가 한다.
+    // TermView는 firstResponder 하나로 판정할 수 없다(3~4분할 시 비포커스여도 보이는 칸이 있음).
 
-    /// 사용자가 지금 이 터미널을 보고 있나 — 이 뷰가 first responder + 키 창이면 true. 배지 억제 조건.
-    /// (isFocused 저장 프로퍼티가 아니라 실제 first responder를 진실원천으로 — 논리 포커스와 분리)
-    private var isVisibleToUser: Bool {
-        window?.firstResponder === self && (window?.isKeyWindow ?? false)
-    }
-
-    /// OSC 9/777 데스크톱 알림 — 시스템 알림은 항상, 배지는 안 보일 때만.
+    /// OSC 9/777 데스크톱 알림.
     func onDesktopNotification(title: String, body: String) {
-        onNotify?(title, body)
-        if !isVisibleToUser { fireBadge() }
+        onSignal?(.desktopNotification(title: title, body: body))
     }
 
-    /// OSC 133 명령 완료(exitCode nil=미보고, duration ns) — 안 보이는 탭이면 배지.
+    /// OSC 133 명령 완료(exitCode nil=미보고, duration ns).
     func onCommandFinished(exitCode: Int?, duration: UInt64) {
-        if !isVisibleToUser { fireBadge() }
+        onSignal?(.commandFinished(exitCode: exitCode, duration: duration))
     }
 
-    /// 벨(주의 환기) — 에이전트가 완료를 벨로 알리는 경우가 많아 배지. 안 보일 때만.
+    /// 벨(주의 환기) — 에이전트가 완료를 벨로 알리는 경우가 많다.
     func onBell() {
-        if !isVisibleToUser { fireBadge() }
-    }
-
-    private func fireBadge() {
-        if let tabId { onBadgeActivity?(tabId) }
+        onSignal?(.bell)
     }
 
     // MARK: 키 입력 — Ghostty SurfaceView_AppKit.keyDown 이식

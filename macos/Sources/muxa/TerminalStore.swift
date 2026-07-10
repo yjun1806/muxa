@@ -90,6 +90,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         tabContent[tabId] = nil
         groups[tabId] = nil // 그룹 탭이면 서브탭 상태도 해제
         badgedTabs.remove(tabId)
+        lastBellAt[tabId] = nil // 벨 디바운스 상태 해제
         persist()
     }
 
@@ -112,11 +113,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         let t = TermView(app: app, cwd: cwd)
         t.tabId = tabId
         // 콜백은 action_cb(메인 async)·becomeFirstResponder(메인)에서만 불린다 → assumeIsolated 안전.
-        t.onBadgeActivity = { [weak self] tid in MainActor.assumeIsolated { self?.markBadge(tid) } }
+        t.onSignal = { [weak self] signal in MainActor.assumeIsolated { self?.handleSignal(signal, from: tabId) } }
         t.onClearBadge = { [weak self] tid in MainActor.assumeIsolated { self?.clearTabBadge(tid) } }
-        t.onNotify = { title, body in
-            MainActor.assumeIsolated { NotificationService.shared.notify(title: title, body: body) }
-        }
         // 셸 종료 → 이 탭만 닫는다(앱 종료 아님). closeTab→didCloseTab→terms[tid]=nil→TermView deinit이
         // 서피스를 free한다. close_surface_cb는 요청일 뿐 libghostty가 직접 free하지 않아 이중 free 아님.
         t.onRequestClose = { [weak self] tid in
@@ -138,6 +136,63 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         guard badgedTabs.contains(tabId) else { return }
         badgedTabs.remove(tabId)
         controller.updateTab(tabId, isDirty: false)
+    }
+
+    // MARK: 백그라운드 주의 신호 — 오탐 억제 후 배지/알림 (알림 신뢰도)
+    //
+    // TermView는 신호 종류만 넘기고, 여기서 "보이나?"·"울릴 가치가 있나?"를 판정한다.
+    // 3~4분할 동시 감시에서 비포커스여도 화면에 보이는 칸(그 칸의 선택 탭)은 배지를 억제한다.
+
+    /// 정상 종료(코드 0/미보고)면서 이 시간(ns)보다 짧게 끝난 명령은 배지를 억제한다.
+    /// 짧은 `ls`·`cd` 완료로 배지가 쌓이는 오탐 방지. (나중에 설정에서 덮을 수 있게 상수 한 곳에.) 8초.
+    private static let shortCommandThresholdNs: UInt64 = 8_000_000_000
+    /// 마지막 벨로부터 이 시간(초) 안쪽 벨은 무시 — 벨 연타 오탐 억제.
+    private static let bellDebounce: TimeInterval = 1.0
+
+    /// 탭별 마지막 벨 시각(systemUptime, 단조 증가) — 디바운스용.
+    @ObservationIgnored private var lastBellAt: [TabID: TimeInterval] = [:]
+
+    /// 보이는 칸에서 활동이 일어났을 때의 훅 — 다음 단계(배지 대신 패인 테두리)가 소비한다. 기본 nil.
+    @ObservationIgnored var onVisibleActivity: ((TabID) -> Void)?
+
+    /// 이 탭이 지금 사용자에게 보이나 — 그 뷰가 키 창에 있고, 자기 칸의 선택 탭일 때(줌이면 줌된 칸만).
+    /// firstResponder가 아니라 selectedTab 기준이라 비포커스지만 보이는 분할 칸을 오판하지 않는다.
+    private func isTabVisible(_ tabId: TabID) -> Bool {
+        guard let term = terms[tabId], term.window?.isKeyWindow == true else { return false }
+        if let zoomed = controller.zoomedPaneId {
+            return controller.selectedTab(inPane: zoomed)?.id == tabId
+        }
+        return controller.allPaneIds.contains { controller.selectedTab(inPane: $0)?.id == tabId }
+    }
+
+    /// 신호를 오탐 필터에 태워 배지/알림을 결정한다. 보이면 배지 억제(+테두리 훅).
+    private func handleSignal(_ signal: TerminalSignal, from tabId: TabID) {
+        let visible = isTabVisible(tabId)
+        switch signal {
+        case .commandFinished(let exitCode, let duration):
+            // 비정상 종료(코드 != 0)는 지속시간과 무관하게 알린다. 정상+짧은 명령은 억제.
+            let abnormal = (exitCode ?? 0) != 0
+            guard abnormal || duration >= Self.shortCommandThresholdNs else { return }
+            fireActivity(tabId, visible: visible)
+        case .bell:
+            let now = ProcessInfo.processInfo.systemUptime
+            if let last = lastBellAt[tabId], now - last < Self.bellDebounce { return }
+            lastBellAt[tabId] = now
+            fireActivity(tabId, visible: visible)
+        case .desktopNotification(let title, let body):
+            // 보이는 탭엔 시스템 알림·배지 모두 억제(주의는 이미 사용자에게). 안 보이면 둘 다.
+            if visible {
+                onVisibleActivity?(tabId)
+            } else {
+                NotificationService.shared.notify(title: title, body: body)
+                markBadge(tabId)
+            }
+        }
+    }
+
+    /// 보이면 테두리 훅(다음 단계), 안 보이면 배지.
+    private func fireActivity(_ tabId: TabID, visible: Bool) {
+        if visible { onVisibleActivity?(tabId) } else { markBadge(tabId) }
     }
 
     /// 새 터미널 탭 생성(분할 후 빈 패인 채우기·⌘T 등).
