@@ -510,6 +510,12 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         case .desktopNotification(let title, let body):
             // OSC 9/777 자동 신호 — category nil로 게이트에 태운다(보이면 플래시, 안 보이면 배지+알림: 기존 동작).
             fireNotification(tabId, title: title, body: body, category: nil, kind: .notify)
+        case .processExited:
+            // 프로세스가 OS 레벨에서 종료 — 결정론 done(셸 통합/OSC 133 없이도 확정). 안 보이는 탭이면 배지.
+            // close_surface_cb(탭 닫기)와 별개 경로다: 탭이 닫히면 didCloseTab이 추정기·배지를 정리하고,
+            // 서피스가 유지되면(통합 부재 등) 이 done 테두리·배지가 유일한 종료 표식이 된다.
+            applyAgentSignal(.processExited, to: tabId)
+            if !visible { markBadge(tabId, kind: .done, title: tabTitle(tabId)) }
         case .outputHeartbeat:
             break // 위에서 이미 처리하고 반환 — 열거 완전성용.
         }

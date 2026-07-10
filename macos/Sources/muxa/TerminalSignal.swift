@@ -11,4 +11,7 @@ enum TerminalSignal {
     /// 출력 heartbeat — RENDER 액션을 TermView가 초당 1회로 다운샘플한 값(에이전트 상태 추정용).
     /// 배지/알림과 무관: store가 이걸로 AgentActivityEstimator만 굴린다.
     case outputHeartbeat
+    /// 서피스의 자식 프로세스(셸)가 OS 레벨에서 종료됨(DispatchSourceProcess .exit).
+    /// OSC 133/셸 통합에 의존하지 않는 결정론적 종료 신호 — 크래시·강제종료·비정상 종료를 잡는다.
+    case processExited
 }

@@ -70,6 +70,11 @@ struct AgentActivityEstimator: Equatable {
         case .commandFinished:
             next.state = .done
             next.pinned = false // 명령 완료는 새 명령 출력이 오면 다시 추정하게 고정 해제
+        case .processExited:
+            // OS 레벨 결정론 종료 — done으로 확정하고 고정한다. 프로세스가 사라졌으니
+            // 노이즈 RENDER heartbeat/tick이 이 상태를 되돌리지 못하게 pin한다(ground truth).
+            next.state = .done
+            next.pinned = true
         case .explicit(let notify):
             switch notify {
             case .working:
@@ -102,6 +107,8 @@ enum AgentSignal: Equatable {
     case outputHeartbeat
     /// OSC 133 명령 완료.
     case commandFinished
+    /// 서피스 자식 프로세스(셸)의 OS 레벨 종료(DispatchSourceProcess) — 셸 통합 없이도 잡는 결정론 done.
+    case processExited
     /// muxa notify 훅의 결정론적 명시 신호(ground truth).
     case explicit(NotifyState)
     /// 주기적 idle 점검(타이머).

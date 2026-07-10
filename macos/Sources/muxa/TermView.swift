@@ -106,6 +106,9 @@ final class TermView: NSView, NSTextInputClient {
         search.applyNeedle = { [weak self] needle in
             self?.performBindingAction("search:\(needle)")
         }
+
+        // 셸 스폰 직후의 foreground pid(=셸)를 잡아 OS 레벨 종료 감시를 건다. pid가 아직 0이면 재시도한다.
+        armProcessWatcher()
     }
 
     required init?(coder: NSCoder) { fatalError("unsupported") }
@@ -115,7 +118,50 @@ final class TermView: NSView, NSTextInputClient {
 
     deinit {
         if let token = screenObserver { NotificationCenter.default.removeObserver(token) }
+        processWatcher?.cancel() // 프로세스 종료 감시 소스 정리 (생명주기 종료)
         if let surface { ghostty_surface_free(surface) }
+    }
+
+    // MARK: 프로세스 종료 감지 (결정론적 done) — 서피스 자식(셸) pid를 OS 레벨로 감시
+    //
+    // OSC 133/셸 통합이나 close_surface_cb에 의존하지 않고, libghostty가 노출하는 foreground pid를
+    // (스폰 직후 = 셸) 캡처해 DispatchSourceProcess(.exit)로 감시한다. 종료되면 done 신호를 store로 넘겨
+    // 에이전트 크래시·강제종료·비정상 종료를 결정론으로 잡는다. store가 상태 확정·배지(안 보이는 탭)를 판정한다.
+    // 서피스는 libghostty가 우리 프로세스 내에서 스폰한 자식이라 kqueue(NOTE_EXIT) 감시가 성립한다.
+
+    /// 프로세스 종료 감시 소스(무장되면 non-nil). deinit·종료 시 취소한다.
+    private var processWatcher: DispatchSourceProcess?
+    /// pid 무장 재시도 횟수 — 셸 스폰이 늦어 foreground_pid가 아직 0일 때 몇 번 다시 시도한다.
+    private var processArmAttempts = 0
+    /// 재시도 상한(약 5초) — 이 안에 pid를 못 잡으면 감시를 포기한다(close_surface_cb가 최소 종료를 커버).
+    private static let maxProcessArmAttempts = 20
+    /// pid 무장 재시도 간격.
+    private static let processArmRetryDelay: TimeInterval = 0.25
+
+    /// 서피스의 foreground pid를 잡아 종료 감시를 무장한다. 이미 무장됐거나 서피스가 없으면 무동작,
+    /// pid가 아직 유효하지 않으면(스폰 전) 잠시 뒤 재시도한다. 스폰 직후 첫 유효 pid = 셸이다.
+    private func armProcessWatcher() {
+        guard processWatcher == nil, let surface else { return }
+        let raw = ghostty_surface_foreground_pid(surface)
+        guard raw > 0, raw <= UInt64(pid_t.max) else {
+            guard processArmAttempts < Self.maxProcessArmAttempts else { return }
+            processArmAttempts += 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.processArmRetryDelay) { [weak self] in
+                self?.armProcessWatcher()
+            }
+            return
+        }
+        let source = DispatchSource.makeProcessSource(identifier: pid_t(raw), eventMask: .exit, queue: .main)
+        source.setEventHandler { [weak self] in self?.handleProcessExit() }
+        processWatcher = source
+        source.resume()
+    }
+
+    /// 감시하던 프로세스가 종료됐다 — 감시 소스를 정리하고 결정론적 종료 신호를 store로 넘긴다(한 번만).
+    private func handleProcessExit() {
+        processWatcher?.cancel()
+        processWatcher = nil
+        onSignal?(.processExited)
     }
 
     // MARK: 크기·스케일 — 백킹 픽셀 단위로 전달 (업스트림 계약)
