@@ -5,8 +5,9 @@
 ## 재개 방법
 
 ```bash
+./scripts/bootstrap.sh      # (새 머신 최초 1회) GhosttyKit 설치 — docs/SETUP.md
 cd macos
-swift build                 # 빌드 (패키지 매니저: SPM. 웹은 pnpm이지만 네이티브는 macos/)
+swift build                 # 빌드 (SPM)
 .build/debug/muxa           # 실행 (창 뜸)
 # UI/PTY 변경은 재빌드+재실행으로 확인. 인터랙티브 동작은 실제 창에서.
 ```
