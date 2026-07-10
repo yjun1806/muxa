@@ -32,9 +32,14 @@ import Foundation
 /// sockaddr_un.sun_path 용량(macOS).
 let sunPathCapacity = 104
 
-func fail(_ message: String) -> Never {
+/// connect 대기 상한(ms). 앱 미실행·소켓 지연이어도 에이전트 흐름을 막지 않게 짧게 끊는다.
+let connectTimeoutMillis: Int32 = 200
+
+/// 훅으로 쓰이므로 어떤 실패도 에이전트 흐름을 막지 않는다 — 진단은 stderr 한 줄, 종료코드는 항상 0.
+/// (에이전트 stdout 오염 금지. exit 0 = fire-and-forget.)
+func bail(_ message: String) -> Never {
     FileHandle.standardError.write(Data("muxa notify: \(message)\n".utf8))
-    exit(1)
+    exit(0)
 }
 
 /// 구분자(탭·개행)를 공백으로 바꿔 프로토콜이 깨지지 않게 한다.
@@ -69,10 +74,10 @@ while i < args.count {
 
 let env = ProcessInfo.processInfo.environment
 guard let sock = env["MUXA_SOCK"], !sock.isEmpty else {
-    fail("MUXA_SOCK 미설정 — muxa 안에서 실행해야 한다")
+    bail("MUXA_SOCK 미설정 — muxa 안에서 실행해야 한다")
 }
 guard let tabId = env["MUXA_TAB_ID"], !tabId.isEmpty else {
-    fail("MUXA_TAB_ID 미설정 — muxa 안에서 실행해야 한다")
+    bail("MUXA_TAB_ID 미설정 — muxa 안에서 실행해야 한다")
 }
 
 // --resume-command 단독(명시적 --state 없음)이면 상태 필드를 비운다 — 바인딩만 등록하고 상태 신호는 안 보낸다.
@@ -82,8 +87,12 @@ let stateField = (!resumeCommand.isEmpty && !stateExplicit) ? "" : state
 let line = "\(tabId)\t\(stateField)\t\(sanitize(title))\t\(sanitize(body))\t\(sanitize(category))\t\(sanitize(resumeCommand))\t\(sanitize(agent))\n"
 
 let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-guard fd >= 0 else { fail("socket() 실패 errno=\(errno)") }
+guard fd >= 0 else { bail("socket() 실패 errno=\(errno)") }
 defer { close(fd) }
+
+// 논블로킹 connect + poll 타임아웃 — 앱이 붙지 않아도 connectTimeoutMillis에서 조용히 끊는다.
+let flags = fcntl(fd, F_GETFL, 0)
+if flags >= 0 { _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK) }
 
 var addr = sockaddr_un()
 addr.sun_family = sa_family_t(AF_UNIX)
@@ -96,11 +105,23 @@ _ = sock.withCString { src in
 }
 
 let len = socklen_t(MemoryLayout<sockaddr_un>.size)
-let connected = withUnsafePointer(to: &addr) {
+let rc = withUnsafePointer(to: &addr) {
     $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, len) }
 }
-guard connected == 0 else { fail("connect() 실패 errno=\(errno) — muxa가 실행 중인지 확인") }
+if rc != 0 {
+    // 즉시 실패가 아니라 진행 중(EINPROGRESS)이면 쓰기 가능해질 때까지 짧게 기다린다.
+    guard errno == EINPROGRESS else { bail("connect() 실패 errno=\(errno) — muxa가 실행 중인지 확인") }
+    var pfd = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+    let ready = poll(&pfd, 1, connectTimeoutMillis)
+    guard ready > 0 else { bail("connect 타임아웃 — muxa 미응답") }
+    // connect 결과 확정 — SO_ERROR가 0이어야 성공.
+    var soErr: Int32 = 0
+    var soLen = socklen_t(MemoryLayout<Int32>.size)
+    let got = getsockopt(fd, SOL_SOCKET, SO_ERROR, &soErr, &soLen)
+    guard got == 0, soErr == 0 else { bail("connect 실패 errno=\(soErr) — muxa가 실행 중인지 확인") }
+}
 
+// fire-and-forget: 한 줄 쓰고 종료. 쓰기 실패해도 exit 0.
 let payload = Array(line.utf8)
 _ = payload.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
 exit(0)
