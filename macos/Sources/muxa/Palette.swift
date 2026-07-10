@@ -14,6 +14,7 @@ enum Palette {
     static let panel = NSColor.dynamic(light: 0xF3F4F6, dark: 0x252528) // 상단바·사이드바·패인 헤더(한 덩어리 회색)
     static let border = NSColor.dynamic(light: 0xE2E5E9, dark: 0x38383C)
     static let borderFocus = NSColor.dynamic(light: 0x0D9488, dark: 0x2DD4BF) // 포커스·활성 강조(청록)
+    static let borderActivity = NSColor.dynamic(light: 0xF59E0B, dark: 0xFBBF24) // 칸 활동 플래시(주황) — focus(청록)와 구분되는 주의 환기색
     static let muted = NSColor.dynamic(light: 0x6B7280, dark: 0x8A8A90)
     static let mutedHover = NSColor.dynamic(light: 0x1F2937, dark: 0xE4E4E7)
     static let fg = NSColor.dynamic(light: 0x1F2937, dark: 0xE4E4E7)
@@ -59,6 +60,7 @@ extension Color {
     static let pPanel = Color(nsColor: Palette.panel)
     static let pBorder = Color(nsColor: Palette.border)
     static let pBorderFocus = Color(nsColor: Palette.borderFocus)
+    static let pBorderActivity = Color(nsColor: Palette.borderActivity)
     static let pMuted = Color(nsColor: Palette.muted)
     static let pFg = Color(nsColor: Palette.fg)
     static let pBtnHover = Color(nsColor: Palette.btnHover)

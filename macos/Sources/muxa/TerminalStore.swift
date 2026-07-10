@@ -34,6 +34,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     var lastOpenedFilePath: String?
     /// reveal 트리거 시퀀스 — 같은 파일을 다시 열어도 재-reveal 되도록 매 openFile마다 증가.
     var revealSeq = 0
+    /// 지금 활동 테두리가 깜빡이는 칸들 — 그 칸의 선택 탭 TabID 기준. BonsplitWorkspaceView가 관측해 overlay를 그린다.
+    /// 보이는 칸에서 활동(완료·벨·알림)이 나면 잠깐 켰다 페이드로 끈다. 배지(안 보이는 탭)와 상호배타적 신호.
+    private(set) var flashingTabs: Set<TabID> = []
     /// 배지가 하나라도 생기면 상위(AppState)에 알린다 — 프로젝트 탭 ● 표시용.
     @ObservationIgnored var onProjectActivity: (() -> Void)?
     /// 탭/뷰어 구성이 바뀔 때 상위(AppState)에 알린다 — 즉시 세션 저장(⌘Q 없이도 복원되게).
@@ -90,6 +93,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         tabContent[tabId] = nil
         groups[tabId] = nil // 그룹 탭이면 서브탭 상태도 해제
         badgedTabs.remove(tabId)
+        flashingTabs.remove(tabId) // 활동 테두리 상태 해제
+        flashSeq[tabId] = nil
         lastBellAt[tabId] = nil // 벨 디바운스 상태 해제
         persist()
     }
@@ -152,8 +157,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 탭별 마지막 벨 시각(systemUptime, 단조 증가) — 디바운스용.
     @ObservationIgnored private var lastBellAt: [TabID: TimeInterval] = [:]
 
-    /// 보이는 칸에서 활동이 일어났을 때의 훅 — 다음 단계(배지 대신 패인 테두리)가 소비한다. 기본 nil.
-    @ObservationIgnored var onVisibleActivity: ((TabID) -> Void)?
+    /// 활동 테두리 유지 시간(ns) — 짧은 플래시로 충분(상시 테두리는 focus와 혼동). 1.2초.
+    private static let flashDurationNs: UInt64 = 1_200_000_000
+    /// 재-트리거 시 이전 해제 타이머를 무효화하려는 탭별 세대값 — 연속 활동이면 페이드가 리셋된다.
+    @ObservationIgnored private var flashSeq: [TabID: Int] = [:]
 
     /// 이 탭이 지금 사용자에게 보이나 — 그 뷰가 키 창에 있고, 자기 칸의 선택 탭일 때(줌이면 줌된 칸만).
     /// firstResponder가 아니라 selectedTab 기준이라 비포커스지만 보이는 분할 칸을 오판하지 않는다.
@@ -180,9 +187,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             lastBellAt[tabId] = now
             fireActivity(tabId, visible: visible)
         case .desktopNotification(let title, let body):
-            // 보이는 탭엔 시스템 알림·배지 모두 억제(주의는 이미 사용자에게). 안 보이면 둘 다.
+            // 보이는 탭엔 시스템 알림·배지 억제(주의는 이미 사용자에게) — 대신 칸 테두리로 짚어준다. 안 보이면 알림+배지.
             if visible {
-                onVisibleActivity?(tabId)
+                flashPane(tabId)
             } else {
                 NotificationService.shared.notify(title: title, body: body)
                 markBadge(tabId)
@@ -190,9 +197,23 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         }
     }
 
-    /// 보이면 테두리 훅(다음 단계), 안 보이면 배지.
+    /// 보이면 칸 테두리 플래시, 안 보이면 배지.
     private func fireActivity(_ tabId: TabID, visible: Bool) {
-        if visible { onVisibleActivity?(tabId) } else { markBadge(tabId) }
+        if visible { flashPane(tabId) } else { markBadge(tabId) }
+    }
+
+    /// 보이는 칸에 활동 테두리를 잠깐 켠다 — 3~4분할에서 "어느 칸이 울렸나"를 즉시 짚게. 일정 시간 뒤 페이드 해제.
+    /// 연속 활동이면 세대값을 올려 이전 해제 타이머를 무효화(테두리가 유지된다).
+    private func flashPane(_ tabId: TabID) {
+        flashingTabs.insert(tabId)
+        let gen = (flashSeq[tabId] ?? 0) + 1
+        flashSeq[tabId] = gen
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.flashDurationNs)
+            guard let self, self.flashSeq[tabId] == gen else { return }
+            self.flashingTabs.remove(tabId)
+            self.flashSeq[tabId] = nil
+        }
     }
 
     /// 새 터미널 탭 생성(분할 후 빈 패인 채우기·⌘T 등).
