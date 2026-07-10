@@ -37,4 +37,49 @@ extension GitService {
         let hint = out.stdout.split(separator: "\n").last.map { String($0).trimmingCharacters(in: .whitespaces) } ?? ""
         return hint.isEmpty ? "커밋 실패 (스테이지된 변경 없음?)" : hint
     }
+
+    /// hunk 패치를 인덱스에 적용(`git apply --cached`, 패치는 stdin으로 전달). 성공 시 nil, 실패 시 메시지.
+    /// DiffPatch로 만든 단일 hunk 패치를 넣어 hunk 단위 스테이지에 쓴다.
+    static func applyCached(patch: String, in dir: String) async -> String? {
+        let r = await runWithStdin(["apply", "--cached", "--whitespace=nowarn", "-"], stdin: patch, in: dir)
+        guard r.exitCode != 0 else { return nil }
+        let msg = r.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        return msg.isEmpty ? "패치 적용 실패 (exit \(r.exitCode))" : msg
+    }
+
+    /// stdin으로 입력을 넣고 stderr까지 캡처하는 실행 변형(git apply 전용). 패치가 작아(파이프 버퍼 내)
+    /// stdin을 먼저 다 쓰고 닫은 뒤 출력을 읽어 데드락을 피한다.
+    static func runWithStdin(_ args: [String], stdin input: String, in dir: String) async -> FullResult {
+        await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                proc.arguments = ["git"] + args
+                proc.currentDirectoryURL = URL(fileURLWithPath: dir)
+                let inPipe = Pipe()
+                let outPipe = Pipe()
+                let errPipe = Pipe()
+                proc.standardInput = inPipe
+                proc.standardOutput = outPipe
+                proc.standardError = errPipe
+                do {
+                    try proc.run()
+                    if let data = input.data(using: .utf8) {
+                        try? inPipe.fileHandleForWriting.write(contentsOf: data)
+                    }
+                    try? inPipe.fileHandleForWriting.close()
+                    let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+                    let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+                    proc.waitUntilExit()
+                    cont.resume(returning: FullResult(
+                        stdout: String(decoding: outData, as: UTF8.self),
+                        stderr: String(decoding: errData, as: UTF8.self),
+                        exitCode: proc.terminationStatus
+                    ))
+                } catch {
+                    cont.resume(returning: FullResult(stdout: "", stderr: error.localizedDescription, exitCode: -1))
+                }
+            }
+        }
+    }
 }

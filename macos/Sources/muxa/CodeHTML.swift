@@ -33,7 +33,7 @@ enum CodeHTML {
         return r
     }
 
-    private static func page(_ body: String, theme t: Theme) -> String {
+    private static func page(_ body: String, theme t: Theme, script: String = "") -> String {
         """
         <!doctype html><html><head><meta charset="utf-8"><style>
         html,body{margin:0;padding:0;background:\(t.bg);color:\(t.fg);}
@@ -48,7 +48,12 @@ enum CodeHTML {
         .del{color:\(t.delFg);background:\(t.delBg);}
         .hunk{color:\(t.hunk);}
         .meta{color:\(t.muted);}
-        </style></head><body><div class="wrap">\(body)</div></body></html>
+        .hunkrow{display:flex;align-items:center;gap:10px;white-space:normal;}
+        .hunktext{white-space:pre;}
+        .stagebtn{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:\(t.addFg);
+              background:\(t.addBg);border:1px solid \(t.addFg);border-radius:4px;padding:0 8px;cursor:pointer;user-select:none;}
+        .stagebtn:hover{background:\(t.addFg);color:\(t.bg);}
+        </style></head><body><div class="wrap">\(body)</div>\(script)</body></html>
         """
     }
 
@@ -72,10 +77,23 @@ enum CodeHTML {
     }
 
     /// unified diff 줄들 → 색칠된 diff 뷰(줄 앞 문자로 add/del/hunk/meta 구분).
-    static func diff(lines: [String], dark: Bool) -> String {
+    /// `stageable`이면 hunk(@@ 헤더)마다 '스테이지' 버튼을 붙이고, 클릭 시 hunk 인덱스를 Swift로 postMessage 한다.
+    static func diff(lines: [String], dark: Bool, stageable: Bool = false) -> String {
         let t = Theme.of(dark: dark)
         var body = ""
+        var hunkIndex = -1
         for line in lines {
+            if line.hasPrefix("@@") {
+                hunkIndex += 1
+                let text = "<span class=\"hunktext\">\(esc(line))</span>"
+                if stageable {
+                    let btn = "<button class=\"stagebtn\" onclick=\"muxaStageHunk(\(hunkIndex))\">＋ 스테이지</button>"
+                    body += "<div class=\"dl hunk hunkrow\">\(btn)\(text)</div>"
+                } else {
+                    body += "<div class=\"dl hunk hunkrow\">\(text)</div>"
+                }
+                continue
+            }
             let cls: String
             if line.hasPrefix("+++") || line.hasPrefix("---") { cls = "meta" }
             else if line.hasPrefix("+") { cls = "add" }
@@ -85,6 +103,10 @@ enum CodeHTML {
             else { cls = "" }
             body += "<div class=\"dl \(cls)\">\(esc(line.isEmpty ? " " : line))</div>"
         }
-        return page(body, theme: t)
+        let handler = CodeWebView.messageName // Swift 쪽 메시지 핸들러 이름과 한 곳에서 일치
+        let script = stageable
+            ? "<script>function muxaStageHunk(i){try{window.webkit.messageHandlers.\(handler).postMessage(i);}catch(e){}}</script>"
+            : ""
+        return page(body, theme: t, script: script)
     }
 }
