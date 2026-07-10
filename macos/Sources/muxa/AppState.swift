@@ -53,6 +53,8 @@ final class AppState {
                               restoreViewers: savedViewers[project.id] ?? [])
         let pid = project.id
         s.onProjectActivity = { [weak self] in MainActor.assumeIsolated { self?.markProjectBadge(pid) } }
+        // 탭/뷰어가 바뀔 때마다 즉시 저장 — ⌘Q 없이(pkill·크래시) 종료돼도 다음 실행에 복원.
+        s.onStateChange = { [weak self] in MainActor.assumeIsolated { self?.save() } }
         stores[project.id] = s
         return s
     }

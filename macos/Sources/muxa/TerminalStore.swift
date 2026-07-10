@@ -32,6 +32,12 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     var badgedTabs: Set<TabID> = []
     /// 배지가 하나라도 생기면 상위(AppState)에 알린다 — 프로젝트 탭 ● 표시용.
     @ObservationIgnored var onProjectActivity: (() -> Void)?
+    /// 탭/뷰어 구성이 바뀔 때 상위(AppState)에 알린다 — 즉시 세션 저장(⌘Q 없이도 복원되게).
+    @ObservationIgnored var onStateChange: (() -> Void)?
+    /// 초기 복원이 끝난 뒤에만 저장을 트리거한다(복원 중 중간 상태 저장 방지).
+    @ObservationIgnored private var ready = false
+
+    private func persist() { if ready { onStateChange?() } }
 
     var hasBadge: Bool { !badgedTabs.isEmpty }
 
@@ -83,6 +89,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         tabContent[tabId] = nil
         groups[tabId] = nil // 그룹 탭이면 서브탭 상태도 해제
         badgedTabs.remove(tabId)
+        persist()
     }
 
     /// 현재 포커스된 패인의 터미널(단축키 대상 — ⌘F 등). diff 등 비-터미널 탭이면 nil.
@@ -132,6 +139,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     func newTerminal(inPane pane: PaneID? = nil) -> TabID? {
         let id = controller.createTab(title: "터미널", icon: "terminal", inPane: pane)
         if let id { regroup(id, inPane: pane ?? controller.focusedPaneId) }
+        persist()
         return id
     }
 
@@ -162,16 +170,16 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         _ = controller.reorderTab(tabId, toIndex: dest)
     }
 
-    /// diff를 문서/diff 그룹 탭의 서브탭으로 연다.
+    /// diff를 변경 그룹 탭의 서브탭으로 연다.
     @discardableResult
     func openDiff(_ target: GitDiffTarget) -> TabID? {
-        openInGroup(.diff(target))
+        let id = openInGroup(.diff(target)); persist(); return id
     }
 
-    /// 파일을 문서 그룹 탭의 서브탭으로 연다. 종류(md/코드)는 렌더에서 FileViewTarget.kind로 분기.
+    /// 파일을 종류별(문서/HTML/코드) 그룹 탭의 서브탭으로 연다.
     @discardableResult
     func openFile(_ path: String) -> TabID? {
-        openInGroup(.file(FileViewTarget(path: path)))
+        let id = openInGroup(.file(FileViewTarget(path: path))); persist(); return id
     }
 
     /// 그룹 탭 상태 접근 — BonsplitWorkspaceView가 .group 탭 렌더 시 사용.
@@ -181,7 +189,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     func closeGroupItem(_ tabId: TabID, itemId: String) {
         guard let state = groups[tabId] else { return }
         if state.remove(itemId) {
-            _ = controller.closeTab(tabId) // didCloseTab에서 groups 정리
+            _ = controller.closeTab(tabId) // didCloseTab에서 groups 정리(+persist)
+        } else {
+            persist()
         }
     }
 
@@ -259,6 +269,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         }
         // 복원 직후엔 터미널을 앞에 둔다(뷰어가 선택된 채 뜨지 않게).
         if let firstTerminal { controller.selectTab(firstTerminal) }
+        ready = true // 이후 탭/뷰어 변경은 즉시 저장(⌘Q 없이도 복원되게)
     }
 
     /// 세션 저장용 — 열린 문서/커밋 diff 목록(순서 보존). 파일 diff는 제외.
