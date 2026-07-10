@@ -60,7 +60,10 @@ enum CodeHTML {
         .stagebtn{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:\(t.addFg);
               background:\(t.addBg);border:1px solid \(t.addFg);border-radius:4px;padding:0 8px;cursor:pointer;user-select:none;}
         .stagebtn:hover{background:\(t.addFg);color:\(t.bg);}
-        html[data-busy] .stagebtn{opacity:.45;pointer-events:none;}
+        .discardbtn{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:\(t.delFg);
+              background:\(t.delBg);border:1px solid \(t.delFg);border-radius:4px;padding:0 8px;cursor:pointer;user-select:none;}
+        .discardbtn:hover{background:\(t.delFg);color:\(t.bg);}
+        html[data-busy] .stagebtn,html[data-busy] .discardbtn{opacity:.45;pointer-events:none;}
         .filehdr{position:sticky;top:0;z-index:3;background:\(t.gutter);color:\(t.fg);font-weight:600;
               padding:6px 16px;border-top:1px solid \(t.hunk);border-bottom:1px solid \(t.hunk);
               white-space:pre;overflow:hidden;text-overflow:ellipsis;}
@@ -134,12 +137,14 @@ enum CodeHTML {
 
     /// unified diff 줄들 → 색칠된 diff 뷰(줄 앞 문자로 add/del/hunk/meta 구분).
     /// `stageable`이면 hunk(@@ 헤더)마다 '스테이지' 버튼을 붙이고, 클릭 시 hunk 인덱스를 Swift로 postMessage 한다.
+    /// `discardable`이면 같은 hunk에 '버리기' 버튼을 붙여 muxaDiscard 채널로 hunk 인덱스를 보낸다(파괴적, Swift가 확인).
     /// `aggregate`(통합 diff)면 `diff --git` 경계마다 파일 경로 sticky 헤더를 세워 여러 파일을 한 번에 훑게 한다.
     /// `commentable`이면 각 내용 줄에 hover '＋' 코멘트 버튼을 달고, `comments`(재앵커링됨)를 줄 아래 카드로 얹는다.
     /// `sideBySide`면 통합 뷰 대신 2열(좌 old / 우 new) 나란히 보기로 렌더한다(코멘트는 통합 뷰 전용).
-    static func diff(lines: [String], dark: Bool, stageable: Bool = false, aggregate: Bool = false,
-                     commentable: Bool = false, comments: [AnchoredComment] = [], sideBySide: Bool = false) -> String {
-        if sideBySide { return diffTwoColumn(lines: lines, dark: dark, stageable: stageable) }
+    static func diff(lines: [String], dark: Bool, stageable: Bool = false, discardable: Bool = false,
+                     aggregate: Bool = false, commentable: Bool = false, comments: [AnchoredComment] = [],
+                     sideBySide: Bool = false) -> String {
+        if sideBySide { return diffTwoColumn(lines: lines, dark: dark, stageable: stageable, discardable: discardable) }
         let t = Theme.of(dark: dark)
         // 앵커된 코멘트는 배치 키로, 오래된 코멘트는 상단 배너로.
         var placed: [String: [AnchoredComment]] = [:]
@@ -170,12 +175,8 @@ enum CodeHTML {
             if line.hasPrefix("@@") {
                 hunkIndex += 1
                 let text = "<span class=\"hunktext\">\(esc(line))</span>"
-                if stageable {
-                    let btn = "<button class=\"stagebtn\" onclick=\"muxaStageHunk(\(hunkIndex))\">＋ 스테이지</button>"
-                    body += "<div class=\"dl hunk hunkrow\">\(btn)\(text)</div>"
-                } else {
-                    body += "<div class=\"dl hunk hunkrow\">\(text)</div>"
-                }
+                let btns = hunkButtons(index: hunkIndex, stageable: stageable, discardable: discardable)
+                body += "<div class=\"dl hunk hunkrow\">\(btns)\(text)</div>"
                 continue
             }
             let cls: String
@@ -198,12 +199,9 @@ enum CodeHTML {
                 body += "<div class=\"dl \(cls)\">\(esc(line.isEmpty ? " " : line))</div>"
             }
         }
-        let stageHandler = CodeWebView.messageName
         let cmtHandler = CodeWebView.commentMessageName
         var script = "<script>"
-        if stageable {
-            script += "function muxaStageHunk(i){try{window.webkit.messageHandlers.\(stageHandler).postMessage(i);}catch(e){}}"
-        }
+        script += hunkScript(stageable: stageable, discardable: discardable)
         if commentable {
             script += """
             function muxaAddComment(el){try{window.webkit.messageHandlers.\(cmtHandler).postMessage(\
@@ -218,8 +216,8 @@ enum CodeHTML {
     }
 
     /// 나란히 보기(2열) diff — SideBySideDiff 행 모델을 좌(old)/우(new) 표로 렌더. 통합 뷰 스타일·색 재사용.
-    /// `stageable`이면 hunk 헤더 행에 '스테이지' 버튼(통합 뷰와 같은 muxaStageHunk 브리지)을 붙인다.
-    private static func diffTwoColumn(lines: [String], dark: Bool, stageable: Bool) -> String {
+    /// `stageable`/`discardable`이면 hunk 헤더 행에 통합 뷰와 같은 스테이지·버리기 버튼(브리지)을 붙인다.
+    private static func diffTwoColumn(lines: [String], dark: Bool, stageable: Bool, discardable: Bool) -> String {
         let t = Theme.of(dark: dark)
         var body = "<table class=\"sxs\">"
         for row in SideBySideDiff.rows(lines) {
@@ -228,24 +226,43 @@ enum CodeHTML {
                 body += "<tr><td colspan=\"4\" class=\"filehdr\">\(esc(path))</td></tr>"
             case let .hunk(text, index):
                 let txt = "<span class=\"hunktext\">\(esc(text))</span>"
-                if stageable {
-                    let btn = "<button class=\"stagebtn\" onclick=\"muxaStageHunk(\(index))\">＋ 스테이지</button>"
-                    body += "<tr><td colspan=\"4\" class=\"hunkhdr\"><div class=\"hunkrow\">\(btn)\(txt)</div></td></tr>"
-                } else {
+                let btns = hunkButtons(index: index, stageable: stageable, discardable: discardable)
+                if btns.isEmpty {
                     body += "<tr><td colspan=\"4\" class=\"hunkhdr\">\(txt)</td></tr>"
+                } else {
+                    body += "<tr><td colspan=\"4\" class=\"hunkhdr\"><div class=\"hunkrow\">\(btns)\(txt)</div></td></tr>"
                 }
             case let .pair(left, right):
                 body += "<tr>\(cell(left, isLeft: true))\(cell(right, isLeft: false))</tr>"
             }
         }
         body += "</table>"
-
-        var script = "<script>"
-        if stageable {
-            script += "function muxaStageHunk(i){try{window.webkit.messageHandlers.\(CodeWebView.messageName).postMessage(i);}catch(e){}}"
-        }
-        script += "</script>"
+        let script = "<script>\(hunkScript(stageable: stageable, discardable: discardable))</script>"
         return page(body, theme: t, script: script)
+    }
+
+    /// hunk 헤더에 붙는 스테이지·버리기 버튼 HTML(없으면 빈 문자열). 통합·나란히 뷰가 공유.
+    private static func hunkButtons(index: Int, stageable: Bool, discardable: Bool) -> String {
+        var s = ""
+        if stageable {
+            s += "<button class=\"stagebtn\" onclick=\"muxaStageHunk(\(index))\">＋ 스테이지</button>"
+        }
+        if discardable {
+            s += "<button class=\"discardbtn\" onclick=\"muxaDiscardHunk(\(index))\">↩︎ 버리기</button>"
+        }
+        return s
+    }
+
+    /// hunk 버튼이 부르는 postMessage 브리지 함수 정의(스테이지·버리기). 통합·나란히 뷰가 공유.
+    private static func hunkScript(stageable: Bool, discardable: Bool) -> String {
+        var s = ""
+        if stageable {
+            s += "function muxaStageHunk(i){try{window.webkit.messageHandlers.\(CodeWebView.messageName).postMessage(i);}catch(e){}}"
+        }
+        if discardable {
+            s += "function muxaDiscardHunk(i){try{window.webkit.messageHandlers.\(CodeWebView.discardMessageName).postMessage(i);}catch(e){}}"
+        }
+        return s
     }
 
     /// 나란히 보기 한쪽 열의 두 셀(줄번호 + 내용). 비어 있으면(짝 없음) 회색 filler.

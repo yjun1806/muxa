@@ -31,15 +31,19 @@ enum ReviewBridgeMessage {
 /// html이 바뀌어 리로드할 때는 직전 scrollY를 저장했다가 복원해, 라이브 리로드(에이전트 수정)에도 위치가 튀지 않는다.
 struct CodeWebView: NSViewRepresentable {
     let html: String
-    /// JS → Swift 콜백(hunk 인덱스). nil이면 메시지 핸들러를 등록하지 않는다(코드 뷰어는 읽기 전용).
+    /// JS → Swift 콜백(hunk 스테이지, 인덱스). nil이면 스테이지 채널을 등록하지 않는다(코드 뷰어는 읽기 전용).
     var onMessage: ((Int) -> Void)?
+    /// JS → Swift 콜백(hunk 버리기, 인덱스). nil이면 버리기 채널을 등록하지 않는다.
+    var onDiscard: ((Int) -> Void)?
     /// JS → Swift 콜백(리뷰 코멘트 add/delete). nil이면 코멘트 채널을 등록하지 않는다.
     var onComment: ((ReviewBridgeMessage) -> Void)?
     /// 재적용(스테이지·재로딩) 중이면 true — hunk 스테이지 버튼을 시각적으로 비활성(pointer-events off).
     var busy: Bool = false
 
-    /// diff HTML의 hunk 버튼이 postMessage로 부르는 핸들러 이름.
+    /// diff HTML의 hunk 스테이지 버튼이 postMessage로 부르는 핸들러 이름.
     static let messageName = "muxaStage"
+    /// diff HTML의 hunk 버리기 버튼이 postMessage로 부르는 핸들러 이름.
+    static let discardMessageName = "muxaDiscard"
     /// diff HTML의 코멘트 버튼이 postMessage로 부르는 핸들러 이름.
     static let commentMessageName = "muxaComment"
 
@@ -47,6 +51,9 @@ struct CodeWebView: NSViewRepresentable {
         let config = WKWebViewConfiguration()
         if onMessage != nil {
             config.userContentController.add(context.coordinator, name: CodeWebView.messageName)
+        }
+        if onDiscard != nil {
+            config.userContentController.add(context.coordinator, name: CodeWebView.discardMessageName)
         }
         if onComment != nil {
             config.userContentController.add(context.coordinator, name: CodeWebView.commentMessageName)
@@ -56,6 +63,7 @@ struct CodeWebView: NSViewRepresentable {
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
         context.coordinator.onMessage = onMessage
+        context.coordinator.onDiscard = onDiscard
         context.coordinator.onComment = onComment
         context.coordinator.setBusy(busy)
         context.coordinator.load(html)
@@ -64,6 +72,7 @@ struct CodeWebView: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.onMessage = onMessage
+        context.coordinator.onDiscard = onDiscard
         context.coordinator.onComment = onComment
         context.coordinator.setBusy(busy)
         context.coordinator.load(html)
@@ -74,6 +83,7 @@ struct CodeWebView: NSViewRepresentable {
     final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         weak var webView: WKWebView?
         var onMessage: ((Int) -> Void)?
+        var onDiscard: ((Int) -> Void)?
         var onComment: ((ReviewBridgeMessage) -> Void)?
         private var lastHTML = ""
         private var busy = false
@@ -118,20 +128,25 @@ struct CodeWebView: NSViewRepresentable {
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             switch message.name {
             case CodeWebView.messageName:
-                let index: Int?
-                switch message.body {
-                case let n as Int: index = n
-                case let d as Double: index = Int(d)
-                case let s as String: index = Int(s)
-                default: index = nil
-                }
-                if let index { onMessage?(index) }
+                if let index = Self.hunkIndex(message.body) { onMessage?(index) }
+            case CodeWebView.discardMessageName:
+                if let index = Self.hunkIndex(message.body) { onDiscard?(index) }
             case CodeWebView.commentMessageName:
                 if let dict = message.body as? [String: Any], let msg = ReviewBridgeMessage(dict: dict) {
                     onComment?(msg)
                 }
             default:
                 break
+            }
+        }
+
+        /// postMessage 페이로드(Int·Double·String)를 hunk 인덱스로 정규화. 스테이지·버리기 채널이 공유.
+        private static func hunkIndex(_ body: Any) -> Int? {
+            switch body {
+            case let n as Int: return n
+            case let d as Double: return Int(d)
+            case let s as String: return Int(s)
+            default: return nil
             }
         }
     }

@@ -28,24 +28,19 @@ extension GitService {
     }
 
     /// 파일 하나의 변경을 버린다(discard) — 체크 동선의 "거부" 반쪽(DESIGN 4.4).
-    /// 성공 시 nil, 실패 시 사용자용 에러 메시지.
-    /// - 추적 안 됨(untracked): 휴지통으로 이동(복구 가능 — git clean 대신).
-    /// - 새로 스테이지된 파일(A): 언스테이지 후 휴지통으로 이동.
-    /// - 그 외 추적 파일(수정·삭제 등): 인덱스·워크트리를 HEAD로 되돌림.
+    /// 성공 시 nil, 실패 시 사용자용 에러 메시지. 안전한 단계는 순수 계획(DiscardPlan)이 정하고 여기선 실행만.
+    /// 리네임(R)은 원본·대상을 모두 처리해 데이터 손실을 막는다(DiscardPlan 참고).
     static func discard(_ change: GitFileChange, in dir: String) async -> String? {
-        // untracked → 휴지통(익스플로러 삭제와 동일, 복구 가능)
-        if change.isUntracked {
-            return trashItem(change.opPath, in: dir)
+        for step in DiscardPlan.steps(for: change) {
+            switch step {
+            case .git(let args):
+                let r = await run(args, in: dir)
+                if r.exitCode != 0 { return "변경 버리기 실패 (git \(args.first ?? "") exit \(r.exitCode))" }
+            case .trash(let rel):
+                if let err = trashItem(rel, in: dir) { return err }
+            }
         }
-        // 새로 add 된 파일 → 언스테이지 후 휴지통(HEAD에 없어 restore 불가)
-        if change.index == "A" {
-            _ = await run(["restore", "--staged", "--", change.opPath], in: dir)
-            return trashItem(change.opPath, in: dir)
-        }
-        // 추적 파일 → 인덱스·워크트리를 마지막 커밋(HEAD) 상태로 되돌림
-        let r = await run(["restore", "--staged", "--worktree", "--source=HEAD", "--", change.opPath], in: dir)
-        guard r.exitCode != 0 else { return nil }
-        return "변경 버리기 실패 (exit \(r.exitCode))"
+        return nil
     }
 
     /// 워크트리 파일을 휴지통으로 이동. 성공 시 nil, 실패 시 메시지. dir 기준 상대 경로를 절대 URL로 변환.
@@ -77,6 +72,16 @@ extension GitService {
         guard r.exitCode != 0 else { return nil }
         let msg = r.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
         return msg.isEmpty ? "패치 적용 실패 (exit \(r.exitCode))" : msg
+    }
+
+    /// hunk 패치를 워크트리에 거꾸로 적용(`git apply --reverse`, --cached 아님)해 그 hunk만 원복한다 = hunk 단위 버리기.
+    /// 패치는 언스테이지 diff(워크트리 vs 인덱스)에서 뽑혔으므로, reverse 적용은 해당 hunk를 인덱스 상태로 되돌린다.
+    /// 성공 시 nil, 실패 시 메시지. 스테이지·통 diff·untracked엔 부적합해 DiffView가 노출을 가드한다.
+    static func applyReverse(patch: String, in dir: String) async -> String? {
+        let r = await runWithStdin(["apply", "--reverse", "--whitespace=nowarn", "-"], stdin: patch, in: dir)
+        guard r.exitCode != 0 else { return nil }
+        let msg = r.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        return msg.isEmpty ? "hunk 버리기 실패 (exit \(r.exitCode))" : msg
     }
 
     /// stdin으로 입력을 넣고 stderr까지 캡처하는 실행 변형(git apply 전용). 패치가 작아(파이프 버퍼 내)

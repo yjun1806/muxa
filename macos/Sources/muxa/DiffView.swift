@@ -86,10 +86,12 @@ struct DiffView: View {
             } else {
                 CodeWebView(
                     html: CodeHTML.diff(lines: lines, dark: GhosttyRuntime.systemIsDark,
-                                        stageable: hunkStageable, aggregate: target.isAggregate,
+                                        stageable: hunkStageable, discardable: hunkStageable,
+                                        aggregate: target.isAggregate,
                                         commentable: commentable && !sideBySide, comments: resolvedComments,
                                         sideBySide: sideBySide),
                     onMessage: hunkStageable ? { idx in Task { @MainActor in await stageHunk(idx) } } : nil,
+                    onDiscard: hunkStageable ? { idx in Task { @MainActor in await discardHunk(idx) } } : nil,
                     onComment: (commentable && !sideBySide) ? handleComment : nil,
                     busy: applying
                 )
@@ -305,6 +307,18 @@ struct DiffView: View {
             return
         }
         await runStage { await GitService.applyCached(patch: patch, in: dir) }
+    }
+
+    /// hunk 하나만 버리기 — 확인 후 패치를 워크트리에 reverse 적용(그 hunk만 인덱스 상태로 원복).
+    /// hunkStageable(추적 파일의 언스테이지 수정)일 때만 노출되므로 통 diff·untracked·스테이지 뷰엔 오지 않는다.
+    private func discardHunk(_ index: Int) async {
+        guard let change = fileChange else { return }
+        guard let patch = DiffPatch.patch(forHunk: index, in: DiffPatch.parse(lines)) else {
+            stageError = "이 hunk는 버릴 수 없어요"
+            return
+        }
+        guard DiscardConfirm.confirmHunk(fileName: basename(change.opPath)) else { return }
+        await runStage { await GitService.applyReverse(patch: patch, in: dir) }
     }
 
     /// 스테이지 계열 공통 실행 — 진행 표시·에러 표시·성공 시 diff 재로딩.

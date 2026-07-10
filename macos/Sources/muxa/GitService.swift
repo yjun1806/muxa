@@ -189,11 +189,23 @@ struct GitFileChange: Identifiable {
     var isUntracked: Bool { index == "?" }
     var isStaged: Bool { index != " " && index != "?" }
 
+    /// 스테이지된 리네임(porcelain v1은 인덱스 열에만 R을 표시). discard가 원본·대상 둘 다 처리해야 한다.
+    var isRename: Bool { index == "R" }
+
     /// git add/restore 대상 경로 — 리네임("old -> new")은 새 경로를 쓴다.
     var opPath: String {
         if let r = path.range(of: " -> ") { return String(path[r.upperBound...]) }
         return path
     }
+
+    /// 리네임 원본 경로("old -> new"의 old). 리네임이 아니면 path와 같다.
+    var oldPath: String {
+        if let r = path.range(of: " -> ") { return String(path[..<r.lowerBound]) }
+        return path
+    }
+
+    /// 리네임 대상 경로(= opPath). 의미를 분명히 하려는 별칭.
+    var newPath: String { opPath }
 
     /// 표시용 대표 상태 문자 — 스테이지 우선, 없으면 워크트리.
     var badge: Character {
