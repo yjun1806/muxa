@@ -108,9 +108,13 @@ final class GhosttyRuntime {
                 NSPasteboard.general.setString(String(cString: text), forType: .string)
             }
         }
-        runtime.close_surface_cb = { _, _ in
-            // M0: 셸 종료 시 앱도 종료
-            DispatchQueue.main.async { NSApp.terminate(nil) }
+        runtime.close_surface_cb = { userdata, _ in
+            // 셸 종료(exit) → 앱 전체가 아니라 그 서피스가 속한 탭만 닫는다(B1).
+            // userdata는 서피스 쪽 userdata = TermView (read_clipboard_cb와 동일 패턴).
+            guard let userdata else { return }
+            let view = Unmanaged<TermView>.fromOpaque(userdata).takeUnretainedValue()
+            guard let tabId = view.tabId else { return }
+            DispatchQueue.main.async { view.onRequestClose?(tabId) }
         }
 
         guard let app = ghostty_app_new(&runtime, config) else { return nil }

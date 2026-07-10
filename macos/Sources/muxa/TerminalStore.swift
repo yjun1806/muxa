@@ -117,6 +117,11 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         t.onNotify = { title, body in
             MainActor.assumeIsolated { NotificationService.shared.notify(title: title, body: body) }
         }
+        // 셸 종료 → 이 탭만 닫는다(앱 종료 아님). closeTab→didCloseTab→terms[tid]=nil→TermView deinit이
+        // 서피스를 free한다. close_surface_cb는 요청일 뿐 libghostty가 직접 free하지 않아 이중 free 아님.
+        t.onRequestClose = { [weak self] tid in
+            MainActor.assumeIsolated { _ = self?.controller.closeTab(tid) }
+        }
         terms[tabId] = t
         return t
     }

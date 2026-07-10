@@ -34,6 +34,8 @@ final class TermView: NSView, NSTextInputClient {
     var onClearBadge: ((TabID) -> Void)?
     /// 데스크톱 알림(OSC 9/777)을 시스템 알림으로 — store가 세팅.
     var onNotify: ((String, String) -> Void)?
+    /// 셸이 종료(exit)돼 libghostty가 서피스 닫기를 요청할 때 — 이 탭만 닫는다. store가 세팅.
+    var onRequestClose: ((TabID) -> Void)?
 
     /// IME 조합 중(preedit) 텍스트. NSTextInputClient가 채운다.
     private var markedText = NSMutableAttributedString()
