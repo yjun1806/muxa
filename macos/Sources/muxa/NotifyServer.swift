@@ -1,19 +1,31 @@
 import Foundation
 
 /// 훅(Claude Code Notification/Stop 등)이 `muxa notify`로 보낸 결정론적 신호.
-/// 프로토콜은 탭 구분 한 줄: `<tabId>\t<state>\t<title>\t<body>\n`.
+/// 프로토콜은 탭 구분 한 줄: `<tabId>\t<state>\t<title>\t<body>\t<category>\n`
+/// (마지막 `<category>`는 선택 — 옛 훅/CLI는 안 보내며, 없으면 state에서 파생한다).
 enum NotifyState: String {
     case waiting // 에이전트가 승인/입력 대기 — 세션 내내 OSC 133이 안 오는 그 순간을 명시 신호로.
     case done    // 작업 완료.
     case working // 작업 재개 — 주의 해소(배지 클리어).
+
+    /// category 미지정 시 state에서 파생하는 기본 배달 카테고리(하위호환).
+    /// waiting=입력/권한 대기(긴급), done=턴 완료, working=알림 없음(배지 클리어라 nil).
+    var defaultCategory: NotifyCategory? {
+        switch self {
+        case .waiting: return .needsPermission
+        case .done: return .turnComplete
+        case .working: return nil
+        }
+    }
 }
 
-/// 훅에서 온 알림 한 줄을 파싱한 값.
+/// 훅에서 온 알림 한 줄을 파싱한 값. category는 선택 — 결정론 배달 게이트(NotificationGate) 입력.
 struct NotifyMessage {
     let tabId: String
     let state: NotifyState
     let title: String
     let body: String
+    let category: NotifyCategory?
 }
 
 /// Unix 도메인 소켓 리스너 — `muxa notify` CLI가 보낸 한 줄을 받아 콜백으로 넘긴다.
@@ -125,7 +137,8 @@ final class NotifyServer {
         }
     }
 
-    /// `<tabId>\t<state>\t<title>\t<body>` 파싱. tab이 부족한 필드는 빈 문자열로 관대하게 채운다.
+    /// `<tabId>\t<state>\t<title>\t<body>\t<category>` 파싱. 부족한 필드는 관대하게 채운다
+    /// (title/body는 빈 문자열, category는 미지정·미인식이면 nil → deliverNotify가 state에서 파생).
     static func parse(_ line: String) -> NotifyMessage? {
         let parts = line.components(separatedBy: "\t")
         guard parts.count >= 2 else { return nil }
@@ -133,6 +146,7 @@ final class NotifyServer {
         guard !tabId.isEmpty, let state = NotifyState(rawValue: parts[1]) else { return nil }
         let title = parts.count > 2 ? parts[2] : ""
         let body = parts.count > 3 ? parts[3] : ""
-        return NotifyMessage(tabId: tabId, state: state, title: title, body: body)
+        let category = parts.count > 4 ? NotifyCategory(rawValue: parts[4]) : nil
+        return NotifyMessage(tabId: tabId, state: state, title: title, body: body, category: category)
     }
 }

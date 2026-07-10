@@ -63,7 +63,8 @@ final class AppState {
         guard let uuid = UUID(uuidString: msg.tabId) else { return }
         let tabId = TabID(uuid: uuid)
         for store in stores.values {
-            if store.deliverNotify(tabId: tabId, state: msg.state, title: msg.title, body: msg.body) { break }
+            if store.deliverNotify(tabId: tabId, state: msg.state, title: msg.title,
+                                   body: msg.body, category: msg.category) { break }
         }
     }
 

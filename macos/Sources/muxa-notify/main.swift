@@ -1,10 +1,27 @@
 import Foundation
 
 // muxa notify — 훅에서 부르는 작은 CLI. 셸 env에 muxa가 심어둔 MUXA_SOCK/MUXA_TAB_ID를 읽어
-// 앱의 Unix 소켓에 한 줄(`<tabId>\t<state>\t<title>\t<body>`)을 쓰고 종료한다.
+// 앱의 Unix 소켓에 한 줄(`<tabId>\t<state>\t<title>\t<body>\t<category>`)을 쓰고 종료한다.
 //
-// 사용: muxa notify --state waiting --title "승인 대기" --body "..."
+// 사용: muxa notify --state waiting --category needs-permission --title "승인 대기" --body "..."
 // (실행 파일명이 muxa-notify라 맨 앞의 "notify" 토큰은 있어도 없어도 된다.)
+//
+// 인자:
+//   --state    waiting | done | working   (기본 waiting)
+//               waiting=입력/권한 대기, done=턴 완료, working=작업 재개(주의 해소·배지 클리어)
+//   --category needs-permission | turn-complete | idle-reminder   (선택)
+//               결정론 배달 게이트 입력. 미지정이면 앱이 state에서 파생
+//               (waiting→needs-permission, done→turn-complete). 값이 실리면 그 카테고리로 배달을 가른다:
+//               needs-permission=안 보이면 항상 알림(긴급), turn-complete=안 보이면 알림,
+//               idle-reminder=조용히(배지만, 억제 가능).
+//   --title / --body  알림 제목·본문(선택).
+//
+// Claude Code 훅 프리셋 예시(~/.claude/settings.json hooks):
+//   PreToolUse / PostToolUse           → muxa notify --state working
+//   PermissionRequest / AskUserQuestion / Notification
+//                                      → muxa notify --state waiting --category needs-permission
+//   Stop                               → muxa notify --state done --category turn-complete
+//   (유휴 리마인더는 별도 타이머/훅에서 muxa notify --state waiting --category idle-reminder)
 
 /// sockaddr_un.sun_path 용량(macOS).
 let sunPathCapacity = 104
@@ -24,14 +41,16 @@ var args = Array(CommandLine.arguments.dropFirst())
 if args.first == "notify" { args.removeFirst() }
 
 var state = "waiting"
+var category = ""
 var title = ""
 var body = ""
 var i = 0
 while i < args.count {
     switch args[i] {
-    case "--state": i += 1; if i < args.count { state = args[i] }
-    case "--title": i += 1; if i < args.count { title = args[i] }
-    case "--body":  i += 1; if i < args.count { body = args[i] }
+    case "--state":    i += 1; if i < args.count { state = args[i] }
+    case "--category": i += 1; if i < args.count { category = args[i] }
+    case "--title":    i += 1; if i < args.count { title = args[i] }
+    case "--body":     i += 1; if i < args.count { body = args[i] }
     default: break
     }
     i += 1
@@ -45,7 +64,8 @@ guard let tabId = env["MUXA_TAB_ID"], !tabId.isEmpty else {
     fail("MUXA_TAB_ID 미설정 — muxa 안에서 실행해야 한다")
 }
 
-let line = "\(tabId)\t\(state)\t\(sanitize(title))\t\(sanitize(body))\n"
+// category는 항상 5번째 필드로 붙인다(빈 문자열이면 서버가 nil로 파싱 — 하위호환).
+let line = "\(tabId)\t\(state)\t\(sanitize(title))\t\(sanitize(body))\t\(sanitize(category))\n"
 
 let fd = socket(AF_UNIX, SOCK_STREAM, 0)
 guard fd >= 0 else { fail("socket() 실패 errno=\(errno)") }

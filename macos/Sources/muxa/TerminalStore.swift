@@ -236,15 +236,18 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     /// 훅(NotifyServer)에서 온 결정론적 알림을 이 스토어가 소유한 탭으로 라우팅한다. 소유하면 true.
     /// 셸이 도는 탭은 반드시 TermView(=terms)가 생성돼 있으므로 terms 유무로 소유를 판정한다.
-    /// waiting/done은 desktopNotification과 같은 경로(보이면 테두리 플래시, 안 보이면 알림+배지)로,
+    /// waiting/done은 순수 배달 게이트(NotificationGate)가 카테고리·가시성으로 배달을 가르고,
     /// working(작업 재개)은 주의 해소로 보고 배지를 끈다.
-    func deliverNotify(tabId: TabID, state: NotifyState, title: String, body: String) -> Bool {
+    func deliverNotify(tabId: TabID, state: NotifyState, title: String, body: String,
+                       category: NotifyCategory? = nil) -> Bool {
         guard terms[tabId] != nil else { return false }
         // 명시 신호는 상태 추정의 ground truth — 배지 경로와 별개로 추정기에 항상 고정 반영한다(DESIGN 4.5).
         applyAgentSignal(.explicit(state), to: tabId)
         switch state {
         case .waiting, .done:
-            handleSignal(.desktopNotification(title: title, body: body), from: tabId)
+            // category 미지정이면 state에서 파생(하위호환) — 게이트가 배달 방식을 결정한다.
+            fireNotification(tabId, title: title, body: body,
+                             category: category ?? state.defaultCategory, kind: .notify)
         case .working:
             clearTabBadge(tabId)
         }
@@ -430,22 +433,29 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             lastBellAt[tabId] = now
             fireActivity(tabId, kind: .bell, title: tabTitle(tabId), visible: visible)
         case .desktopNotification(let title, let body):
-            // 보이는 탭엔 시스템 알림·배지 억제(주의는 이미 사용자에게) — 대신 칸 테두리로 짚어준다. 안 보이면 알림+배지.
-            if visible {
-                flashPane(tabId)
-            } else {
-                // 알림 발사는 AppState에 위임(컨텍스트 부착) — 미배선 시엔 컨텍스트 없이 폴백.
-                if let onNotify { onNotify(tabId, title, body) } else { NotificationService.shared.notify(title: title, body: body) }
-                markBadge(tabId, kind: .notify, title: title.isEmpty ? tabTitle(tabId) : title)
-            }
+            // OSC 9/777 자동 신호 — category nil로 게이트에 태운다(보이면 플래시, 안 보이면 배지+알림: 기존 동작).
+            fireNotification(tabId, title: title, body: body, category: nil, kind: .notify)
         case .outputHeartbeat:
             break // 위에서 이미 처리하고 반환 — 열거 완전성용.
         }
     }
 
-    /// 보이면 칸 테두리 플래시, 안 보이면 배지(+인박스 이력).
+    /// 보이면 칸 테두리 플래시, 안 보이면 배지(+인박스 이력). 벨·명령 완료 등 시스템 알림 없는 신호용.
     private func fireActivity(_ tabId: TabID, kind: AttentionKind, title: String, visible: Bool) {
         if visible { flashPane(tabId) } else { markBadge(tabId, kind: kind, title: title) }
+    }
+
+    /// 알림 발사의 단일 경로 — 순수 게이트(NotificationGate)로 배달 방식을 정하고 채널별로 실행한다.
+    /// 자동 신호(OSC 9/777)는 category nil로, 명시 신호(muxa notify)는 실린 category로 들어온다.
+    /// 시스템 알림 발사는 AppState에 위임(컨텍스트 부착) — 미배선 시엔 컨텍스트 없이 폴백.
+    private func fireNotification(_ tabId: TabID, title: String, body: String,
+                                 category: NotifyCategory?, kind: AttentionKind) {
+        let delivery = NotificationGate.shouldDeliver(category: category, isVisibleToUser: isTabVisible(tabId))
+        if delivery.flashPane { flashPane(tabId) }
+        if delivery.systemNotification {
+            if let onNotify { onNotify(tabId, title, body) } else { NotificationService.shared.notify(title: title, body: body) }
+        }
+        if delivery.badge { markBadge(tabId, kind: kind, title: title.isEmpty ? tabTitle(tabId) : title) }
     }
 
     /// 보이는 칸에 활동 테두리를 잠깐 켠다 — 3~4분할에서 "어느 칸이 울렸나"를 즉시 짚게. 일정 시간 뒤 페이드 해제.
