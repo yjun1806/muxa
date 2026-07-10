@@ -8,6 +8,8 @@ struct GitPanel: View {
     var sessionBase: String?
     /// "여기까지 봤음" — 기준선을 현재 HEAD로 리셋(상위 AppState가 프로젝트 값 타입을 갱신).
     var onResetBaseline: () -> Void = {}
+    /// 리뷰 코멘트 제출 — 포맷된 지시 텍스트를 포커스 터미널에 붙인다. 성공(터미널 있음)이면 true → 코멘트 소비.
+    var onSendReview: (String) -> Bool = { _ in false }
     var onOpenDiff: (GitDiffTarget) -> Void
 
     private enum Mode: String, CaseIterable {
@@ -28,11 +30,14 @@ struct GitPanel: View {
     @State private var syncBusy = false
     @State private var syncError: String?
     @State private var gh: GitService.GHStatus?
+    /// canonical repo 루트(리뷰 코멘트 키) — 진입 시 1회 계산. nil이면 리뷰 바 숨김.
+    @State private var reviewRoot: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Rectangle().fill(Color.pBorder).frame(height: 1)
+            reviewBar
             if let syncError {
                 Text(syncError)
                     .font(.system(size: 10)).foregroundStyle(.red).lineLimit(2)
@@ -60,8 +65,10 @@ struct GitPanel: View {
         .background(Color.pPanel)
         .task(id: dir) {
             gh = nil // 프로젝트 전환 시 이전 PR 배지 즉시 제거(네트워크 대기 동안 stale 방지)
+            reviewRoot = nil
             await refresh()
             await refreshGH() // gh 배지: 진입 시 1회만(과한 폴링 금지)
+            if let dir { reviewRoot = await GitService.repoRoot(in: dir) } // 리뷰 코멘트 키
             if let dir { watcher = FileWatcher(path: dir) } // B-2: 변경 시 git 패널 자동 갱신
         }
         .onChange(of: watcher?.changeSeq) { _, _ in Task { await refresh() } }
@@ -90,6 +97,36 @@ struct GitPanel: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 34)
+    }
+
+    /// 리뷰 코멘트 제출 바 — 미제출 코멘트가 있으면 개수 + "N개 보내기"(포커스 터미널에 붙여넣기).
+    /// 스토어(@Observable)를 body에서 읽어 코멘트 add/delete에 반응한다. 없으면 아무것도 안 그린다.
+    @ViewBuilder
+    private var reviewBar: some View {
+        if let root = reviewRoot {
+            let pending = ReviewCommentStore.shared.comments(inRepo: root)
+            if !pending.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "text.bubble").font(.system(size: 11)).foregroundStyle(Color.pMuted)
+                    Text("리뷰 코멘트 \(pending.count)개").font(.system(size: 11)).foregroundStyle(Color.pFg)
+                    Spacer(minLength: 0)
+                    Button {
+                        let text = ReviewCommentFormat.instruction(pending)
+                        if onSendReview(text) { _ = ReviewCommentStore.shared.consumeAll(inRepo: root) }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "paperplane").font(.system(size: 10))
+                            Text("\(pending.count)개 보내기").font(.system(size: 11, weight: .medium))
+                        }
+                    }
+                    .buttonStyle(.plain).foregroundStyle(Color(nsColor: Palette.gitAdded))
+                    .help("코멘트를 포커스 터미널에 붙여 다음 턴 지시로 보냄")
+                }
+                .padding(.horizontal, 10).frame(height: 30)
+                .background(Color.pPanel)
+                Rectangle().fill(Color.pBorder).frame(height: 1)
+            }
+        }
     }
 
     /// 브랜치명 — git 저장소면 로컬 브랜치 목록 메뉴, 아니면 "Git" 라벨.

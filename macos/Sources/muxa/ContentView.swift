@@ -108,7 +108,8 @@ struct ContentView: View {
                     GitPanel(
                         dir: project.path ?? ws.path,
                         sessionBase: project.sessionBaseHead,
-                        onResetBaseline: { state.resetSessionBaseline(projectId: project.id, cwd: project.path ?? ws.path) }
+                        onResetBaseline: { state.resetSessionBaseline(projectId: project.id, cwd: project.path ?? ws.path) },
+                        onSendReview: { state.store(for: project, in: ws).injectToTerminal($0) }
                     ) { state.store(for: project, in: ws).openDiff($0) }
                 }
             }

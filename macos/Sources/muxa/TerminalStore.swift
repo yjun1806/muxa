@@ -225,6 +225,27 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         return term(for: tab.id)
     }
 
+    /// 칸→탭 순서로 만나는 첫 터미널(포커스가 diff 등 비-터미널일 때의 폴백). 없으면 nil.
+    private var firstTerminal: TermView? {
+        for paneId in controller.allPaneIds {
+            for tab in controller.tabs(inPane: paneId) where terms[tab.id] != nil {
+                if case .terminal = content(for: tab.id) { return term(for: tab.id) }
+            }
+        }
+        return nil
+    }
+
+    /// 외부 텍스트(리뷰 코멘트 등)를 에이전트 터미널에 붙여 다음 턴 지시로 되먹인다. 포커스가 diff면 첫 터미널로.
+    /// 실행(Enter)은 커밋하지 않고 붙여넣기만 한다 — 사용자가 내용을 확인하고 직접 제출하게 둔다(신뢰 경계).
+    /// 보낼 터미널이 없으면 false.
+    @discardableResult
+    func injectToTerminal(_ text: String) -> Bool {
+        let body = text.hasSuffix("\n") ? String(text.dropLast()) : text // 끝 개행 = Enter 오해 방지
+        guard let term = focusedTerm ?? firstTerminal, !body.isEmpty else { return false }
+        term.sendText(body)
+        return true
+    }
+
     /// 탭의 내용 종류(터미널이거나 diff 등 뷰어).
     func content(for tabId: TabID) -> TabContent {
         tabContent[tabId] ?? .terminal

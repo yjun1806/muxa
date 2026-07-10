@@ -65,6 +65,10 @@ struct DiffView: View {
     /// 현재 파일의 최신 변경 상태 — 스테이지/언스테이지로 index·worktree가 바뀌므로 target의
     /// 캡처값(stale)이 아니라 매 로드마다 git status에서 다시 읽어 라우팅·버튼 판단에 쓴다.
     @State private var change: GitFileChange?
+    /// canonical repo 루트(리뷰 코멘트 키) — 첫 load에서 1회 계산. nil이면 코멘트 비활성(git 저장소 아님).
+    @State private var repoRoot: String?
+    /// 코멘트 입력 시트 초안(줄의 '＋' 클릭으로 설정). nil이면 시트 닫힘.
+    @State private var draft: CommentDraft?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -80,8 +84,10 @@ struct DiffView: View {
             } else {
                 CodeWebView(
                     html: CodeHTML.diff(lines: lines, dark: GhosttyRuntime.systemIsDark,
-                                        stageable: hunkStageable, aggregate: target.isAggregate),
+                                        stageable: hunkStageable, aggregate: target.isAggregate,
+                                        commentable: commentable, comments: resolvedComments),
                     onMessage: hunkStageable ? { idx in Task { @MainActor in await stageHunk(idx) } } : nil,
+                    onComment: commentable ? handleComment : nil,
                     busy: applying
                 )
             }
@@ -93,6 +99,44 @@ struct DiffView: View {
             watcher = fileWatcher() // 파일 diff면 부모 디렉토리 감시 시작(커밋 diff는 nil)
         }
         .onChange(of: watcher?.changeSeq) { _, _ in Task { await reloadIfChanged() } }
+        .sheet(item: $draft) { d in
+            ReviewCommentSheet(draft: d, onSubmit: { addComment(d, body: $0) }, onCancel: { draft = nil })
+        }
+    }
+
+    // MARK: 리뷰 코멘트 — 줄 '＋'로 달고, lineText 재앵커링으로 라이브 리로드에도 따라간다.
+
+    /// 코멘트를 달 수 있는 diff인지 — git 저장소이고(repoRoot 있음) 커밋 diff가 아닐 때(불변 이력엔 코멘트 안 함).
+    private var commentable: Bool {
+        guard repoRoot != nil else { return false }
+        if case .commit = target { return false }
+        return true
+    }
+
+    /// 저장된 코멘트를 현재 diff 줄에 재앵커링해 표시용으로 판다. 스토어(@Observable)를 body에서 읽어 변경에 반응.
+    private var resolvedComments: [AnchoredComment] {
+        guard commentable, let root = repoRoot else { return [] }
+        return ReviewCommentAnchor.resolve(ReviewCommentStore.shared.comments(inRepo: root), lines: lines)
+    }
+
+    /// diff-viewer 브리지 메시지 처리 — add는 입력 시트를 띄우고, delete는 스토어에서 제거.
+    private func handleComment(_ msg: ReviewBridgeMessage) {
+        guard let root = repoRoot else { return }
+        switch msg {
+        case let .add(file, side, line, text):
+            draft = CommentDraft(file: file, side: side, line: line, lineText: text)
+        case let .delete(id):
+            ReviewCommentStore.shared.delete(id: id, inRepo: root)
+        }
+    }
+
+    private func addComment(_ d: CommentDraft, body: String) {
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let root = repoRoot, !trimmed.isEmpty {
+            ReviewCommentStore.shared.add(file: d.file, side: d.side, line: d.line,
+                                          lineText: d.lineText, body: trimmed, inRepo: root)
+        }
+        draft = nil
     }
 
     /// 절대 경로(repo dir + 상대경로). status의 opPath는 repo 루트 기준 상대경로다.
@@ -247,6 +291,7 @@ struct DiffView: View {
     private func load() async {
         loaded = false
         stageError = nil
+        if repoRoot == nil { repoRoot = await GitService.repoRoot(in: dir) } // 리뷰 코멘트 키(1회)
         let text: String
         switch target {
         case .file(let initial):

@@ -33,6 +33,13 @@ enum CodeHTML {
         return r
     }
 
+    /// 속성값 이스케이프(큰따옴표 포함) — data-* 속성에 줄 내용을 안전히 싣는다.
+    private static func escAttr(_ s: String) -> String {
+        var r = esc(s)
+        r = r.replacingOccurrences(of: "\"", with: "&quot;")
+        return r
+    }
+
     private static func page(_ body: String, theme t: Theme, script: String = "") -> String {
         """
         <!doctype html><html><head><meta charset="utf-8"><style>
@@ -57,6 +64,24 @@ enum CodeHTML {
         .filehdr{position:sticky;top:0;z-index:3;background:\(t.gutter);color:\(t.fg);font-weight:600;
               padding:6px 16px;border-top:1px solid \(t.hunk);border-bottom:1px solid \(t.hunk);
               white-space:pre;overflow:hidden;text-overflow:ellipsis;}
+        .dl.cmtline{position:relative;}
+        .cmtbtn{position:absolute;left:1px;top:0;width:14px;height:100%;padding:0;line-height:1;
+              font:12px ui-monospace,Menlo,monospace;color:\(t.hunk);background:transparent;border:0;
+              cursor:pointer;opacity:0;user-select:none;}
+        .dl.cmtline:hover .cmtbtn{opacity:.9;}
+        .cmtcard{margin:2px 16px 6px 44px;border-left:2px solid \(t.hunk);background:\(t.gutter);
+              border-radius:4px;padding:5px 10px;white-space:normal;}
+        .cmtmeta{display:flex;align-items:center;gap:8px;margin-bottom:2px;}
+        .cmtstatus{font-size:10px;padding:0 6px;border-radius:8px;font-weight:600;}
+        .st-moved{color:\(t.hunk);background:rgba(45,212,191,.14);}
+        .st-outdated{color:\(t.delFg);background:\(t.delBg);}
+        .cmtbody{color:\(t.fg);font-size:12px;white-space:pre-wrap;}
+        .cmtwhere{color:\(t.muted);font-size:10px;font-family:ui-monospace,Menlo,monospace;}
+        .cmtdel{margin-left:auto;font-size:10px;color:\(t.muted);background:transparent;border:0;
+              cursor:pointer;padding:0;user-select:none;}
+        .cmtdel:hover{color:\(t.delFg);}
+        .outdatedwrap{margin:8px 16px;padding:6px 10px;border:1px solid \(t.delFg);border-radius:5px;background:\(t.delBg);}
+        .outdatedttl{font-size:11px;font-weight:600;color:\(t.delFg);margin-bottom:4px;}
         </style></head><body><div class="wrap">\(body)</div>\(script)</body></html>
         """
     }
@@ -80,23 +105,56 @@ enum CodeHTML {
         return page("<table class=\"code\">\(rows)</table>", theme: t)
     }
 
-    /// `diff --git a/… b/…` 헤더 줄에서 표시용 파일 경로를 뽑는다(리네임은 b/ 새 경로 우선).
-    private static func filePath(fromDiffHeader line: String) -> String {
-        if let r = line.range(of: " b/") { return String(line[r.upperBound...]) }
-        return line.split(separator: " ").last.map(String.init) ?? line
+    /// 앵커된 코멘트의 배치 키 — (파일, side, 줄번호)로 현재 diff 줄과 대조한다.
+    private static func placementKey(file: String, side: DiffSide, line: Int) -> String {
+        "\(file)\u{1}\(side.rawValue)\u{1}\(line)"
+    }
+
+    /// 코멘트 카드 HTML(상태 배지 + 본문 + 삭제 버튼).
+    private static func card(_ c: AnchoredComment, theme t: Theme) -> String {
+        var badge = ""
+        switch c.status {
+        case .moved: badge = "<span class=\"cmtstatus st-moved\">옮김</span>"
+        case .outdated: badge = "<span class=\"cmtstatus st-outdated\">오래됨</span>"
+        case .anchored: badge = ""
+        }
+        let where_ = "<span class=\"cmtwhere\">:\(c.comment.line)</span>"
+        let del = "<button class=\"cmtdel\" onclick=\"muxaDeleteComment('\(c.comment.id)')\">삭제</button>"
+        return "<div class=\"cmtcard\"><div class=\"cmtmeta\">\(badge)\(where_)\(del)</div>"
+            + "<div class=\"cmtbody\">\(esc(c.comment.body))</div></div>"
     }
 
     /// unified diff 줄들 → 색칠된 diff 뷰(줄 앞 문자로 add/del/hunk/meta 구분).
     /// `stageable`이면 hunk(@@ 헤더)마다 '스테이지' 버튼을 붙이고, 클릭 시 hunk 인덱스를 Swift로 postMessage 한다.
     /// `aggregate`(통합 diff)면 `diff --git` 경계마다 파일 경로 sticky 헤더를 세워 여러 파일을 한 번에 훑게 한다.
-    static func diff(lines: [String], dark: Bool, stageable: Bool = false, aggregate: Bool = false) -> String {
+    /// `commentable`이면 각 내용 줄에 hover '＋' 코멘트 버튼을 달고, `comments`(재앵커링됨)를 줄 아래 카드로 얹는다.
+    static func diff(lines: [String], dark: Bool, stageable: Bool = false, aggregate: Bool = false,
+                     commentable: Bool = false, comments: [AnchoredComment] = []) -> String {
         let t = Theme.of(dark: dark)
+        // 앵커된 코멘트는 배치 키로, 오래된 코멘트는 상단 배너로.
+        var placed: [String: [AnchoredComment]] = [:]
+        var outdated: [AnchoredComment] = []
+        for c in comments {
+            if let ln = c.resolvedLine, c.status != .outdated {
+                placed[placementKey(file: c.comment.file, side: c.comment.side, line: ln), default: []].append(c)
+            } else {
+                outdated.append(c)
+            }
+        }
+        // 코멘트 가능 줄의 앵커 정보(파일·side·줄번호·내용) — 재앵커링과 같은 규칙을 공유.
+        let info = commentable ? ReviewCommentAnchor.indexLines(lines) : [:]
+
         var body = ""
+        if !outdated.isEmpty {
+            body += "<div class=\"outdatedwrap\"><div class=\"outdatedttl\">위치를 잃은 코멘트 \(outdated.count)개</div>"
+            for c in outdated.sorted(by: { $0.comment.seq < $1.comment.seq }) { body += card(c, theme: t) }
+            body += "</div>"
+        }
         var hunkIndex = -1
-        for line in lines {
+        for (i, line) in lines.enumerated() {
             if aggregate, line.hasPrefix("diff ") {
                 // 파일 경계 — sticky 헤더로 경로를 세우고 원본 `diff --git` 줄은 생략(중복 제거).
-                body += "<div class=\"filehdr\">\(esc(filePath(fromDiffHeader: line)))</div>"
+                body += "<div class=\"filehdr\">\(esc(ReviewCommentAnchor.filePath(fromDiffHeader: line)))</div>"
                 continue
             }
             if line.hasPrefix("@@") {
@@ -117,12 +175,35 @@ enum CodeHTML {
             else if line.hasPrefix("@") { cls = "hunk" }
             else if line.hasPrefix("diff ") || line.hasPrefix("index ") || line.hasPrefix("new ") || line.hasPrefix("deleted ") { cls = "meta" }
             else { cls = "" }
-            body += "<div class=\"dl \(cls)\">\(esc(line.isEmpty ? " " : line))</div>"
+            if let li = info[i] {
+                // 코멘트 가능 내용 줄 — 앵커 data-* + hover '＋' 버튼.
+                let attrs = "data-file=\"\(escAttr(li.file))\" data-side=\"\(li.side.rawValue)\""
+                    + " data-line=\"\(li.keyLine)\" data-text=\"\(escAttr(li.text))\""
+                let btn = "<button class=\"cmtbtn\" onclick=\"muxaAddComment(this.parentNode)\" title=\"코멘트 달기\">＋</button>"
+                body += "<div class=\"dl \(cls) cmtline\" \(attrs)>\(btn)\(esc(line.isEmpty ? " " : line))</div>"
+                for c in placed[placementKey(file: li.file, side: li.side, line: li.keyLine)] ?? [] {
+                    body += card(c, theme: t)
+                }
+            } else {
+                body += "<div class=\"dl \(cls)\">\(esc(line.isEmpty ? " " : line))</div>"
+            }
         }
-        let handler = CodeWebView.messageName // Swift 쪽 메시지 핸들러 이름과 한 곳에서 일치
-        let script = stageable
-            ? "<script>function muxaStageHunk(i){try{window.webkit.messageHandlers.\(handler).postMessage(i);}catch(e){}}</script>"
-            : ""
+        let stageHandler = CodeWebView.messageName
+        let cmtHandler = CodeWebView.commentMessageName
+        var script = "<script>"
+        if stageable {
+            script += "function muxaStageHunk(i){try{window.webkit.messageHandlers.\(stageHandler).postMessage(i);}catch(e){}}"
+        }
+        if commentable {
+            script += """
+            function muxaAddComment(el){try{window.webkit.messageHandlers.\(cmtHandler).postMessage(\
+            {action:'add',file:el.getAttribute('data-file'),side:el.getAttribute('data-side'),\
+            line:parseInt(el.getAttribute('data-line'),10),text:el.getAttribute('data-text')});}catch(e){}}
+            function muxaDeleteComment(id){try{window.webkit.messageHandlers.\(cmtHandler).postMessage(\
+            {action:'delete',id:id});}catch(e){}}
+            """
+        }
+        script += "</script>"
         return page(body, theme: t, script: script)
     }
 }
