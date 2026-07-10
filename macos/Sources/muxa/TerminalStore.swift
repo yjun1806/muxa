@@ -115,8 +115,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// tabId에 대응하는 터미널 뷰(없으면 생성). 패인 내용 렌더에서 호출한다.
     func term(for tabId: TabID) -> TermView {
         if let t = terms[tabId] { return t }
-        let t = TermView(app: app, cwd: cwd)
-        t.tabId = tabId
+        // tabId·소켓 경로를 셸 env로 주입(훅 알림용) — TermView.init에서 서피스 생성 전에 심는다.
+        let t = TermView(app: app, cwd: cwd, tabId: tabId, sockPath: NotifyServer.socketPath)
         // 콜백은 action_cb(메인 async)·becomeFirstResponder(메인)에서만 불린다 → assumeIsolated 안전.
         t.onSignal = { [weak self] signal in MainActor.assumeIsolated { self?.handleSignal(signal, from: tabId) } }
         t.onClearBadge = { [weak self] tid in MainActor.assumeIsolated { self?.clearTabBadge(tid) } }
@@ -134,6 +134,21 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         badgedTabs.insert(tabId)
         controller.updateTab(tabId, isDirty: true)
         onProjectActivity?()
+    }
+
+    /// 훅(NotifyServer)에서 온 결정론적 알림을 이 스토어가 소유한 탭으로 라우팅한다. 소유하면 true.
+    /// 셸이 도는 탭은 반드시 TermView(=terms)가 생성돼 있으므로 terms 유무로 소유를 판정한다.
+    /// waiting/done은 desktopNotification과 같은 경로(보이면 테두리 플래시, 안 보이면 알림+배지)로,
+    /// working(작업 재개)은 주의 해소로 보고 배지를 끈다.
+    func deliverNotify(tabId: TabID, state: NotifyState, title: String, body: String) -> Bool {
+        guard terms[tabId] != nil else { return false }
+        switch state {
+        case .waiting, .done:
+            handleSignal(.desktopNotification(title: title, body: body), from: tabId)
+        case .working:
+            clearTabBadge(tabId)
+        }
+        return true
     }
 
     /// 사용자가 탭을 보면 배지를 끈다.

@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let state = AppState(app: app)
         state.load()
         state.ensureInitial(path: SystemPaths.currentDir ?? SystemPaths.home)
+        state.startNotifyServer() // 훅 알림 소켓 리스너 시작 — `muxa notify`가 결정론적 신호를 보낸다
         self.state = state
 
         let window = NSWindow(

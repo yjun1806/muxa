@@ -30,8 +30,29 @@ final class AppState {
     /// 프로젝트 id → 통합 레이아웃 스냅샷(재시작 복원용). 아직 안 연 프로젝트 것도 보존한다.
     @ObservationIgnored private var savedLayouts: [String: PaneSnapshot] = [:]
 
+    /// 훅 알림 리스너(Unix 소켓). 앱 상태가 소유하고, 수신 시 tabId→store로 라우팅한다.
+    @ObservationIgnored private let notifyServer = NotifyServer()
+
     init(app: ghostty_app_t) {
         self.app = app
+    }
+
+    /// 훅 알림 리스너를 켜고 라우팅 콜백을 건다. AppDelegate가 앱 시작 시 1회 호출.
+    func startNotifyServer() {
+        notifyServer.onMessage = { [weak self] msg in
+            MainActor.assumeIsolated { self?.routeNotify(msg) }
+        }
+        notifyServer.start()
+    }
+
+    /// 훅 메시지를 tabId 소유 store로 라우팅한다. 어느 store가 그 탭을 가졌는지는 순회로 찾는다
+    /// (stores는 프로젝트별이고 탭 수가 적어 순회로 충분). 소유 store가 배지·알림을 결정한다.
+    private func routeNotify(_ msg: NotifyMessage) {
+        guard let uuid = UUID(uuidString: msg.tabId) else { return }
+        let tabId = TabID(uuid: uuid)
+        for store in stores.values {
+            if store.deliverNotify(tabId: tabId, state: msg.state, title: msg.title, body: msg.body) { break }
+        }
     }
 
     var activeWorkspace: Workspace? {

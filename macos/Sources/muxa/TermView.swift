@@ -44,7 +44,8 @@ final class TermView: NSView, NSTextInputClient {
 
     override var acceptsFirstResponder: Bool { true }
 
-    init(app: ghostty_app_t, cwd: String?) {
+    init(app: ghostty_app_t, cwd: String?, tabId: TabID? = nil, sockPath: String? = nil) {
+        self.tabId = tabId
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false // 수동 프레임 — 제약 엔진 제외
 
@@ -57,15 +58,36 @@ final class TermView: NSView, NSTextInputClient {
         config.scale_factor = Double(NSScreen.main?.backingScaleFactor ?? 2.0)
         config.context = GHOSTTY_SURFACE_CONTEXT_WINDOW
 
-        // working_directory는 const char* — surface_new가 읽는 동안만 유효하면 된다
-        if let cwd {
-            self.surface = cwd.withCString { ptr in
-                config.working_directory = ptr
-                return ghostty_surface_new(app, &config)
-            }
-        } else {
-            self.surface = ghostty_surface_new(app, &config)
+        // 훅용 env 주입 — 셸에 MUXA_TAB_ID·MUXA_SOCK를 심어 `muxa notify`가 이 탭·소켓을 찾게 한다.
+        // strdup으로 복제한 C 문자열은 surface_new가 읽는 동안 유효해야 하므로 호출 직후에 해제한다.
+        var envStorage: [UnsafeMutablePointer<CChar>] = []
+        func dup(_ s: String) -> UnsafePointer<CChar> {
+            let p = strdup(s)!
+            envStorage.append(p)
+            return UnsafePointer(p)
         }
+        var envVars: [ghostty_env_var_s] = []
+        if let tabId {
+            envVars.append(ghostty_env_var_s(key: dup("MUXA_TAB_ID"), value: dup(tabId.uuid.uuidString)))
+        }
+        if let sockPath {
+            envVars.append(ghostty_env_var_s(key: dup("MUXA_SOCK"), value: dup(sockPath)))
+        }
+
+        // working_directory·env_vars는 const 포인터 — surface_new가 읽는 동안만 유효하면 된다.
+        envVars.withUnsafeMutableBufferPointer { buf in
+            config.env_vars = buf.baseAddress
+            config.env_var_count = buf.count
+            if let cwd {
+                self.surface = cwd.withCString { ptr in
+                    config.working_directory = ptr
+                    return ghostty_surface_new(app, &config)
+                }
+            } else {
+                self.surface = ghostty_surface_new(app, &config)
+            }
+        }
+        for p in envStorage { free(p) }
 
         // 검색어를 ghostty로 밀어넣는 브리지 — 전용 API가 없어 binding-action 문자열로만 가능(cmux 동일).
         search.applyNeedle = { [weak self] needle in

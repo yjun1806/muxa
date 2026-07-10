@@ -43,6 +43,8 @@ let package = Package(
                 .linkedLibrary("c++"),
             ]
         ),
+        // 훅용 CLI — 셸 env(MUXA_SOCK/MUXA_TAB_ID)를 읽어 앱 소켓에 한 줄 쓰고 종료. 외부 의존성 없음.
+        .executableTarget(name: "muxa-notify"),
         // cmux fork의 prebuilt xcframework(universal, ReleaseFast). scripts/bootstrap.sh가
         // vendor/ghostty/macos/에 설치하고, 이 심링크(GhosttyKit.xcframework)가 그걸 가리킨다.
         .binaryTarget(name: "GhosttyKit", path: "GhosttyKit.xcframework"),
