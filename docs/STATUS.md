@@ -9,7 +9,8 @@
 cd macos
 swift build                 # 빌드 (SPM)
 swift test                  # 순수 로직 단위 테스트 (92개, GhosttyKit 링크 포함)
-.build/debug/muxa           # 실행 (창 뜸)
+.build/debug/muxa           # bare 실행 (창 뜸, 아이콘 런타임 적용·시스템 알림은 Dock 바운스 폴백)
+# 정식 아이콘·시스템 알림: ./scripts/build-app.sh && open macos/.build/debug/muxa.app  (.app 번들 = bundleId 생김)
 # UI 변경은 재빌드+재실행. pkill로 죽이면 세션 저장(applicationWillTerminate) 안 됨 — ⌘Q로 정상 종료해야 복원됨.
 ```
 

@@ -21,6 +21,18 @@ swift build               # 2. 빌드
 
 `bootstrap.sh`는 멱등이다 — 이미 같은 버전이 설치돼 있으면 즉시 건너뛴다.
 
+## 앱 번들(.app)로 빌드
+
+`.build/debug/muxa` bare 실행은 창은 뜨지만 **Finder/Dock 아이콘이 없고 시스템 알림이 Dock 바운스로 폴백**한다(번들 id가 없어서). 정식 아이콘·시스템 알림을 쓰려면 `.app` 번들로 빌드한다.
+
+```bash
+./scripts/build-app.sh              # debug 번들 → macos/.build/debug/muxa.app
+./scripts/build-app.sh release      # release 번들
+open macos/.build/debug/muxa.app
+```
+
+SPM은 실행파일만 내므로 이 스크립트가 `Info.plist`(bundleId `com.muxa.app`)·`AppIcon.icns`·SPM 리소스 번들을 `.app` 구조로 조립하고 ad-hoc 서명한다. 앱 아이콘을 바꾸려면 `scripts/build-appicon/icon-gen.swift`(Core Graphics 드로잉, SVG 래스터라이저 의존 없음)를 고치고 `scripts/build-appicon/build.sh`를 돌린다 — `macos/AppIcon.icns` + `Resources/AppIcon.png`(런타임 Dock 아이콘)가 재생성된다.
+
 ## bootstrap.sh가 하는 일
 
 터미널 코어는 libghostty이고, muxa는 그것을 `GhosttyKit.xcframework`로 임베딩한다. 이 프레임워크는 리포에 넣지 않는다(`vendor/`는 gitignore). 대신 스크립트가 확보한다.
