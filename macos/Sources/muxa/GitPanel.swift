@@ -16,6 +16,8 @@ struct GitPanel: View {
     @State private var commits: [GitCommit] = []
     @State private var loaded = false
     @State private var watcher: FileWatcher?
+    @State private var commitMessage = ""
+    @State private var commitError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -83,14 +85,20 @@ struct GitPanel: View {
     @ViewBuilder
     private var changesView: some View {
         if let status {
-            if status.isClean {
-                label("변경 없음")
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(status.changes) { fileRow($0) }
+            VStack(alignment: .leading, spacing: 0) {
+                GitCommitBox(message: $commitMessage, stagedCount: status.staged.count,
+                             error: commitError, onCommit: { Task { await commit() } })
+                Rectangle().fill(Color.pBorder).frame(height: 1)
+                if status.isClean {
+                    label("변경 없음")
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            section("스테이지됨", status.staged, staged: true)
+                            section("변경", status.unstaged, staged: false)
+                        }
+                        .padding(.vertical, 4)
                     }
-                    .padding(.vertical, 4)
                 }
             }
         } else {
@@ -98,29 +106,66 @@ struct GitPanel: View {
         }
     }
 
-    private func fileRow(_ change: GitFileChange) -> some View {
-        Button { onOpenDiff(.file(change)) } label: {
-            HStack(spacing: 8) {
-                Text(String(change.badge))
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundStyle(badgeColor(change.badge))
-                    .frame(width: 12)
-                Text(basename(change.path))
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.pFg)
-                    .lineLimit(1)
-                Text(parentDir(change.path))
-                    .font(.system(size: 10))
-                    .foregroundStyle(Color.pMuted.opacity(0.8))
-                    .lineLimit(1)
+    /// 섹션(스테이지됨/변경) — 헤더 + 일괄 스테이지·언스테이지 버튼 + 파일 행들.
+    @ViewBuilder
+    private func section(_ title: String, _ changes: [GitFileChange], staged: Bool) -> some View {
+        if !changes.isEmpty, let dir {
+            HStack(spacing: 6) {
+                Text(title).font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.pMuted)
+                Text("\(changes.count)").font(.system(size: 10, design: .monospaced)).foregroundStyle(Color.pMuted.opacity(0.7))
                 Spacer(minLength: 0)
+                Button {
+                    Task {
+                        _ = staged ? await GitService.unstageAll(in: dir) : await GitService.stageAll(in: dir)
+                        await refresh()
+                    }
+                } label: {
+                    Image(systemName: staged ? "minus" : "plus").font(.system(size: 10, weight: .bold))
+                }
+                .buttonStyle(.plain).foregroundStyle(Color.pMuted)
+                .help(staged ? "전부 언스테이지" : "전부 스테이지")
             }
-            .padding(.horizontal, 10)
-            .frame(height: 24)
-            .contentShape(Rectangle())
+            .padding(.horizontal, 10).frame(height: 22)
+            ForEach(changes) { fileRow($0, staged: staged, dir: dir) }
         }
-        .buttonStyle(.plain)
-        .help(change.path)
+    }
+
+    /// 파일 행 — [스테이지/언스테이지 버튼][상태문자][파일명 → diff 열기].
+    private func fileRow(_ change: GitFileChange, staged: Bool, dir: String) -> some View {
+        let badge = staged ? change.index : change.worktree
+        return HStack(spacing: 6) {
+            Button {
+                Task {
+                    _ = staged ? await GitService.unstage(change.opPath, in: dir)
+                               : await GitService.stage(change.opPath, in: dir)
+                    await refresh()
+                }
+            } label: {
+                Image(systemName: staged ? "minus" : "plus").font(.system(size: 10, weight: .bold))
+                    .frame(width: 14)
+            }
+            .buttonStyle(.plain).foregroundStyle(Color.pMuted)
+            .help(staged ? "언스테이지" : "스테이지")
+
+            Button { onOpenDiff(.file(change)) } label: {
+                HStack(spacing: 8) {
+                    Text(String(badge))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(badgeColor(badge))
+                        .frame(width: 12)
+                    Text(basename(change.opPath))
+                        .font(.system(size: 12)).foregroundStyle(Color.pFg).lineLimit(1)
+                    Text(parentDir(change.opPath))
+                        .font(.system(size: 10)).foregroundStyle(Color.pMuted.opacity(0.8)).lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(change.path)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 24)
     }
 
     // MARK: 히스토리
@@ -195,6 +240,16 @@ struct GitPanel: View {
         let parts = path.split(separator: "/")
         guard parts.count > 1 else { return "" }
         return parts.dropLast().joined(separator: "/")
+    }
+
+    /// 스테이지된 변경을 커밋 → 성공 시 메시지 비우고 갱신, 실패 시 에러 표시.
+    private func commit() async {
+        guard let dir else { return }
+        commitError = await GitService.commit(message: commitMessage, in: dir)
+        if commitError == nil {
+            commitMessage = ""
+            await refresh()
+        }
     }
 
     private func refresh() async {

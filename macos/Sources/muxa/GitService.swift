@@ -118,6 +118,11 @@ struct GitStatus {
     let changes: [GitFileChange]
 
     var isClean: Bool { changes.isEmpty }
+
+    /// 인덱스에 올라간(스테이지된) 변경.
+    var staged: [GitFileChange] { changes.filter { $0.isStaged } }
+    /// 워크트리에 남은(언스테이지·추적안됨) 변경.
+    var unstaged: [GitFileChange] { changes.filter { $0.worktree != " " } }
 }
 
 /// 커밋 하나(히스토리 항목).
@@ -139,6 +144,12 @@ struct GitFileChange: Identifiable {
 
     var isUntracked: Bool { index == "?" }
     var isStaged: Bool { index != " " && index != "?" }
+
+    /// git add/restore 대상 경로 — 리네임("old -> new")은 새 경로를 쓴다.
+    var opPath: String {
+        if let r = path.range(of: " -> ") { return String(path[r.upperBound...]) }
+        return path
+    }
 
     /// 표시용 대표 상태 문자 — 스테이지 우선, 없으면 워크트리.
     var badge: Character {
