@@ -45,6 +45,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 데스크톱 알림을 띄워야 할 때 상위(AppState)에 위임한다 — 라우팅 컨텍스트(프로젝트·워크스페이스)는
     /// 스토어가 모르므로 AppState가 붙인다. 이 스토어는 tabId·제목·본문만 넘긴다.
     @ObservationIgnored var onNotify: ((TabID, String, String) -> Void)?
+    /// 배지가 붙는(=안 보이는 탭에 주의가 쌓이는) 순간 상위(AppState)에 알린다 — 알림 인박스 이력용.
+    /// 라우팅 컨텍스트는 AppState가 붙이므로 tabId·종류·제목만 넘긴다.
+    @ObservationIgnored var onAttention: ((TabID, AttentionKind, String) -> Void)?
     /// 탭/뷰어 구성이 바뀔 때 상위(AppState)에 알린다 — 즉시 세션 저장(⌘Q 없이도 복원되게).
     @ObservationIgnored var onStateChange: (() -> Void)?
     /// 초기 복원이 끝난 뒤에만 저장을 트리거한다(복원 중 중간 상태 저장 방지).
@@ -210,11 +213,17 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         return t
     }
 
-    /// 백그라운드 활동으로 이 탭에 배지(●)를 켠다 — 탭 점(Bonsplit isDirty) + 프로젝트 알림.
-    private func markBadge(_ tabId: TabID) {
+    /// 백그라운드 활동으로 이 탭에 배지(●)를 켠다 — 탭 점(Bonsplit isDirty) + 프로젝트 알림 + 인박스 이력.
+    private func markBadge(_ tabId: TabID, kind: AttentionKind, title: String) {
         badgedTabs.insert(tabId)
         controller.updateTab(tabId, isDirty: true)
         onProjectActivity?()
+        onAttention?(tabId, kind, title)
+    }
+
+    /// 인박스 이력에 쓸 탭 제목 — 수동 지정 > 엔진 제목 > 기본값.
+    private func tabTitle(_ tabId: TabID) -> String {
+        manualTitles[tabId] ?? engineTitles[tabId] ?? Self.defaultTerminalTitle
     }
 
     /// 훅(NotifyServer)에서 온 결정론적 알림을 이 스토어가 소유한 탭으로 라우팅한다. 소유하면 true.
@@ -285,12 +294,12 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             // 비정상 종료(코드 != 0)는 지속시간과 무관하게 알린다. 정상+짧은 명령은 억제.
             let abnormal = (exitCode ?? 0) != 0
             guard abnormal || duration >= commandFinishedThresholdNs else { return }
-            fireActivity(tabId, visible: visible)
+            fireActivity(tabId, kind: .done, title: tabTitle(tabId), visible: visible)
         case .bell:
             let now = ProcessInfo.processInfo.systemUptime
             if let last = lastBellAt[tabId], now - last < Self.bellDebounce { return }
             lastBellAt[tabId] = now
-            fireActivity(tabId, visible: visible)
+            fireActivity(tabId, kind: .bell, title: tabTitle(tabId), visible: visible)
         case .desktopNotification(let title, let body):
             // 보이는 탭엔 시스템 알림·배지 억제(주의는 이미 사용자에게) — 대신 칸 테두리로 짚어준다. 안 보이면 알림+배지.
             if visible {
@@ -298,14 +307,14 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             } else {
                 // 알림 발사는 AppState에 위임(컨텍스트 부착) — 미배선 시엔 컨텍스트 없이 폴백.
                 if let onNotify { onNotify(tabId, title, body) } else { NotificationService.shared.notify(title: title, body: body) }
-                markBadge(tabId)
+                markBadge(tabId, kind: .notify, title: title.isEmpty ? tabTitle(tabId) : title)
             }
         }
     }
 
-    /// 보이면 칸 테두리 플래시, 안 보이면 배지.
-    private func fireActivity(_ tabId: TabID, visible: Bool) {
-        if visible { flashPane(tabId) } else { markBadge(tabId) }
+    /// 보이면 칸 테두리 플래시, 안 보이면 배지(+인박스 이력).
+    private func fireActivity(_ tabId: TabID, kind: AttentionKind, title: String, visible: Bool) {
+        if visible { flashPane(tabId) } else { markBadge(tabId, kind: kind, title: title) }
     }
 
     /// 보이는 칸에 활동 테두리를 잠깐 켠다 — 3~4분할에서 "어느 칸이 울렸나"를 즉시 짚게. 일정 시간 뒤 페이드 해제.

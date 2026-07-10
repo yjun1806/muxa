@@ -19,6 +19,10 @@ final class AppState {
     /// 백그라운드 활동(●)이 있는 프로젝트 id들(A). ProjectTabBar가 관측해 배지를 그린다.
     private(set) var badgedProjects: Set<String> = []
 
+    /// 놓친 주의 이력(알림 인박스). 배지가 붙는 순간마다 한 건씩 쌓인다 — 배지는 "지금 상태",
+    /// 이건 "자리 비웠다 돌아왔을 때의 복구 동선". 상단바 벨 팝오버가 관측해 렌더한다.
+    let attention = AttentionLog()
+
     /// 도구 패널 표시 상태(B). 기본 닫힘 — 세션 영속 대상 아님(Persisted에 안 넣는다).
     /// 상단바 토글 버튼·단축키(⌘⇧E/⌘⇧G)·알림이 이 상태를 연다.
     var showExplorer = false
@@ -68,6 +72,25 @@ final class AppState {
         let workspaceId = workspaces.first { $0.projects.contains { $0.id == projectId } }?.id ?? ""
         let context = NotifyContext(workspaceId: workspaceId, projectId: projectId, tabId: tabId.uuid.uuidString)
         NotificationService.shared.notify(title: title, body: body, context: context)
+    }
+
+    /// 배지가 붙는 순간 인박스 이력에 한 건 기록한다. 워크스페이스 id는 프로젝트 소속으로 파생(단일 진실 원천).
+    private func recordAttention(projectId: String, tabId: TabID, kind: AttentionKind, title: String) {
+        let workspaceId = workspaces.first { $0.projects.contains { $0.id == projectId } }?.id ?? ""
+        attention.record(workspaceId: workspaceId, projectId: projectId,
+                         tabId: tabId.uuid.uuidString, kind: kind, title: title)
+    }
+
+    /// 인박스 항목 클릭 → 그 칸으로 점프(원클릭 검토 동선 재사용). 소속이 사라진 항목이면 무동작.
+    func revealAttention(_ entry: AttentionEntry) {
+        revealActivity(projectId: entry.projectId, tabId: entry.tabId)
+    }
+
+    /// 인박스 항목 위치 라벨 — "워크스페이스 · 프로젝트". 소속을 못 찾으면 빈 문자열.
+    func attentionLocationLabel(projectId: String) -> String {
+        guard let ws = workspaces.first(where: { $0.projects.contains { $0.id == projectId } }),
+              let p = ws.projects.first(where: { $0.id == projectId }) else { return "" }
+        return "\(ws.name) · \(p.name)"
     }
 
     /// 배지·시스템 알림 클릭의 공통 착지점 — 대상 프로젝트로 이동 + Git 패널 오픈 + (있으면) 그 탭 선택 + 앱 활성화.
@@ -175,6 +198,10 @@ final class AppState {
         // 데스크톱 알림에 라우팅 컨텍스트(프로젝트·워크스페이스)를 붙여 발사 — 클릭 시 원클릭 검토로 이어짐.
         s.onNotify = { [weak self] tabId, title, body in
             MainActor.assumeIsolated { self?.emitNotification(projectId: pid, tabId: tabId, title: title, body: body) }
+        }
+        // 배지가 붙는 순간 인박스 이력에 한 건 기록 — 라우팅 컨텍스트(워크스페이스)는 여기서 파생.
+        s.onAttention = { [weak self] tabId, kind, title in
+            MainActor.assumeIsolated { self?.recordAttention(projectId: pid, tabId: tabId, kind: kind, title: title) }
         }
         // 탭/뷰어가 바뀔 때마다 즉시 저장 — ⌘Q 없이(pkill·크래시) 종료돼도 다음 실행에 복원.
         s.onStateChange = { [weak self] in MainActor.assumeIsolated { self?.save() } }

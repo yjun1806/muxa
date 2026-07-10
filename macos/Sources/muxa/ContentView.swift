@@ -35,6 +35,7 @@ struct ContentView: View {
                 Rectangle().fill(Color.pBorder).frame(width: 1, height: 16)
                 ProjectTabBar(state: state, workspace: ws)
                 Spacer(minLength: 12)
+                AttentionBell(state: state)
                 explorerToggle
                 gitToggle
                 // 우측: 워크스페이스 · 활성 프로젝트 실효 경로
