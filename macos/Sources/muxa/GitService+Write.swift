@@ -27,6 +27,38 @@ extension GitService {
         await run(["reset", "-q"], in: dir).exitCode == 0
     }
 
+    /// 파일 하나의 변경을 버린다(discard) — 체크 동선의 "거부" 반쪽(DESIGN 4.4).
+    /// 성공 시 nil, 실패 시 사용자용 에러 메시지.
+    /// - 추적 안 됨(untracked): 휴지통으로 이동(복구 가능 — git clean 대신).
+    /// - 새로 스테이지된 파일(A): 언스테이지 후 휴지통으로 이동.
+    /// - 그 외 추적 파일(수정·삭제 등): 인덱스·워크트리를 HEAD로 되돌림.
+    static func discard(_ change: GitFileChange, in dir: String) async -> String? {
+        // untracked → 휴지통(익스플로러 삭제와 동일, 복구 가능)
+        if change.isUntracked {
+            return trashItem(change.opPath, in: dir)
+        }
+        // 새로 add 된 파일 → 언스테이지 후 휴지통(HEAD에 없어 restore 불가)
+        if change.index == "A" {
+            _ = await run(["restore", "--staged", "--", change.opPath], in: dir)
+            return trashItem(change.opPath, in: dir)
+        }
+        // 추적 파일 → 인덱스·워크트리를 마지막 커밋(HEAD) 상태로 되돌림
+        let r = await run(["restore", "--staged", "--worktree", "--source=HEAD", "--", change.opPath], in: dir)
+        guard r.exitCode != 0 else { return nil }
+        return "변경 버리기 실패 (exit \(r.exitCode))"
+    }
+
+    /// 워크트리 파일을 휴지통으로 이동. 성공 시 nil, 실패 시 메시지. dir 기준 상대 경로를 절대 URL로 변환.
+    private static func trashItem(_ relPath: String, in dir: String) -> String? {
+        let url = URL(fileURLWithPath: dir).appendingPathComponent(relPath)
+        do {
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            return nil
+        } catch {
+            return "휴지통 이동 실패: \(error.localizedDescription)"
+        }
+    }
+
     /// 스테이지된 변경을 커밋. 성공 시 nil, 실패 시 사용자용 에러 메시지.
     static func commit(message: String, in dir: String) async -> String? {
         let msg = message.trimmingCharacters(in: .whitespacesAndNewlines)

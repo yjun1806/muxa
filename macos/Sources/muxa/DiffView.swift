@@ -121,6 +121,7 @@ struct DiffView: View {
                 if change.isStaged {
                     toolbarButton("언스테이지", icon: "minus") { Task { await unstageWholeFile(change) } }
                 }
+                toolbarButton("변경 버리기", icon: "trash", destructive: true) { discardFile(change) }
                 if let stageError {
                     Text(stageError)
                         .font(.system(size: 10)).foregroundStyle(.red).lineLimit(1).truncationMode(.middle)
@@ -135,7 +136,7 @@ struct DiffView: View {
         }
     }
 
-    private func toolbarButton(_ title: String, icon: String, _ action: @escaping () -> Void) -> some View {
+    private func toolbarButton(_ title: String, icon: String, destructive: Bool = false, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 4) {
                 Image(systemName: icon).font(.system(size: 10, weight: .bold))
@@ -146,7 +147,7 @@ struct DiffView: View {
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.pBorder, lineWidth: 1))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(Color.pFg)
+        .foregroundStyle(destructive ? Color(nsColor: Palette.gitDeleted) : Color.pFg)
         .disabled(applying)
     }
 
@@ -158,6 +159,12 @@ struct DiffView: View {
 
     private func unstageWholeFile(_ change: GitFileChange) async {
         await runStage { await GitService.unstage(change.opPath, in: dir) ? nil : "언스테이지 실패" }
+    }
+
+    /// 변경 버리기 — 확인 다이얼로그 후 discard, 성공 시 diff 재로딩(git 패널은 FSEvents로 갱신).
+    private func discardFile(_ change: GitFileChange) {
+        guard DiscardConfirm.confirm(fileName: basename(change.opPath), untracked: change.isUntracked) else { return }
+        Task { await runStage { await GitService.discard(change, in: dir) } }
     }
 
     private func stageHunk(_ index: Int) async {

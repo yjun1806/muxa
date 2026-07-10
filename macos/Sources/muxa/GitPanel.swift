@@ -289,9 +289,27 @@ struct GitPanel: View {
             }
             .buttonStyle(.plain)
             .help(change.path)
+
+            Button { discard(change, in: dir) } label: {
+                Image(systemName: "trash").font(.system(size: 10)).frame(width: 14)
+            }
+            .buttonStyle(.plain).foregroundStyle(Color.pMuted)
+            .help("변경 버리기")
         }
         .padding(.horizontal, 10)
         .frame(height: 24)
+        .contextMenu {
+            Button("변경 버리기", role: .destructive) { discard(change, in: dir) }
+        }
+    }
+
+    /// 변경 버리기 — 확인 다이얼로그 후 discard, 성공 시 상태 재조회(FSEvents와 별개로 즉시 갱신).
+    private func discard(_ change: GitFileChange, in dir: String) {
+        guard DiscardConfirm.confirm(fileName: basename(change.opPath), untracked: change.isUntracked) else { return }
+        Task {
+            let err = await GitService.discard(change, in: dir)
+            if let err { syncError = err } else { await refresh() }
+        }
     }
 
     // MARK: 히스토리
