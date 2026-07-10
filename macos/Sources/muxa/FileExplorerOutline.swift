@@ -219,7 +219,8 @@ final class FileCellView: NSTableCellView {
         let img = FileIcon.image(for: node)
         img.size = NSSize(width: 16, height: 16)
         iconView.image = img
-        iconView.contentTintColor = node.isDirectory ? Palette.muted : nil
+        // 컬러 아이콘(Material)은 원색 유지, 템플릿(SF 폴백)만 muted 틴트.
+        iconView.contentTintColor = img.isTemplate ? Palette.muted : nil
         nameField.stringValue = node.name
         nameField.textColor = status?.color ?? Palette.fg
     }

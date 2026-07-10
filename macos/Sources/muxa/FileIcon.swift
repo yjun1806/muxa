@@ -1,10 +1,13 @@
 import AppKit
 import UniformTypeIdentifiers
 
-/// 파일 타입 아이콘. 1차 = 시스템(NSWorkspace) 아이콘 + 폴더 SF Symbol.
-/// Material Icon Theme 세트는 후속(Task 14)에서 이 한 함수만 교체해 VSCode급으로 올린다.
+/// 파일 타입 아이콘. 1순위 = Material Icon Theme(컬러, VSCode 동일 세트),
+/// 폴백 = 시스템(NSWorkspace) 아이콘 + 폴더 SF Symbol.
 enum FileIcon {
+    @MainActor
     static func image(for node: FileNode) -> NSImage {
+        if let material = IconTheme.image(for: node) { return material }
+        // 폴백 — Material 매핑에 없거나 SVG 로드 실패.
         if node.isDirectory {
             return NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil) ?? NSImage()
         }

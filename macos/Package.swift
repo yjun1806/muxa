@@ -23,6 +23,8 @@ let package = Package(
                 .copy("Resources/mdviewer"),
                 // 코드 뷰어용 Shiki 오프라인 번들(shiki.bundle.js) + HTML 셸.
                 .copy("Resources/codeviewer"),
+                // 파일 익스플로러 컬러 아이콘(Material Icon Theme 슬림 번들 + icons.json).
+                .copy("Resources/fileicons"),
             ],
             linkerSettings: [
                 .linkedFramework("AppKit"),
