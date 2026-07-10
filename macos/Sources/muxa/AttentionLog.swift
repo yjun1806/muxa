@@ -8,12 +8,16 @@ enum AttentionKind: String, Codable {
     case done
     case bell
     case notify
+    /// 시스템 경고 — 탭 활동이 아니라 앱 자체가 알리는 항목(키맵 재정의 진단·크래시 복원 등).
+    /// 특정 칸에 묶이지 않는 전역 항목이라 클릭 점프 대상이 없다(빈 컨텍스트로 기록 → reveal 무동작).
+    case system
 
     var label: String {
         switch self {
         case .done: return "완료"
         case .bell: return "벨"
         case .notify: return "알림"
+        case .system: return "시스템"
         }
     }
 
@@ -22,15 +26,17 @@ enum AttentionKind: String, Codable {
         case .done: return "checkmark.circle.fill"
         case .bell: return "bell.fill"
         case .notify: return "message.fill"
+        case .system: return "exclamationmark.triangle.fill"
         }
     }
 
-    /// 종류색 — 팔레트 재사용(신규 색 없음). 완료=초록, 벨=주황, 알림=청록.
+    /// 종류색 — 팔레트 재사용(신규 색 없음). 완료=초록, 벨=주황, 알림=청록, 시스템=주황빨강(경고).
     var color: NSColor {
         switch self {
         case .done: return Palette.gitAdded
         case .bell: return Palette.borderActivity
         case .notify: return Palette.borderFocus
+        case .system: return Palette.gitConflict
         }
     }
 }
@@ -89,6 +95,23 @@ final class AttentionLog {
             next.append(entry)
             if next.count > Self.cap { next.removeFirst(next.count - Self.cap) }
         }
+        entries = next
+    }
+
+    /// 시스템 경고(키맵 진단·크래시 복원 등)를 한 건 기록한다 — 탭에 안 묶이는 전역 항목이라 컨텍스트는 비운다
+    /// (클릭 점프 대상이 없어 revealAttention이 안전하게 무동작). 배지 신호가 아니라 seqCounter만 올려 안 읽음으로 뜬다.
+    ///
+    /// 같은 메시지가 이미 있으면 다시 쌓지 않는다(제목 기준 dedup) — 라이브 리로드로 동일 진단이 재검출되거나
+    /// 시작 시 같은 경고가 반복돼도 인박스가 부풀지 않게 한다. tabId 기반 병합(record)과 달리 전 이력을 훑는다
+    /// (시스템 항목 수가 적어 충분). 사용자가 "모두 지우기"로 비우면 다시 뜰 수 있다(현재 문제 재알림).
+    func recordSystem(title: String) {
+        guard !entries.contains(where: { $0.kind == .system && $0.title == title }) else { return }
+        seqCounter += 1
+        let entry = AttentionEntry(workspaceId: "", projectId: "", tabId: "",
+                                   kind: .system, title: title, seq: seqCounter, date: Date())
+        var next = entries
+        next.append(entry)
+        if next.count > Self.cap { next.removeFirst(next.count - Self.cap) }
         entries = next
     }
 

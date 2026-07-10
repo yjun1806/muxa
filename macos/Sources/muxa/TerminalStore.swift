@@ -37,6 +37,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 복원된 세션 재개의 승인 게이트(off/manual/auto). 기본 manual — 임의 셸 명령 자동 실행을 막는다(신뢰 경계).
     /// 설정 라이브 리로드로 갱신될 수 있어 var — AppState가 `updateAgentResumeMode`로 전파한다. (D2)
     @ObservationIgnored private(set) var agentResumeMode: AgentResumeMode
+    /// 직전 실행이 더티(비정상) 종료였는지 — AppState가 시작 시 판정해 넘긴다(세션 상수라 관측 대상 아님).
+    /// 재개 전략(ResumeStrategy)에만 쓴다: manual일 때 배너를 "비정상 종료 후 복원됨"으로 강조한다.
+    @ObservationIgnored private let sessionWasDirty: Bool
     /// 터미널이 아닌 탭의 종류(그룹). 없으면 .terminal.
     @ObservationIgnored private var tabContent: [TabID: TabContent] = [:]
     /// 그룹 탭(TabID) → 서브탭 상태(문서·diff 묶음). TabGroupView가 관측한다.
@@ -83,12 +86,14 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     init(app: ghostty_app_t, cwd: String?, restoreSnap: PaneSnapshot? = nil,
          commandFinishedThresholdNs: UInt64 = 8_000_000_000,
-         agentResumeMode: AgentResumeMode = .manual) {
+         agentResumeMode: AgentResumeMode = .manual,
+         sessionWasDirty: Bool = false) {
         self.app = app
         self.cwd = cwd
         self.restoreSnap = restoreSnap
         self.commandFinishedThresholdNs = commandFinishedThresholdNs
         self.agentResumeMode = agentResumeMode
+        self.sessionWasDirty = sessionWasDirty
         // keepAllAlive — 탭 전환 시 뷰(WKWebView 뷰어·터미널)를 파괴/재생성하지 않고 유지한다.
         // 기본 .recreateOnSwitch는 전환마다 뷰어를 재로드(굼뜸·상태 손실)해서 부적합.
         var config = BonsplitConfiguration(contentViewLifecycle: .keepAllAlive)
@@ -332,6 +337,12 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 탭의 에이전트 재개 바인딩(없으면 nil). 재개 배너가 라벨·명령 미리보기를 읽는 접근자.
     func resumeBinding(for tabId: TabID) -> ResumeBinding? {
         resumeBindings[tabId]
+    }
+
+    /// 복원된 세션의 재개 전략 — 승인 게이트 모드 + 직전 더티 여부의 순수 판정(ResumeStrategy.decide).
+    /// 배너(ResumeOverlay)가 이 값 하나로 표시·자동 실행·강조 라벨을 정한다. 탭에 무관(세션 단위 판정).
+    var resumeStrategy: ResumeStrategy {
+        ResumeStrategy.decide(mode: agentResumeMode, wasDirty: sessionWasDirty)
     }
 
     /// 재개 바인딩을 소비(제거)한다 — 한 번 재개하면 중복 실행·배너 잔존을 막고, 소비를 영속에 반영해

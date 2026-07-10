@@ -110,7 +110,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for diagnostic in keymap.diagnostics {
             keymapLog.warning("키바인딩 경고: \(diagnostic.message, privacy: .public)")
         }
-        state?.keymapDiagnostics = keymap.diagnostics
+        // 노출값 반영 + 알림 인박스에 시스템 경고로 표면화(사용자가 벨에서 "왜 안 먹지" 확인). dedup은 AttentionLog가.
+        state?.surfaceKeymapDiagnostics(keymap.diagnostics)
     }
 
     /// 로컬 키 모니터의 착지점 — 판정은 KeymapResolver(순수)에 위임하고, 매치되면 실행 후 소비(true),

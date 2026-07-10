@@ -13,13 +13,14 @@ struct ResumeOverlay: View {
     let tabId: TabID
 
     var body: some View {
-        // resumeTabs(관측)가 소비 시 줄어들며 배너가 자동으로 사라진다. off면 아예 그리지 않는다.
-        if store.resumeTabs.contains(tabId), store.agentResumeMode != .off,
+        // resumeTabs(관측)가 소비 시 줄어들며 배너가 자동으로 사라진다. 전략이 .none(off)면 아예 그리지 않는다.
+        let strategy = store.resumeStrategy
+        if store.resumeTabs.contains(tabId), strategy != .none,
            let binding = store.resumeBinding(for: tabId) {
             ResumeBanner(
                 label: binding.agentLabel.flatMap { $0.isEmpty ? nil : $0 } ?? "에이전트",
                 command: binding.command,
-                auto: store.agentResumeMode == .auto
+                strategy: strategy
             ) {
                 store.executeResume(for: tabId)
             }
@@ -33,7 +34,7 @@ struct ResumeOverlay: View {
 private struct ResumeBanner: View {
     let label: String
     let command: String
-    let auto: Bool
+    let strategy: ResumeStrategy
     let onResume: () -> Void
 
     /// auto 자동 실행 전 지연 — 새 셸이 뜨고 프롬프트가 준비될 시간을 준다. 완벽한 프롬프트 감지는
@@ -62,8 +63,16 @@ private struct ResumeBanner: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
 
-            if auto {
+            switch strategy {
+            case .auto:
                 Text("자동 재개 중…").font(.system(size: 10)).foregroundStyle(Color.pMuted)
+            case .manualDirty:
+                // 비정상 종료 후 복원 — 재개를 놓치지 않게 강조(자동 실행은 안 함, manual 신뢰 경계 유지).
+                Text("비정상 종료 후 복원됨")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Color.pBorderActivity)
+            case .none, .manual:
+                EmptyView()
             }
         }
         .padding(.horizontal, 10)
@@ -73,7 +82,7 @@ private struct ResumeBanner: View {
         .frame(maxWidth: 520)
         .padding(.horizontal, 12)
         .onAppear {
-            guard auto else { return }
+            guard strategy.isAuto else { return }
             // 배너가 뜬 뒤 지연 후 자동 실행. 소비가 뒤따르므로 재발화·중복 호출은 store가 무동작 처리한다.
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: Self.autoDelayNs)

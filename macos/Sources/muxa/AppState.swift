@@ -104,7 +104,18 @@ final class AppState {
                          tabId: tabId.uuid.uuidString, kind: kind, title: title)
     }
 
+    /// 키맵 재정의 진단을 노출값에 반영하고, 알림 인박스에 시스템 경고로 표면화한다(시작·라이브 리로드 공통 경로).
+    /// main의 os_log는 개발자 표면, 인박스는 사용자 표면 — "왜 내 단축키가 안 먹지"를 상단바 벨에서 확인하게 한다.
+    /// 시스템 항목은 탭에 안 묶인 전역 항목이라 클릭 점프 대상이 없다(recordSystem이 dedup·전역 컨텍스트 처리).
+    func surfaceKeymapDiagnostics(_ diagnostics: [KeymapDiagnostic]) {
+        keymapDiagnostics = diagnostics
+        for diagnostic in diagnostics {
+            attention.recordSystem(title: diagnostic.message)
+        }
+    }
+
     /// 인박스 항목 클릭 → 그 칸으로 점프(원클릭 검토 동선 재사용). 소속이 사라진 항목이면 무동작.
+    /// 시스템 항목(빈 컨텍스트)도 revealActivity가 소속 프로젝트를 못 찾아 안전하게 무동작한다.
     func revealAttention(_ entry: AttentionEntry) {
         revealActivity(projectId: entry.projectId, tabId: entry.tabId)
     }
@@ -327,7 +338,8 @@ final class AppState {
         let cwd = project.path ?? workspace.path
         let s = TerminalStore(app: app, cwd: cwd, restoreSnap: savedLayouts[project.id],
                               commandFinishedThresholdNs: config.commandFinishedThresholdNs,
-                              agentResumeMode: config.agentResume)
+                              agentResumeMode: config.agentResume,
+                              sessionWasDirty: lastLaunchWasDirty)
         let pid = project.id
         s.onProjectActivity = { [weak self] in MainActor.assumeIsolated { self?.markProjectBadge(pid) } }
         // 데스크톱 알림에 라우팅 컨텍스트(프로젝트·워크스페이스)를 붙여 발사 — 클릭 시 원클릭 검토로 이어짐.
@@ -591,8 +603,13 @@ final class AppState {
     private(set) var lastLaunchWasDirty = false
 
     /// 세션 시작 표시 — 크래시 마커를 arm하고 직전 더티 여부를 기록한다. AppDelegate가 시작 시 1회 호출.
+    /// 더티(비정상 종료)였으면 인박스에 시스템 항목을 1회 남긴다(사용자에게 "복원됐다"를 표면화). 재개 연동은
+    /// store가 lastLaunchWasDirty를 받아 재개 전략(ResumeStrategy)으로 배너 강조/자동 여부를 정한다.
     func beginSession() {
         lastLaunchWasDirty = CrashMarker.detectAndArm()
+        if lastLaunchWasDirty {
+            attention.recordSystem(title: "직전에 비정상 종료됐습니다 — 세션을 복원했습니다.")
+        }
     }
 
     /// 세션 정상 종료 — 마지막 레이아웃을 저장하고 크래시 마커를 지운다(disarm).
