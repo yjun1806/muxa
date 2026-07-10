@@ -120,7 +120,7 @@ xterm.js 단독 구성을 버린 이유: 파서와 렌더러가 JS에 묶여 패
 - 리사이즈는 SwiftUI 레이아웃 → `TermView.setFrameSize` → ghostty `set_size` 리플로우. 수동 AppKit 프레임이 없어 D11의 제약 엔진 크래시가 소멸
 - 이 분할 트리는 "터미널 영역" 안에서만. 바깥 크롬(사이드바·익스플로러·git·뷰어)은 역할 고정 접이식 패널로 별개(5절)
 
-**세션 지속성(M1 완료, 부분).** 재시작 시 워크스페이스별 **분할 트리 구조 + 탭 수**를 복원한다 — Bonsplit엔 복원 API가 없어(1.1.1) `treeSnapshot`을 저장하고 `createTab`/`splitPane` replay로 재구성, 구분선은 lockstep 복원. **한계**: PTY는 프로세스라 복원 불가(각 탭은 워크스페이스 cwd에서 새 셸로 시작), 탭별 cwd는 pwd 추적 도입 후(후속). PTY 호스트를 분리 가능한 모듈로 설계해 나중에 데몬화(앱 꺼도 에이전트 유지)로 확장
+**세션 지속성(M1 완료, 부분).** 재시작 시 워크스페이스별 **분할 트리 구조 + 탭 수**를 복원한다 — Bonsplit엔 복원 API가 없어(1.1.1) `treeSnapshot`을 저장하고 `createTab`/`splitPane` replay로 재구성, 구분선은 lockstep 복원. **한계**: PTY는 프로세스라 복원 불가(각 탭은 워크스페이스 cwd에서 새 셸로 시작), 탭별 cwd는 OSC 7 pwd 추적으로 복원한다(구현됨). **앱을 꺼도 에이전트 세션을 유지하려면** 로컬 PTY 데몬화가 아니라 **에이전트 네이티브 resume 재부착**이 정답이다 — 돌던 에이전트를 탐지해 `--resume <sessionId>`·cwd·env를 저장하고, 복원 시 승인 게이트(auto/manual) 아래 재실행한다. (cmux 대조로 확인: cmux도 로컬은 데몬을 쓰지 않고 resume-command를 택한다 — 데몬 `cmuxd-remote`는 원격 전용. 화면 히스토리는 스크롤백 리플레이(화면 텍스트 저장→새 셸에서 재출력)로 시각 복원.) 상세 계획은 STATUS 'cmux 대조' ②·④
 
 ### 4.3 익스플로러와 뷰어
 
