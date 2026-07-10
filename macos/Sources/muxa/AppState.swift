@@ -32,8 +32,9 @@ final class AppState {
     var showQuickSwitch = false
 
     @ObservationIgnored private let app: ghostty_app_t
-    /// muxa 설정(`~/.config/muxa/config`) — 시작 시 1회 로드해 주입. 기본 사이드바 모드·완료 배지 임계 등. (DESIGN 4.6)
-    @ObservationIgnored let config: MuxaConfig
+    /// muxa 설정(`~/.config/muxa/config`) — 시작 시 로드해 주입하고, 파일 저장 시 ConfigWatcher가
+    /// `applyConfig`로 라이브 갱신한다(재시작 불필요). 기본 사이드바 모드·완료 배지 임계 등. (DESIGN 4.6)
+    @ObservationIgnored private(set) var config: MuxaConfig
     /// 프로젝트 id → TerminalStore. 프로젝트가 독립 분할 레이아웃 하나를 소유한다.
     @ObservationIgnored private var stores: [String: TerminalStore] = [:]
     /// 프로젝트 id → 통합 레이아웃 스냅샷(재시작 복원용). 아직 안 연 프로젝트 것도 보존한다.
@@ -47,6 +48,17 @@ final class AppState {
         self.config = config
         // 설정의 사이드바 기본 모드를 초기값으로. 저장된 세션이 있으면 load()가 사용자의 마지막 선택으로 덮는다.
         self.sidebarMode = config.sidebarMode
+    }
+
+    /// 설정 파일 저장이 감지됐을 때 새 설정을 반영한다(ConfigWatcher → AppDelegate가 호출). (DESIGN 4.6)
+    /// 라이브 반영 대상은 "런타임 동작값"뿐 — 완료 배지 임계는 이미 생성된 스토어에도 전파한다.
+    /// confirm_quit은 종료 시점에 config를 읽으므로 값 교체만으로 즉시 유효하다.
+    /// sidebar_mode·default_workspace_path는 "초기 기본값" 성격이라 라이브 반영 제외 —
+    /// 세션에서 사용자가 토글/열어둔 현재 상태를 config 저장이 되돌리지 않게 한다(세션 우선순위 유지).
+    func applyConfig(_ newConfig: MuxaConfig) {
+        config = newConfig
+        let ns = newConfig.commandFinishedThresholdNs
+        for store in stores.values { store.updateCommandFinishedThreshold(ns) }
     }
 
     /// 훅 알림 리스너를 켜고 라우팅 콜백을 건다. AppDelegate가 앱 시작 시 1회 호출.

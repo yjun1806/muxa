@@ -18,8 +18,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var state: AppState?
     private var window: NSWindow?
     private var keyMonitor: Any?
-    /// 단축키 판정 테이블 — 설정 로드 후 재정의를 얹어 교체한다(그전까진 기본 테이블).
+    /// 단축키 판정 테이블 — 설정 로드 후 재정의를 얹어 교체한다(그전까진 기본 테이블). 라이브 리로드로 다시 교체된다.
     private var keymap = KeymapResolver.default
+    /// 설정 파일 감시자 — 저장 시 자동 재적용(재시작 불필요). 부작용은 이 경계 타입에 격리. (DESIGN 4.6)
+    private var configWatcher: ConfigWatcher?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard let runtime = GhosttyRuntime(), let app = runtime.app else {
@@ -79,7 +81,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // 설정 파일을 감시해 저장 시 자동 재적용한다(재시작 불필요). 콜백은 메인에서 온다.
+        configWatcher = ConfigWatcher(fileURL: MuxaConfigLoader.fileURL) { [weak self] in
+            self?.reloadConfig()
+        }
+
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// 설정 파일 변경 감지 시 재로드·재적용 — 파싱은 순수 함수(MuxaConfig.parse) 그대로, 여기선 결과만 반영한다.
+    /// 키맵은 새 재정의로 재빌드(로컬 키 모니터가 즉시 새 테이블 사용), 런타임 값은 AppState가 스토어에 전파한다.
+    /// sidebar_mode·기본 워크스페이스 경로는 "초기 기본값"이라 라이브 반영하지 않는다(AppState.applyConfig 주석).
+    private func reloadConfig() {
+        let config = MuxaConfigLoader.load()
+        keymap = KeymapResolver(overrides: config.keybindings)
+        state?.applyConfig(config)
     }
 
     /// 로컬 키 모니터의 착지점 — 판정은 KeymapResolver(순수)에 위임하고, 매치되면 실행 후 소비(true),

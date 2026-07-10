@@ -91,6 +91,12 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         idleTimer?.invalidate() // idle 추정 타이머가 런루프에 남지 않게 정리(작업 중 스토어가 해제되는 드문 경우).
     }
 
+    /// 완료 배지 임계(ns)를 갱신한다 — 설정 라이브 리로드 시 AppState가 이미 실행 중인 스토어에도 전파한다.
+    /// 다음 명령 완료 판정부터 새 값이 적용된다(진행 중 판정은 그대로).
+    func updateCommandFinishedThreshold(_ ns: UInt64) {
+        commandFinishedThresholdNs = ns
+    }
+
     // MARK: BonsplitDelegate — 분할·새탭·닫기에 터미널 생명주기를 잇는다
 
     /// 분할 즉시 새 패인에 터미널을 만든다 — 빈 패인을 거치지 않는다(muxa 원래 동작).
@@ -315,7 +321,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 정상 종료(코드 0/미보고)면서 이 시간(ns)보다 짧게 끝난 명령은 배지를 억제한다.
     /// 짧은 `ls`·`cd` 완료로 배지가 쌓이는 오탐 방지. 기본 8초 — muxa 설정
     /// `command_finished_threshold_sec`로 덮인다(AppState가 init에 주입). (DESIGN 4.6)
-    @ObservationIgnored private let commandFinishedThresholdNs: UInt64
+    /// 설정 라이브 리로드로 갱신될 수 있어 var — AppState가 `updateCommandFinishedThreshold`로 전파한다.
+    @ObservationIgnored private var commandFinishedThresholdNs: UInt64
     /// 마지막 벨로부터 이 시간(초) 안쪽 벨은 무시 — 벨 연타 오탐 억제.
     private static let bellDebounce: TimeInterval = 1.0
 
