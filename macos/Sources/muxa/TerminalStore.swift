@@ -44,20 +44,17 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 이 스토어(프로젝트)의 시작 폴더 — diff/뷰어 탭이 참조한다.
     var workingDir: String? { cwd }
 
-    /// 최초 표시 시 복원할 저장된 분할 트리(없으면 초기 터미널 1개). ensureInitialTerminal에서 소비.
-    @ObservationIgnored private var restoreTree: ExternalTreeNode?
-    /// 재시작 시 다시 열 문서/커밋 diff(터미널 복원 후 재오픈). ensureInitialTerminal에서 소비.
-    @ObservationIgnored private var restoreViewers: [SavedViewer]
+    /// 최초 표시 시 복원할 통합 레이아웃 스냅샷(없으면 초기 터미널 1개). ensureInitialTerminal에서 소비.
+    @ObservationIgnored private var restoreSnap: PaneSnapshot?
     /// 복원 replay 중에는 delegate 부작용(자동 새 터미널 생성)을 막는다.
     @ObservationIgnored private var restoring = false
     /// ensureInitialTerminal 1회 보장 — Bonsplit이 초기 "Welcome" 탭을 넣어 allTabIds가 비지 않으므로 플래그로 판별.
     @ObservationIgnored private var initialized = false
 
-    init(app: ghostty_app_t, cwd: String?, restoreTree: ExternalTreeNode? = nil, restoreViewers: [SavedViewer] = []) {
+    init(app: ghostty_app_t, cwd: String?, restoreSnap: PaneSnapshot? = nil) {
         self.app = app
         self.cwd = cwd
-        self.restoreTree = restoreTree
-        self.restoreViewers = restoreViewers
+        self.restoreSnap = restoreSnap
         // keepAllAlive — 탭 전환 시 뷰(WKWebView 뷰어·터미널)를 파괴/재생성하지 않고 유지한다.
         // 기본 .recreateOnSwitch는 전환마다 뷰어를 재로드(굼뜸·상태 손실)해서 부적합.
         var config = BonsplitConfiguration(contentViewLifecycle: .keepAllAlive)
@@ -233,137 +230,136 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         }?.id
     }
 
-    /// 최초 표시 시: 저장된 트리가 있으면 복원, 없으면 초기 터미널 1개.
+    /// 최초 표시 시: 저장된 스냅샷이 있으면 복원, 없으면 초기 터미널 1개.
     func ensureInitialTerminal() {
         guard !initialized else { return }
         initialized = true
-        // Bonsplit이 컨트롤러 생성 시 자동으로 넣는 "Welcome"/star 탭. muxa가 트리를 소유하므로
-        // 저장 트리 복원(또는 새 터미널)으로 실제 탭을 만든 뒤 이 부트스트랩 탭을 닫는다.
-        let bootstrapTabs = Set(controller.allTabIds)
-        if let tree = restoreTree {
-            restoreTree = nil
-            restore(tree)
+        // Bonsplit이 컨트롤러 생성 시 자동으로 넣는 "Welcome"/star 탭. 실제 탭을 만든 뒤 이걸 닫는다.
+        let bootstrap = Set(controller.allTabIds)
+        if let snap = restoreSnap {
+            restoreSnap = nil
+            restoreLayout(snap)
         } else {
-            newTerminal()
+            _ = controller.createTab(title: "터미널", icon: "terminal", inPane: nil)
         }
-        // 실제(비-bootstrap) 탭을 먼저 선택한 뒤 welcome을 닫는다 — selected였던 welcome을 그냥 닫으면
-        // 선택 탭이 사라져 빈 화면이 된다(터미널 안 뜸의 원인).
-        let realTabs = controller.allTabIds.filter { !bootstrapTabs.contains($0) }
-        if let first = realTabs.first {
-            controller.selectTab(first)
-            for id in bootstrapTabs { _ = controller.closeTab(id) }
+        // 실제 탭이 생겼으면 부트스트랩 welcome을 닫는다(복원이 이미 선택을 잡았으므로 순서 안전).
+        let real = controller.allTabIds.filter { !bootstrap.contains($0) }
+        if !real.isEmpty {
+            for id in bootstrap { _ = controller.closeTab(id) }
         }
-        // 복원/신규가 아무 탭도 못 만들었으면 bootstrap 탭을 터미널로 라벨링해 남긴다(빈 화면 방지).
         if controller.allTabIds.isEmpty {
-            newTerminal()
-        } else {
-            for id in controller.allTabIds { controller.updateTab(id, title: "터미널", icon: "terminal") }
+            _ = controller.createTab(title: "터미널", icon: "terminal", inPane: nil)
         }
-        // 터미널 복원 후 문서/커밋 diff를 다시 연다(그룹 탭으로 재생성).
-        let viewers = restoreViewers
-        restoreViewers = []
-        let firstTerminal = controller.allTabIds.first
-        for v in viewers {
-            if let f = v.file { _ = openFile(f) }
-            else if let h = v.commit { _ = openDiff(.commit(hash: h, subject: v.commitSubject ?? h)) }
-        }
-        // 복원 직후엔 터미널을 앞에 둔다(뷰어가 선택된 채 뜨지 않게).
-        if let firstTerminal { controller.selectTab(firstTerminal) }
         ready = true // 이후 탭/뷰어 변경은 즉시 저장(⌘Q 없이도 복원되게)
     }
 
-    /// 세션 저장용 — 열린 문서/커밋 diff 목록(순서 보존). 파일 diff는 제외.
-    func savedViewers() -> [SavedViewer] {
-        var out: [SavedViewer] = []
-        for state in groups.values {
-            for item in state.items {
-                switch item {
-                case .file(let t):
-                    out.append(SavedViewer(file: t.path, commit: nil, commitSubject: nil))
-                case .diff(let target):
-                    if case .commit(let hash, let subject) = target {
-                        out.append(SavedViewer(file: nil, commit: hash, commitSubject: subject))
-                    }
-                }
-            }
-        }
-        return out
-    }
-
-    // MARK: 세션 레이아웃 저장 — 뷰어/diff 탭을 뺀 터미널 전용 스냅샷
+    // MARK: 세션 저장·복원 — 통합 스냅샷(트리 + 탭별 종류·payload). cmux 방식.
     //
-    // PTY는 복원 불가라 각 패인의 '터미널 탭 수'만 복원에 의미가 있고, 뷰어(md/코드)·diff는
-    // 열려 있던 파일/커밋을 다시 띄우는 게 아니라 새 터미널로 되살아나면 오히려 잘못이다.
-    // 저장 시 이들을 걸러 분할 구조 + 터미널만 남긴다.
+    // PTY는 프로세스라 복원 불가 → 터미널은 워크스페이스 cwd에서 새 셸. 문서/커밋 diff는
+    // 경로/해시로 재생성. 구조·순서·선택을 그대로 담아 단일 패스로 복원(선택 튐·빈 터미널 방지).
 
-    /// 세션 저장용 트리(터미널 탭만). AppState.save가 treeSnapshot 대신 이걸 쓴다.
-    func layoutSnapshot() -> ExternalTreeNode {
-        prune(controller.treeSnapshot())
+    /// 현재 레이아웃 → 저장 스냅샷. AppState.save가 사용.
+    func snapshot() -> PaneSnapshot {
+        convert(controller.treeSnapshot())
     }
 
-    private func prune(_ node: ExternalTreeNode) -> ExternalTreeNode {
+    private func convert(_ node: ExternalTreeNode) -> PaneSnapshot {
         switch node {
         case .pane(let p):
-            let terminalTabs = p.tabs.filter { tab in
-                guard let uuid = UUID(uuidString: tab.id) else { return true }
-                if case .terminal = content(for: TabID(uuid: uuid)) { return true }
-                return false
+            var tabs: [TabSnapshot] = []
+            var selected = 0
+            for (i, et) in p.tabs.enumerated() {
+                guard let uuid = UUID(uuidString: et.id) else { continue }
+                let tid = TabID(uuid: uuid)
+                if et.id == p.selectedTabId { selected = tabs.count }
+                switch content(for: tid) {
+                case .terminal:
+                    tabs.append(TabSnapshot(group: nil, items: [], selectedItem: 0))
+                case .group(let kind):
+                    let state = groups[tid]
+                    let items = (state?.items ?? []).map(itemSnapshot)
+                    let sel = state.flatMap { s in s.items.firstIndex { $0.id == s.selectedId } } ?? 0
+                    if items.isEmpty { continue } // 빈 그룹은 저장하지 않음
+                    tabs.append(TabSnapshot(group: kind.raw, items: items, selectedItem: sel))
+                }
+                _ = i
             }
-            // 터미널이 하나도 없으면 빈 패인이 되지 않게 1개는 남긴다(복원 시 새 터미널로 채워짐).
-            let kept = terminalTabs.isEmpty ? Array(p.tabs.prefix(1)) : terminalTabs
-            return .pane(ExternalPaneNode(id: p.id, frame: p.frame, tabs: kept, selectedTabId: p.selectedTabId))
+            if tabs.isEmpty { tabs = [TabSnapshot(group: nil, items: [], selectedItem: 0)] } // 빈 패인 방지
+            return .leaf(tabs: tabs, selected: min(selected, tabs.count - 1))
         case .split(let s):
-            return .split(ExternalSplitNode(id: s.id, orientation: s.orientation, dividerPosition: s.dividerPosition,
-                                            first: prune(s.first), second: prune(s.second)))
+            return .split(vertical: s.orientation == "vertical", divider: s.dividerPosition,
+                          first: convert(s.first), second: convert(s.second))
         }
     }
 
-    // MARK: 세션 레이아웃 복원 — 저장된 분할 트리를 replay로 재구성
-    //
-    // Bonsplit엔 복원 API가 없어(1.1.1) createTab/splitPane 재생으로 구조를 다시 만든다.
-    // PTY는 프로세스라 복원 불가 → 각 탭은 워크스페이스 cwd에서 새 셸로 시작한다.
-    // 트리를 저장본에서 만들므로 구조는 구성상 동일하고, divider는 lockstep으로 맞춘다.
+    private func itemSnapshot(_ item: GroupItemContent) -> ItemSnapshot {
+        switch item {
+        case .file(let t): return ItemSnapshot(file: t.path, commit: nil, commitSubject: nil)
+        case .diff(let target):
+            if case .commit(let hash, let subject) = target {
+                return ItemSnapshot(file: nil, commit: hash, commitSubject: subject)
+            }
+            return ItemSnapshot(file: nil, commit: nil, commitSubject: nil) // 파일 diff는 복원 대상 아님
+        }
+    }
 
-    /// 저장 트리를 현재 컨트롤러에 재구성. 실패해도 안전 폴백(터미널 1개).
-    private func restore(_ tree: ExternalTreeNode) {
+    private func itemContent(_ s: ItemSnapshot) -> GroupItemContent? {
+        if let f = s.file { return .file(FileViewTarget(path: f)) }
+        if let h = s.commit { return .diff(.commit(hash: h, subject: s.commitSubject ?? h)) }
+        return nil
+    }
+
+    /// 스냅샷을 현재 컨트롤러에 단일 패스로 재구성. 빈 패인 폴백은 ensureInitialTerminal이 담당.
+    private func restoreLayout(_ snap: PaneSnapshot) {
         restoring = true
-        realize(tree, into: controller.allPaneIds.first)
+        realize(snap, into: controller.allPaneIds.first)
         restoring = false
-
-        // 복원이 아무 탭도 못 만들었으면(예상 밖) 안전 폴백.
-        if controller.allTabIds.isEmpty {
-            newTerminal()
-            return
-        }
-        applyDividers(saved: tree, current: controller.treeSnapshot())
     }
 
-    /// 트리 노드를 targetPane에 실현한다. split은 먼저 쪼갠 뒤(빈 두 패인) 양쪽을 채운다.
-    private func realize(_ node: ExternalTreeNode, into pane: PaneID?) {
+    /// 스냅샷 노드를 targetPane에 실현한다. leaf=탭들 생성+선택, split=쪼갠 뒤 양쪽 채움.
+    private func realize(_ snap: PaneSnapshot, into pane: PaneID?) {
         guard let pane else { return }
-        switch node {
-        case .pane(let paneNode):
-            for _ in paneNode.tabs { newTerminal(inPane: pane) }
-        case .split(let splitNode):
-            let orientation: SplitOrientation = splitNode.orientation == "vertical" ? .vertical : .horizontal
-            guard let newPane = controller.splitPane(pane, orientation: orientation, withTab: nil) else {
-                // 분할 실패 시 서브트리를 현재 패인에 평면화(구조는 잃어도 탭은 산다).
-                realize(splitNode.first, into: pane)
-                realize(splitNode.second, into: pane)
+        switch snap {
+        case .leaf(let tabs, let selected):
+            var created: [TabID] = []
+            for t in tabs {
+                if let raw = t.group, let kind = TabGroupKind(raw: raw) {
+                    if let gid = realizeGroup(kind, items: t.items, selectedItem: t.selectedItem, inPane: pane) {
+                        created.append(gid)
+                    }
+                } else if let tid = controller.createTab(title: "터미널", icon: "terminal", inPane: pane) {
+                    created.append(tid)
+                }
+            }
+            if selected < created.count { controller.selectTab(created[selected]) }
+        case .split(let vertical, let divider, let first, let second):
+            let orientation: SplitOrientation = vertical ? .vertical : .horizontal
+            guard let newPane = controller.splitPane(pane, orientation: orientation, withTab: nil,
+                                                     initialDividerPosition: CGFloat(divider)) else {
+                realize(first, into: pane); realize(second, into: pane) // 분할 실패 → 평면화
                 return
             }
-            realize(splitNode.first, into: pane) // 기존 패인 = split의 first
-            realize(splitNode.second, into: newPane) // 새 패인 = second
+            realize(first, into: pane)      // 기존 패인 = first
+            realize(second, into: newPane)  // 새 패인 = second
         }
     }
 
-    /// saved·current 트리는 구조가 동일하므로 lockstep으로 divider 비율을 복원한다(best-effort).
-    private func applyDividers(saved: ExternalTreeNode, current: ExternalTreeNode) {
-        guard case .split(let s) = saved, case .split(let c) = current else { return }
-        if let uuid = UUID(uuidString: c.id) {
-            _ = controller.setDividerPosition(CGFloat(s.dividerPosition), forSplit: uuid, fromExternal: true)
+    /// 그룹 탭 하나를 items로 재구성(첫 항목으로 생성 후 나머지 add). 선택 서브탭 복원.
+    private func realizeGroup(_ kind: TabGroupKind, items: [ItemSnapshot], selectedItem: Int, inPane pane: PaneID) -> TabID? {
+        var gid: TabID?
+        for s in items {
+            guard let content = itemContent(s) else { continue }
+            if let id = gid {
+                groups[id]?.add(content)
+            } else if let id = controller.createTab(title: kind.title, icon: kind.icon, inPane: pane) {
+                tabContent[id] = .group(kind)
+                groups[id] = TabGroupState(first: content)
+                gid = id
+            }
         }
-        applyDividers(saved: s.first, current: c.first)
-        applyDividers(saved: s.second, current: c.second)
+        if let id = gid, let state = groups[id], selectedItem < state.items.count {
+            state.selectedId = state.items[selectedItem].id
+        }
+        return gid
     }
 }

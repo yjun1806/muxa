@@ -1,14 +1,6 @@
 import Foundation
 import Observation
 
-/// 세션 저장용 뷰어 참조 — 재시작 후 문서/커밋 diff를 다시 연다(터미널처럼 살아있게).
-/// 파일 diff(working tree)는 git 상태 의존이라 저장하지 않는다(문서·커밋만).
-struct SavedViewer: Codable {
-    let file: String?          // 문서 파일 절대경로
-    let commit: String?        // 커밋 diff 해시
-    let commitSubject: String?
-}
-
 /// 탭 그룹 종류 — 문서(md)·HTML·코드·변경(diff)을 각각 묶는다. 터미널은 그룹이 아니라 개별 탭.
 enum TabGroupKind: Equatable {
     case documents // 마크다운
@@ -31,6 +23,26 @@ enum TabGroupKind: Equatable {
         case .html: return "chevron.left.forwardslash.chevron.right"
         case .code: return "curlybraces"
         case .diffs: return "plusminus"
+        }
+    }
+
+    /// 영속용 문자열 키(PaneSnapshot).
+    var raw: String {
+        switch self {
+        case .documents: return "documents"
+        case .html: return "html"
+        case .code: return "code"
+        case .diffs: return "diffs"
+        }
+    }
+
+    init?(raw: String) {
+        switch raw {
+        case "documents": self = .documents
+        case "html": self = .html
+        case "code": self = .code
+        case "diffs": self = .diffs
+        default: return nil
         }
     }
 }

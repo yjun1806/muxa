@@ -112,6 +112,9 @@ final class TermView: NSView, NSTextInputClient {
     /// 화면 배율·물리 해상도가 바뀌었을 때 강제로 다시 맞춘다.
     private func syncScaleAndSize(force: Bool = false) {
         guard let surface, frame.width > 0, frame.height > 0 else { return }
+        // 처음으로 유효한 크기를 얻는 순간(복원 직후 등)엔 반드시 리드로우 — 안 그러면 서피스가
+        // 크기만 받고 그려지지 않아 빈 화면으로 남는다(재시작 시 터미널 빈 화면의 원인).
+        let firstValidSize = (lastBacking == .zero)
         let scale = currentScale
 
         if force || scale != lastScale {
@@ -134,8 +137,9 @@ final class TermView: NSView, NSTextInputClient {
             ghostty_surface_set_size(surface, pixelWidth, pixelHeight)
             lastBacking = pixel
         }
-        // 모니터 이동 시에만 리드로우 — 일반 레이아웃 경로에서 refresh를 부르면 오실레이션 위험.
-        if force { ghostty_surface_refresh(surface) }
+        // 첫 유효 크기·모니터 이동 시 리드로우. 일반 레이아웃 경로에서 매번 부르면 오실레이션 위험이라
+        // 크기가 실제로 바뀐 경우로 제한한다(firstValidSize는 서피스당 1회).
+        if force || firstValidSize { ghostty_surface_refresh(surface) }
     }
 
     /// 창이 속한 화면의 디스플레이 ID를 libghostty에 알린다(모니터별 색·리프레시 특성).

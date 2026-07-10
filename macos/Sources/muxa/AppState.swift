@@ -21,10 +21,8 @@ final class AppState {
     @ObservationIgnored private let app: ghostty_app_t
     /// 프로젝트 id → TerminalStore. 프로젝트가 독립 분할 레이아웃 하나를 소유한다.
     @ObservationIgnored private var stores: [String: TerminalStore] = [:]
-    /// 프로젝트 id → 저장된 분할 트리(재시작 복원용). 아직 안 연 프로젝트 것도 보존한다.
-    @ObservationIgnored private var savedLayouts: [String: ExternalTreeNode] = [:]
-    /// 프로젝트 id → 저장된 열린 문서/커밋 diff(재시작 복원용).
-    @ObservationIgnored private var savedViewers: [String: [SavedViewer]] = [:]
+    /// 프로젝트 id → 통합 레이아웃 스냅샷(재시작 복원용). 아직 안 연 프로젝트 것도 보존한다.
+    @ObservationIgnored private var savedLayouts: [String: PaneSnapshot] = [:]
 
     init(app: ghostty_app_t) {
         self.app = app
@@ -49,8 +47,7 @@ final class AppState {
     func store(for project: Project, in workspace: Workspace) -> TerminalStore {
         if let s = stores[project.id] { return s }
         let cwd = project.path ?? workspace.path
-        let s = TerminalStore(app: app, cwd: cwd, restoreTree: savedLayouts[project.id],
-                              restoreViewers: savedViewers[project.id] ?? [])
+        let s = TerminalStore(app: app, cwd: cwd, restoreSnap: savedLayouts[project.id])
         let pid = project.id
         s.onProjectActivity = { [weak self] in MainActor.assumeIsolated { self?.markProjectBadge(pid) } }
         // 탭/뷰어가 바뀔 때마다 즉시 저장 — ⌘Q 없이(pkill·크래시) 종료돼도 다음 실행에 복원.
@@ -164,25 +161,36 @@ final class AppState {
         var workspaces: [Workspace]
         var activeId: String
         var sidebarMode: SidebarMode
-        var layouts: [String: ExternalTreeNode]? // 프로젝트 id → 트리. PTY는 복원 안 됨(새 셸).
-        var viewers: [String: [SavedViewer]]?    // 프로젝트 id → 열린 문서/커밋 diff.
+        var layouts: [String: PaneSnapshot]? // 프로젝트 id → 통합 스냅샷(터미널·문서·diff 전부).
+
+        init(workspaces: [Workspace], activeId: String, sidebarMode: SidebarMode, layouts: [String: PaneSnapshot]?) {
+            self.workspaces = workspaces; self.activeId = activeId; self.sidebarMode = sidebarMode; self.layouts = layouts
+        }
+
+        // layouts는 포맷이 바뀔 수 있어 관대하게 디코드 — 옛 포맷이면 nil로 두고 워크스페이스는 보존한다.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            workspaces = try c.decode([Workspace].self, forKey: .workspaces)
+            activeId = try c.decode(String.self, forKey: .activeId)
+            sidebarMode = try c.decode(SidebarMode.self, forKey: .sidebarMode)
+            layouts = (try? c.decodeIfPresent([String: PaneSnapshot].self, forKey: .layouts)) ?? nil
+        }
     }
 
     private static let fileURL: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let dir = base.appendingPathComponent("muxa", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("state.v4.json") // v4: 프로젝트 계층 추가
+        return dir.appendingPathComponent("state.v4.json") // 워크스페이스 보존, layouts만 통합 스냅샷으로 관대 디코드
     }()
 
     func save() {
-        // 인스턴스화된 스토어(=열린 프로젝트)의 현재 분할 트리를 반영한다. 빈 스토어는 스킵.
+        // 인스턴스화된 스토어(=열린 프로젝트)의 현재 레이아웃을 통합 스냅샷으로 반영. 빈 스토어는 스킵.
         for (projectId, store) in stores where !store.controller.allTabIds.isEmpty {
-            savedLayouts[projectId] = store.layoutSnapshot() // 트리는 터미널만(뷰어는 아래 목록으로 복원)
-            savedViewers[projectId] = store.savedViewers()   // 열린 문서/커밋 diff 목록
+            savedLayouts[projectId] = store.snapshot()
         }
         let snapshot = Persisted(workspaces: workspaces, activeId: activeId, sidebarMode: sidebarMode,
-                                 layouts: savedLayouts, viewers: savedViewers)
+                                 layouts: savedLayouts)
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         try? data.write(to: Self.fileURL, options: .atomic)
     }
@@ -195,7 +203,6 @@ final class AppState {
         activeId = snapshot.activeId
         sidebarMode = snapshot.sidebarMode
         savedLayouts = snapshot.layouts ?? [:]
-        savedViewers = snapshot.viewers ?? [:]
     }
 }
 
