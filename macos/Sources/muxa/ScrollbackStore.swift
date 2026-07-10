@@ -82,13 +82,8 @@ enum ScrollbackText {
 /// 스크롤백 파일 저장소 — 경계 타입(파일 IO 부작용 격리). 탭별로 별도 파일에 쓴다
 /// (스냅샷 JSON에 큰 텍스트를 넣지 않게). 위치: applicationSupport/muxa/scrollback/<tabId>.txt.
 enum ScrollbackStore {
-    /// scrollback 디렉터리(없으면 생성). AppState.fileURL과 같은 muxa 베이스 아래.
-    static let directory: URL = {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dir = base.appendingPathComponent("muxa/scrollback", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }()
+    /// scrollback 디렉터리(없으면 생성). muxa 베이스 아래 하위 디렉터리(단일 경로 소유자 재사용).
+    static let directory: URL = MuxaSupportDir.subdirectory("scrollback")
 
     static func fileURL(for tabId: TabID) -> URL {
         directory.appendingPathComponent("\(tabId.uuid.uuidString).txt")

@@ -527,18 +527,27 @@ final class AppState {
     // MARK: 영속 (메타데이터 + 프로젝트별 분할 트리)
 
     private struct Persisted: Codable {
+        /// 현재 스냅샷 스키마 버전. 향후 마이그레이션·비대화 방어의 기준점.
+        /// version 필드가 없던 구 state.v4.json은 디코드 시 0으로 채워진다(pre-version).
+        static let currentVersion = 1
+
+        var version: Int
         var workspaces: [Workspace]
         var activeId: String
         var sidebarMode: SidebarMode
         var layouts: [String: PaneSnapshot]? // 프로젝트 id → 통합 스냅샷(터미널·문서·diff 전부).
 
-        init(workspaces: [Workspace], activeId: String, sidebarMode: SidebarMode, layouts: [String: PaneSnapshot]?) {
+        init(workspaces: [Workspace], activeId: String, sidebarMode: SidebarMode,
+             layouts: [String: PaneSnapshot]?, version: Int = currentVersion) {
+            self.version = version
             self.workspaces = workspaces; self.activeId = activeId; self.sidebarMode = sidebarMode; self.layouts = layouts
         }
 
         // layouts는 포맷이 바뀔 수 있어 관대하게 디코드 — 옛 포맷이면 nil로 두고 워크스페이스는 보존한다.
+        // version은 나중에 추가된 필드라 decodeIfPresent로 하위호환(구 데이터=0).
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
+            version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 0
             workspaces = try c.decode([Workspace].self, forKey: .workspaces)
             activeId = try c.decode(String.self, forKey: .activeId)
             sidebarMode = try c.decode(SidebarMode.self, forKey: .sidebarMode)
@@ -546,12 +555,8 @@ final class AppState {
         }
     }
 
-    private static let fileURL: URL = {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dir = base.appendingPathComponent("muxa", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("state.v4.json") // 워크스페이스 보존, layouts만 통합 스냅샷으로 관대 디코드
-    }()
+    // 워크스페이스 보존, layouts만 통합 스냅샷으로 관대 디코드. muxa 베이스 경로는 단일 소유자 재사용.
+    private static let fileURL = MuxaSupportDir.url.appendingPathComponent("state.v4.json")
 
     func save() {
         // 인스턴스화된 스토어(=열린 프로젝트)의 현재 레이아웃을 통합 스냅샷으로 반영. 빈 스토어는 스킵.
@@ -571,7 +576,26 @@ final class AppState {
         workspaces = snapshot.workspaces
         activeId = snapshot.activeId
         sidebarMode = snapshot.sidebarMode
-        savedLayouts = snapshot.layouts ?? [:]
+        // 복원 직전 상한·손상 방어를 통과시킨다(순수 함수). 비대·변조된 스냅샷의 복원 폭주를 막는다.
+        savedLayouts = SnapshotSanitize.clampAll(snapshot.layouts ?? [:])
+    }
+
+    // MARK: 세션 수명 (크래시 마커 — 더티 종료 감지)
+
+    /// 직전 실행이 더티(크래시/강제종료) 종료였는지. 시작 시 beginSession이 판정해 넣는다.
+    /// 지금은 노출만 하고 복구 배너·자동 resume 연동은 후속 단계가 담당한다.
+    private(set) var lastLaunchWasDirty = false
+
+    /// 세션 시작 표시 — 크래시 마커를 arm하고 직전 더티 여부를 기록한다. AppDelegate가 시작 시 1회 호출.
+    func beginSession() {
+        lastLaunchWasDirty = CrashMarker.detectAndArm()
+    }
+
+    /// 세션 정상 종료 — 마지막 레이아웃을 저장하고 크래시 마커를 지운다(disarm).
+    /// applicationWillTerminate가 호출한다. 이 경로를 못 타면(크래시) 마커가 남아 다음 시작에 더티로 잡힌다.
+    func endSession() {
+        save()
+        CrashMarker.disarm()
     }
 }
 

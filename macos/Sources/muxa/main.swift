@@ -41,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 저장된 세션 복원(없으면 설정의 기본 경로/현재 디렉토리로 초기 워크스페이스 생성)
         let state = AppState(app: app, config: config)
         state.load()
+        state.beginSession() // 크래시 마커 arm + 직전 더티 종료 여부 판정(노출용)
         state.ensureInitial(path: config.defaultWorkspacePath ?? SystemPaths.currentDir ?? SystemPaths.home)
         state.startNotifyServer() // 훅 알림 소켓 리스너 시작 — `muxa notify`가 결정론적 신호를 보낸다
         // 시스템 알림 클릭 → 프로젝트 활성 + Git 패널(원클릭 검토 동선). 라우팅 소유는 AppState.
@@ -143,9 +144,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
     }
 
-    /// 종료 직전 현재 분할 레이아웃을 저장한다 — split/탭 변경은 자체 save를 안 부르므로 여기서 확정.
+    /// 종료 직전 현재 분할 레이아웃을 저장하고 크래시 마커를 지운다(정상 종료 표시).
+    /// split/탭 변경은 자체 save를 안 부르므로 여기서 확정. 이 경로를 못 타면 다음 시작에 더티로 잡힌다.
     func applicationWillTerminate(_ notification: Notification) {
-        state?.save()
+        state?.endSession()
     }
 }
 
