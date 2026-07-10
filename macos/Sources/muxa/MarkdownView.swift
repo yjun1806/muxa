@@ -9,6 +9,7 @@ struct MarkdownView: View {
 
     @State private var content = ""
     @State private var state: LoadState = .loading
+    @State private var watcher: FileWatcher? // 디스크 변경 시 자동 재로드
 
     enum LoadState { case loading, ok, tooLarge, error }
 
@@ -31,7 +32,11 @@ struct MarkdownView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.pBg)
-        .task(id: target.id) { await load() }
+        .task(id: target.id) {
+            await load()
+            watcher = FileWatcher(path: (target.path as NSString).deletingLastPathComponent)
+        }
+        .onChange(of: watcher?.changeSeq) { _, _ in Task { await load() } }
     }
 
     @ViewBuilder

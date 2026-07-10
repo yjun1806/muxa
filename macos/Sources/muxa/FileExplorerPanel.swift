@@ -29,6 +29,7 @@ struct FileExplorerPanel: View {
                     watcher = FileWatcher(path: root)
                 }
                 .onChange(of: watcher?.changeSeq) { _, _ in
+                    reloadToken += 1 // 트리 구조 라이브 갱신(펼침 상태는 보존됨)
                     Task { await loadGit(root) }
                 }
             } else {

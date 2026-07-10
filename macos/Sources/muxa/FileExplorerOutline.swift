@@ -67,13 +67,35 @@ struct FileExplorerOutline: NSViewRepresentable {
         var currentRoot = ""
         var lastToken = 0
         private var rootChildren: [FileNode] = []
+        /// 펼쳐진 폴더 경로 — reload(노드 재생성)에도 펼침 상태를 유지하려 경로로 추적한다.
+        private var expandedPaths: Set<String> = []
 
         init(props: FileExplorerOutline) { self.props = props }
 
         func reload(root: String) {
             currentRoot = root
-            rootChildren = FileTree.children(of: root)
+            rootChildren = FileTree.children(of: root) // 새 노드 → 캐시 무효화
             outline?.reloadData()
+            restoreExpansion() // 펼침 상태 복원(경로 기준)
+        }
+
+        /// expandedPaths에 있는 폴더를 깊이 우선으로 다시 펼친다(조상부터 lazy 로드).
+        private func restoreExpansion() {
+            guard let outline else { return }
+            func walk(_ nodes: [FileNode]) {
+                for n in nodes where n.isDirectory && expandedPaths.contains(n.path) {
+                    outline.expandItem(n)
+                    walk(n.children ?? [])
+                }
+            }
+            walk(rootChildren)
+        }
+
+        func outlineViewItemDidExpand(_ n: Notification) {
+            if let node = n.userInfo?["NSObject"] as? FileNode { expandedPaths.insert(node.path) }
+        }
+        func outlineViewItemDidCollapse(_ n: Notification) {
+            if let node = n.userInfo?["NSObject"] as? FileNode { expandedPaths.remove(node.path) }
         }
 
         /// 지연 로드 — 폴더 자식은 처음 펼칠 때만 디스크에서 읽어 노드에 캐시.
@@ -121,7 +143,10 @@ struct FileExplorerOutline: NSViewRepresentable {
         }
 
         func outlineView(_ ov: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
-            FileRowView()
+            let row = FileRowView()
+            row.indentLevel = ov.level(forRow: ov.row(forItem: item))
+            row.indentPerLevel = ov.indentationPerLevel
+            return row
         }
 
         // MARK: 컨텍스트 메뉴
@@ -129,15 +154,24 @@ struct FileExplorerOutline: NSViewRepresentable {
         func makeMenu(for node: FileNode) -> NSMenu {
             let dir = node.isDirectory ? node.path : (node.path as NSString).deletingLastPathComponent
             let menu = NSMenu()
-            let entries: [(String, () -> Void)] = [
+            var entries: [(String, () -> Void)] = [
+                ("새 파일…", { self.createEntry(in: dir, directory: false) }),
+                ("새 폴더…", { self.createEntry(in: dir, directory: true) }),
+            ]
+            entries.append(("__sep__", {}))
+            entries.append(contentsOf: [
+                ("이름 변경…", { self.rename(node) }),
+                ("삭제", { self.delete(node) }),
+                ("__sep__", {}),
                 ("여기에서 터미널 열기", { self.props.onOpenTerminal(dir) }),
                 ("Finder에서 표시", { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: node.path)]) }),
                 ("경로 복사", {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(node.path, forType: .string)
                 }),
-            ]
+            ])
             for (title, action) in entries {
+                if title == "__sep__" { menu.addItem(.separator()); continue }
                 let item = NSMenuItem(title: title, action: #selector(menuAction(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = ClosureBox(action)
@@ -148,6 +182,77 @@ struct FileExplorerOutline: NSViewRepresentable {
 
         @objc func menuAction(_ sender: NSMenuItem) {
             (sender.representedObject as? ClosureBox)?.action()
+        }
+
+        // MARK: 파일 조작 (새로 만들기·이름 변경·삭제)
+
+        /// dir 안에 새 파일/폴더를 만든다. 이름 입력 후 생성 → 트리 갱신 + 그 폴더 펼침.
+        private func createEntry(in dir: String, directory: Bool) {
+            guard let name = promptText(title: directory ? "새 폴더 이름" : "새 파일 이름", initial: ""),
+                  !name.isEmpty else { return }
+            let path = (dir as NSString).appendingPathComponent(name)
+            let fm = FileManager.default
+            do {
+                if directory {
+                    try fm.createDirectory(atPath: path, withIntermediateDirectories: false)
+                } else {
+                    guard fm.createFile(atPath: path, contents: Data()) else { throw CocoaError(.fileWriteUnknown) }
+                }
+                expandedPaths.insert(dir) // 새 항목이 보이도록 대상 폴더 펼침
+                reload(root: currentRoot)
+                if !directory { props.onOpenFile(path) } // 새 파일은 바로 연다
+            } catch {
+                warn("만들 수 없습니다: \(name)")
+            }
+        }
+
+        /// 파일/폴더 이름 변경(moveItem).
+        private func rename(_ node: FileNode) {
+            let old = node.name
+            guard let name = promptText(title: "이름 변경", initial: old), !name.isEmpty, name != old else { return }
+            let dst = ((node.path as NSString).deletingLastPathComponent as NSString).appendingPathComponent(name)
+            do {
+                try FileManager.default.moveItem(atPath: node.path, toPath: dst)
+                reload(root: currentRoot)
+            } catch {
+                warn("이름을 바꿀 수 없습니다: \(name)")
+            }
+        }
+
+        /// 파일/폴더 삭제 — 휴지통으로(복구 가능). 확인 후.
+        private func delete(_ node: FileNode) {
+            let alert = NSAlert()
+            alert.messageText = "'\(node.name)'을(를) 휴지통으로 보낼까요?"
+            alert.informativeText = node.isDirectory ? "폴더와 내용이 함께 이동됩니다." : ""
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "휴지통으로")
+            alert.addButton(withTitle: "취소")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            NSWorkspace.shared.recycle([URL(fileURLWithPath: node.path)]) { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.reload(root: self?.currentRoot ?? "") }
+            }
+        }
+
+        /// 텍스트 입력 시트(간단). 확인 시 트림한 값, 취소 시 nil.
+        private func promptText(title: String, initial: String) -> String? {
+            let alert = NSAlert()
+            alert.messageText = title
+            let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+            field.stringValue = initial
+            alert.accessoryView = field
+            alert.addButton(withTitle: "확인")
+            alert.addButton(withTitle: "취소")
+            alert.window.initialFirstResponder = field
+            guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+            return field.stringValue.trimmingCharacters(in: .whitespaces)
+        }
+
+        private func warn(_ text: String) {
+            let alert = NSAlert()
+            alert.messageText = text
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "확인")
+            alert.runModal()
         }
     }
 }
@@ -226,8 +331,26 @@ final class FileCellView: NSTableCellView {
     }
 }
 
-/// 트리 행 — 라운드 선택 하이라이트(accent).
+/// 트리 행 — 라운드 선택 하이라이트(accent) + 인덴트 가이드(VSCode식 세로 안내선).
 final class FileRowView: NSTableRowView {
+    var indentLevel = 0
+    var indentPerLevel: CGFloat = 16
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard indentLevel > 0 else { return }
+        Palette.border.withAlphaComponent(0.6).setStroke()
+        // 각 조상 레벨마다 세로선 하나. 디스클로저 삼각형 열 중앙쯤에 맞춘다.
+        for i in 1...indentLevel {
+            let x = (CGFloat(i) - 0.5) * indentPerLevel + 8
+            let line = NSBezierPath()
+            line.lineWidth = 1
+            line.move(to: NSPoint(x: x, y: 0))
+            line.line(to: NSPoint(x: x, y: bounds.height))
+            line.stroke()
+        }
+    }
+
     override func drawSelection(in dirtyRect: NSRect) {
         guard selectionHighlightStyle != .none, isSelected else { return }
         Palette.borderFocus.withAlphaComponent(0.22).setFill()
