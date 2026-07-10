@@ -161,17 +161,17 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     func ensureInitialTerminal() {
         guard !initialized else { return }
         initialized = true
-        if controller.allTabIds.isEmpty {
-            // 컨트롤러가 비어있으면(예상 밖) muxa가 직접 채운다.
-            if let tree = restoreTree { restoreTree = nil; restore(tree) } else { newTerminal() }
-        } else {
-            // Bonsplit이 컨트롤러 생성 시 자동으로 넣는 "Welcome"/star 탭을 터미널로 라벨링해 재활용한다.
-            // (저장 트리와의 정합 복원은 후속 — 지금은 이 탭이 첫 터미널이 된다)
-            for id in controller.allTabIds {
-                controller.updateTab(id, title: "터미널", icon: "terminal")
-            }
+        // Bonsplit이 컨트롤러 생성 시 자동으로 넣는 "Welcome"/star 탭. muxa가 트리를 소유하므로
+        // 저장 트리 복원(또는 새 터미널)으로 실제 탭을 만든 뒤 이 부트스트랩 탭을 닫는다.
+        let bootstrapTabs = controller.allTabIds
+        if let tree = restoreTree {
             restoreTree = nil
+            restore(tree)
+        } else {
+            newTerminal()
         }
+        for id in bootstrapTabs { _ = controller.closeTab(id) }
+        if controller.allTabIds.isEmpty { newTerminal() } // 복원이 아무것도 못 만든 안전 폴백
     }
 
     // MARK: 세션 레이아웃 복원 — 저장된 분할 트리를 replay로 재구성

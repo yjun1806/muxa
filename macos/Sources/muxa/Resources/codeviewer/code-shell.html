@@ -2,43 +2,33 @@
 <html>
 <head>
 <meta charset="utf-8">
-<style>
-  :root { --bg: #ffffff; --muted: #6b7280; }
-  body.dark { --bg: #1b1b1d; --muted: #8a8a90; }
-  html, body { margin: 0; padding: 0; background: var(--bg); }
-  #content { padding: 8px 0 48px; }
-  .shiki {
-    margin: 0; background: transparent !important;
-    font: 12.5px/1.6 "SF Mono", Menlo, ui-monospace, monospace;
-    overflow-x: auto;
-  }
-  .shiki code { counter-reset: step; counter-increment: step 0; display: block; }
-  .shiki .line { display: inline-block; width: 100%; }
-  .shiki .line::before {
-    content: counter(step); counter-increment: step;
-    display: inline-block; width: 3ch; margin-right: 1.4em; padding-left: 10px;
-    text-align: right; color: var(--muted); opacity: 0.55; user-select: none;
-  }
-  /* 듀얼 테마 — Shiki가 심은 CSS 변수(github-light/dark)를 시스템 외관 따라 스위칭 */
-  .shiki, .shiki span { color: var(--shiki-light); }
-  body.dark .shiki, body.dark .shiki span { color: var(--shiki-dark); }
-</style>
 <script src="shiki.bundle.js"></script>
 </head>
 <body>
-<div id="content"></div>
 <script>
-  let ready = false, queued = null;
-  MuxaShiki.init().then(() => {
-    ready = true;
-    if (queued) { const q = queued; queued = null; render(q.b64, q.dark, q.lang); }
-  });
-  async function render(b64, dark, lang) {
-    if (!ready) { queued = { b64, dark, lang }; return; }
-    document.body.classList.toggle('dark', !!dark);
+  // 표시용 완성 HTML에 넣을 스타일(줄번호·듀얼 테마). 실제 표시는 각 탭의 가벼운 WKWebView가 담당.
+  const STYLE = `
+    :root { --bg:#ffffff; --muted:#6b7280; }
+    body.dark { --bg:#1b1b1d; --muted:#8a8a90; }
+    html,body { margin:0; padding:0; background:var(--bg); }
+    #content { padding:8px 0 48px; }
+    .shiki { margin:0; background:transparent !important; font:12.5px/1.6 "SF Mono",Menlo,ui-monospace,monospace; overflow-x:auto; }
+    .shiki code { counter-reset:step; counter-increment:step 0; display:block; }
+    .shiki .line { display:inline-block; width:100%; }
+    .shiki .line::before { content:counter(step); counter-increment:step; display:inline-block; width:3ch; margin-right:1.4em; padding-left:10px; text-align:right; color:var(--muted); opacity:0.55; user-select:none; }
+    .shiki,.shiki span { color:var(--shiki-light); }
+    body.dark .shiki,body.dark .shiki span { color:var(--shiki-dark); }
+  `;
+
+  const readyPromise = MuxaShiki.init();
+
+  // 코드 → 완성 HTML 문서(줄번호·테마 포함). 공유 렌더러가 1회 init 후 이것만 반복 호출한다.
+  async function fullHtml(b64, dark, lang) {
+    await readyPromise;
     const code = decodeURIComponent(escape(atob(b64)));
-    document.getElementById('content').innerHTML = await MuxaShiki.highlight(code, lang);
-    window.scrollTo(0, 0);
+    const inner = await MuxaShiki.highlight(code, lang);
+    return '<!doctype html><html><head><meta charset="utf-8"><style>' + STYLE + '</style></head><body class="' +
+      (dark ? 'dark' : '') + '"><div id="content">' + inner + '</div></body></html>';
   }
 </script>
 </body>
