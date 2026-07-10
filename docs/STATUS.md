@@ -1,4 +1,4 @@
-# muxa 진행 상태 · 인수인계 (2026-07-10 · rev4)
+# muxa 진행 상태 · 인수인계 (2026-07-10 · rev5)
 
 > 다음 세션이 여기서 이어간다. 설계 원천은 [DESIGN.md](DESIGN.md), 이 문서는 **현재 상태·다음 할 일**만.
 
@@ -41,40 +41,36 @@ swift build                 # 빌드 (SPM)
 - **gh 배지** ✅ — `GitService+GH`; Git 헤더에 PR#·상태색·CI 롤업(gh 미설치/미인증 전경로 가드)
 - **에이전트 상태 추정** ✅ (Tier3, DESIGN 4.5) — 순수 값 `AgentActivityEstimator`(idle/working/waiting/done) + 신호 배선. RENDER 액션을 `TermView`가 초당 1회로 다운샘플→`.outputHeartbeat`, OSC 133 완료→done, muxa notify 명시신호(waiting/done/working)를 ground truth로 고정(pin). 출력이 `idleThreshold`(4s) 넘게 멎으면 working→waiting 추정(working 탭 있을 때만 1s idle 타이머). 표시=패인 상시 테두리(waiting 주황·done 초록, working/idle 없음), 그 칸을 보면 해제. **튜닝 미검증**(아래 주의).
 
-## 다음 할 일 (백로그) — ultracode 검토 재구성 (2026-07-10)
+## Tier 0~3 백로그 20개 — 구현 완료 (2026-07-10 · ultracode 순차 워크플로)
 
-검토 결론: 조각(배지·git·diff·뷰어)은 완성됐으나 **정체성 동선("알림으로 언제 부르는지 → git·뷰어로 뭘 바꿨는지 체크")이 엔드투엔드로 끊겨 있다.** 조각을 더 만들기보다 이미 만든 조각을 잇는 게 최대 레버리지. 아래는 fable 3렌즈 + 직접 코드 검증(파일:라인)으로 확정한 우선순위.
+fable 3렌즈 검토로 도출한 백로그를 순차 파이프라인(각 단계 구현→`swift build`→커밋)으로 20개 전부 구현. 최종 빌드 green + 실행 init 크래시 없음(3초 스모크) 확인. 커밋 `a85fcaf`(B1) ~ `5da0433`(상태머신), +2654줄. **전부 GUI 동작이라 실기기 육안 검증은 미수행(★).**
 
-### Tier 0 — 부채 청산 (기능 이전에 고칠 것)
+- **Tier 0** — B1 셸 종료 시 해당 탭만 닫기(앱 종료 결함 제거, `close_surface_cb`) · B2 도구 패널 표시를 `AppState`로 승격 + ⌘⇧E/⌘⇧G 토글.
+- **Tier 1** — 배지 오탐 억제(보이는 칸/짧은 명령[8s]/벨 디바운스 필터, 명명 상수 `shortCommandThresholdNs`·`bellDebounce`) · 워크스페이스 ● + Dock 배지 카운트 · 패인 활동 테두리(`flashingTabs`, 1.2s 페이드) · muxa notify CLI + env 주입(별 바이너리 `muxa-notify` + `NotifyServer` Unix 소켓) · 알림/배지 클릭→프로젝트 활성+Git 패널(`revealActivity`) · 세션 기준선 diff(`Project.sessionBaseHead`, 영속) · 변경 버리기(discard, 파일 단위·untracked는 휴지통).
+- **Tier 2** — 설정 파일 `~/.config/muxa/config`(`MuxaConfig` 순수 파서, 시작 시 1회 로드) · 키바인딩 테이블화(`KeymapResolver` + 칸 포커스 이동 ⌘⌥방향·탭 순환 ⌃Tab) · 탭별 cwd 추적(OSC 7, `TermView.pwd` 진실원천) · 탭 자동 명명(SET_TITLE) + 수동 rename · ⌘⇧A 다음 대기 세션 전역 점프.
+- **Tier 3** — diff 탭 라이브 리로드(FileWatcher + 스크롤 보존) · 전체 변경 통합 diff 서브탭(`.all`) · 알림 인박스(`AttentionLog` + 팝오버) · ⌘K 빠른 전환기(`FuzzyMatch` 퍼지·대기 우선 정렬) · 워크트리 merge 후 정리 원액션 · 에이전트 상태 추정(`AgentActivityEstimator` idle/working/waiting/done, RENDER 초당 1회 다운샘플, muxa notify 명시신호 pin, 패인 테두리 waiting=주황·done=초록).
 
-- **B1 셸 종료 = 앱 종료 [치명·S]** — `GhosttyRuntime.swift:111` `close_surface_cb`가 `NSApp.terminate(nil)`("M0" 잔재). 셸에서 `exit` 한 번이 앱 전체 종료. surface→TermView→tabId 복원(read_clipboard_cb 패턴) 후 `controller.closeTab`로. 마지막 탭이면 빈 상태 뷰.
-- **B2 도구 패널 상태 승격 [S]** — `showGitPanel`/`showExplorer`가 `ContentView` 로컬 `@State`(:8-9)라 알림·단축키·프로그램이 패널을 못 연다. `AppState`로 올려야 함 — 이후 모든 "알림→패널" 연결의 선행조건. ⌘⇧G 토글도 공짜.
+신규 파일: `NotifyServer` · `MuxaConfig` · `KeymapResolver` · `QuickSwitcher`/`QuickSwitchItem` · `FuzzyMatch` · `TerminalSignal` · `DiscardConfirm` · `WorktreeMergeConfirm`.
 
-### Tier 1 — 정체성 동선 완성 (알림 → 체크 → 판정)
+## 다음 할 일 (백로그) — 잔여·후속
 
-- **알림 신뢰도 패스 [S~M]** — (a) `isVisibleToUser`가 `firstResponder && isKeyWindow` 판정(`TermView.swift:239`)이라 3~4분할 동시 감시 시 보이는 비포커스 칸에 배지 누적 → 보이는 칸은 배지 대신 **패인 테두리 플래시**. (b) `onCommandFinished`가 `duration`·`exitCode`를 버리고 무조건 배지(:249) → 임계값 필터(장시간·비정상종료만). (c) **워크스페이스 ●**(SidebarSUI에 렌더 부재, DESIGN 5절 표 위반) + **Dock 배지 카운트**. (d) 패인 테두리 = DESIGN 4.5 미이행 약속.
-- **muxa notify CLI + env 주입 [M]** — `ghostty_env_var_s`·`surface_config.env_vars`(ghostty.h:446,484) 확인. `TermView.init`에서 `MUXA_TAB_ID` 주입 + Unix 소켓 리스너(`NotifyServer.swift` 신설) → tabId 라우팅은 `markBadge` 재사용. Claude Code hooks(Notification/Stop)에 한 줄 → **결정론적 대기/완료 신호**(장수명 TUI라 COMMAND_FINISHED가 0회인 무신호 구간 해소). cmux 대비 차별화.
-- **알림 → 원클릭 검토 [S~M]** — 탭/프로젝트 배지·시스템 알림 클릭 → 프로젝트 활성 + git 패널 자동 오픈(+세션 diff). B2 위에 얹음. `UNUserNotificationCenterDelegate` + userInfo(ids).
-- **세션 기준선 diff [M]** — `Project`에 `sessionBaseHead: String?`(Codable 영속), 최초 터미널 생성 시 `rev-parse HEAD` 기록. git 패널에 "이번 세션" 필터(기준선 이후 커밋 + 워크트리 변경 누적 diff). DESIGN 4.4 #2 명문 미구현. 에이전트 자율 커밋 워크플로에서 "워크트리 diff만 보기"가 무력화되므로 시급.
-- **Discard [S]** — 파일 단위 변경 버리기(`git restore` / untracked는 `FileManager.trashItem`), `GitService+Write`에 추가. 체크 동선의 "거부" 반쪽(DESIGN 4.4 #4). hunk discard는 기존 `DiffPatch` + `git apply --reverse` 재사용.
+### 실기기 검증 (최우선 ★)
 
-### Tier 2 — 데일리 드라이버 기본기
+20개 전부 GUI 동작이라 육안 미확인: 패인 테두리 플래시·상태 테두리색(주황/초록)·Dock 배지·사이드바 ●·알림 클릭 라우팅·⌘K 오버레이·rename 시트·칸 포커스 이동/탭 순환 키·discard·워크트리 merge. **`.app` 번들 실행이어야 시스템 알림 동작**(bare `.build/debug/muxa`는 Dock 바운스 폴백).
 
-- **설정 파일 `~/.config/muxa/config` + 키바인딩 테이블 [M]** — DESIGN 4.6 미구현("없으면 데일리 드라이버 못 됨"). ghostty config는 폰트·테마만 재사용 중, muxa 고유 설정 표면은 0. `MuxaConfig` 값 타입 + 순수 파서(테스트 가능), `main.swift:75` `handleShortcut` switch를 `KeymapResolver`로 데이터화. 빠진 칸 포커스 이동·탭 순환 키도 여기서 추가.
-- **탭별 cwd 추적 [S]** — `GHOSTTY_ACTION_PWD`(ghostty.h:941) 배선만: `action_cb` 케이스 → `TermView.onPwdChange` → `TabSnapshot.cwd`(옵셔널 하위호환). 복원 시 그 경로에서 새 셸. DESIGN 4.2가 예약한 항목.
-- **탭 자동 명명 [S]** — `GHOSTTY_ACTION_SET_TITLE`(:938) → `controller.updateTab(title:)`. 전부 "터미널"인 탭 식별 문제(감시의 전제). 수동 rename 우선 플래그.
-- **⌘⇧A 다음 대기 세션 점프 [S]** — 워크스페이스 경계 넘어 배지 칸 순환 이동. 알림→소비 동선의 마지막 조각.
+### 미완·후속 (구현 중 남긴 것 — 각 커밋 notes)
 
-### Tier 3 — 심화
-
-~~에이전트 상태머신(RENDER heartbeat + idle 추정, DESIGN 4.5 · M~L)~~ ✅(위) — **잔여 튜닝**: RENDER가 포커스 칸 커서 깜빡임에도 오는지 실기기 확인(그렇다면 포커스 칸은 idle 추정이 안 됨 — 비포커스 칸은 정상). idleThreshold(4s)·throttle(1s) 실사용 조정. muxa notify 훅 미설치 시 추정 정확도 한계. 탭 점 색 상태화(현재는 배지 dot만; Bonsplit isDirty가 bool뿐이라 미구현) · 알림 인박스(놓친 이력 큐 + 점프, M5 · M) · ⌘K 빠른 전환기(계층 5단 퍼지 탐색, M) · diff 탭 라이브 리로드(md 뷰어 패턴 이식, S~M) · 전체 변경 통합 diff 서브탭(M) · 워크트리 merge·정리 원액션(M~L) · side-by-side diff(후순위).
+- **muxa notify 설치 경로**: `muxa-notify` 바이너리를 PATH 심볼릭 링크 또는 훅에서 절대경로 참조해야 함(자동 설치 미구현). Claude Code 훅 예시 — Notification→`muxa notify --state waiting`, Stop→`--state done`, 재개→`--state working`(배지 클리어).
+- **상태머신 튜닝 미검증**: RENDER가 포커스 칸 커서 깜빡임에도 오는지 실기기 확인(오면 포커스 칸 idle 추정 불가·비포커스는 정상). `idleThreshold`(4s)·throttle(1s) 실사용 조정. 훅 미설치 시 추정 정확도 한계.
+- **세션 미영속**: 수동 탭 이름(`manualTitles`)·알림 인박스 이력은 재시작 시 비워짐 — 영속하려면 `TabSnapshot` 스키마 확장.
+- **세부 미완**: 마지막 탭 닫힘 시 빈 상태 뷰(B1은 `controller.closeTab` 기본 동작에 위임) · discard의 스테이지된 리네임(R) 실패 가능·hunk discard 미구현 · 설정 라이브 리로드(FSEvents) 미구현 · 전체 diff 파일 헤더 클릭 점프 미구현 · 탭 순환 ⌃Tab 이론적 충돌 가능성 · rename이 인라인 아닌 NSAlert 모달 · 탭 점 색 상태화(Bonsplit `isDirty`가 bool뿐).
 
 ### 기타 (기존 백로그 · 저심각)
 
-- 실기기 검증: 세션복원(활성칸)·2단 서브탭·문서영속 — 눈으로 아직
+- 실기기 검증(기존): 세션복원(활성칸)·2단 서브탭·문서영속 — 눈으로 아직
 - pull/push 타임아웃·취소, diff 도구줄 stale 배너 clear, 원격 트래킹 브랜치 체크아웃, hunk 언스테이지, PR 배지 폴링, runResult 대량출력 파이프(실위험 낮음)
-- 붙여넣기 무조건 승인(`confirm_read_clipboard_cb` "M0" 잔재 — Tier 0과 함께 정리 가능)
-- git status 부분 재계산(FSEvents 이벤트마다 status+log+branch 전부 재실행, `FileWatcher.lastPaths` 미사용) — Tier 1/2 착수 시 성능 부채로 정리
+- 붙여넣기 무조건 승인(`confirm_read_clipboard_cb` "M0" 잔재)
+- git status 부분 재계산(FSEvents 이벤트마다 status+log+branch 전량 재실행, `FileWatcher.lastPaths` 미사용) — 성능 부채
 
 ## 핵심 아키텍처
 
