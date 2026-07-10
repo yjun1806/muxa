@@ -8,6 +8,8 @@ let package = Package(
     dependencies: [
         // 분할·탭 SwiftUI 프레임워크(MIT). cmux가 libghostty 터미널에 실전 사용.
         .package(url: "https://github.com/almonk/bonsplit.git", from: "1.1.1"),
+        // 코드 뷰어 신택스 하이라이트(MIT) — highlight.js를 JavaScriptCore로 래핑, 오프라인 번들.
+        .package(url: "https://github.com/smittytone/HighlighterSwift", from: "1.1.4"),
     ],
     targets: [
         .executableTarget(
@@ -15,6 +17,7 @@ let package = Package(
             dependencies: [
                 "GhosttyKit",
                 .product(name: "Bonsplit", package: "bonsplit"),
+                .product(name: "Highlighter", package: "HighlighterSwift"),
             ],
             linkerSettings: [
                 .linkedFramework("AppKit"),

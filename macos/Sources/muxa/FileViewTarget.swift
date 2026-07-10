@@ -26,4 +26,34 @@ struct FileViewTarget: Identifiable, Equatable {
         case .code: return "doc.text"
         }
     }
+
+    /// highlight.js 언어명(확장자 매핑). nil이면 하이라이터가 자동 감지.
+    var language: String? {
+        switch (path as NSString).pathExtension.lowercased() {
+        case "swift": return "swift"
+        case "ts", "tsx", "mts", "cts": return "typescript"
+        case "js", "jsx", "mjs", "cjs": return "javascript"
+        case "rs": return "rust"
+        case "py", "pyi": return "python"
+        case "go": return "go"
+        case "json", "json5", "jsonc": return "json"
+        case "yml", "yaml": return "yaml"
+        case "toml": return "toml"
+        case "sh", "bash", "zsh", "fish": return "bash"
+        case "html", "htm", "xml", "svg": return "xml"
+        case "css": return "css"
+        case "scss", "sass": return "scss"
+        case "c", "h": return "c"
+        case "cpp", "cc", "cxx", "hpp", "hh": return "cpp"
+        case "m", "mm": return "objectivec"
+        case "java": return "java"
+        case "kt", "kts": return "kotlin"
+        case "rb": return "ruby"
+        case "php": return "php"
+        case "sql": return "sql"
+        case "lua": return "lua"
+        case "dart": return "dart"
+        default: return nil
+        }
+    }
 }

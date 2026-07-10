@@ -1,12 +1,12 @@
 import SwiftUI
 
-/// 코드/텍스트 파일 뷰어 탭 — 읽기 전용, monospace + 줄번호. 신택스 하이라이트는 후속.
-/// (DiffView의 monospace LazyVStack 라인 렌더 패턴 재사용) 바이너리·대형 파일은 가드.
+/// 코드/텍스트 파일 뷰어 탭 — HighlighterSwift 신택스 하이라이트 + 줄번호(CodeTextView).
+/// 바이너리·대형 파일은 가드. 읽기 전용.
 struct CodeView: View {
     let target: FileViewTarget
     var onClose: () -> Void
 
-    @State private var lines: [String] = []
+    @State private var code = ""
     @State private var state: LoadState = .loading
 
     enum LoadState { case loading, ok, tooLarge, binary, error }
@@ -31,28 +31,7 @@ struct CodeView: View {
         case .tooLarge: centerLabel("파일이 너무 큽니다")
         case .binary: centerLabel("바이너리 파일")
         case .error: centerLabel("열 수 없음")
-        case .ok:
-            ScrollView([.vertical, .horizontal]) {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
-                        HStack(alignment: .firstTextBaseline, spacing: 12) {
-                            Text("\(i + 1)")
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundStyle(Color.pMuted.opacity(0.6))
-                                .frame(minWidth: 40, alignment: .trailing)
-                            // 코드는 줄바꿈하지 않는다 — 자연 폭 + 가로 스크롤(lineLimit1·fixedSize).
-                            Text(line.isEmpty ? " " : line)
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundStyle(Color.pFg)
-                                .textSelection(.enabled)
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
-                        }
-                        .padding(.horizontal, 12)
-                    }
-                }
-                .padding(.vertical, 6)
-            }
+        case .ok: CodeTextView(code: code, language: target.language)
         }
     }
 
@@ -68,17 +47,17 @@ struct CodeView: View {
         let path = target.path
         let maxBytes = Self.maxBytes
         // 파일 IO는 백그라운드에서(대형 파일이 메인 스레드를 막지 않게).
-        let result: (LoadState, [String]) = await Task.detached {
+        let result: (LoadState, String) = await Task.detached {
             let fm = FileManager.default
             guard let attrs = try? fm.attributesOfItem(atPath: path),
-                  let size = (attrs[.size] as? NSNumber)?.intValue else { return (.error, []) }
-            if size > maxBytes { return (.tooLarge, []) }
-            guard let data = fm.contents(atPath: path) else { return (.error, []) }
-            if data.prefix(8000).contains(0) { return (.binary, []) } // NUL 바이트 → 바이너리
-            guard let text = String(data: data, encoding: .utf8) else { return (.binary, []) }
-            return (.ok, text.components(separatedBy: "\n"))
+                  let size = (attrs[.size] as? NSNumber)?.intValue else { return (.error, "") }
+            if size > maxBytes { return (.tooLarge, "") }
+            guard let data = fm.contents(atPath: path) else { return (.error, "") }
+            if data.prefix(8000).contains(0) { return (.binary, "") } // NUL 바이트 → 바이너리
+            guard let text = String(data: data, encoding: .utf8) else { return (.binary, "") }
+            return (.ok, text)
         }.value
         state = result.0
-        lines = result.1
+        code = result.1
     }
 }
