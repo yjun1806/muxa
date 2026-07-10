@@ -26,6 +26,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 복원 시 탭별로 새 셸을 띄울 작업 디렉터리(OSC 7 스냅샷). term(for:)가 TermView 생성 시 참조.
     /// TermView가 아직 안 만들어진 탭도 다음 저장 때 cwd를 잃지 않도록 convert의 폴백으로도 쓴다.
     @ObservationIgnored private var restoredCwd: [TabID: String] = [:]
+    /// 탭별 에이전트 재개 바인딩(훅이 넘긴 재개 명령). 훅 알림으로 등록되고 스냅샷에 실려 복원된다.
+    /// D1은 저장·영속·복원 시 맵 복구까지만 — 복원된 바인딩의 실제 재개 실행은 나중 단계가 담당한다.
+    @ObservationIgnored private var resumeBindings: [TabID: ResumeBinding] = [:]
     /// 터미널이 아닌 탭의 종류(그룹). 없으면 .terminal.
     @ObservationIgnored private var tabContent: [TabID: TabContent] = [:]
     /// 그룹 탭(TabID) → 서브탭 상태(문서·diff 묶음). TabGroupView가 관측한다.
@@ -115,6 +118,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         terms[tabId] = nil // TermView deinit이 서피스 free
         restoredCwd[tabId] = nil // 복원 cwd 힌트 해제
+        resumeBindings[tabId] = nil // 에이전트 재개 바인딩 해제
         tabContent[tabId] = nil
         groups[tabId] = nil // 그룹 탭이면 서브탭 상태도 해제
         badgedTabs.remove(tabId)
@@ -243,21 +247,37 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 훅(NotifyServer)에서 온 결정론적 알림을 이 스토어가 소유한 탭으로 라우팅한다. 소유하면 true.
     /// 셸이 도는 탭은 반드시 TermView(=terms)가 생성돼 있으므로 terms 유무로 소유를 판정한다.
     /// waiting/done은 순수 배달 게이트(NotificationGate)가 카테고리·가시성으로 배달을 가르고,
-    /// working(작업 재개)은 주의 해소로 보고 배지를 끈다.
-    func deliverNotify(tabId: TabID, state: NotifyState, title: String, body: String,
-                       category: NotifyCategory? = nil) -> Bool {
+    /// working(작업 재개)은 주의 해소로 보고 배지를 끈다. resume이 실려 오면 재개 바인딩을 등록한다
+    /// (state 없이 바인딩만 오는 메시지도 있어 state는 옵셔널 — 없으면 상태 신호 없이 바인딩만 등록).
+    @discardableResult
+    func deliverNotify(tabId: TabID, state: NotifyState?, title: String, body: String,
+                       category: NotifyCategory? = nil, resume: ResumeBinding? = nil) -> Bool {
         guard terms[tabId] != nil else { return false }
-        // 명시 신호는 상태 추정의 ground truth — 배지 경로와 별개로 추정기에 항상 고정 반영한다(DESIGN 4.5).
-        applyAgentSignal(.explicit(state), to: tabId)
-        switch state {
-        case .waiting, .done:
-            // category 미지정이면 state에서 파생(하위호환) — 게이트가 배달 방식을 결정한다.
-            fireNotification(tabId, title: title, body: body,
-                             category: category ?? state.defaultCategory, kind: .notify)
-        case .working:
-            clearTabBadge(tabId)
+        if let resume { setResumeBinding(resume, for: tabId) }
+        if let state {
+            // 명시 신호는 상태 추정의 ground truth — 배지 경로와 별개로 추정기에 항상 고정 반영한다(DESIGN 4.5).
+            applyAgentSignal(.explicit(state), to: tabId)
+            switch state {
+            case .waiting, .done:
+                // category 미지정이면 state에서 파생(하위호환) — 게이트가 배달 방식을 결정한다.
+                fireNotification(tabId, title: title, body: body,
+                                 category: category ?? state.defaultCategory, kind: .notify)
+            case .working:
+                clearTabBadge(tabId)
+            }
         }
         return true
+    }
+
+    /// 탭의 에이전트 재개 바인딩을 등록한다(훅 알림 경로). 즉시 저장을 트리거해 영속에 반영한다.
+    func setResumeBinding(_ binding: ResumeBinding, for tabId: TabID) {
+        resumeBindings[tabId] = binding
+        persist()
+    }
+
+    /// 탭의 에이전트 재개 바인딩(없으면 nil). 복원된 바인딩을 나중 단계(재개 실행·승인 게이트)가 읽는 접근자.
+    func resumeBinding(for tabId: TabID) -> ResumeBinding? {
+        resumeBindings[tabId]
     }
 
     /// 알림/배지 클릭으로 이 탭을 앞으로 가져온다 — 그 칸을 선택·포커스하고 배지를 끈다.
@@ -623,7 +643,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                 case .terminal:
                     // 현재 셸 작업 디렉터리 기록 — TermView가 살아 있으면 그 pwd, 아직 미실체화 탭이면 복원 힌트.
                     let tabCwd = terms[tid]?.pwd ?? restoredCwd[tid]
-                    tabs.append(TabSnapshot(group: nil, items: [], selectedItem: 0, cwd: tabCwd))
+                    // 에이전트 재개 바인딩도 함께 저장 — 복원 시 다시 맵에 되살린다(실행은 나중 단계).
+                    tabs.append(TabSnapshot(group: nil, items: [], selectedItem: 0,
+                                            cwd: tabCwd, resume: resumeBindings[tid]))
                 case .group(let kind):
                     let state = groups[tid]
                     let items = (state?.items ?? []).map(itemSnapshot)
@@ -689,6 +711,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                     }
                 } else if let tid = controller.createTab(title: "터미널", icon: "terminal", inPane: pane) {
                     if let cwd = t.cwd { restoredCwd[tid] = cwd } // 새 셸을 저장된 작업 디렉터리에서 띄우게 힌트.
+                    if let resume = t.resume { resumeBindings[tid] = resume } // 재개 바인딩 복구(실행은 나중 단계).
                     created.append(tid)
                 }
             }

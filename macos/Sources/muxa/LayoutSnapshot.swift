@@ -64,6 +64,10 @@ struct TabSnapshot: Codable {
     // 터미널 탭의 마지막 작업 디렉터리(OSC 7). 옵셔널 — 구 스냅샷엔 없어 decodeIfPresent로 하위호환.
     // 복원 시 이 경로에서 새 셸을 띄운다. nil이면 워크스페이스 기본 cwd.
     var cwd: String? = nil
+    // 터미널 탭의 에이전트 재개 바인딩(훅이 넘긴 재개 명령). 옵셔널 — 구 스냅샷엔 없어 하위호환(합성 Codable이
+    // 옵셔널을 decodeIfPresent로 처리하므로 구 state.v4.json도 정상 디코드). 복원 시 맵에 되살리기만 하고
+    // 실제 재개 실행은 나중 단계가 담당한다.
+    var resume: ResumeBinding? = nil
 }
 
 /// 그룹 서브탭 하나 — 파일이거나 커밋 diff.

@@ -76,7 +76,7 @@ final class AppState {
         let tabId = TabID(uuid: uuid)
         for store in stores.values {
             if store.deliverNotify(tabId: tabId, state: msg.state, title: msg.title,
-                                   body: msg.body, category: msg.category) { break }
+                                   body: msg.body, category: msg.category, resume: msg.resume) { break }
         }
     }
 

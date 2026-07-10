@@ -1,8 +1,9 @@
 import Foundation
 
 /// 훅(Claude Code Notification/Stop 등)이 `muxa notify`로 보낸 결정론적 신호.
-/// 프로토콜은 탭 구분 한 줄: `<tabId>\t<state>\t<title>\t<body>\t<category>\n`
-/// (마지막 `<category>`는 선택 — 옛 훅/CLI는 안 보내며, 없으면 state에서 파생한다).
+/// 프로토콜은 탭 구분 한 줄: `<tabId>\t<state>\t<title>\t<body>\t<category>\t<resumeCommand>\t<agentLabel>\n`
+/// (뒤쪽 필드는 전부 선택 — 옛 훅/CLI는 안 보낸다. category 없으면 state에서 파생,
+///  resumeCommand 없으면 바인딩 등록 없음. resumeCommand 단독이면 state 필드가 비어 상태 신호는 없다).
 enum NotifyState: String {
     case waiting // 에이전트가 승인/입력 대기 — 세션 내내 OSC 133이 안 오는 그 순간을 명시 신호로.
     case done    // 작업 완료.
@@ -20,12 +21,15 @@ enum NotifyState: String {
 }
 
 /// 훅에서 온 알림 한 줄을 파싱한 값. category는 선택 — 결정론 배달 게이트(NotificationGate) 입력.
+/// state는 선택 — resumeCommand 단독(바인딩만 등록) 메시지는 상태 신호가 없어 nil이다.
+/// resume는 선택 — 훅이 재개 명령을 실었을 때만 채워진다(tabId에 묶어 영속·복원).
 struct NotifyMessage {
     let tabId: String
-    let state: NotifyState
+    let state: NotifyState?
     let title: String
     let body: String
     let category: NotifyCategory?
+    let resume: ResumeBinding?
 }
 
 /// Unix 도메인 소켓 리스너 — `muxa notify` CLI가 보낸 한 줄을 받아 콜백으로 넘긴다.
@@ -137,16 +141,25 @@ final class NotifyServer {
         }
     }
 
-    /// `<tabId>\t<state>\t<title>\t<body>\t<category>` 파싱. 부족한 필드는 관대하게 채운다
-    /// (title/body는 빈 문자열, category는 미지정·미인식이면 nil → deliverNotify가 state에서 파생).
+    /// `<tabId>\t<state>\t<title>\t<body>\t<category>\t<resumeCommand>\t<agentLabel>` 파싱. 부족한
+    /// 필드는 관대하게 채운다(title/body는 빈 문자열, category는 미지정·미인식이면 nil → deliverNotify가
+    /// state에서 파생). state가 비었거나 미인식이면 nil(바인딩 단독 메시지) — state·resume 둘 다 없으면 폐기한다.
     static func parse(_ line: String) -> NotifyMessage? {
         let parts = line.components(separatedBy: "\t")
         guard parts.count >= 2 else { return nil }
         let tabId = parts[0]
-        guard !tabId.isEmpty, let state = NotifyState(rawValue: parts[1]) else { return nil }
+        guard !tabId.isEmpty else { return nil }
+        let state = NotifyState(rawValue: parts[1]) // 빈/미인식이면 nil — resume 단독 메시지
         let title = parts.count > 2 ? parts[2] : ""
         let body = parts.count > 3 ? parts[3] : ""
         let category = parts.count > 4 ? NotifyCategory(rawValue: parts[4]) : nil
-        return NotifyMessage(tabId: tabId, state: state, title: title, body: body, category: category)
+        let resumeCommand = parts.count > 5 ? parts[5] : ""
+        let agentLabel = parts.count > 6 ? parts[6] : ""
+        let resume = resumeCommand.isEmpty ? nil
+            : ResumeBinding(command: resumeCommand, agentLabel: agentLabel.isEmpty ? nil : agentLabel)
+        // 유효 신호가 아무것도 없으면(상태도, 바인딩도) 폐기 — 구 동작(미인식 state 폐기)과 동일.
+        guard state != nil || resume != nil else { return nil }
+        return NotifyMessage(tabId: tabId, state: state, title: title, body: body,
+                             category: category, resume: resume)
     }
 }
