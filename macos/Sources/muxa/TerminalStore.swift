@@ -249,6 +249,30 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         clearTabBadge(tabId)
     }
 
+    /// 빠른 전환기(⌘K): 이 스토어의 모든 탭(터미널·그룹)과 그룹 서브탭을 가벼운 값으로 열거한다.
+    /// 배지 여부를 함께 실어 "대기 우선" 정렬을 상위(AppState)가 판단하게 한다. 순회 순서는
+    /// 칸(pane)→탭 순이라 계층(칸›탭›서브탭)이 자연스럽게 나온다.
+    func quickSwitchTabs() -> [QuickTab] {
+        var result: [QuickTab] = []
+        for paneId in controller.allPaneIds {
+            for tab in controller.tabs(inPane: paneId) {
+                var subs: [QuickSubTab] = []
+                if case .group = content(for: tab.id), let g = groups[tab.id] {
+                    subs = g.items.map { QuickSubTab(id: $0.id, title: $0.title, icon: $0.icon) }
+                }
+                result.append(QuickTab(tabId: tab.id, title: tab.title, icon: tab.icon,
+                                       badged: badgedTabs.contains(tab.id), subItems: subs))
+            }
+        }
+        return result
+    }
+
+    /// 빠른 전환기: 그룹 탭 안의 특정 서브탭을 선택한다(탭 선택·포커스는 revealTab이 이미 처리).
+    /// 그룹 탭이 아니거나 항목이 없으면 무동작.
+    func selectGroupItem(_ tabId: TabID, itemId: String) {
+        groups[tabId]?.selectedId = itemId
+    }
+
     /// 사용자가 탭을 보면 배지를 끈다.
     func clearTabBadge(_ tabId: TabID) {
         guard badgedTabs.contains(tabId) else { return }

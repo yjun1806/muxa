@@ -22,6 +22,8 @@ struct ContentView: View {
             }
         }
         .background(Color.pPanel)
+        // ⌘K 빠른 전환기 — 크롬 전체 위에 뜨는 오버레이(닫혀 있으면 아무것도 안 그린다).
+        .overlay { QuickSwitcher(state: state) }
     }
 
     /// 전체 폭 상단바 한 줄 — 신호등 · 사이드바/워크스페이스 컨트롤 · 프로젝트 탭 · 우측 경로.

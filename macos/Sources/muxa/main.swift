@@ -89,6 +89,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let action = keymap.resolve(keyCode: Int(event.keyCode),
                                           characters: event.charactersIgnoringModifiers,
                                           flags: event.modifierFlags) else { return false }
+        // 빠른 전환기가 열려 있으면 ⌘K만 토글로 받고, 나머지 크롬 단축키는 삼켜 뒤 화면 오조작을 막는다.
+        // (평문·Esc는 keymap 미매치라 여기 안 오고 전환기 입력창으로 흘러간다.)
+        if state.showQuickSwitch {
+            if case .quickSwitch = action { state.toggleQuickSwitch() }
+            return true
+        }
         return perform(action, state: state)
     }
 
@@ -107,6 +113,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state.toggleGitPanel(); return true
         case .jumpToNextWaiting:
             state.jumpToNextWaiting(); return true
+        case .quickSwitch:
+            state.toggleQuickSwitch(); return true
         case .newTerminal, .split, .closeTab, .find, .focusPane, .cycleTab:
             guard let store = state.activeStore else { return false }
             return perform(action, store: store)

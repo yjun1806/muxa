@@ -25,6 +25,7 @@ enum KeymapAction {
     case focusPane(NavigationDirection) // ⌘⌥←→↑↓ / ⌘⌥hjkl
     case cycleTab(forward: Bool)        // ⌃Tab / ⌃⇧Tab
     case jumpToNextWaiting              // ⌘⇧A — 다음 대기 세션 전역 점프
+    case quickSwitch                    // ⌘K — 빠른 전환기(명령 팔레트)
 }
 
 /// (keyCode, 수정자) → KeymapAction 매핑 테이블 + 순수 판정 함수. 설정의 재정의를 기본 위에 얹는다.
@@ -95,6 +96,7 @@ struct KeymapResolver {
             Binding(keyCode: kVK_Tab, mods: ctrl): .cycleTab(forward: true),
             Binding(keyCode: kVK_Tab, mods: ctrlShift): .cycleTab(forward: false),
             Binding(keyCode: kVK_ANSI_A, mods: cmdShift): .jumpToNextWaiting,
+            Binding(keyCode: kVK_ANSI_K, mods: cmd): .quickSwitch,
         ]
         // 칸 방향 포커스 이동(⌘⌥) — 화살표와 vim hjkl 둘 다 받아 근육기억에 맞춘다.
         let focus: [(Int, NavigationDirection)] = [
@@ -126,6 +128,7 @@ extension KeymapAction {
         case "tab_next": return .cycleTab(forward: true)
         case "tab_prev": return .cycleTab(forward: false)
         case "jump_next_waiting": return .jumpToNextWaiting
+        case "quick_switch": return .quickSwitch
         case "focus_left": return .focusPane(.left)
         case "focus_right": return .focusPane(.right)
         case "focus_up": return .focusPane(.up)

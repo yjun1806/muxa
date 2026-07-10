@@ -28,6 +28,9 @@ final class AppState {
     var showExplorer = false
     var showGitPanel = false
 
+    /// ⌘K 빠른 전환기(명령 팔레트) 표시 상태 — 세션 영속 대상 아님. 단축키가 토글한다.
+    var showQuickSwitch = false
+
     @ObservationIgnored private let app: ghostty_app_t
     /// muxa 설정(`~/.config/muxa/config`) — 시작 시 1회 로드해 주입. 기본 사이드바 모드·완료 배지 임계 등. (DESIGN 4.6)
     @ObservationIgnored let config: MuxaConfig
@@ -103,6 +106,59 @@ final class AppState {
             store.revealTab(TabID(uuid: uuid))
         }
         showGitPanel = true       // 도구 패널(Git) 자동 오픈 — 무엇이 바뀌었는지 바로 체크
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // MARK: ⌘K 빠른 전환기 (계층 5단 퍼지 탐색 — "나를 기다리는 세션으로 즉시 점프")
+
+    func toggleQuickSwitch() { showQuickSwitch.toggle() }
+
+    /// 전환기가 탐색·정렬할 전체 항목을 계층 순서(워크스페이스›프로젝트›탭›서브탭)로 만든다.
+    /// 열린 프로젝트(store 존재)만 탭·서브탭을 편다 — 배지는 실행 중 스토어에서만 생기므로 누락 없음.
+    /// 대기 우선 정렬은 랭킹(QuickSwitchRanker)이 waiting 플래그로 처리한다.
+    func quickSwitchItems() -> [QuickSwitchItem] {
+        var items: [QuickSwitchItem] = []
+        for ws in workspaces {
+            items.append(QuickSwitchItem(
+                id: "ws:\(ws.id)", kind: .workspace, title: ws.name, subtitle: "워크스페이스",
+                icon: "square.stack", waiting: badgedWorkspaces.contains(ws.id),
+                workspaceId: ws.id, projectId: nil, tabId: nil, subItemId: nil))
+            for project in ws.projects {
+                items.append(QuickSwitchItem(
+                    id: "pj:\(project.id)", kind: .project, title: project.name, subtitle: ws.name,
+                    icon: "folder", waiting: badgedProjects.contains(project.id),
+                    workspaceId: ws.id, projectId: project.id, tabId: nil, subItemId: nil))
+                guard let store = stores[project.id] else { continue }
+                let loc = "\(ws.name) · \(project.name)"
+                for qt in store.quickSwitchTabs() {
+                    let tabTitle = qt.title.isEmpty ? TerminalStore.defaultTerminalTitle : qt.title
+                    let uuid = qt.tabId.uuid.uuidString
+                    items.append(QuickSwitchItem(
+                        id: "tab:\(uuid)", kind: .tab, title: tabTitle, subtitle: loc,
+                        icon: qt.icon ?? "terminal", waiting: qt.badged,
+                        workspaceId: ws.id, projectId: project.id, tabId: qt.tabId, subItemId: nil))
+                    for sub in qt.subItems {
+                        items.append(QuickSwitchItem(
+                            id: "sub:\(uuid):\(sub.id)", kind: .subtab, title: sub.title,
+                            subtitle: "\(loc) · \(tabTitle)", icon: sub.icon, waiting: false,
+                            workspaceId: ws.id, projectId: project.id, tabId: qt.tabId, subItemId: sub.id))
+                    }
+                }
+            }
+        }
+        return items
+    }
+
+    /// 전환기 항목으로 점프한다 — 워크스페이스→프로젝트→탭→서브탭 좌표를 따라 라우팅(원클릭 라우팅 재사용).
+    /// 탐색·점프 전용이라(액션 아님) git 패널은 열지 않는다(revealActivity와 대비).
+    func quickJump(_ item: QuickSwitchItem) {
+        showQuickSwitch = false
+        setActiveId(item.workspaceId)
+        if let projectId = item.projectId { setActiveProject(projectId) }
+        if let projectId = item.projectId, let tabId = item.tabId, let store = stores[projectId] {
+            store.revealTab(tabId)
+            if let subItemId = item.subItemId { store.selectGroupItem(tabId, itemId: subItemId) }
+        }
         NSApp.activate(ignoringOtherApps: true)
     }
 
