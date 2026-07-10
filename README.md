@@ -6,7 +6,8 @@
 
 ## 상태
 
-설계 단계. 코드는 아직 없다. 설계 문서는 [docs/DESIGN.md](docs/DESIGN.md)에 있다.
+구현 중. 터미널 코어(분할·탭·검색·세션 복원)와 git 읽기(상태·diff·히스토리)까지 동작한다.
+설계는 [docs/DESIGN.md](docs/DESIGN.md), 현재 상태·다음 할 일은 [docs/STATUS.md](docs/STATUS.md).
 
 ## 핵심 아이디어
 
@@ -18,4 +19,5 @@
 
 ## 스택
 
-Tauri 2 (macOS 전용) + Rust 코어(alacritty_terminal, git2, notify) + React/TypeScript. 근거는 설계 문서 참고.
+Swift/SwiftUI + AppKit (macOS 14+). 터미널 코어는 libghostty 임베딩(`GhosttyKit.xcframework`),
+분할·탭은 Bonsplit, git은 CLI 셸아웃. 근거는 설계 문서 참고.

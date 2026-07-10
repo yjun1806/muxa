@@ -1,13 +1,3 @@
-# Rust
-target/
-
-# Node
-node_modules/
-dist/
-
-# Tauri
-src-tauri/gen/
-
 # OS
 .DS_Store
 
@@ -15,7 +5,7 @@ src-tauri/gen/
 .env
 .env.local
 
-# 네이티브 전환 (M0+) — 로컬 툴체인·서드파티 소스, 리포에 안 넣음
+# 네이티브 툴체인·서드파티 소스, 리포에 안 넣음
 vendor/
 
 # SPM 빌드 산출물
