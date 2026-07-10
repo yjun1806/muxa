@@ -8,11 +8,12 @@ struct FileViewTarget: Identifiable, Equatable {
     /// 탭 dedup·복원 키. 제목이 아니라 전체 경로로 식별(동명 파일 충돌 방지).
     var id: String { "file:\(path)" }
 
-    enum Kind { case markdown, code }
+    enum Kind { case markdown, code, html }
 
     var kind: Kind {
         switch (path as NSString).pathExtension.lowercased() {
         case "md", "markdown", "mdown", "mkd", "mkdn": return .markdown
+        case "html", "htm", "xhtml": return .html
         default: return .code
         }
     }
@@ -23,6 +24,7 @@ struct FileViewTarget: Identifiable, Equatable {
     var tabIcon: String {
         switch kind {
         case .markdown: return "doc.richtext"
+        case .html: return "chevron.left.forwardslash.chevron.right"
         case .code: return "doc.text"
         }
     }

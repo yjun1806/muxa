@@ -33,7 +33,7 @@ struct BonsplitWorkspaceView: View {
             }
         case .file(let target):
             switch target.kind {
-            case .markdown:
+            case .markdown, .html:
                 MarkdownView(target: target) {
                     _ = store.controller.closeTab(tabId, inPane: paneId)
                 }

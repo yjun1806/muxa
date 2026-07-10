@@ -1,0 +1,102 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link id="hl-theme" rel="stylesheet" href="hl-light.css">
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2937; --muted: #6b7280;
+    --border: #e2e5e9; --panel: #f3f4f6; --link: #0d9488;
+  }
+  body.dark {
+    --bg: #1b1b1d; --fg: #e4e4e7; --muted: #8a8a90;
+    --border: #38383c; --panel: #252528; --link: #2dd4bf;
+  }
+  html, body { margin: 0; padding: 0; background: var(--bg); }
+  .markdown-body {
+    color: var(--fg);
+    font: 14px/1.65 -apple-system, "SF Pro Text", system-ui, sans-serif;
+    max-width: 860px; margin: 0 auto; padding: 24px 28px 80px;
+    word-wrap: break-word;
+  }
+  .markdown-body h1, .markdown-body h2 { border-bottom: 1px solid var(--border); padding-bottom: .3em; }
+  .markdown-body h1 { font-size: 1.9em; margin: .4em 0 .5em; }
+  .markdown-body h2 { font-size: 1.5em; margin: 1.2em 0 .5em; }
+  .markdown-body h3 { font-size: 1.25em; margin: 1em 0 .4em; }
+  .markdown-body h4, .markdown-body h5, .markdown-body h6 { margin: 1em 0 .4em; }
+  .markdown-body p { margin: .6em 0; }
+  .markdown-body a { color: var(--link); text-decoration: none; }
+  .markdown-body a:hover { text-decoration: underline; }
+  .markdown-body code {
+    font: 12.5px/1.5 "SF Mono", Menlo, monospace;
+    background: var(--panel); padding: .15em .4em; border-radius: 4px;
+  }
+  .markdown-body pre {
+    background: var(--panel); padding: 12px 14px; border-radius: 8px;
+    overflow-x: auto; border: 1px solid var(--border);
+  }
+  .markdown-body pre code { background: none; padding: 0; font-size: 12.5px; }
+  .markdown-body blockquote {
+    margin: .6em 0; padding: .2em 1em; color: var(--muted);
+    border-left: 3px solid var(--border);
+  }
+  .markdown-body table { border-collapse: collapse; margin: .8em 0; display: block; overflow-x: auto; }
+  .markdown-body th, .markdown-body td { border: 1px solid var(--border); padding: 6px 12px; }
+  .markdown-body th { background: var(--panel); font-weight: 600; }
+  .markdown-body tr:nth-child(2n) td { background: color-mix(in srgb, var(--panel) 50%, transparent); }
+  .markdown-body img { max-width: 100%; }
+  .markdown-body hr { border: none; border-top: 1px solid var(--border); margin: 1.2em 0; }
+  .markdown-body ul, .markdown-body ol { padding-left: 1.6em; }
+  .markdown-body li { margin: .2em 0; }
+  .markdown-body input[type=checkbox] { margin-right: .4em; }
+  .markdown-body .mermaid { background: var(--panel); border-radius: 8px; padding: 12px; margin: .8em 0; text-align: center; }
+  /* raw HTML 문서(.html)는 셸 스타일 없이 그대로 */
+  body.raw .markdown-body { max-width: none; padding: 0; }
+</style>
+<script src="markdown-it.min.js"></script>
+<script src="highlight.min.js"></script>
+<script src="mermaid.min.js"></script>
+</head>
+<body>
+<article id="content" class="markdown-body"></article>
+<script>
+  const md = window.markdownit({
+    html: true, linkify: true, typographer: false,
+    highlight: (str, lang) => {
+      if (lang === 'mermaid') return '<code class="language-mermaid">' + md.utils.escapeHtml(str) + '</code>';
+      if (lang && hljs.getLanguage(lang)) {
+        try { return hljs.highlight(str, { language: lang }).value; } catch (e) {}
+      }
+      return '';
+    }
+  });
+
+  function setTheme(dark) {
+    document.getElementById('hl-theme').href = dark ? 'hl-dark.css' : 'hl-light.css';
+    document.body.classList.toggle('dark', !!dark);
+    mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', securityLevel: 'strict' });
+  }
+
+  // b64: UTF-8 base64. raw=true면 md 파싱 없이 원문 HTML 그대로(.html 파일).
+  function render(b64, dark, raw) {
+    setTheme(dark);
+    const text = decodeURIComponent(escape(atob(b64)));
+    document.body.classList.toggle('raw', !!raw);
+    const el = document.getElementById('content');
+    el.innerHTML = raw ? text : md.render(text);
+    if (!raw) {
+      el.querySelectorAll('code.language-mermaid').forEach((code) => {
+        const div = document.createElement('div');
+        div.className = 'mermaid';
+        div.textContent = code.textContent;
+        const pre = code.closest('pre') || code;
+        pre.replaceWith(div);
+      });
+      try { mermaid.run({ querySelector: '.mermaid' }); } catch (e) {}
+    }
+    window.scrollTo(0, 0);
+  }
+</script>
+</body>
+</html>

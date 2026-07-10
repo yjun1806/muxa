@@ -19,8 +19,13 @@ let package = Package(
                 .product(name: "Bonsplit", package: "bonsplit"),
                 .product(name: "Highlighter", package: "HighlighterSwift"),
             ],
+            resources: [
+                // md/HTML 뷰어용 오프라인 JS 에셋(markdown-it·highlight.js·mermaid) + HTML 셸.
+                .copy("Resources/mdviewer"),
+            ],
             linkerSettings: [
                 .linkedFramework("AppKit"),
+                .linkedFramework("WebKit"), // md/HTML 뷰어(WKWebView)
                 .linkedFramework("Metal"),
                 .linkedFramework("MetalKit"),
                 .linkedFramework("CoreText"),
