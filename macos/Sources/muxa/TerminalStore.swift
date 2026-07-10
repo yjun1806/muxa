@@ -280,7 +280,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                 _ = i
             }
             if tabs.isEmpty { tabs = [TabSnapshot(group: nil, items: [], selectedItem: 0)] } // 빈 패인 방지
-            return .leaf(tabs: tabs, selected: min(selected, tabs.count - 1))
+            let focused = p.id == controller.focusedPaneId?.id.uuidString
+            return .leaf(tabs: tabs, selected: min(selected, tabs.count - 1), focused: focused)
         case .split(let s):
             return .split(vertical: s.orientation == "vertical", divider: s.dividerPosition,
                           first: convert(s.first), second: convert(s.second))
@@ -304,18 +305,28 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         return nil
     }
 
+    /// 복원 중 만난 '활성 칸'과 그 칸의 선택 탭 — 재구성이 끝난 뒤 전역 포커스를 여기로 되돌린다.
+    /// (realize가 리프마다 selectTab으로 포커스를 옮기므로, 마지막에 저장 시점의 활성 칸으로 복구해야 함.)
+    @ObservationIgnored private var restoreFocus: (pane: PaneID, tab: TabID?)?
+
     /// 스냅샷을 현재 컨트롤러에 단일 패스로 재구성. 빈 패인 폴백은 ensureInitialTerminal이 담당.
     private func restoreLayout(_ snap: PaneSnapshot) {
         restoring = true
+        restoreFocus = nil
         realize(snap, into: controller.allPaneIds.first)
         restoring = false
+        // 활성 칸 복원 — 선택 탭이 있으면 selectTab(그 칸 포커스+탭 선택), 없으면 칸만 포커스.
+        if let rf = restoreFocus {
+            restoreFocus = nil
+            if let tab = rf.tab { controller.selectTab(tab) } else { controller.focusPane(rf.pane) }
+        }
     }
 
     /// 스냅샷 노드를 targetPane에 실현한다. leaf=탭들 생성+선택, split=쪼갠 뒤 양쪽 채움.
     private func realize(_ snap: PaneSnapshot, into pane: PaneID?) {
         guard let pane else { return }
         switch snap {
-        case .leaf(let tabs, let selected):
+        case .leaf(let tabs, let selected, let focused):
             var created: [TabID] = []
             for t in tabs {
                 if let raw = t.group, let kind = TabGroupKind(raw: raw) {
@@ -326,7 +337,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                     created.append(tid)
                 }
             }
-            if selected < created.count { controller.selectTab(created[selected]) }
+            let selectedTab = selected < created.count ? created[selected] : nil
+            if let selectedTab { controller.selectTab(selectedTab) }
+            // 저장 시점의 활성 칸이면 재구성 후 전역 포커스를 여기로 되돌리게 기록해 둔다.
+            if focused { restoreFocus = (pane, selectedTab) }
         case .split(let vertical, let divider, let first, let second):
             let orientation: SplitOrientation = vertical ? .vertical : .horizontal
             guard let newPane = controller.splitPane(pane, orientation: orientation, withTab: nil,

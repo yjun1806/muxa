@@ -5,8 +5,55 @@ import Foundation
 /// '트리=터미널 + 뷰어=별도목록' 2트랙(복원 중 선택이 튀어 빈 터미널을 낳음)을 단일 패스로 대체한다.
 /// PTY 내용은 복원 불가 → 터미널은 cwd에서 새 셸. 문서/커밋 diff는 경로/해시로 재생성.
 indirect enum PaneSnapshot: Codable {
-    case leaf(tabs: [TabSnapshot], selected: Int)
+    /// `focused`=이 리프가 저장 시점의 활성(focused) 칸이었는지. 복원 후 전역 포커스를 여기로 되돌린다.
+    case leaf(tabs: [TabSnapshot], selected: Int, focused: Bool)
     case split(vertical: Bool, divider: Double, first: PaneSnapshot, second: PaneSnapshot)
+
+    // 커스텀 Codable — `focused`는 나중에 추가된 필드라 decodeIfPresent로 하위호환(구 state.v4.json엔 없음).
+    // 인코딩 형식은 Swift가 열거형에 합성하던 것과 동일(케이스명 키 → 연관값 라벨 키)이라 구 데이터도 그대로 읽힌다.
+    private enum CaseKey: String, CodingKey { case leaf, split }
+    private enum LeafKey: String, CodingKey { case tabs, selected, focused }
+    private enum SplitKey: String, CodingKey { case vertical, divider, first, second }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CaseKey.self)
+        if c.contains(.leaf) {
+            let l = try c.nestedContainer(keyedBy: LeafKey.self, forKey: .leaf)
+            self = .leaf(
+                tabs: try l.decode([TabSnapshot].self, forKey: .tabs),
+                selected: try l.decode(Int.self, forKey: .selected),
+                focused: try l.decodeIfPresent(Bool.self, forKey: .focused) ?? false
+            )
+        } else if c.contains(.split) {
+            let s = try c.nestedContainer(keyedBy: SplitKey.self, forKey: .split)
+            self = .split(
+                vertical: try s.decode(Bool.self, forKey: .vertical),
+                divider: try s.decode(Double.self, forKey: .divider),
+                first: try s.decode(PaneSnapshot.self, forKey: .first),
+                second: try s.decode(PaneSnapshot.self, forKey: .second)
+            )
+        } else {
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: decoder.codingPath, debugDescription: "알 수 없는 PaneSnapshot 케이스"))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CaseKey.self)
+        switch self {
+        case .leaf(let tabs, let selected, let focused):
+            var l = c.nestedContainer(keyedBy: LeafKey.self, forKey: .leaf)
+            try l.encode(tabs, forKey: .tabs)
+            try l.encode(selected, forKey: .selected)
+            try l.encode(focused, forKey: .focused)
+        case .split(let vertical, let divider, let first, let second):
+            var s = c.nestedContainer(keyedBy: SplitKey.self, forKey: .split)
+            try s.encode(vertical, forKey: .vertical)
+            try s.encode(divider, forKey: .divider)
+            try s.encode(first, forKey: .first)
+            try s.encode(second, forKey: .second)
+        }
+    }
 }
 
 /// 탭 하나 — `group`이 nil이면 터미널, 아니면 그룹 탭(종류 + 서브탭들).
