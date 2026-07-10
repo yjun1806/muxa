@@ -47,6 +47,9 @@ struct DiffView: View {
     @State private var loaded = false
     @State private var applying = false
     @State private var stageError: String?
+    /// 현재 파일의 최신 변경 상태 — 스테이지/언스테이지로 index·worktree가 바뀌므로 target의
+    /// 캡처값(stale)이 아니라 매 로드마다 git status에서 다시 읽어 라우팅·버튼 판단에 쓴다.
+    @State private var change: GitFileChange?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -71,9 +74,9 @@ struct DiffView: View {
         .task(id: target.id) { await load() }
     }
 
-    /// diff 대상이 변경 파일일 때만 값이 있다(.commit은 읽기 전용).
+    /// diff 대상이 변경 파일일 때만 값이 있다(.commit은 읽기 전용). load()가 최신 status로 채운다.
     private var fileChange: GitFileChange? {
-        if case .file(let change) = target { return change }
+        if case .file = target { return change }
         return nil
     }
 
@@ -172,8 +175,8 @@ struct DiffView: View {
         applying = true
         stageError = nil
         let err = await op()
+        if let err { stageError = err } else { await load() } // 재로딩 끝까지 가드 유지(중복 클릭 drop)
         applying = false
-        if let err { stageError = err } else { await load() }
     }
 
     private func load() async {
@@ -181,9 +184,16 @@ struct DiffView: View {
         stageError = nil
         let text: String
         switch target {
-        case .file(let change):
-            text = await GitService.fileDiff(change, in: dir)
+        case .file(let initial):
+            // 스테이지 상태가 바뀌었을 수 있으니 최신 status에서 이 경로의 change를 다시 찾아 라우팅한다.
+            // (stale target으로 --cached/언스테이지 브랜치를 잘못 타 '변경 내용 없음'이 뜨던 문제 방지)
+            let path = initial.opPath
+            let fresh = (await GitService.status(in: dir))?.changes.first { $0.opPath == path }
+            let cur = fresh ?? initial
+            change = cur
+            text = await GitService.fileDiff(cur, in: dir)
         case .commit(let hash, _):
+            change = nil
             text = await GitService.commitDiff(hash, in: dir)
         }
         lines = text.components(separatedBy: "\n")

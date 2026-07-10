@@ -52,6 +52,9 @@ struct FileExplorerOutline: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         let coordinator = context.coordinator
         coordinator.props = self
+        // 인라인 이름 변경 중엔 리로드/reveal을 보류 — reloadData가 필드에디터를 죽여
+        // 반쯤 입력한 이름으로 조기 커밋되는 데이터 손실을 막는다(편집 종료 후 자연 갱신).
+        if coordinator.isEditing { return }
         if coordinator.currentRoot != root {
             coordinator.reload(root: root)
         } else if coordinator.lastToken != reloadToken {
@@ -83,6 +86,8 @@ struct FileExplorerOutline: NSViewRepresentable {
         private var editingNode: FileNode?
         private weak var editingCell: FileCellView?
         private var editCancelled = false
+        /// 인라인 편집 중이면 true — 편집 중 리로드는 필드에디터를 강제 종료해 반쯤 친 이름으로 커밋되므로 보류한다.
+        var isEditing: Bool { editingNode != nil }
 
         init(props: FileExplorerOutline) { self.props = props }
 
@@ -271,11 +276,18 @@ struct FileExplorerOutline: NSViewRepresentable {
             let dst = ((node.path as NSString).deletingLastPathComponent as NSString).appendingPathComponent(newName)
             do {
                 try FileManager.default.moveItem(atPath: node.path, toPath: dst)
-                if node.isDirectory { expandedPaths.remove(node.path) } // 옛 경로 펼침 상태 정리
+                if node.isDirectory {
+                    // 옛 경로 자신 + 그 하위 폴더들의 펼침 상태 정리(stale 경로 누적 방지).
+                    let prefix = node.path + "/"
+                    expandedPaths = expandedPaths.filter { $0 != node.path && !$0.hasPrefix(prefix) }
+                }
             } catch {
                 warn("이름을 바꿀 수 없습니다: \(newName)")
             }
-            reload(root: currentRoot) // 성공/실패 모두 원본 이름으로 셀 재표시
+            // didEndEditing 콜스택 안에서 동기 reloadData는 필드에디터 해체 중 재진입 위험 →
+            // 이벤트 루프 종료 후로 미룬다.
+            let root = currentRoot
+            DispatchQueue.main.async { [weak self] in self?.reload(root: root) }
         }
 
         // MARK: 인라인 편집 델리게이트(NSTextFieldDelegate)

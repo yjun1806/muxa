@@ -52,6 +52,7 @@ struct GitPanel: View {
         .frame(maxHeight: .infinity)
         .background(Color.pPanel)
         .task(id: dir) {
+            gh = nil // 프로젝트 전환 시 이전 PR 배지 즉시 제거(네트워크 대기 동안 stale 방지)
             await refresh()
             await refreshGH() // gh 배지: 진입 시 1회만(과한 폴링 금지)
             if let dir { watcher = FileWatcher(path: dir) } // B-2: 변경 시 git 패널 자동 갱신
@@ -378,7 +379,10 @@ struct GitPanel: View {
             let msg = await op(dir)
             syncError = msg
             syncBusy = false
-            if msg == nil { await refresh() }
+            if msg == nil {
+                await refresh()
+                await refreshGH() // 브랜치 전환·pull/push 후 PR 배지도 갱신(이전 브랜치 PR stale 방지)
+            }
         }
     }
 
