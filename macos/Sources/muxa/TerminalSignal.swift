@@ -8,4 +8,7 @@ enum TerminalSignal {
     case bell
     /// OSC 9/777 데스크톱 알림.
     case desktopNotification(title: String, body: String)
+    /// 출력 heartbeat — RENDER 액션을 TermView가 초당 1회로 다운샘플한 값(에이전트 상태 추정용).
+    /// 배지/알림과 무관: store가 이걸로 AgentActivityEstimator만 굴린다.
+    case outputHeartbeat
 }

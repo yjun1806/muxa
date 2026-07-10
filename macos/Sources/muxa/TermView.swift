@@ -278,6 +278,30 @@ final class TermView: NSView, NSTextInputClient {
         onSignal?(.bell)
     }
 
+    // MARK: 출력 heartbeat — RENDER 액션 다운샘플 (에이전트 상태 추정, DESIGN 4.5)
+    //
+    // GHOSTTY_ACTION_RENDER는 프레임마다(고빈도) 온다 → 반드시 스로틀. 게이트(shouldEmitRenderHeartbeat)만
+    // 콜백 스레드에서 저비용으로 통과시키고, 실제 신호는 메인에서 emitOutputHeartbeat가 넘긴다.
+
+    /// 마지막으로 heartbeat를 흘려보낸 시각(단조 ns). RENDER 콜백 스레드에서만 접근(정렬된 8바이트 로드/스토어).
+    @ObservationIgnored private var lastRenderNs: UInt64 = 0
+    /// heartbeat 다운샘플 간격 — 초당 1회면 idle 추정(초 단위)에 충분하고 부하가 없다.
+    private static let renderThrottleNs: UInt64 = 1_000_000_000
+
+    /// RENDER 액션 스로틀 게이트 — 간격이 지났으면 true(+타임스탬프 갱신). 콜백 스레드에서 호출.
+    /// 경합이 나도 최악은 heartbeat 한 번 더 흘리는 것뿐이라 락 없이 처리한다.
+    func shouldEmitRenderHeartbeat() -> Bool {
+        let now = DispatchTime.now().uptimeNanoseconds
+        if now &- lastRenderNs < Self.renderThrottleNs { return false }
+        lastRenderNs = now
+        return true
+    }
+
+    /// 스로틀을 통과한 RENDER를 출력 heartbeat 신호로 store에 넘긴다(메인에서 호출).
+    func emitOutputHeartbeat() {
+        onSignal?(.outputHeartbeat)
+    }
+
     /// OSC 7 작업 디렉터리 변경. 저장은 스냅샷 시점에 store가 pwd를 읽는 방식이라 여기선 값만 갱신한다.
     func onPwdChange(_ pwd: String) {
         self.pwd = pwd

@@ -39,6 +39,7 @@ swift build                 # 빌드 (SPM)
 - **git 브랜치 전환 + pull/push** ✅ — `GitService+Branch`; Git 헤더 브랜치 메뉴 + pull/push 버튼
 - **diff 인라인 스테이지** ✅ — hunk 단위(WKWebView→Swift 메시지 + `git apply --cached`) + 파일 전체 스테이지/언스테이지 도구줄; 스테이지 후 최신 status 재조회
 - **gh 배지** ✅ — `GitService+GH`; Git 헤더에 PR#·상태색·CI 롤업(gh 미설치/미인증 전경로 가드)
+- **에이전트 상태 추정** ✅ (Tier3, DESIGN 4.5) — 순수 값 `AgentActivityEstimator`(idle/working/waiting/done) + 신호 배선. RENDER 액션을 `TermView`가 초당 1회로 다운샘플→`.outputHeartbeat`, OSC 133 완료→done, muxa notify 명시신호(waiting/done/working)를 ground truth로 고정(pin). 출력이 `idleThreshold`(4s) 넘게 멎으면 working→waiting 추정(working 탭 있을 때만 1s idle 타이머). 표시=패인 상시 테두리(waiting 주황·done 초록, working/idle 없음), 그 칸을 보면 해제. **튜닝 미검증**(아래 주의).
 
 ## 다음 할 일 (백로그) — ultracode 검토 재구성 (2026-07-10)
 
@@ -66,7 +67,7 @@ swift build                 # 빌드 (SPM)
 
 ### Tier 3 — 심화
 
-에이전트 상태머신(RENDER heartbeat + idle 추정, DESIGN 4.5 · M~L) · 알림 인박스(놓친 이력 큐 + 점프, M5 · M) · ⌘K 빠른 전환기(계층 5단 퍼지 탐색, M) · diff 탭 라이브 리로드(md 뷰어 패턴 이식, S~M) · 전체 변경 통합 diff 서브탭(M) · 워크트리 merge·정리 원액션(M~L) · side-by-side diff(후순위).
+~~에이전트 상태머신(RENDER heartbeat + idle 추정, DESIGN 4.5 · M~L)~~ ✅(위) — **잔여 튜닝**: RENDER가 포커스 칸 커서 깜빡임에도 오는지 실기기 확인(그렇다면 포커스 칸은 idle 추정이 안 됨 — 비포커스 칸은 정상). idleThreshold(4s)·throttle(1s) 실사용 조정. muxa notify 훅 미설치 시 추정 정확도 한계. 탭 점 색 상태화(현재는 배지 dot만; Bonsplit isDirty가 bool뿐이라 미구현) · 알림 인박스(놓친 이력 큐 + 점프, M5 · M) · ⌘K 빠른 전환기(계층 5단 퍼지 탐색, M) · diff 탭 라이브 리로드(md 뷰어 패턴 이식, S~M) · 전체 변경 통합 diff 서브탭(M) · 워크트리 merge·정리 원액션(M~L) · side-by-side diff(후순위).
 
 ### 기타 (기존 백로그 · 저심각)
 

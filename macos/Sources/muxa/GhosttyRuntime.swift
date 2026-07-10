@@ -78,6 +78,13 @@ final class GhosttyRuntime {
             case GHOSTTY_ACTION_PROGRESS_REPORT:
                 // 진행률은 완료 신호가 아니라 이번 범위 밖 — 엔진에 위임.
                 return false
+            // 출력 heartbeat(에이전트 상태 추정, DESIGN 4.5). RENDER는 고빈도라 스로틀 게이트를 먼저 통과시키고,
+            // 통과분만 메인에서 신호로 넘긴다. false 반환 — 엔진 기본 렌더 파이프라인은 그대로 둔다.
+            case GHOSTTY_ACTION_RENDER:
+                if view.shouldEmitRenderHeartbeat() {
+                    DispatchQueue.main.async { view.emitOutputHeartbeat() }
+                }
+                return false
             // 탭별 작업 디렉터리 추적(OSC 7) — 세션 저장 시 이 경로에서 새 셸로 복원(DESIGN 4.2).
             // pwd const char*는 콜백 반환 후 무효 → main.async 전에 String으로 복사한다.
             case GHOSTTY_ACTION_PWD:

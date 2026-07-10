@@ -40,6 +40,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 지금 활동 테두리가 깜빡이는 칸들 — 그 칸의 선택 탭 TabID 기준. BonsplitWorkspaceView가 관측해 overlay를 그린다.
     /// 보이는 칸에서 활동(완료·벨·알림)이 나면 잠깐 켰다 페이드로 끈다. 배지(안 보이는 탭)와 상호배타적 신호.
     private(set) var flashingTabs: Set<TabID> = []
+    /// 탭별 추정 에이전트 활동 상태(작업중/대기/완료/idle) — BonsplitWorkspaceView가 관측해 상시 상태 테두리를 그린다.
+    /// idle은 담지 않는다(없음=idle) — 상태가 바뀔 때만 immutable 교체해 SwiftUI 갱신을 최소화한다.
+    private(set) var agentActivity: [TabID: AgentActivity] = [:]
     /// 배지가 하나라도 생기면 상위(AppState)에 알린다 — 프로젝트 탭 ● 표시용.
     @ObservationIgnored var onProjectActivity: (() -> Void)?
     /// 데스크톱 알림을 띄워야 할 때 상위(AppState)에 위임한다 — 라우팅 컨텍스트(프로젝트·워크스페이스)는
@@ -84,6 +87,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         controller.delegate = self
     }
 
+    deinit {
+        idleTimer?.invalidate() // idle 추정 타이머가 런루프에 남지 않게 정리(작업 중 스토어가 해제되는 드문 경우).
+    }
+
     // MARK: BonsplitDelegate — 분할·새탭·닫기에 터미널 생명주기를 잇는다
 
     /// 분할 즉시 새 패인에 터미널을 만든다 — 빈 패인을 거치지 않는다(muxa 원래 동작).
@@ -107,6 +114,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         badgedTabs.remove(tabId)
         flashingTabs.remove(tabId) // 활동 테두리 상태 해제
         flashSeq[tabId] = nil
+        clearAgentActivity(tabId) // 에이전트 추정 상태·추정기 해제(+ idle 타이머 재동기화)
         lastBellAt[tabId] = nil // 벨 디바운스 상태 해제
         manualTitles[tabId] = nil // 수동 지정 제목 해제
         engineTitles[tabId] = nil // 엔진 제목 캐시 해제
@@ -232,6 +240,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// working(작업 재개)은 주의 해소로 보고 배지를 끈다.
     func deliverNotify(tabId: TabID, state: NotifyState, title: String, body: String) -> Bool {
         guard terms[tabId] != nil else { return false }
+        // 명시 신호는 상태 추정의 ground truth — 배지 경로와 별개로 추정기에 항상 고정 반영한다(DESIGN 4.5).
+        applyAgentSignal(.explicit(state), to: tabId)
         switch state {
         case .waiting, .done:
             handleSignal(.desktopNotification(title: title, body: body), from: tabId)
@@ -273,11 +283,25 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         groups[tabId]?.selectedId = itemId
     }
 
-    /// 사용자가 탭을 보면 배지를 끈다.
+    /// 사용자가 탭을 보면 배지를 끈다. 상시 상태 테두리(waiting/done)도 함께 해제한다("봤음").
     func clearTabBadge(_ tabId: TabID) {
+        acknowledgeAgent(tabId)
         guard badgedTabs.contains(tabId) else { return }
         badgedTabs.remove(tabId)
         controller.updateTab(tabId, isDirty: false)
+    }
+
+    /// 사용자가 탭을 봤다 — waiting/done 상시 테두리를 지운다(추정기를 idle로 리셋해 고정도 푼다).
+    /// 에이전트가 실제로 아직 작업 중이면 다음 출력 heartbeat가 곧 working으로 되세운다(working은 테두리 없음).
+    private func acknowledgeAgent(_ tabId: TabID) {
+        guard let est = estimators[tabId], est.state == .waiting || est.state == .done else { return }
+        estimators[tabId] = AgentActivityEstimator(idleThreshold: est.idleThreshold)
+        if agentActivity[tabId] != nil {
+            var map = agentActivity
+            map[tabId] = nil
+            agentActivity = map
+        }
+        syncIdleTimer()
     }
 
     // MARK: 백그라운드 주의 신호 — 오탐 억제 후 배지/알림 (알림 신뢰도)
@@ -300,6 +324,80 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 재-트리거 시 이전 해제 타이머를 무효화하려는 탭별 세대값 — 연속 활동이면 페이드가 리셋된다.
     @ObservationIgnored private var flashSeq: [TabID: Int] = [:]
 
+    // MARK: 에이전트 상태 추정 (DESIGN 4.5) — 순수 추정기 + 신호 배선
+    //
+    // 탭별 AgentActivityEstimator(순수 값)에 신호(heartbeat·완료·명시 notify·tick)를 넣어 상태를 굴린다.
+    // 명시 신호(muxa notify)가 ground truth로 우선하고, 없으면 출력 idle 타이머로 추정한다(보수적).
+
+    /// 탭별 추정기(순수 값). agentActivity(관측 대상)는 여기서 파생한다.
+    @ObservationIgnored private var estimators: [TabID: AgentActivityEstimator] = [:]
+    /// working 추정 중인 탭이 있을 때만 도는 idle 점검 타이머 — 없으면 CPU를 쓰지 않게 껐다 켠다.
+    @ObservationIgnored private var idleTimer: Timer?
+    /// idle 추정 tick 주기(초). idleThreshold보다 촘촘해야 전이가 제때 잡힌다.
+    private static let idleTickInterval: TimeInterval = 1.0
+
+    /// 신호 하나를 탭의 추정기에 반영하고, 상태가 바뀌었으면 관측 맵을 immutable 교체 + idle 타이머를 재동기화한다.
+    private func applyAgentSignal(_ signal: AgentSignal, to tabId: TabID) {
+        let now = ProcessInfo.processInfo.systemUptime
+        let current = estimators[tabId] ?? AgentActivityEstimator()
+        let next = current.applying(signal, now: now)
+        estimators[tabId] = next
+        // 관측 맵은 상태가 실제로 바뀔 때만 갱신(idle은 키를 지운다) — 불필요한 SwiftUI 무효화 방지.
+        if agentActivity[tabId] != next.state {
+            var map = agentActivity
+            if next.state == .idle { map[tabId] = nil } else { map[tabId] = next.state }
+            agentActivity = map
+        }
+        syncIdleTimer()
+    }
+
+    /// working 추정 중인 탭이 하나라도 있으면 타이머를 켜고, 없으면 끈다.
+    private func syncIdleTimer() {
+        let needsTick = estimators.values.contains { $0.needsIdleTick }
+        if needsTick, idleTimer == nil {
+            let timer = Timer(timeInterval: Self.idleTickInterval, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.tickEstimators() }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            idleTimer = timer
+        } else if !needsTick, let timer = idleTimer {
+            timer.invalidate()
+            idleTimer = nil
+        }
+    }
+
+    /// 모든 추정기에 tick을 넣어 출력이 멎은 working을 waiting으로 넘긴다(idle 추정).
+    private func tickEstimators() {
+        let now = ProcessInfo.processInfo.systemUptime
+        var map = agentActivity
+        var changed = false
+        for (tabId, est) in estimators {
+            let next = est.applying(.tick, now: now)
+            guard next.state != est.state else { continue }
+            estimators[tabId] = next
+            if next.state == .idle { map[tabId] = nil } else { map[tabId] = next.state }
+            changed = true
+        }
+        if changed { agentActivity = map }
+        syncIdleTimer()
+    }
+
+    /// 탭이 닫힐 때 추정기·상태를 해제한다.
+    private func clearAgentActivity(_ tabId: TabID) {
+        estimators[tabId] = nil
+        if agentActivity[tabId] != nil {
+            var map = agentActivity
+            map[tabId] = nil
+            agentActivity = map
+        }
+        syncIdleTimer()
+    }
+
+    /// 탭의 현재 추정 상태(없으면 idle).
+    func agentActivity(for tabId: TabID) -> AgentActivity {
+        agentActivity[tabId] ?? .idle
+    }
+
     /// 이 탭이 지금 사용자에게 보이나 — 그 뷰가 키 창에 있고, 자기 칸의 선택 탭일 때(줌이면 줌된 칸만).
     /// firstResponder가 아니라 selectedTab 기준이라 비포커스지만 보이는 분할 칸을 오판하지 않는다.
     private func isTabVisible(_ tabId: TabID) -> Bool {
@@ -312,9 +410,16 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     /// 신호를 오탐 필터에 태워 배지/알림을 결정한다. 보이면 배지 억제(+테두리 훅).
     private func handleSignal(_ signal: TerminalSignal, from tabId: TabID) {
+        // 출력 heartbeat는 배지/알림과 무관 — 추정기만 굴리고 끝낸다(작업 중 신호).
+        if case .outputHeartbeat = signal {
+            applyAgentSignal(.outputHeartbeat, to: tabId)
+            return
+        }
         let visible = isTabVisible(tabId)
         switch signal {
         case .commandFinished(let exitCode, let duration):
+            // 명령 완료는 배지 임계값과 무관하게 상태 추정(done)엔 항상 반영한다.
+            applyAgentSignal(.commandFinished, to: tabId)
             // 비정상 종료(코드 != 0)는 지속시간과 무관하게 알린다. 정상+짧은 명령은 억제.
             let abnormal = (exitCode ?? 0) != 0
             guard abnormal || duration >= commandFinishedThresholdNs else { return }
@@ -333,6 +438,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                 if let onNotify { onNotify(tabId, title, body) } else { NotificationService.shared.notify(title: title, body: body) }
                 markBadge(tabId, kind: .notify, title: title.isEmpty ? tabTitle(tabId) : title)
             }
+        case .outputHeartbeat:
+            break // 위에서 이미 처리하고 반환 — 열거 완전성용.
         }
     }
 

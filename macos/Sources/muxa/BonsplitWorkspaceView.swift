@@ -20,6 +20,8 @@ struct BonsplitWorkspaceView: View {
     @ViewBuilder
     private func tabContent(_ tabId: TabID, paneId: PaneID) -> some View {
         paneBody(tabId, paneId: paneId)
+            // 상시 에이전트 상태 테두리(waiting=주황·done=초록) 위에 순간 활동 플래시를 얹는다.
+            .overlay(AgentStateBorder(store: store, tabId: tabId))
             .overlay(ActivityFlashBorder(store: store, tabId: tabId))
     }
 
@@ -58,6 +60,23 @@ struct BonsplitWorkspaceView: View {
         .background(Color.pBg)
         .contentShape(Rectangle())
         .onTapGesture { store.controller.focusPane(paneId) }
+    }
+}
+
+/// 칸 콘텐츠 위에 얹는 상시 에이전트 상태 테두리(DESIGN 4.5) — store.agentActivity를 관측해 독립 갱신한다.
+/// 순간 이벤트(플래시)와 달리 "지금 이 칸의 추정 상태"를 지속 표시한다: waiting=주황(나를 기다림)·done=초록(완료).
+/// working·idle은 borderColor가 nil이라 상시 테두리를 그리지 않는다(작업 중엔 조용히). 사용자가 그 칸을 보면 해제된다.
+private struct AgentStateBorder: View {
+    let store: TerminalStore
+    let tabId: TabID
+
+    var body: some View {
+        let color = store.agentActivity(for: tabId).borderColor
+        RoundedRectangle(cornerRadius: 4)
+            .strokeBorder(color.map { Color(nsColor: $0) } ?? .clear, lineWidth: 2)
+            .opacity(color == nil ? 0 : 1)
+            .animation(.easeInOut(duration: 0.25), value: color != nil)
+            .allowsHitTesting(false)
     }
 }
 
