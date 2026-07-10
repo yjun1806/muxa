@@ -21,6 +21,7 @@ struct GitPanel: View {
     @State private var commitError: String?
     @State private var syncBusy = false
     @State private var syncError: String?
+    @State private var gh: GitService.GHStatus?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -52,6 +53,7 @@ struct GitPanel: View {
         .background(Color.pPanel)
         .task(id: dir) {
             await refresh()
+            await refreshGH() // gh 배지: 진입 시 1회만(과한 폴링 금지)
             if let dir { watcher = FileWatcher(path: dir) } // B-2: 변경 시 git 패널 자동 갱신
         }
         .onChange(of: watcher?.changeSeq) { _, _ in Task { await refresh() } }
@@ -65,6 +67,7 @@ struct GitPanel: View {
                 if status.ahead > 0 { counter("arrow.up", status.ahead) }
                 if status.behind > 0 { counter("arrow.down", status.behind) }
             }
+            if let gh { prBadge(gh) }
             Spacer(minLength: 4)
             if status != nil {
                 if syncBusy {
@@ -74,7 +77,7 @@ struct GitPanel: View {
                     iconButton("arrow.up.to.line", help: "Push") { runSync { await GitService.push(in: $0) } }
                 }
             }
-            iconButton("arrow.clockwise", help: "새로고침") { Task { await refresh() } }
+            iconButton("arrow.clockwise", help: "새로고침") { Task { await refresh(); await refreshGH() } }
         }
         .padding(.horizontal, 10)
         .frame(height: 34)
@@ -109,6 +112,69 @@ struct GitPanel: View {
                 .foregroundStyle(Color.pFg)
                 .lineLimit(1)
         }
+    }
+
+    /// GitHub PR 배지 — #번호 + 상태색(open 초록·merged 보라·closed 빨강) + CI 롤업 아이콘. 클릭 시 브라우저로 PR 열기.
+    private func prBadge(_ gh: GitService.GHStatus) -> some View {
+        let stateColor = prStateColor(gh.state)
+        return Button {
+            if let dir { Task { await GitService.ghOpenPR(in: dir) } }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "arrow.triangle.pull").font(.system(size: 9))
+                Text("#\(gh.prNumber)").font(.system(size: 10, weight: .semibold, design: .monospaced))
+                if let rollup = gh.rollup {
+                    Image(systemName: checkIcon(rollup)).font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(checkColor(rollup))
+                }
+            }
+            .foregroundStyle(stateColor)
+            .padding(.horizontal, 5)
+            .frame(height: 16)
+            .background(stateColor.opacity(0.14), in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(prHelp(gh))
+    }
+
+    /// PR 상태 → 색. open/closed는 git 추가·삭제색 재사용, merged는 전용 보라(Palette).
+    private func prStateColor(_ state: String) -> Color {
+        switch state.uppercased() {
+        case "OPEN": return Color(nsColor: Palette.gitAdded)
+        case "MERGED": return Color(nsColor: Palette.prMerged)
+        case "CLOSED": return Color(nsColor: Palette.gitDeleted)
+        default: return Color.pMuted
+        }
+    }
+
+    /// CI 롤업 → 색(통과 초록·실패 빨강·진행중 노랑, Palette 재사용).
+    private func checkColor(_ check: GitService.GHStatus.Check) -> Color {
+        switch check {
+        case .passing: return Color(nsColor: Palette.gitAdded)
+        case .failing: return Color(nsColor: Palette.gitDeleted)
+        case .pending: return Color(nsColor: Palette.gitModified)
+        }
+    }
+
+    /// CI 롤업 → 아이콘.
+    private func checkIcon(_ check: GitService.GHStatus.Check) -> String {
+        switch check {
+        case .passing: return "checkmark.circle.fill"
+        case .failing: return "xmark.circle.fill"
+        case .pending: return "circle.dotted"
+        }
+    }
+
+    /// 배지 툴팁 — PR 번호·상태 + CI 통과/실패/진행 카운트.
+    private func prHelp(_ gh: GitService.GHStatus) -> String {
+        var s = "PR #\(gh.prNumber) · \(gh.state)"
+        if gh.rollup != nil {
+            s += " · CI 통과 \(gh.passing)"
+            if gh.failing > 0 { s += " 실패 \(gh.failing)" }
+            if gh.pending > 0 { s += " 진행 \(gh.pending)" }
+        }
+        return s
     }
 
     /// 헤더용 아이콘 버튼.
@@ -328,5 +394,11 @@ struct GitPanel: View {
         commits = status == nil ? [] : await GitService.log(in: dir)
         branches = status == nil ? [] : await GitService.localBranches(in: dir)
         loaded = true
+    }
+
+    /// gh 배지 갱신 — git 저장소일 때만 시도. gh 미설치·PR 없음이면 nil(배지 숨김). FSEvents엔 안 물림(과한 폴링 금지).
+    private func refreshGH() async {
+        guard let dir, status != nil else { gh = nil; return }
+        gh = await GitService.ghStatus(in: dir)
     }
 }

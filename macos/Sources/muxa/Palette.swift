@@ -26,6 +26,9 @@ enum Palette {
     static let gitDeleted = NSColor.dynamic(light: 0xCF222E, dark: 0xF85149) // 삭제(빨강)
     static let gitRenamed = NSColor.dynamic(light: 0x0969DA, dark: 0x58A6FF) // 이름변경/복사(파랑)
     static let gitConflict = NSColor.dynamic(light: 0xBC4C00, dark: 0xDB6D28) // 충돌(주황빨강)
+
+    // GitHub PR 배지색 — gh 배지 전용. open=gitAdded(초록)·closed=gitDeleted(빨강) 재사용, merged만 신규(보라).
+    static let prMerged = NSColor.dynamic(light: 0x8250DF, dark: 0xA371F7)
 }
 
 extension NSColor {
