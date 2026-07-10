@@ -54,7 +54,7 @@ struct DiffView: View {
             } else if lines.isEmpty {
                 centerLabel("변경 내용 없음")
             } else {
-                DiffTextView(lines: lines)
+                CodeWebView(html: CodeHTML.diff(lines: lines, dark: GhosttyRuntime.systemIsDark))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

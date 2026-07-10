@@ -6,7 +6,7 @@ struct CodeView: View {
     let target: FileViewTarget
     var onClose: () -> Void
 
-    @State private var code = ""
+    @State private var html = ""
     @State private var state: LoadState = .loading
 
     enum LoadState { case loading, ok, tooLarge, binary, error }
@@ -31,7 +31,7 @@ struct CodeView: View {
         case .tooLarge: centerLabel("파일이 너무 큽니다")
         case .binary: centerLabel("바이너리 파일")
         case .error: centerLabel("열 수 없음")
-        case .ok: CodeTextView(code: code, language: target.language)
+        case .ok: CodeWebView(html: html)
         }
     }
 
@@ -57,7 +57,12 @@ struct CodeView: View {
             guard let text = String(data: data, encoding: .utf8) else { return (.binary, "") }
             return (.ok, text)
         }.value
+        if result.0 == .ok {
+            // Shiki(오프스크린 공유)로 토큰 색을 받아 정적 HTML로 만든다. 표시는 CodeWebView.
+            let dark = GhosttyRuntime.systemIsDark
+            let tokens = await ShikiHighlighter.shared.tokens(code: result.1, language: target.language, dark: dark)
+            html = CodeHTML.code(tokens: tokens, dark: dark)
+        }
         state = result.0
-        code = result.1
     }
 }
