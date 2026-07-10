@@ -10,6 +10,7 @@ struct CodeView: View {
     @State private var html = ""
     @State private var state: LoadState = .loading
     @State private var watcher: FileWatcher? // 디스크 변경 시 자동 재로드
+    @State private var lastMTime: Date?      // 이 파일 실제 변경만 재로드(FSEvents 재귀 소음 무시)
 
     enum LoadState { case loading, ok, tooLarge, binary, error }
 
@@ -30,7 +31,14 @@ struct CodeView: View {
             await load()
             watcher = FileWatcher(path: (target.path as NSString).deletingLastPathComponent)
         }
-        .onChange(of: watcher?.changeSeq) { _, _ in Task { await load() } }
+        .onChange(of: watcher?.changeSeq) { _, _ in Task { await reloadIfChanged() } }
+    }
+
+    /// FSEvents는 부모 디렉토리 전체(재귀)를 알린다 → 이 파일 mtime이 실제 바뀐 경우만 재로드.
+    private func reloadIfChanged() async {
+        let m = (try? FileManager.default.attributesOfItem(atPath: target.path)[.modificationDate]) as? Date
+        guard m != lastMTime else { return }
+        await load()
     }
 
     @ViewBuilder private var content: some View {
@@ -54,6 +62,7 @@ struct CodeView: View {
         state = .loading
         let path = target.path
         let maxBytes = Self.maxBytes
+        lastMTime = (try? FileManager.default.attributesOfItem(atPath: path)[.modificationDate]) as? Date
         // 파일 IO는 백그라운드에서(대형 파일이 메인 스레드를 막지 않게).
         let result: (LoadState, String) = await Task.detached {
             let fm = FileManager.default

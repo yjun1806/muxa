@@ -10,6 +10,7 @@ struct MarkdownView: View {
     @State private var content = ""
     @State private var state: LoadState = .loading
     @State private var watcher: FileWatcher? // 디스크 변경 시 자동 재로드
+    @State private var lastMTime: Date?      // 이 파일 실제 변경만 재로드(FSEvents 재귀 소음 무시)
 
     enum LoadState { case loading, ok, tooLarge, error }
 
@@ -36,7 +37,14 @@ struct MarkdownView: View {
             await load()
             watcher = FileWatcher(path: (target.path as NSString).deletingLastPathComponent)
         }
-        .onChange(of: watcher?.changeSeq) { _, _ in Task { await load() } }
+        .onChange(of: watcher?.changeSeq) { _, _ in Task { await reloadIfChanged() } }
+    }
+
+    /// FSEvents는 부모 디렉토리 전체(재귀)를 알린다 → 이 파일 mtime이 실제 바뀐 경우만 재로드.
+    private func reloadIfChanged() async {
+        let m = (try? FileManager.default.attributesOfItem(atPath: target.path)[.modificationDate]) as? Date
+        guard m != lastMTime else { return }
+        await load()
     }
 
     @ViewBuilder
@@ -58,6 +66,7 @@ struct MarkdownView: View {
     private func load() async {
         state = .loading
         let path = target.path
+        lastMTime = (try? FileManager.default.attributesOfItem(atPath: path)[.modificationDate]) as? Date
         let maxBytes = Self.maxBytes
         let result: (LoadState, String) = await Task.detached {
             let fm = FileManager.default
