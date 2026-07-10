@@ -19,6 +19,13 @@ enum Palette {
     static let fg = NSColor.dynamic(light: 0x1F2937, dark: 0xE4E4E7)
     static let btnHover = NSColor.dynamic(light: 0xE5E7EB, dark: 0x37373B)
     static let btnActive = NSColor.dynamic(light: 0xD1D5DB, dark: 0x47474C)
+
+    // git 상태색 — 익스플로러 파일명·git 패널 배지 공용(하드코딩 금지, 여기 한 곳).
+    static let gitModified = NSColor.dynamic(light: 0xB08800, dark: 0xE2B341) // 수정(주황/노랑)
+    static let gitAdded = NSColor.dynamic(light: 0x1A7F37, dark: 0x3FB950) // 추가·untracked(초록)
+    static let gitDeleted = NSColor.dynamic(light: 0xCF222E, dark: 0xF85149) // 삭제(빨강)
+    static let gitRenamed = NSColor.dynamic(light: 0x0969DA, dark: 0x58A6FF) // 이름변경/복사(파랑)
+    static let gitConflict = NSColor.dynamic(light: 0xBC4C00, dark: 0xDB6D28) // 충돌(주황빨강)
 }
 
 extension NSColor {

@@ -109,8 +109,12 @@ struct ContentView: View {
                     .id(project.id)
                 if showExplorer {
                     Rectangle().fill(Color.pBorder).frame(width: 1)
-                    // 파일 클릭 → 활성 프로젝트의 새 탭으로 뷰어(md/코드)를 연다.
-                    FileExplorerPanel(root: project.path ?? ws.path) { state.store(for: project, in: ws).openFile($0) }
+                    // 파일 클릭 → 뷰어 탭. 우클릭 "여기에서 터미널 열기" → 그 폴더로 새 프로젝트.
+                    FileExplorerPanel(
+                        root: project.path ?? ws.path,
+                        onOpenFile: { state.store(for: project, in: ws).openFile($0) },
+                        onOpenTerminal: { dir in state.addProject(name: basename(dir), path: dir) }
+                    )
                 }
                 if showGitPanel {
                     Rectangle().fill(Color.pBorder).frame(width: 1)
