@@ -9,6 +9,7 @@ struct WorktreePicker: View {
 
     @State private var worktrees: [GitWorktree] = []
     @State private var branches: [String] = []
+    @State private var defaultBranch: String?
     @State private var loaded = false
     @State private var newBranchName = ""
     @State private var baseRef = "HEAD"
@@ -85,6 +86,14 @@ struct WorktreePicker: View {
             }
             .buttonStyle(.plain)
             .help(wt.path)
+            // 메인이 아니고 브랜치가 있으며 기본 브랜치와 다르면 "병합 후 정리" 노출(마무리 원액션).
+            if !isMain, let branch = wt.branch, let target = defaultBranch, branch != target {
+                Button { mergeCleanup(wt, branch: branch, target: target) } label: {
+                    Image(systemName: "arrow.triangle.merge").font(.system(size: 11)).foregroundStyle(Color.pMuted)
+                }
+                .buttonStyle(.plain).disabled(busy)
+                .help("\(target)에 병합 후 정리")
+            }
             // 메인 워크트리는 제거 불가. 비강제 remove라 변경사항이 있으면 git이 거부한다.
             if !isMain {
                 Button { remove(wt) } label: {
@@ -142,9 +151,28 @@ struct WorktreePicker: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// 병합 후 정리(마무리 원액션) — 확인 → ff 병합 → 워크트리 제거 → 브랜치 삭제 → 목록 갱신.
+    /// 어느 단계든 실패하면 사유를 알럿으로 표면화한다(충돌은 "터미널에서 해결" 안내).
+    private func mergeCleanup(_ wt: GitWorktree, branch: String, target: String) {
+        guard WorktreeMergeConfirm.confirm(branch: branch, target: target) else { return }
+        busy = true
+        errorMessage = nil
+        Task {
+            let err = await GitService.mergeAndCleanup(
+                branch: branch, into: target, worktreePath: wt.path, in: dir)
+            if let err {
+                WorktreeMergeConfirm.showError(err)
+            } else {
+                await load()
+            }
+            busy = false
+        }
+    }
+
     private func load() async {
         worktrees = await GitService.worktreeList(in: dir)
         branches = await GitService.localBranches(in: dir)
+        defaultBranch = await GitService.defaultBranch(in: dir)
         loaded = true
     }
 
