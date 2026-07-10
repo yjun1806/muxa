@@ -5,8 +5,6 @@ import SwiftUI
 struct ContentView: View {
     let state: AppState
     let home: String
-    @State private var showGitPanel = false
-    @State private var showExplorer = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -56,28 +54,28 @@ struct ContentView: View {
 
     /// 파일 익스플로러 토글 버튼(상단바 우측).
     private var explorerToggle: some View {
-        Button { showExplorer.toggle() } label: {
+        Button { state.toggleExplorer() } label: {
             Image(systemName: "folder")
                 .font(.system(size: 12))
-                .foregroundStyle(showExplorer ? Color.pFg : Color.pMuted)
+                .foregroundStyle(state.showExplorer ? Color.pFg : Color.pMuted)
         }
         .buttonStyle(.plain)
         .frame(width: 24, height: 24)
-        .background(showExplorer ? Color.pBtnActive.opacity(0.6) : Color.clear)
+        .background(state.showExplorer ? Color.pBtnActive.opacity(0.6) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 5))
         .help("파일 익스플로러")
     }
 
     /// Git 패널 토글 버튼(상단바 우측).
     private var gitToggle: some View {
-        Button { showGitPanel.toggle() } label: {
+        Button { state.toggleGitPanel() } label: {
             Image(systemName: "arrow.triangle.branch")
                 .font(.system(size: 12))
-                .foregroundStyle(showGitPanel ? Color.pFg : Color.pMuted)
+                .foregroundStyle(state.showGitPanel ? Color.pFg : Color.pMuted)
         }
         .buttonStyle(.plain)
         .frame(width: 24, height: 24)
-        .background(showGitPanel ? Color.pBtnActive.opacity(0.6) : Color.clear)
+        .background(state.showGitPanel ? Color.pBtnActive.opacity(0.6) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 5))
         .help("Git 패널")
     }
@@ -90,7 +88,7 @@ struct ContentView: View {
                 // 프로젝트별 안정 identity — 전환해도 store(터미널들)는 AppState가 유지한다.
                 BonsplitWorkspaceView(store: state.store(for: project, in: ws))
                     .id(project.id)
-                if showExplorer {
+                if state.showExplorer {
                     Rectangle().fill(Color.pBorder).frame(width: 1)
                     // 파일 클릭 → 뷰어 탭. 우클릭 "여기에서 터미널 열기" → 그 폴더로 새 프로젝트.
                     FileExplorerPanel(
@@ -101,7 +99,7 @@ struct ContentView: View {
                         onOpenTerminal: { dir in state.addProject(name: basename(dir), path: dir) }
                     )
                 }
-                if showGitPanel {
+                if state.showGitPanel {
                     Rectangle().fill(Color.pBorder).frame(width: 1)
                     // 파일/커밋 클릭 → 활성 프로젝트의 새 탭으로 diff를 연다(모달 아님).
                     GitPanel(dir: project.path ?? ws.path) { state.store(for: project, in: ws).openDiff($0) }

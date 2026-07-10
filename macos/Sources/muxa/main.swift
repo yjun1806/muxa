@@ -70,7 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    /// ⌘1-8 워크스페이스 · ⌘T 새 터미널 · ⌘D/⌘⇧D 분할 · ⌘W 탭 닫기.
+    /// ⌘1-8 워크스페이스 · ⌘T 새 터미널 · ⌘D/⌘⇧D 분할 · ⌘W 탭 닫기 · ⌘⇧E/⌘⇧G 도구 패널 토글.
     /// 물리 keyCode로 판별한다 — charactersIgnoringModifiers는 한글 자판에서 어긋난다.
     private func handleShortcut(_ event: NSEvent) -> Bool {
         guard event.window === window, event.modifierFlags.contains(.command),
@@ -91,6 +91,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if shift, Int(event.keyCode) == kVK_ANSI_RightBracket {
             state.cycleProject(forward: true)
+            return true
+        }
+
+        // ⌘⇧E / ⌘⇧G : 도구 패널(익스플로러·Git) 토글
+        if shift, Int(event.keyCode) == kVK_ANSI_E {
+            state.toggleExplorer()
+            return true
+        }
+        if shift, Int(event.keyCode) == kVK_ANSI_G {
+            state.toggleGitPanel()
             return true
         }
 

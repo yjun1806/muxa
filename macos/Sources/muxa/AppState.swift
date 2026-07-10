@@ -18,6 +18,11 @@ final class AppState {
     /// 백그라운드 활동(●)이 있는 프로젝트 id들(A). ProjectTabBar가 관측해 배지를 그린다.
     private(set) var badgedProjects: Set<String> = []
 
+    /// 도구 패널 표시 상태(B). 기본 닫힘 — 세션 영속 대상 아님(Persisted에 안 넣는다).
+    /// 상단바 토글 버튼·단축키(⌘⇧E/⌘⇧G)·알림이 이 상태를 연다.
+    var showExplorer = false
+    var showGitPanel = false
+
     @ObservationIgnored private let app: ghostty_app_t
     /// 프로젝트 id → TerminalStore. 프로젝트가 독립 분할 레이아웃 하나를 소유한다.
     @ObservationIgnored private var stores: [String: TerminalStore] = [:]
@@ -61,6 +66,13 @@ final class AppState {
         guard projectId != activeProject?.id else { return }
         badgedProjects.insert(projectId)
     }
+
+    // MARK: 도구 패널 액션 (익스플로러·Git — 영속 없음)
+
+    func toggleExplorer() { showExplorer.toggle() }
+    func toggleGitPanel() { showGitPanel.toggle() }
+    func setExplorer(_ open: Bool) { showExplorer = open }
+    func setGitPanel(_ open: Bool) { showGitPanel = open }
 
     // MARK: 워크스페이스 액션
 
