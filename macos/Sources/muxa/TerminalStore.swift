@@ -124,7 +124,34 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 새 터미널 탭 생성(분할 후 빈 패인 채우기·⌘T 등).
     @discardableResult
     func newTerminal(inPane pane: PaneID? = nil) -> TabID? {
-        controller.createTab(title: "터미널", icon: "terminal", inPane: pane)
+        let id = controller.createTab(title: "터미널", icon: "terminal", inPane: pane)
+        if let id { regroup(id, inPane: pane ?? controller.focusedPaneId) }
+        return id
+    }
+
+    // MARK: 탭 그룹핑 — 같은 종류끼리 묶기 (터미널 | 문서 | diff)
+    //
+    // 탭바에서 "문서는 문서끼리, diff는 diff끼리" 인접하도록 종류별 rank로 정렬 위치를 잡는다.
+    // 복원 중엔 저장된 순서를 존중하므로 건너뛴다.
+
+    /// 탭 종류 정렬 순위 — 터미널(0) < 문서(1) < diff(2). 같은 순위는 생성 순서 유지.
+    private func groupRank(_ content: TabContent) -> Int {
+        switch content {
+        case .terminal: return 0
+        case .file: return 1
+        case .diff: return 2
+        }
+    }
+
+    /// 방금 만든 탭을 같은 종류 묶음의 끝(다음 순위 묶음 앞)으로 이동해 클러스터를 유지한다.
+    private func regroup(_ tabId: TabID, inPane pane: PaneID?) {
+        guard !restoring, let pane else { return }
+        let rank = groupRank(content(for: tabId))
+        // 자기 자신을 뺀 나머지 중 순위 ≤ 내 순위인 탭 수 = 삽입 위치(내 묶음의 끝).
+        let dest = controller.tabs(inPane: pane)
+            .filter { $0.id != tabId }
+            .reduce(0) { $0 + (groupRank(content(for: $1.id)) <= rank ? 1 : 0) }
+        _ = controller.reorderTab(tabId, toIndex: dest)
     }
 
     /// diff를 현재 포커스 패인의 새 탭으로 연다(모달 아님). 같은 대상 탭이 있으면 그걸 선택.
@@ -137,8 +164,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             controller.selectTab(existing)
             return existing
         }
-        guard let tabId = controller.createTab(title: target.tabTitle, icon: target.tabIcon, inPane: controller.focusedPaneId) else { return nil }
+        let pane = controller.focusedPaneId
+        guard let tabId = controller.createTab(title: target.tabTitle, icon: target.tabIcon, inPane: pane) else { return nil }
         tabContent[tabId] = .diff(target)
+        regroup(tabId, inPane: pane) // diff끼리 묶기
         controller.selectTab(tabId) // 새 diff 탭을 바로 앞으로
         return tabId
     }
@@ -155,8 +184,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             controller.selectTab(existing)
             return existing
         }
-        guard let tabId = controller.createTab(title: target.tabTitle, icon: target.tabIcon, inPane: controller.focusedPaneId) else { return nil }
+        let pane = controller.focusedPaneId
+        guard let tabId = controller.createTab(title: target.tabTitle, icon: target.tabIcon, inPane: pane) else { return nil }
         tabContent[tabId] = .file(target)
+        regroup(tabId, inPane: pane) // 문서끼리 묶기
         controller.selectTab(tabId)
         return tabId
     }
