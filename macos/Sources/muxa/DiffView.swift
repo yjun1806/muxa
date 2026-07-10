@@ -54,20 +54,7 @@ struct DiffView: View {
             } else if lines.isEmpty {
                 centerLabel("변경 내용 없음")
             } else {
-                ScrollView([.vertical, .horizontal]) {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                            Text(line.isEmpty ? " " : line)
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundStyle(color(for: line))
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 12)
-                                .background(background(for: line))
-                        }
-                    }
-                    .padding(.vertical, 6)
-                }
+                DiffTextView(lines: lines)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -97,27 +84,6 @@ struct DiffView: View {
             .font(.system(size: 12))
             .foregroundStyle(Color.pMuted)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func color(for line: String) -> Color {
-        guard let first = line.first else { return Color.pFg }
-        if line.hasPrefix("+++") || line.hasPrefix("---") { return Color.pMuted }
-        switch first {
-        case "+": return .green
-        case "-": return .red
-        case "@": return .cyan
-        case "d", "i", "n": return Color.pMuted // diff/index/new file 헤더 등
-        default: return Color.pFg
-        }
-    }
-
-    private func background(for line: String) -> Color {
-        if line.hasPrefix("+++") || line.hasPrefix("---") { return .clear }
-        switch line.first {
-        case "+": return Color.green.opacity(0.10)
-        case "-": return Color.red.opacity(0.10)
-        default: return .clear
-        }
     }
 
     private func load() async {
