@@ -28,6 +28,8 @@ final class TermView: NSView, NSTextInputClient {
 
     /// 이 뷰가 담긴 Bonsplit 탭 — 배지 라우팅용(A). TerminalStore.term(for:)에서 주입.
     var tabId: TabID?
+    /// 셸의 현재 작업 디렉터리(OSC 7). 세션 저장 시 store가 읽어 이 경로에서 새 셸을 복원한다(DESIGN 4.2).
+    var pwd: String?
     /// 백그라운드 주의 신호(완료·벨·알림)를 store로 넘긴다 — 억제 판정·배지·알림은 store가 결정.
     var onSignal: ((TerminalSignal) -> Void)?
     /// 이 탭을 사용자가 보게 됐을 때 배지 클리어 — store가 세팅.
@@ -271,6 +273,11 @@ final class TermView: NSView, NSTextInputClient {
     /// 벨(주의 환기) — 에이전트가 완료를 벨로 알리는 경우가 많다.
     func onBell() {
         onSignal?(.bell)
+    }
+
+    /// OSC 7 작업 디렉터리 변경. 저장은 스냅샷 시점에 store가 pwd를 읽는 방식이라 여기선 값만 갱신한다.
+    func onPwdChange(_ pwd: String) {
+        self.pwd = pwd
     }
 
     // MARK: 키 입력 — Ghostty SurfaceView_AppKit.keyDown 이식

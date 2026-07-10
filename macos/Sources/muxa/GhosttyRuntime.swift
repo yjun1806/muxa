@@ -78,6 +78,13 @@ final class GhosttyRuntime {
             case GHOSTTY_ACTION_PROGRESS_REPORT:
                 // 진행률은 완료 신호가 아니라 이번 범위 밖 — 엔진에 위임.
                 return false
+            // 탭별 작업 디렉터리 추적(OSC 7) — 세션 저장 시 이 경로에서 새 셸로 복원(DESIGN 4.2).
+            // pwd const char*는 콜백 반환 후 무효 → main.async 전에 String으로 복사한다.
+            case GHOSTTY_ACTION_PWD:
+                guard let pwd = action.action.pwd.pwd.flatMap({ String(cString: $0) }), !pwd.isEmpty
+                else { return false }
+                DispatchQueue.main.async { view.onPwdChange(pwd) }
+                return true
             default:
                 return false
             }

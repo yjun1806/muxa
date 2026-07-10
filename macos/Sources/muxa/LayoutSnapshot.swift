@@ -61,6 +61,9 @@ struct TabSnapshot: Codable {
     var group: String?          // TabGroupKind.raw (documents/html/code/diffs). nil = 터미널.
     var items: [ItemSnapshot]   // 그룹의 서브탭들(터미널이면 빈 배열).
     var selectedItem: Int       // 선택 서브탭 인덱스.
+    // 터미널 탭의 마지막 작업 디렉터리(OSC 7). 옵셔널 — 구 스냅샷엔 없어 decodeIfPresent로 하위호환.
+    // 복원 시 이 경로에서 새 셸을 띄운다. nil이면 워크스페이스 기본 cwd.
+    var cwd: String? = nil
 }
 
 /// 그룹 서브탭 하나 — 파일이거나 커밋 diff.

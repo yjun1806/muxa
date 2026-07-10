@@ -23,6 +23,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     @ObservationIgnored private let app: ghostty_app_t
     @ObservationIgnored private let cwd: String?
     @ObservationIgnored private var terms: [TabID: TermView] = [:]
+    /// 복원 시 탭별로 새 셸을 띄울 작업 디렉터리(OSC 7 스냅샷). term(for:)가 TermView 생성 시 참조.
+    /// TermView가 아직 안 만들어진 탭도 다음 저장 때 cwd를 잃지 않도록 convert의 폴백으로도 쓴다.
+    @ObservationIgnored private var restoredCwd: [TabID: String] = [:]
     /// 터미널이 아닌 탭의 종류(그룹). 없으면 .terminal.
     @ObservationIgnored private var tabContent: [TabID: TabContent] = [:]
     /// 그룹 탭(TabID) → 서브탭 상태(문서·diff 묶음). TabGroupView가 관측한다.
@@ -95,6 +98,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 탭이 닫히면 그 터미널(PTY·서피스)·뷰어 상태를 해제한다.
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         terms[tabId] = nil // TermView deinit이 서피스 free
+        restoredCwd[tabId] = nil // 복원 cwd 힌트 해제
         tabContent[tabId] = nil
         groups[tabId] = nil // 그룹 탭이면 서브탭 상태도 해제
         badgedTabs.remove(tabId)
@@ -121,7 +125,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     func term(for tabId: TabID) -> TermView {
         if let t = terms[tabId] { return t }
         // tabId·소켓 경로를 셸 env로 주입(훅 알림용) — TermView.init에서 서피스 생성 전에 심는다.
-        let t = TermView(app: app, cwd: cwd, tabId: tabId, sockPath: NotifyServer.socketPath)
+        // 복원된 탭이면 저장된 작업 디렉터리에서, 아니면 워크스페이스 기본 cwd에서 새 셸.
+        let t = TermView(app: app, cwd: restoredCwd[tabId] ?? cwd, tabId: tabId, sockPath: NotifyServer.socketPath)
         // 콜백은 action_cb(메인 async)·becomeFirstResponder(메인)에서만 불린다 → assumeIsolated 안전.
         t.onSignal = { [weak self] signal in MainActor.assumeIsolated { self?.handleSignal(signal, from: tabId) } }
         t.onClearBadge = { [weak self] tid in MainActor.assumeIsolated { self?.clearTabBadge(tid) } }
@@ -388,7 +393,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                 if et.id == p.selectedTabId { selected = tabs.count }
                 switch content(for: tid) {
                 case .terminal:
-                    tabs.append(TabSnapshot(group: nil, items: [], selectedItem: 0))
+                    // 현재 셸 작업 디렉터리 기록 — TermView가 살아 있으면 그 pwd, 아직 미실체화 탭이면 복원 힌트.
+                    let tabCwd = terms[tid]?.pwd ?? restoredCwd[tid]
+                    tabs.append(TabSnapshot(group: nil, items: [], selectedItem: 0, cwd: tabCwd))
                 case .group(let kind):
                     let state = groups[tid]
                     let items = (state?.items ?? []).map(itemSnapshot)
@@ -453,6 +460,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                         created.append(gid)
                     }
                 } else if let tid = controller.createTab(title: "터미널", icon: "terminal", inPane: pane) {
+                    if let cwd = t.cwd { restoredCwd[tid] = cwd } // 새 셸을 저장된 작업 디렉터리에서 띄우게 힌트.
                     created.append(tid)
                 }
             }
