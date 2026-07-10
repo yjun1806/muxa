@@ -85,6 +85,17 @@ final class GhosttyRuntime {
                 else { return false }
                 DispatchQueue.main.async { view.onPwdChange(pwd) }
                 return true
+            // 탭 자동 명명(OSC 0/2 SET_TITLE·명시적 SET_TAB_TITLE) — 셸/앱이 보낸 제목으로 탭 이름을 갱신한다.
+            // title const char*는 콜백 반환 후 무효 → main.async 전에 String으로 복사한다.
+            // 수동 지정 탭은 store가 덮지 않게 판정하므로 여기선 값만 넘긴다.
+            case GHOSTTY_ACTION_SET_TITLE:
+                let title = action.action.set_title.title.flatMap { String(cString: $0) } ?? ""
+                DispatchQueue.main.async { view.onSetTitle(title) }
+                return true
+            case GHOSTTY_ACTION_SET_TAB_TITLE:
+                let title = action.action.set_tab_title.title.flatMap { String(cString: $0) } ?? ""
+                DispatchQueue.main.async { view.onSetTitle(title) }
+                return true
             default:
                 return false
             }

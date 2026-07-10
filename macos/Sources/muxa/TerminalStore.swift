@@ -105,7 +105,75 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         flashingTabs.remove(tabId) // 활동 테두리 상태 해제
         flashSeq[tabId] = nil
         lastBellAt[tabId] = nil // 벨 디바운스 상태 해제
+        manualTitles[tabId] = nil // 수동 지정 제목 해제
+        engineTitles[tabId] = nil // 엔진 제목 캐시 해제
         persist()
+    }
+
+    /// 탭 컨텍스트 메뉴 액션 — 이름 변경/이름 지움만 처리한다(나머지는 미사용).
+    func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Tab, inPane pane: PaneID) {
+        switch action {
+        case .rename: promptRename(tab)
+        case .clearName: clearTabName(tab.id)
+        default: break
+        }
+    }
+
+    // MARK: 탭 명명 — 자동(SET_TITLE) + 수동 rename
+    //
+    // 엔진(셸 OSC 0/2)이 보낸 제목으로 탭 이름을 자동 갱신하되, 사용자가 수동 지정한 탭은 덮지 않는다.
+    // manualTitles가 플래그 겸 값이고, engineTitles는 수동 해제 시 되돌릴 최신 자동 제목을 캐시한다.
+
+    /// 새 터미널·복원 시 탭의 기본 이름.
+    static let defaultTerminalTitle = "터미널"
+
+    /// 사용자가 수동 지정한 탭 제목(tabId→제목). 존재하면 엔진 제목이 덮지 않는다.
+    @ObservationIgnored private var manualTitles: [TabID: String] = [:]
+    /// 엔진이 마지막으로 보낸 제목 — 수동 제목 해제 시 이 값으로 되돌린다.
+    @ObservationIgnored private var engineTitles: [TabID: String] = [:]
+
+    /// 엔진(SET_TITLE)이 보낸 제목을 탭에 반영한다 — 터미널 탭만, 수동 지정 탭은 건드리지 않는다.
+    private func applyEngineTitle(_ raw: String, for tabId: TabID) {
+        guard case .terminal = content(for: tabId) else { return } // 그룹 탭은 종류 제목 유지
+        let title = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        engineTitles[tabId] = title
+        guard manualTitles[tabId] == nil else { return } // 수동 지정 우선
+        controller.updateTab(tabId, title: title)
+    }
+
+    /// 사용자가 탭 이름을 수동 지정한다 — 이후 엔진 제목은 무시된다.
+    func renameTab(_ tabId: TabID, to raw: String) {
+        let title = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        manualTitles[tabId] = title
+        controller.updateTab(tabId, title: title, hasCustomTitle: true)
+        persist()
+    }
+
+    /// 수동 제목을 해제하고 자동 명명으로 되돌린다(최신 엔진 제목 없으면 기본값).
+    func clearTabName(_ tabId: TabID) {
+        guard manualTitles[tabId] != nil else { return }
+        manualTitles[tabId] = nil
+        let fallback = engineTitles[tabId] ?? Self.defaultTerminalTitle
+        controller.updateTab(tabId, title: fallback, hasCustomTitle: false)
+        persist()
+    }
+
+    /// 탭 이름 변경 입력 시트(NSAlert + 텍스트 필드). 확정하면 renameTab.
+    private func promptRename(_ tab: Tab) {
+        let alert = NSAlert()
+        alert.messageText = "탭 이름 변경"
+        alert.addButton(withTitle: "변경")
+        alert.addButton(withTitle: "취소")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.stringValue = tab.title
+        field.placeholderString = Self.defaultTerminalTitle
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        if alert.runModal() == .alertFirstButtonReturn {
+            renameTab(tab.id, to: field.stringValue)
+        }
     }
 
     /// 현재 포커스된 패인의 터미널(단축키 대상 — ⌘F 등). diff 등 비-터미널 탭이면 nil.
@@ -134,6 +202,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         // 서피스를 free한다. close_surface_cb는 요청일 뿐 libghostty가 직접 free하지 않아 이중 free 아님.
         t.onRequestClose = { [weak self] tid in
             MainActor.assumeIsolated { _ = self?.controller.closeTab(tid) }
+        }
+        t.onTitle = { [weak self] title in
+            MainActor.assumeIsolated { self?.applyEngineTitle(title, for: tabId) }
         }
         terms[tabId] = t
         return t

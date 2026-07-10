@@ -36,6 +36,9 @@ final class TermView: NSView, NSTextInputClient {
     var onClearBadge: ((TabID) -> Void)?
     /// 셸이 종료(exit)돼 libghostty가 서피스 닫기를 요청할 때 — 이 탭만 닫는다. store가 세팅.
     var onRequestClose: ((TabID) -> Void)?
+    /// 엔진(SET_TITLE)이 보낸 터미널 제목 — store가 받아 탭 이름에 반영한다.
+    /// 수동 지정 탭은 store가 덮지 않게 판정하므로 TermView는 값만 넘긴다.
+    var onTitle: ((String) -> Void)?
 
     /// IME 조합 중(preedit) 텍스트. NSTextInputClient가 채운다.
     private var markedText = NSMutableAttributedString()
@@ -278,6 +281,11 @@ final class TermView: NSView, NSTextInputClient {
     /// OSC 7 작업 디렉터리 변경. 저장은 스냅샷 시점에 store가 pwd를 읽는 방식이라 여기선 값만 갱신한다.
     func onPwdChange(_ pwd: String) {
         self.pwd = pwd
+    }
+
+    /// OSC 0/2 터미널 제목(SET_TITLE). 수동 rename 여부·탭 반영은 store가 결정한다.
+    func onSetTitle(_ title: String) {
+        onTitle?(title)
     }
 
     // MARK: 키 입력 — Ghostty SurfaceView_AppKit.keyDown 이식
