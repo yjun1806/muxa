@@ -145,6 +145,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         flashSeq[tabId] = nil
         clearAgentActivity(tabId) // 에이전트 추정 상태·추정기 해제(+ idle 타이머 재동기화)
         lastBellAt[tabId] = nil // 벨 디바운스 상태 해제
+        resetCoalescers(for: tabId) // 배지·알림 병합 이력 해제(맵 누수 방지)
         manualTitles[tabId] = nil // 수동 지정 제목 해제
         engineTitles[tabId] = nil // 엔진 제목 캐시 해제
         persist()
@@ -252,7 +253,13 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     }
 
     /// 백그라운드 활동으로 이 탭에 배지(●)를 켠다 — 탭 점(Bonsplit isDirty) + 프로젝트 알림 + 인박스 이력.
+    /// 같은 (tabId,kind)가 cooldown 안에 다시 오면 병합해 억제한다 — 배지는 이미 켜져 있어 시각 손실 없이
+    /// 인박스·프로젝트 알림 폭주만 접는다. 주의가 해소(clearTabBadge)되면 병합기가 리셋돼 다음 신호는 통과.
     private func markBadge(_ tabId: TabID, kind: AttentionKind, title: String) {
+        let (admit, next) = badgeCoalescer.admitting(BadgeKey(tabId: tabId, kind: kind),
+                                                     now: ProcessInfo.processInfo.systemUptime)
+        badgeCoalescer = next
+        guard admit else { return }
         badgedTabs.insert(tabId)
         controller.updateTab(tabId, isDirty: true)
         onProjectActivity?()
@@ -361,11 +368,19 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     }
 
     /// 사용자가 탭을 보면 배지를 끈다. 상시 상태 테두리(waiting/done)도 함께 해제한다("봤음").
+    /// 주의가 해소됐으니 이 탭의 병합 이력도 리셋한다 — 다음 신호는 cooldown에 걸리지 않고 곧장 통과.
     func clearTabBadge(_ tabId: TabID) {
         acknowledgeAgent(tabId)
+        resetCoalescers(for: tabId)
         guard badgedTabs.contains(tabId) else { return }
         badgedTabs.remove(tabId)
         controller.updateTab(tabId, isDirty: false)
+    }
+
+    /// 한 탭의 배지·알림 병합 이력을 지운다(주의 해소·탭 종료 시) — 맵 무한 성장 방지 + 오억제 방지.
+    private func resetCoalescers(for tabId: TabID) {
+        badgeCoalescer = badgeCoalescer.resetting { $0.tabId == tabId }
+        notifyCoalescer = notifyCoalescer.resetting { $0 == tabId }
     }
 
     /// 사용자가 탭을 봤다 — waiting/done 상시 테두리를 지운다(추정기를 idle로 리셋해 고정도 푼다).
@@ -396,6 +411,25 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     /// 탭별 마지막 벨 시각(systemUptime, 단조 증가) — 디바운스용.
     @ObservationIgnored private var lastBellAt: [TabID: TimeInterval] = [:]
+
+    // MARK: 알림 dedup/coalescing — 같은 탭 연속 신호 병합 (cmux 대조)
+    //
+    // auto-approve로 도구를 연타하면 같은 탭 배지·시스템 알림이 폭주한다. cooldown 안의 반복만 접고
+    // 진짜 새 신호(다른 (tab,kind)·cooldown 밖)는 통과시킨다. 판정은 순수 SignalCoalescer가, 상태 소유는 store.
+
+    /// 배지 병합 키 — 같은 탭·같은 종류의 연속 배지만 접는다(다른 종류는 별개 주의라 통과).
+    private struct BadgeKey: Hashable {
+        let tabId: TabID
+        let kind: AttentionKind
+    }
+    /// 같은 (tabId,kind) 배지가 이 시간(초) 안에 다시 오면 병합(억제) — 인박스·프로젝트 알림 폭주 방지.
+    private static let badgeCoalesceCooldown: TimeInterval = 2.0
+    /// 같은 탭 시스템 알림이 이 시간(초) 안에 다시 오면 병합(억제) — 가장 시끄러운 채널이라 더 길게.
+    private static let notifyCoalesceCooldown: TimeInterval = 3.0
+    /// 배지 병합기(순수 값) — markBadge의 단일 choke point에서 태운다.
+    @ObservationIgnored private var badgeCoalescer = SignalCoalescer<BadgeKey>(cooldown: TerminalStore.badgeCoalesceCooldown)
+    /// 시스템 알림 병합기(순수 값, 탭 단위) — fireNotification의 systemNotification 채널에서만 태운다.
+    @ObservationIgnored private var notifyCoalescer = SignalCoalescer<TabID>(cooldown: TerminalStore.notifyCoalesceCooldown)
 
     /// 활동 테두리 유지 시간(ns) — 짧은 플래시로 충분(상시 테두리는 focus와 혼동). 1.2초.
     private static let flashDurationNs: UInt64 = 1_200_000_000
@@ -534,7 +568,12 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         let delivery = NotificationGate.shouldDeliver(category: category, isVisibleToUser: isTabVisible(tabId))
         if delivery.flashPane { flashPane(tabId) }
         if delivery.systemNotification {
-            if let onNotify { onNotify(tabId, title, body) } else { NotificationService.shared.notify(title: title, body: body) }
+            // 같은 탭 연속 시스템 알림은 병합(억제) — 가장 시끄러운 채널이라 연타를 접는다. 배지·인박스는 아래에서 별도 병합.
+            let (admit, next) = notifyCoalescer.admitting(tabId, now: ProcessInfo.processInfo.systemUptime)
+            notifyCoalescer = next
+            if admit {
+                if let onNotify { onNotify(tabId, title, body) } else { NotificationService.shared.notify(title: title, body: body) }
+            }
         }
         if delivery.badge { markBadge(tabId, kind: kind, title: title.isEmpty ? tabTitle(tabId) : title) }
     }

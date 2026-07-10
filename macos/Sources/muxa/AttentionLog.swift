@@ -74,13 +74,21 @@ final class AttentionLog {
     var isEmpty: Bool { entries.isEmpty }
 
     /// 배지 발생 시 이력을 한 건 추가한다(immutable — 새 배열로 교체). 상한 초과분은 앞에서 버린다.
+    ///
+    /// 병합(coalescing): 직전(최신) 항목이 같은 탭·같은 종류면 새 항목을 쌓지 않고 **교체**한다(last-write-wins).
+    /// auto-approve 연타로 같은 신호가 반복돼도 인박스가 부풀지 않고, 상한(cap)을 중복이 잡아먹지 않는다.
+    /// 교체 시에도 seq를 올려 최신·안 읽음으로 되살린다(반복 활동도 새 주의로 환기). 시각도 갱신.
     func record(workspaceId: String, projectId: String, tabId: String, kind: AttentionKind, title: String) {
         seqCounter += 1
         let entry = AttentionEntry(workspaceId: workspaceId, projectId: projectId, tabId: tabId,
                                    kind: kind, title: title, seq: seqCounter, date: Date())
         var next = entries
-        next.append(entry)
-        if next.count > Self.cap { next.removeFirst(next.count - Self.cap) }
+        if let last = next.last, last.tabId == tabId, last.kind == kind {
+            next[next.count - 1] = entry // 직전 동일 신호 교체 — 중복 누적 방지
+        } else {
+            next.append(entry)
+            if next.count > Self.cap { next.removeFirst(next.count - Self.cap) }
+        }
         entries = next
     }
 
