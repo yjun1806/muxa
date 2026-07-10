@@ -31,6 +31,10 @@ final class AppState {
     /// ⌘K 빠른 전환기(명령 팔레트) 표시 상태 — 세션 영속 대상 아님. 단축키가 토글한다.
     var showQuickSwitch = false
 
+    /// 키바인딩 재정의 진단(충돌·예약키 침범·파싱 실패). main이 키맵을 (재)빌드할 때마다 채운다.
+    /// 지금은 로그가 1차 표면이고 이 배열은 UI 노출용 예비 — 관측 가능하게 값으로만 둔다(세션 영속 대상 아님).
+    var keymapDiagnostics: [KeymapDiagnostic] = []
+
     @ObservationIgnored private let app: ghostty_app_t
     /// muxa 설정(`~/.config/muxa/config`) — 시작 시 로드해 주입하고, 파일 저장 시 ConfigWatcher가
     /// `applyConfig`로 라이브 갱신한다(재시작 불필요). 기본 사이드바 모드·완료 배지 임계 등. (DESIGN 4.6)

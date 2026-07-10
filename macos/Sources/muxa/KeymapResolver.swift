@@ -53,17 +53,19 @@ struct KeymapResolver {
     /// 기본 테이블 + 설정 재정의(있으면 우선). 둘 다 (keyCode, mods) → action.
     private let table: [Binding: KeymapAction]
 
+    /// 이 리졸버를 빌드하며 감지한 재정의 진단(파싱 실패·미인식 동작·예약키 침범·충돌).
+    /// 동작 회귀는 없다(last-wins 유지) — 경고만 담는다. 노출·로깅은 호출부(main·AppState)가 맡는다.
+    let diagnostics: [KeymapDiagnostic]
+
     /// 기본 바인딩만 담은 리졸버(설정 재정의 없음).
     static let `default` = KeymapResolver(overrides: [:])
 
-    /// 설정의 keybinding 재정의를 기본 테이블 위에 얹어 만든다. 파싱 실패한 재정의는 조용히 무시(기본 유지).
+    /// 설정의 keybinding 재정의를 기본 테이블 위에 얹어 만든다. 순수 판정(Self.build)에 위임한다.
+    /// 파싱 실패·예약키 침범은 무시(기본 유지)하되 진단으로 기록하고, 충돌은 last-wins 유지 + 진단만 남긴다.
     init(overrides: [String: String]) {
-        var merged = Self.defaultTable
-        for (name, combo) in overrides {
-            guard let action = KeymapAction.named(name), let binding = Self.parseCombo(combo) else { continue }
-            merged[binding] = action
-        }
-        table = merged
+        let result = Self.build(overrides: overrides)
+        table = result.table
+        diagnostics = result.diagnostics
     }
 
     /// 키 입력 → 크롬 동작(없으면 nil = 터미널로 통과). 순수 함수 — 부작용 없음.
@@ -176,4 +178,83 @@ extension KeymapResolver {
         "left": kVK_LeftArrow, "right": kVK_RightArrow, "up": kVK_UpArrow, "down": kVK_DownArrow,
         "tab": kVK_Tab,
     ]
+}
+
+// MARK: - 재정의 진단 (순수)
+
+/// keybind 재정의를 흡수하며 감지한 문제. 값 타입 — 로깅·UI 노출은 호출부가 결정한다. (DESIGN 7)
+/// "왜 내 단축키가 안 먹지"의 원인(파싱 실패·미인식 동작·예약키·충돌)을 조용히 삼키지 않고 표면화한다.
+enum KeymapDiagnostic: Equatable {
+    /// 동작 이름을 못 알아봤다(예: `keybind.zoom`). 재정의 무시.
+    case unknownAction(name: String, combo: String)
+    /// 조합 문자열 파싱 실패(예: `cmd+`, `hyper+z`). 재정의 무시.
+    case parseFailed(name: String, combo: String)
+    /// muxa가 고정 사용하는 예약 조합(⌘Q·⌘H·⌘1–8·⌘K) 침범. 재정의 거부(무시).
+    case reserved(name: String, combo: String)
+    /// 같은 조합을 둘 이상 동작이 노렸다. last-wins로 동작은 유지하되 어떤 동작들이 겹쳤는지 알린다.
+    case conflict(combo: String, actions: [String])
+
+    /// 로그·표면 노출용 사람이 읽을 한 줄. 값은 여기 한 곳에서만 만든다(중복 방지).
+    var message: String {
+        switch self {
+        case let .unknownAction(name, combo):
+            return "알 수 없는 동작 '\(name)' (= \(combo)) — 재정의를 무시합니다."
+        case let .parseFailed(name, combo):
+            return "'\(name)'의 키 조합 '\(combo)'을(를) 해석할 수 없습니다 — 재정의를 무시합니다."
+        case let .reserved(name, combo):
+            return "'\(combo)'은(는) muxa 예약 조합이라 '\(name)'에 재정의할 수 없습니다 — 무시합니다."
+        case let .conflict(combo, actions):
+            return "'\(combo)'을(를) 여러 동작이 함께 노렸습니다(\(actions.joined(separator: ", "))) — 마지막 것만 적용됩니다."
+        }
+    }
+}
+
+extension KeymapResolver {
+    /// 순수 빌드 결과 — 병합된 테이블과 진단 목록. init이 이 값을 그대로 저장한다.
+    struct BuildResult {
+        let table: [Binding: KeymapAction]
+        let diagnostics: [KeymapDiagnostic]
+    }
+
+    /// muxa가 고정 사용해 재정의를 받지 않는 예약 조합. ⌘Q·⌘H(메뉴), ⌘1–8(워크스페이스 전환은
+    /// resolve가 characters로 먼저 가로채므로 재정의해도 무효), ⌘K(빠른 전환기). 매직값 대신 Carbon 상수.
+    static let reservedBindings: Set<Binding> = {
+        let cmd = Mods(command: true)
+        var set: Set<Binding> = [
+            Binding(keyCode: kVK_ANSI_Q, mods: cmd),
+            Binding(keyCode: kVK_ANSI_H, mods: cmd),
+            Binding(keyCode: kVK_ANSI_K, mods: cmd),
+        ]
+        for code in [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4,
+                     kVK_ANSI_5, kVK_ANSI_6, kVK_ANSI_7, kVK_ANSI_8] {
+            set.insert(Binding(keyCode: code, mods: cmd))
+        }
+        return set
+    }()
+
+    /// 재정의를 기본 테이블 위에 얹으며 문제를 감지한다(순수 — 부작용 없음, 테스트 가능).
+    /// 처리 순서를 동작 이름 정렬로 고정해 충돌 시 last-wins가 결정론적이게 만든다(사전 순회 비결정성 제거).
+    static func build(overrides: [String: String]) -> BuildResult {
+        var merged = defaultTable
+        var diagnostics: [KeymapDiagnostic] = []
+        var claimed: [Binding: String] = [:] // 재정의가 이미 차지한 조합 → 먼저 차지한 동작 이름
+        for name in overrides.keys.sorted() {
+            let combo = overrides[name] ?? ""
+            guard let action = KeymapAction.named(name) else {
+                diagnostics.append(.unknownAction(name: name, combo: combo)); continue
+            }
+            guard let binding = parseCombo(combo) else {
+                diagnostics.append(.parseFailed(name: name, combo: combo)); continue
+            }
+            if reservedBindings.contains(binding) {
+                diagnostics.append(.reserved(name: name, combo: combo)); continue // 거부 — 기본 유지
+            }
+            if let prior = claimed[binding], prior != name {
+                diagnostics.append(.conflict(combo: combo, actions: [prior, name])) // last-wins 유지, 경고만
+            }
+            claimed[binding] = name
+            merged[binding] = action
+        }
+        return BuildResult(table: merged, diagnostics: diagnostics)
+    }
 }

@@ -2,7 +2,11 @@ import AppKit
 import Bonsplit
 import Carbon.HIToolbox
 import GhosttyKit
+import os
 import SwiftUI
+
+/// 키바인딩 재정의 경고 로그 채널. 사용자가 표면(콘솔·Console.app)에서 "왜 안 먹지"를 추적할 수 있게 한다.
+private let keymapLog = Logger(subsystem: "com.muxa.app", category: "keybind")
 
 // muxa — SwiftUI 크롬 + AppKit(GhosttyKit) 터미널 하이브리드 (DESIGN.md D16).
 // AppKit이 NSWindow·activation을 제어(raw 실행에도 창이 확실히 뜬다)하고,
@@ -35,8 +39,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // muxa 설정(~/.config/muxa/config) 로드 — 없으면 전부 기본값. 폰트·테마는 ghostty config 재사용(GhosttyRuntime). (DESIGN 4.6)
         let config = MuxaConfigLoader.load()
-        // 단축키 테이블 — 설정의 keybinding 재정의를 기본 위에 얹는다(없으면 기본 그대로). (DESIGN 7)
-        keymap = KeymapResolver(overrides: config.keybindings)
 
         // 저장된 세션 복원(없으면 설정의 기본 경로/현재 디렉토리로 초기 워크스페이스 생성)
         let state = AppState(app: app, config: config)
@@ -49,6 +51,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state?.revealActivity(projectId: ctx.projectId, tabId: ctx.tabId)
         }
         self.state = state
+        // 단축키 테이블 — 설정의 keybinding 재정의를 기본 위에 얹고(없으면 기본 그대로) 진단을 로그·노출한다. (DESIGN 7)
+        rebuildKeymap(config)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1000, height: 680),
@@ -95,8 +99,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// sidebar_mode·기본 워크스페이스 경로는 "초기 기본값"이라 라이브 반영하지 않는다(AppState.applyConfig 주석).
     private func reloadConfig() {
         let config = MuxaConfigLoader.load()
-        keymap = KeymapResolver(overrides: config.keybindings)
+        rebuildKeymap(config)
         state?.applyConfig(config)
+    }
+
+    /// 설정의 재정의로 키맵을 (재)빌드하고, 감지된 진단을 로그로 남기며 AppState에 노출한다.
+    /// 시작·라이브 리로드 두 경로가 공유하는 단일 진실 원천(중복 제거). 부작용(로그·상태 쓰기)은 여기에 격리.
+    private func rebuildKeymap(_ config: MuxaConfig) {
+        keymap = KeymapResolver(overrides: config.keybindings)
+        for diagnostic in keymap.diagnostics {
+            keymapLog.warning("키바인딩 경고: \(diagnostic.message, privacy: .public)")
+        }
+        state?.keymapDiagnostics = keymap.diagnostics
     }
 
     /// 로컬 키 모니터의 착지점 — 판정은 KeymapResolver(순수)에 위임하고, 매치되면 실행 후 소비(true),
