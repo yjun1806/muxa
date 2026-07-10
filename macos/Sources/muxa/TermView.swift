@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Carbon
 import GhosttyKit
 
@@ -24,6 +25,15 @@ final class TermView: NSView, NSTextInputClient {
 
     /// 스크롤백 검색 상태(⌘F). 검색 오버레이가 관측하고, ghostty 검색 액션이 갱신한다.
     let search = SearchState()
+
+    /// 이 뷰가 담긴 Bonsplit 탭 — 배지 라우팅용(A). TerminalStore.term(for:)에서 주입.
+    var tabId: TabID?
+    /// 백그라운드 활동(완료·벨·알림)으로 배지(●)를 울릴 때 — store가 세팅.
+    var onBadgeActivity: ((TabID) -> Void)?
+    /// 이 탭을 사용자가 보게 됐을 때 배지 클리어 — store가 세팅.
+    var onClearBadge: ((TabID) -> Void)?
+    /// 데스크톱 알림(OSC 9/777)을 시스템 알림으로 — store가 세팅.
+    var onNotify: ((String, String) -> Void)?
 
     /// IME 조합 중(preedit) 텍스트. NSTextInputClient가 채운다.
     private var markedText = NSMutableAttributedString()
@@ -164,12 +174,13 @@ final class TermView: NSView, NSTextInputClient {
     }
 
     override func becomeFirstResponder() -> Bool {
-        if let surface { ghostty_surface_set_focus(surface, true) }
+        isFocused = true // didSet이 ghostty_surface_set_focus(true) — 논리 포커스도 실제와 동기화
+        if let tabId { onClearBadge?(tabId) } // 이 탭을 보게 됐으니 배지 해제
         return super.becomeFirstResponder()
     }
 
     override func resignFirstResponder() -> Bool {
-        if let surface { ghostty_surface_set_focus(surface, false) }
+        isFocused = false
         return super.resignFirstResponder()
     }
 
@@ -215,6 +226,34 @@ final class TermView: NSView, NSTextInputClient {
 
     func onSearchTotal(_ total: Int?) { search.total = total }
     func onSearchSelected(_ selected: Int?) { search.selected = selected }
+
+    // MARK: 알림·완료 감지 (A) — action_cb가 메인에서 호출. 사용자가 안 보는 탭이면 배지(●).
+
+    /// 사용자가 지금 이 터미널을 보고 있나 — 이 뷰가 first responder + 키 창이면 true. 배지 억제 조건.
+    /// (isFocused 저장 프로퍼티가 아니라 실제 first responder를 진실원천으로 — 논리 포커스와 분리)
+    private var isVisibleToUser: Bool {
+        window?.firstResponder === self && (window?.isKeyWindow ?? false)
+    }
+
+    /// OSC 9/777 데스크톱 알림 — 시스템 알림은 항상, 배지는 안 보일 때만.
+    func onDesktopNotification(title: String, body: String) {
+        onNotify?(title, body)
+        if !isVisibleToUser { fireBadge() }
+    }
+
+    /// OSC 133 명령 완료(exitCode nil=미보고, duration ns) — 안 보이는 탭이면 배지.
+    func onCommandFinished(exitCode: Int?, duration: UInt64) {
+        if !isVisibleToUser { fireBadge() }
+    }
+
+    /// 벨(주의 환기) — 에이전트가 완료를 벨로 알리는 경우가 많아 배지. 안 보일 때만.
+    func onBell() {
+        if !isVisibleToUser { fireBadge() }
+    }
+
+    private func fireBadge() {
+        if let tabId { onBadgeActivity?(tabId) }
+    }
 
     // MARK: 키 입력 — Ghostty SurfaceView_AppKit.keyDown 이식
 

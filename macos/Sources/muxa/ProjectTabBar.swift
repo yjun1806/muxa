@@ -8,6 +8,8 @@ struct ProjectTabBar: View {
     let state: AppState
     let workspace: Workspace
 
+    @State private var showWorktreePicker = false
+
     var body: some View {
         HStack(spacing: 2) {
             ForEach(workspace.projects) { project in
@@ -16,6 +18,14 @@ struct ProjectTabBar: View {
             addButton
         }
         .fixedSize(horizontal: true, vertical: false)
+        .sheet(isPresented: $showWorktreePicker) {
+            WorktreePicker(dir: workspace.path ?? SystemPaths.currentDir ?? SystemPaths.home) { name, path in
+                state.addProject(name: name, path: path)
+                showWorktreePicker = false
+            } onCancel: {
+                showWorktreePicker = false
+            }
+        }
     }
 
     @ViewBuilder
@@ -29,6 +39,10 @@ struct ProjectTabBar: View {
                 .font(.system(size: 12, weight: active ? .medium : .regular))
                 .foregroundStyle(active ? Color.pFg : Color.pMuted)
                 .lineLimit(1)
+            if !active, state.badgedProjects.contains(project.id) {
+                // 백그라운드 활동(에이전트 끝남·벨·알림) — 이 프로젝트를 안 보는 동안 쌓임.
+                Circle().fill(Color.pBorderFocus).frame(width: 6, height: 6)
+            }
             if workspace.projects.count > 1 {
                 Button {
                     state.closeProject(project.id)
@@ -61,9 +75,14 @@ struct ProjectTabBar: View {
                 Label("새 프로젝트 (같은 폴더)", systemImage: "plus.square")
             }
             Button {
+                showWorktreePicker = true
+            } label: {
+                Label("워크트리…", systemImage: "arrow.triangle.branch")
+            }
+            Button {
                 pickFolder()
             } label: {
-                Label("폴더 / 워크트리 선택…", systemImage: "arrow.triangle.branch")
+                Label("임의 폴더 선택…", systemImage: "folder")
             }
         } label: {
             Image(systemName: "plus").font(.system(size: 12)).foregroundStyle(Color.pMuted)

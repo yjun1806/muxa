@@ -15,6 +15,9 @@ final class AppState {
     private(set) var activeId: String = "" // 활성 워크스페이스
     private(set) var sidebarMode: SidebarMode = .expanded
 
+    /// 백그라운드 활동(●)이 있는 프로젝트 id들(A). ProjectTabBar가 관측해 배지를 그린다.
+    private(set) var badgedProjects: Set<String> = []
+
     @ObservationIgnored private let app: ghostty_app_t
     /// 프로젝트 id → TerminalStore. 프로젝트가 독립 분할 레이아웃 하나를 소유한다.
     @ObservationIgnored private var stores: [String: TerminalStore] = [:]
@@ -45,8 +48,16 @@ final class AppState {
         if let s = stores[project.id] { return s }
         let cwd = project.path ?? workspace.path
         let s = TerminalStore(app: app, cwd: cwd, restoreTree: savedLayouts[project.id])
+        let pid = project.id
+        s.onProjectActivity = { [weak self] in MainActor.assumeIsolated { self?.markProjectBadge(pid) } }
         stores[project.id] = s
         return s
+    }
+
+    /// 백그라운드 프로젝트에 활동(●)이 있음을 표시. 지금 보고 있는 활성 프로젝트면 무시.
+    private func markProjectBadge(_ projectId: String) {
+        guard projectId != activeProject?.id else { return }
+        badgedProjects.insert(projectId)
     }
 
     // MARK: 워크스페이스 액션
@@ -83,6 +94,7 @@ final class AppState {
 
     /// 활성 워크스페이스에서 프로젝트를 전환한다.
     func setActiveProject(_ projectId: String) {
+        badgedProjects.remove(projectId) // 프로젝트를 보게 됐으니 배지 해제
         updateActiveWorkspace { ws in
             guard ws.projects.contains(where: { $0.id == projectId }) else { return ws }
             var next = ws
@@ -117,6 +129,7 @@ final class AppState {
     func closeProject(_ projectId: String) {
         stores[projectId] = nil
         savedLayouts[projectId] = nil
+        badgedProjects.remove(projectId)
         updateActiveWorkspace { ws in
             guard ws.projects.count > 1,
                   let idx = ws.projects.firstIndex(where: { $0.id == projectId }) else { return ws }
@@ -127,6 +140,8 @@ final class AppState {
             }
             return next
         }
+        // 닫힌 뒤 새로 활성화된 프로젝트도 배지 클리어(사용자가 보게 됐으니) — 유령 배지 방지.
+        if let newActive = activeProject?.id { badgedProjects.remove(newActive) }
     }
 
     /// 활성 워크스페이스를 불변 갱신한다(immutable — 새 배열로 교체).

@@ -1,0 +1,82 @@
+import SwiftUI
+
+/// 코드/텍스트 파일 뷰어 탭 — 읽기 전용, monospace + 줄번호. 신택스 하이라이트는 후속.
+/// (DiffView의 monospace LazyVStack 라인 렌더 패턴 재사용) 바이너리·대형 파일은 가드.
+struct CodeView: View {
+    let target: FileViewTarget
+    var onClose: () -> Void
+
+    @State private var lines: [String] = []
+    @State private var state: LoadState = .loading
+
+    enum LoadState { case loading, ok, tooLarge, binary, error }
+
+    /// 통째 로드 상한(넘으면 tooLarge). 뷰어는 읽기용이라 보수적으로.
+    private static let maxBytes = 2_000_000
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ViewerHeader(icon: "doc.text", title: target.path, onClose: onClose)
+            Rectangle().fill(Color.pBorder).frame(height: 1)
+            content
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.pBg)
+        .task(id: target.id) { await load() }
+    }
+
+    @ViewBuilder private var content: some View {
+        switch state {
+        case .loading: centerLabel("불러오는 중…")
+        case .tooLarge: centerLabel("파일이 너무 큽니다")
+        case .binary: centerLabel("바이너리 파일")
+        case .error: centerLabel("열 수 없음")
+        case .ok:
+            ScrollView([.vertical, .horizontal]) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
+                        HStack(alignment: .top, spacing: 12) {
+                            Text("\(i + 1)")
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(Color.pMuted.opacity(0.6))
+                                .frame(minWidth: 40, alignment: .trailing)
+                            Text(line.isEmpty ? " " : line)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(Color.pFg)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.horizontal, 12)
+                    }
+                }
+                .padding(.vertical, 6)
+            }
+        }
+    }
+
+    private func centerLabel(_ t: String) -> some View {
+        Text(t)
+            .font(.system(size: 12))
+            .foregroundStyle(Color.pMuted)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func load() async {
+        state = .loading
+        let path = target.path
+        let maxBytes = Self.maxBytes
+        // 파일 IO는 백그라운드에서(대형 파일이 메인 스레드를 막지 않게).
+        let result: (LoadState, [String]) = await Task.detached {
+            let fm = FileManager.default
+            guard let attrs = try? fm.attributesOfItem(atPath: path),
+                  let size = (attrs[.size] as? NSNumber)?.intValue else { return (.error, []) }
+            if size > maxBytes { return (.tooLarge, []) }
+            guard let data = fm.contents(atPath: path) else { return (.error, []) }
+            if data.prefix(8000).contains(0) { return (.binary, []) } // NUL 바이트 → 바이너리
+            guard let text = String(data: data, encoding: .utf8) else { return (.binary, []) }
+            return (.ok, text.components(separatedBy: "\n"))
+        }.value
+        state = result.0
+        lines = result.1
+    }
+}

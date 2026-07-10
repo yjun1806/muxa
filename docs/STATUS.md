@@ -20,23 +20,21 @@ swift build                 # 빌드 (SPM)
 - **M1 (터미널 코어)** ✅ — 워크스페이스 · Bonsplit 분할/탭 · ⌘F 검색 · 세션 복원 · 사이드바 4모드(hover 오버레이) · 모니터 스케일 · ghostty config 재사용.
 - **추가 (M1 범위 밖)** ✅ — **프로젝트 계층**(워크스페이스⊃프로젝트⊃탭), 상단바 한 줄 통합, ⌘Q 메뉴+종료 확인, 접힌 사이드바 호버 이름.
 - **M3 (git 읽기) — "C"** ✅ 읽기 부분 완성 — Git 상태 패널(브랜치·↑↓·변경파일) + diff 뷰 + 히스토리(커밋). **diff는 모달 아니라 활성 패인의 탭**으로 뜸.
+- **B (익스플로러 + md/코드 뷰어)** ✅ — 우측 접이식 파일 트리(GitPanel 형제) → 파일 클릭 → 뷰어 탭. 다형 탭에 `.file(FileViewTarget)` 추가. md는 네이티브 렌더(블록 파서 + AttributedString 인라인), 코드는 monospace+줄번호. 대형/바이너리 가드. FSEvents 라이브 리로드는 B-2로 남김.
+- **A (알림/완료 감지)** ✅ — `action_cb` 4케이스(DESKTOP_NOTIFICATION·COMMAND_FINISHED·RING_BELL·PROGRESS_REPORT). 백그라운드 탭 배지(Bonsplit `isDirty`)·프로젝트 ● 배지·macOS 알림(번들일 때만, bare 바이너리는 Dock 바운스). 보고 있는 탭(first responder+key창)은 억제.
+- **M4 (git 워크트리 자동화)** ✅ — `GitService` worktree list/add/remove, `WorktreePicker` 시트(기존 목록+생성 폼), `.worktrees/<branch>` + info/exclude 등록. repoRoot는 `--git-common-dir`(링크 워크트리 안전). gh 레이어는 후속.
 
-## 다음 할 일 (우선순위: C→B→A 중 **C 끝, 다음 B**)
+## 다음 할 일
 
-### B. 익스플로러 + md/코드 뷰어 (다음)
-- **탭 메커니즘 이미 준비됨**: `TabContent`(터미널 | diff)에 `.markdown(path)` · `.code(path)` 추가하면 됨.
-- 파일 트리(익스플로러) → 파일 클릭 → **뷰어 탭**으로 열기(diff 탭과 동일 패턴, `store.openXxx(...)`).
-- md 렌더·코드 하이라이트: DESIGN.md는 WKWebView(remark/CodeMirror) vs 네이티브 미정 — B에서 결정.
-- FSEvents 라이브 리로드(파일 변경 시 갱신) — git 패널 자동갱신도 여기서.
+### B-2. FSEvents 라이브 리로드 (다음)
+- `FileWatcher`(FSEventStream, 디바운스) — 익스플로러 트리 갱신 · 열린 뷰어 탭 리로드 · git 패널 자동갱신을 하나로 공유. 무시 경로(.git·node_modules)는 `FileTree.ignored` 재사용.
 
-### A. 알림 / 완료 감지 (그 다음)
-- **`GhosttyRuntime.action_cb`에 케이스만 추가**(⌘F 검색 때 이미 깔림): `GHOSTTY_ACTION_DESKTOP_NOTIFICATION`(OSC 9/777) · `RING_BELL` · `COMMAND_FINISHED`(OSC 133) · `PROGRESS_REPORT`.
-- 결과: 백그라운드 탭·프로젝트에 **배지(●)** + (옵션) macOS 알림. "에이전트 끝남"을 안 쳐다봐도 앎.
-
-### M4. 프로젝트 = git 워크트리 자동화
-- 지금 "폴더 선택"은 자리표시자. `git worktree list --porcelain` 자동 로드 + `git worktree add`로 생성.
-- `Project.path`가 이미 토대 → 재작업 0. git CLI(`GitService`) 확장.
-- **gh(GitHub CLI)는 별개 레이어** — PR 번호·CI 상태용(레포가 GitHub + `gh` 로그인 시). 현재 `gh` 설치·인증됨(account: youngjunkim-aha).
+### 후속 (백로그)
+- **md 고급 렌더**(mermaid·표·이미지) → WKWebView 경로. `MarkdownView`만 교체하면 됨(뷰 격리). WebKit 링크 + 번들 JS 에셋 필요.
+- **코드 신택스 하이라이트** — 현재 monospace 평문. `DiffView`의 라인 렌더와 공통화 여지.
+- **gh 레이어**(PR 번호·CI 배지) — `GhService`로 격리 예정. 레포가 GitHub + `gh` 로그인 시. 현재 `gh` 설치·인증됨(account: youngjunkim-aha).
+- **세션 복원 시 뷰어/diff 탭 제외** — 현재 복원 replay가 모든 탭을 터미널로 되살림(뷰어·diff는 임시라 제외 TODO).
+- **워크트리 제거 UI** — `GitService.worktreeRemove`는 있으나 확인 다이얼로그 액션 미연결(비파괴 기본).
 
 ## 핵심 아키텍처 (재개에 필요)
 
@@ -55,6 +53,9 @@ swift build                 # 빌드 (SPM)
 3. 세션 복원(분할 만들고 ⌘Q→재실행)
 4. 모니터 이동 시 글자 크기
 5. git 패널·diff 탭·히스토리 실제 표시
+6. **B** 익스플로러: 폴더 토글 아이콘(상단바)·트리 펼침·파일 클릭→뷰어 탭·md 렌더·코드 줄번호·중복 클릭 dedup
+7. **A** 배지: 백그라운드 터미널에서 명령 완료/벨 시 탭 점·프로젝트 ● 표시, 보고 있는 탭은 억제, 탭/프로젝트 보면 해제. (알림은 .app 번들 전엔 Dock 바운스만)
+8. **M4** 워크트리: `+`→워크트리… 시트에서 기존 목록·새 워크트리 생성, 생성 후 프로젝트 탭으로 열림
 
 ## 이번 세션에서 밝힌 함정 (재발 방지)
 

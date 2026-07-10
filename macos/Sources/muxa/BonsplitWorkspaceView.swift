@@ -31,6 +31,17 @@ struct BonsplitWorkspaceView: View {
             DiffView(target: target, dir: store.workingDir ?? "") {
                 _ = store.controller.closeTab(tabId, inPane: paneId)
             }
+        case .file(let target):
+            switch target.kind {
+            case .markdown:
+                MarkdownView(target: target) {
+                    _ = store.controller.closeTab(tabId, inPane: paneId)
+                }
+            case .code:
+                CodeView(target: target) {
+                    _ = store.controller.closeTab(tabId, inPane: paneId)
+                }
+            }
         }
     }
 

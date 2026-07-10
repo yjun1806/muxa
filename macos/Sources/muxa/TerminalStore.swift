@@ -7,6 +7,7 @@ import Observation
 enum TabContent {
     case terminal
     case diff(GitDiffTarget)
+    case file(FileViewTarget)
 }
 
 /// 워크스페이스 하나의 터미널 집합 + Bonsplit 분할·탭 컨트롤러. (cmux DockSplitStore 대응)
@@ -24,6 +25,13 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     @ObservationIgnored private var terms: [TabID: TermView] = [:]
     /// 터미널이 아닌 탭(diff 등)의 내용. 없으면 .terminal.
     @ObservationIgnored private var tabContent: [TabID: TabContent] = [:]
+
+    /// 백그라운드 활동(●)으로 배지가 붙은 탭들(A). 프로젝트 배지가 이걸 파생·관측한다.
+    var badgedTabs: Set<TabID> = []
+    /// 배지가 하나라도 생기면 상위(AppState)에 알린다 — 프로젝트 탭 ● 표시용.
+    @ObservationIgnored var onProjectActivity: (() -> Void)?
+
+    var hasBadge: Bool { !badgedTabs.isEmpty }
 
     /// 이 스토어(프로젝트)의 시작 폴더 — diff/뷰어 탭이 참조한다.
     var workingDir: String? { cwd }
@@ -60,6 +68,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         terms[tabId] = nil // TermView deinit이 서피스 free
         tabContent[tabId] = nil
+        badgedTabs.remove(tabId)
     }
 
     /// 현재 포커스된 패인의 터미널(단축키 대상 — ⌘F 등). diff 등 비-터미널 탭이면 nil.
@@ -79,8 +88,29 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     func term(for tabId: TabID) -> TermView {
         if let t = terms[tabId] { return t }
         let t = TermView(app: app, cwd: cwd)
+        t.tabId = tabId
+        // 콜백은 action_cb(메인 async)·becomeFirstResponder(메인)에서만 불린다 → assumeIsolated 안전.
+        t.onBadgeActivity = { [weak self] tid in MainActor.assumeIsolated { self?.markBadge(tid) } }
+        t.onClearBadge = { [weak self] tid in MainActor.assumeIsolated { self?.clearTabBadge(tid) } }
+        t.onNotify = { title, body in
+            MainActor.assumeIsolated { NotificationService.shared.notify(title: title, body: body) }
+        }
         terms[tabId] = t
         return t
+    }
+
+    /// 백그라운드 활동으로 이 탭에 배지(●)를 켠다 — 탭 점(Bonsplit isDirty) + 프로젝트 알림.
+    private func markBadge(_ tabId: TabID) {
+        badgedTabs.insert(tabId)
+        controller.updateTab(tabId, isDirty: true)
+        onProjectActivity?()
+    }
+
+    /// 사용자가 탭을 보면 배지를 끈다.
+    func clearTabBadge(_ tabId: TabID) {
+        guard badgedTabs.contains(tabId) else { return }
+        badgedTabs.remove(tabId)
+        controller.updateTab(tabId, isDirty: false)
     }
 
     /// 새 터미널 탭 생성(분할 후 빈 패인 채우기·⌘T 등).
@@ -102,6 +132,24 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         guard let tabId = controller.createTab(title: target.tabTitle, icon: target.tabIcon, inPane: controller.focusedPaneId) else { return nil }
         tabContent[tabId] = .diff(target)
         controller.selectTab(tabId) // 새 diff 탭을 바로 앞으로
+        return tabId
+    }
+
+    /// 파일을 현재 포커스 패인의 새 탭(뷰어)으로 연다. 같은 경로 탭이 있으면 그걸 선택.
+    /// diff와 동일한 dedup→createTab 패턴. 종류(md/코드)는 렌더에서 FileViewTarget.kind로 분기.
+    @discardableResult
+    func openFile(_ path: String) -> TabID? {
+        let target = FileViewTarget(path: path)
+        if let existing = tabContent.first(where: {
+            if case .file(let t) = $0.value { return t.id == target.id }
+            return false
+        })?.key {
+            controller.selectTab(existing)
+            return existing
+        }
+        guard let tabId = controller.createTab(title: target.tabTitle, icon: target.tabIcon, inPane: controller.focusedPaneId) else { return nil }
+        tabContent[tabId] = .file(target)
+        controller.selectTab(tabId)
         return tabId
     }
 

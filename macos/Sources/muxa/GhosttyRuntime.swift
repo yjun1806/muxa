@@ -49,6 +49,27 @@ final class GhosttyRuntime {
                 let selected = action.action.search_selected.selected
                 DispatchQueue.main.async { view.onSearchSelected(selected >= 0 ? Int(selected) : nil) }
                 return true
+            // A(알림/완료 감지): 백그라운드 탭·프로젝트에 배지(●) + (번들이면) macOS 알림.
+            // payload const char*는 콜백 반환 후 무효 → main.async 전에 String으로 복사한다.
+            case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
+                let n = action.action.desktop_notification
+                let title = n.title.flatMap { String(cString: $0) } ?? ""
+                let body = n.body.flatMap { String(cString: $0) } ?? ""
+                DispatchQueue.main.async { view.onDesktopNotification(title: title, body: body) }
+                return true
+            case GHOSTTY_ACTION_COMMAND_FINISHED:
+                let c = action.action.command_finished
+                let code = c.exit_code >= 0 ? Int(c.exit_code) : nil // -1 = 미보고
+                let duration = c.duration
+                DispatchQueue.main.async { view.onCommandFinished(exitCode: code, duration: duration) }
+                return true
+            case GHOSTTY_ACTION_RING_BELL:
+                // 배지만 부수적으로 울리고, 엔진 기본 벨(사운드·시각벨)은 유지하려 false 반환.
+                DispatchQueue.main.async { view.onBell() }
+                return false
+            case GHOSTTY_ACTION_PROGRESS_REPORT:
+                // 진행률은 완료 신호가 아니라 이번 범위 밖 — 엔진에 위임.
+                return false
             default:
                 return false
             }

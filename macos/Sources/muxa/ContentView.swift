@@ -6,6 +6,7 @@ struct ContentView: View {
     let state: AppState
     let home: String
     @State private var showGitPanel = false
+    @State private var showExplorer = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,6 +37,7 @@ struct ContentView: View {
                 Rectangle().fill(Color.pBorder).frame(width: 1, height: 16)
                 ProjectTabBar(state: state, workspace: ws)
                 Spacer(minLength: 12)
+                explorerToggle
                 gitToggle
                 // 우측: 워크스페이스 · 활성 프로젝트 실효 경로
                 Text(displayPath(ws.activeProject?.path ?? ws.path, home: home))
@@ -50,6 +52,20 @@ struct ContentView: View {
         }
         .frame(height: 38)
         .background(Color.pPanel)
+    }
+
+    /// 파일 익스플로러 토글 버튼(상단바 우측).
+    private var explorerToggle: some View {
+        Button { showExplorer.toggle() } label: {
+            Image(systemName: "folder")
+                .font(.system(size: 12))
+                .foregroundStyle(showExplorer ? Color.pFg : Color.pMuted)
+        }
+        .buttonStyle(.plain)
+        .frame(width: 24, height: 24)
+        .background(showExplorer ? Color.pBtnActive.opacity(0.6) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .help("파일 익스플로러")
     }
 
     /// Git 패널 토글 버튼(상단바 우측).
@@ -74,6 +90,11 @@ struct ContentView: View {
                 // 프로젝트별 안정 identity — 전환해도 store(터미널들)는 AppState가 유지한다.
                 BonsplitWorkspaceView(store: state.store(for: project, in: ws))
                     .id(project.id)
+                if showExplorer {
+                    Rectangle().fill(Color.pBorder).frame(width: 1)
+                    // 파일 클릭 → 활성 프로젝트의 새 탭으로 뷰어(md/코드)를 연다.
+                    FileExplorerPanel(root: project.path ?? ws.path) { state.store(for: project, in: ws).openFile($0) }
+                }
                 if showGitPanel {
                     Rectangle().fill(Color.pBorder).frame(width: 1)
                     // 파일/커밋 클릭 → 활성 프로젝트의 새 탭으로 diff를 연다(모달 아님).
