@@ -37,7 +37,6 @@ struct ContentView: View {
                 Rectangle().fill(Color.pBorder).frame(width: 1, height: 16)
                 ProjectTabBar(state: state, workspace: ws)
                 Spacer(minLength: 12)
-                newTerminalButton
                 explorerToggle
                 gitToggle
                 // 우측: 워크스페이스 · 활성 프로젝트 실효 경로
@@ -53,22 +52,6 @@ struct ContentView: View {
         }
         .frame(height: 38)
         .background(Color.pPanel)
-    }
-
-    /// 새 터미널 탭 버튼 — 포커스된 패인에 새 탭을 연다(⌘T와 동일). Bonsplit 탭바엔 + 버튼이 없어 여기 둔다.
-    private var newTerminalButton: some View {
-        Button {
-            if let store = state.activeStore {
-                store.newTerminal(inPane: store.controller.focusedPaneId)
-            }
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 12))
-                .foregroundStyle(Color.pMuted)
-        }
-        .buttonStyle(.plain)
-        .frame(width: 24, height: 24)
-        .help("새 터미널 (⌘T)")
     }
 
     /// 파일 익스플로러 토글 버튼(상단바 우측).

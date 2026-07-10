@@ -3,10 +3,9 @@
     {
       "identity" : "bonsplit",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/almonk/bonsplit.git",
+      "location" : "https://github.com/manaflow-ai/bonsplit.git",
       "state" : {
-        "revision" : "7c322f078c388438e4b7896a86c57598aa7e203d",
-        "version" : "1.1.1"
+        "revision" : "10c154fda321f2cf21a998eeffc28f67a28bd08e"
       }
     }
   ],

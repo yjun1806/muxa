@@ -6,8 +6,10 @@ let package = Package(
     name: "muxa",
     platforms: [.macOS(.v14)], // SwiftUI @Observable·최신 API
     dependencies: [
-        // 분할·탭 SwiftUI 프레임워크(MIT). cmux가 libghostty 터미널에 실전 사용.
-        .package(url: "https://github.com/almonk/bonsplit.git", from: "1.1.1"),
+        // 분할·탭 SwiftUI 프레임워크(MIT). cmux(manaflow) fork — 탭바 SplitActionButton
+        // (새터미널·분할 버튼을 탭바에 내장)으로 탭 추가 버튼을 분할 버튼 옆에 둔다.
+        // 태그가 없어 revision 고정(재현성) — bootstrap/Package.resolved가 동일 커밋 보장.
+        .package(url: "https://github.com/manaflow-ai/bonsplit.git", revision: "10c154fda321f2cf21a998eeffc28f67a28bd08e"),
     ],
     targets: [
         .executableTarget(

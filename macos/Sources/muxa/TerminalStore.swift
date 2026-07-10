@@ -49,7 +49,11 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         self.restoreTree = restoreTree
         // keepAllAlive — 탭 전환 시 뷰(WKWebView 뷰어·터미널)를 파괴/재생성하지 않고 유지한다.
         // 기본 .recreateOnSwitch는 전환마다 뷰어를 재로드(굼뜸·상태 손실)해서 부적합.
-        self.controller = BonsplitController(configuration: BonsplitConfiguration(contentViewLifecycle: .keepAllAlive))
+        var config = BonsplitConfiguration(contentViewLifecycle: .keepAllAlive)
+        // 탭바 내장 액션 버튼: [새 터미널(+), 우측 분할, 하단 분할]. 브라우저는 muxa에 없어 제외.
+        // .newTerminal → requestNewTab(kind:"terminal") → didRequestNewTab 델리게이트 → newTerminal().
+        config.appearance.splitButtons = [.newTerminal, .splitRight, .splitDown]
+        self.controller = BonsplitController(configuration: config)
         super.init()
         controller.delegate = self
     }
