@@ -16,6 +16,11 @@ enum GitService {
                 proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
                 proc.arguments = ["git"] + args
                 proc.currentDirectoryURL = URL(fileURLWithPath: dir)
+                // 에이전트가 같은 리포에서 git을 동시에 돌리는 중에도 인덱스 락을 건드리지 않는다 —
+                // muxa의 상시 status/diff 폴링이 에이전트 커밋과 락 경합하는 것을 막는다(cmux 대조 ⑦).
+                var env = ProcessInfo.processInfo.environment
+                env["GIT_OPTIONAL_LOCKS"] = "0"
+                proc.environment = env
                 let pipe = Pipe()
                 proc.standardOutput = pipe
                 proc.standardError = FileHandle.nullDevice
