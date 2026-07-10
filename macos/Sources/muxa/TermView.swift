@@ -75,6 +75,10 @@ final class TermView: NSView, NSTextInputClient {
         var envVars: [ghostty_env_var_s] = []
         if let tabId {
             envVars.append(ghostty_env_var_s(key: dup("MUXA_TAB_ID"), value: dup(tabId.uuid.uuidString)))
+            // 이중 주소(칸 단위 라우팅) 여지 — 현재 muxa는 탭 1개 = TermView(서피스) 1개라 tabId가 곧 서피스 주소다.
+            // 그래서 MUXA_SURFACE_ID를 tabId와 같은 값으로 함께 심어, 훗날 한 탭이 여러 서피스를 담게 되면
+            // 훅이 서피스 단위로 더 정밀하게 지목할 수 있는 프로토콜 슬롯을 미리 노출한다(라우팅은 여전히 tabId 우선).
+            envVars.append(ghostty_env_var_s(key: dup("MUXA_SURFACE_ID"), value: dup(tabId.uuid.uuidString)))
         }
         if let sockPath {
             envVars.append(ghostty_env_var_s(key: dup("MUXA_SOCK"), value: dup(sockPath)))
