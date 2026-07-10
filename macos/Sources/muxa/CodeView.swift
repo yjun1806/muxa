@@ -31,7 +31,7 @@ struct CodeView: View {
         case .tooLarge: centerLabel("파일이 너무 큽니다")
         case .binary: centerLabel("바이너리 파일")
         case .error: centerLabel("열 수 없음")
-        case .ok: CodeWebView(code: code, language: target.language)
+        case .ok: CodeTextView(code: code, language: target.language)
         }
     }
 

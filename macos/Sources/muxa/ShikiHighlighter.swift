@@ -30,19 +30,22 @@ final class ShikiHighlighter: NSObject, WKNavigationDelegate {
         pending.forEach { $0() }
     }
 
-    /// 코드 → 완성 HTML(줄번호·테마 포함). shiki 로드 전이면 로드 완료를 기다린 뒤 처리.
-    func highlight(code: String, language: String?, dark: Bool) async -> String {
+    /// 코드 → 라인별 토큰 [[[content, color], ...], ...]. shiki 로드 전이면 완료를 기다린 뒤 처리.
+    func tokens(code: String, language: String?, dark: Bool) async -> [[[String]]] {
         await waitUntilReady()
         let b64 = Data(code.utf8).base64EncodedString()
         do {
             let result = try await webView.callAsyncJavaScript(
-                "return await fullHtml(b64, dark, lang)",
+                "return await tokensJson(b64, dark, lang)",
                 arguments: ["b64": b64, "dark": dark, "lang": language ?? "text"],
                 contentWorld: .page
             )
-            return (result as? String) ?? ""
+            guard let jsonStr = result as? String,
+                  let data = jsonStr.data(using: .utf8),
+                  let parsed = try? JSONDecoder().decode([[[String]]].self, from: data) else { return [] }
+            return parsed
         } catch {
-            return ""
+            return []
         }
     }
 
