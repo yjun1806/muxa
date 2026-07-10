@@ -1,4 +1,4 @@
-# muxa 진행 상태 · 인수인계 (2026-07-10 · rev5)
+# muxa 진행 상태 · 인수인계 (2026-07-10 · rev6)
 
 > 다음 세션이 여기서 이어간다. 설계 원천은 [DESIGN.md](DESIGN.md), 이 문서는 **현재 상태·다음 할 일**만.
 
@@ -64,6 +64,32 @@ fable 3렌즈 검토로 도출한 백로그를 순차 파이프라인(각 단계
 - **상태머신 튜닝 미검증**: RENDER가 포커스 칸 커서 깜빡임에도 오는지 실기기 확인(오면 포커스 칸 idle 추정 불가·비포커스는 정상). `idleThreshold`(4s)·throttle(1s) 실사용 조정. 훅 미설치 시 추정 정확도 한계.
 - **세션 미영속**: 수동 탭 이름(`manualTitles`)·알림 인박스 이력은 재시작 시 비워짐 — 영속하려면 `TabSnapshot` 스키마 확장.
 - **세부 미완**: 마지막 탭 닫힘 시 빈 상태 뷰(B1은 `controller.closeTab` 기본 동작에 위임) · discard의 스테이지된 리네임(R) 실패 가능·hunk discard 미구현 · 설정 라이브 리로드(FSEvents) 미구현 · 전체 diff 파일 헤더 클릭 점프 미구현 · 탭 순환 ⌃Tab 이론적 충돌 가능성 · rename이 인라인 아닌 NSAlert 모달 · 탭 점 색 상태화(Bonsplit `isDirty`가 bool뿐).
+
+## cmux 대조 — 흡수할 개선 (2026-07-10 · GPL이라 구조·아이디어만)
+
+cmux(4333 swift·상용급: SSH·모바일·브라우저·데몬·135 키액션·nucleo FFI·AI 자동명명) 4영역 대조. **muxa의 "작고 순수"는 옳았다** — 즉시저장(유실 창 0, cmux는 8초 autosave+별도 크래시 스토어)·단일 패스 realize·`selectedTab` 가시성 판정(분할 감시에 더 정확)·의존성 0·값타입 분리. 아래는 규모가 아니라 **정체성 심화**로 가져올 것. 난이도(S/M/L)·가치(상/중/하).
+
+### 정체성 심화 (가치 상)
+
+- **① 구조화 훅으로 상태 추정 제거 [M·상]** — 방금 만든 상태머신의 최대 약점이 `idleThreshold`(4s) 출력 추정(4초 생각만 해도 waiting 오탐). cmux는 **추정을 안 한다**: Claude Code 훅 `PreToolUse/PostToolUse→working`·`PermissionRequest/AskUserQuestion/Notification→waiting`·`Stop→idle`·`SessionEnd→ended`를 결정론 매핑. muxa notify `--state`를 세분(+훅 프리셋)하면 출력추정 거의 불필요. `AgentActivityEstimator`에 pin 인프라 이미 있음.
+- **② 에이전트 resume 재부착 [M~L·상]** — "앱 꺼도 에이전트 세션 유지"의 실제 정답. **로컬 PTY 데몬화가 아니다**(cmux 데몬 `cmuxd-remote`는 원격 전용, 로컬은 resume-command). 돌던 에이전트 탐지→`claude/codex --resume <sessionId>` 명령+cwd+env 저장(`TabSnapshot` 확장)→복원 시 재실행, 승인 게이트(auto/manual)로 자동실행 통제. OSC7 cwd 인프라 확장. **DESIGN 4.2 "데몬화" 표현을 이 방향으로 대체 검토.**
+- **③ diff 리뷰 코멘트 + 제출 풀 [L·상]** — 에이전트 diff에 줄 단위 인라인 코멘트→"N개 코멘트 보내기"로 포커스 터미널에 붙여 다음 턴 지시로 되먹임(에이전틱 루프 닫기). 편집이 아니라 메타데이터라 "에디터 없음" 비목표 무저촉. 기존 hunk 스테이지 WKWebView postMessage 브리지 재사용. `lineText` 재앵커링(anchored/moved/outdated)으로 라이브 리로드 diff 드리프트 방지. 리포키 = canonical root SHA256.
+- **④ 스크롤백 리플레이 [M·상]** — PTY 화면 복원 갭 메움. ghostty surface 텍스트 readback→저장(색 OSC 스트립·용량 상한)→env로 새 셸 시작 시 재출력. libghostty 텍스트 readback API 확보가 M 요인.
+
+### 저비용 즉효 (S~M)
+
+- **⑤ 팔레트 액션 실행 통합 [M·상]** — ⌘K 점프 전용 → 명령 실행. `QuickSwitchItem`에 `.command(KeymapAction)` 케이스 얹어 기존 `perform` 재사용. GitService 동작(브랜치 전환·워크트리 생성)도 흡수.
+- **⑥ 알림 카테고리 + 배달 게이트 [S·상]** — "안 보이면 무조건 알림" → category(turn-complete/needs-permission/idle)×pending×설정 순수 `shouldDeliver` 게이트. muxa notify에 category 인자 추가. muxa "순수 값타입 분리" 철학과 일치.
+- **⑦ `GIT_OPTIONAL_LOCKS=0` 비잠금 status [S·중상]** — 에이전트가 같은 리포에서 git 동시 실행 중 인덱스 락 경합 제거. `GitService.run`/`runResult` 프로세스 env에 한 줄.
+- **⑧ 설정 라이브 리로드 [S·중]** — `MuxaConfig.parse`가 순수라 로더 경계에 `DispatchSource` 파일워처만. 저장 시 재파싱 + `KeymapResolver` 재빌드. 재시작 불필요.
+
+### 추가 후보 (중~하)
+
+알림 dedup/coalescing(같은 tabId+kind 연속 배지 last-write 병합+cooldown, S·중) · `DispatchSourceProcess(.exit)` 종료 감지(크래시·강제종료 결정론, M·중) · side-by-side diff 토글(`CodeHTML` 좌/우 순수 렌더, M·중) · 스냅샷 `version` 필드+용량 상한+크래시 마커(S·중) · 키 재정의 충돌·예약키 감지 리포트(현재 무음 무시→경고, M·중) · notify CLI 견고성(소켓 실패해도 exit 0으로 에이전트 흐름 안 막기, S·중) · 이중 주소 `MUXA_SURFACE_ID`(칸 단위 라우팅, M·중).
+
+### 배제 권고 (muxa 소형·MIT 지향에 과잉)
+
+cmux `GitMetadataService`(수제 git 온디스크 파서 — CLI 셸아웃 일관성에 배치, L·하) · nucleo FFI(무의존성 원칙 상충 — 자체 `FuzzyMatch`에 갭 패널티·최근성 boost·매치 하이라이트만 더하는 게 muxa답다) · `@pierre/diffs` 통짜 도입 · 135액션·2500줄 설정 시스템.
 
 ### 기타 (기존 백로그 · 저심각)
 
