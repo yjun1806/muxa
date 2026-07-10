@@ -95,6 +95,8 @@ struct ContentView: View {
                     // 파일 클릭 → 뷰어 탭. 우클릭 "여기에서 터미널 열기" → 그 폴더로 새 프로젝트.
                     FileExplorerPanel(
                         root: project.path ?? ws.path,
+                        revealPath: state.store(for: project, in: ws).lastOpenedFilePath,
+                        revealSeq: state.store(for: project, in: ws).revealSeq,
                         onOpenFile: { state.store(for: project, in: ws).openFile($0) },
                         onOpenTerminal: { dir in state.addProject(name: basename(dir), path: dir) }
                     )

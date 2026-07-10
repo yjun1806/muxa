@@ -7,6 +7,10 @@ struct FileExplorerOutline: NSViewRepresentable {
     let root: String
     let reloadToken: Int
     let gitStatus: GitStatusMap
+    /// 뷰어로 방금 연 파일 — 그 노드로 reveal(조상 폴더 펼침+선택+scrollRowToVisible).
+    var revealPath: String? = nil
+    /// reveal 트리거 시퀀스(값이 바뀔 때만 reveal).
+    var revealSeq: Int = 0
     var onOpenFile: (String) -> Void
     var onOpenTerminal: (String) -> Void
 
@@ -57,18 +61,28 @@ struct FileExplorerOutline: NSViewRepresentable {
             // git 상태 등 갱신 — 펼침 상태를 유지한 채 셀 색만 다시 그린다.
             coordinator.outline?.reloadData()
         }
+        // 리로드(트리 최신화) 이후에 reveal — 시퀀스가 바뀐 경우에만.
+        if coordinator.lastRevealSeq != revealSeq {
+            coordinator.lastRevealSeq = revealSeq
+            if let path = revealPath { coordinator.reveal(path: path) }
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(props: self) }
 
-    final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
+    final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSTextFieldDelegate {
         var props: FileExplorerOutline
         weak var outline: NSOutlineView?
         var currentRoot = ""
         var lastToken = 0
+        var lastRevealSeq = 0
         private var rootChildren: [FileNode] = []
         /// 펼쳐진 폴더 경로 — reload(노드 재생성)에도 펼침 상태를 유지하려 경로로 추적한다.
         private var expandedPaths: Set<String> = []
+        /// 인라인 이름 변경 중인 노드/셀(없으면 nil). Esc 취소 여부는 editCancelled.
+        private var editingNode: FileNode?
+        private weak var editingCell: FileCellView?
+        private var editCancelled = false
 
         init(props: FileExplorerOutline) { self.props = props }
 
@@ -89,6 +103,37 @@ struct FileExplorerOutline: NSViewRepresentable {
                 }
             }
             walk(rootChildren)
+        }
+
+        /// path 노드까지 루트부터 경로 컴포넌트를 따라 조상 폴더를 펼치고, 그 행을 선택+스크롤한다.
+        /// (뷰어로 파일을 열면 트리에서 그 위치를 드러낸다.) reload 후 호출되므로 트리가 최신이다.
+        func reveal(path: String) {
+            guard let outline, !currentRoot.isEmpty, path.hasPrefix(currentRoot) else { return }
+            var rel = String(path.dropFirst(currentRoot.count))
+            while rel.hasPrefix("/") { rel.removeFirst() }
+            let comps = rel.split(separator: "/").map(String.init)
+            guard !comps.isEmpty else { return }
+
+            var siblings = rootChildren
+            var prefix = currentRoot
+            var target: FileNode?
+            for (i, comp) in comps.enumerated() {
+                prefix = (prefix as NSString).appendingPathComponent(comp)
+                guard let node = siblings.first(where: { $0.path == prefix }) else { return } // 없는 경로 → 조용히 중단
+                if i < comps.count - 1 {
+                    guard node.isDirectory else { return }
+                    if node.children == nil { node.children = FileTree.children(of: node.path) }
+                    outline.expandItem(node) // 조상 폴더 펼침(expandedPaths는 콜백이 갱신)
+                    siblings = node.children ?? []
+                } else {
+                    target = node
+                }
+            }
+            guard let target else { return }
+            let row = outline.row(forItem: target)
+            guard row >= 0 else { return }
+            outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            outline.scrollRowToVisible(row)
         }
 
         func outlineViewItemDidExpand(_ n: Notification) {
@@ -206,17 +251,56 @@ struct FileExplorerOutline: NSViewRepresentable {
             }
         }
 
-        /// 파일/폴더 이름 변경(moveItem).
+        /// 파일/폴더 이름 변경 — 해당 행 셀의 이름 필드를 인라인 편집으로 연다(그 자리 타이핑→Enter 확정, Esc 취소).
         private func rename(_ node: FileNode) {
-            let old = node.name
-            guard let name = promptText(title: "이름 변경", initial: old), !name.isEmpty, name != old else { return }
-            let dst = ((node.path as NSString).deletingLastPathComponent as NSString).appendingPathComponent(name)
+            guard let outline else { return }
+            let row = outline.row(forItem: node)
+            guard row >= 0 else { return }
+            outline.scrollRowToVisible(row)
+            guard let cell = outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? FileCellView else { return }
+            editingNode = node
+            editingCell = cell
+            editCancelled = false
+            cell.beginEditing(delegate: self)
+        }
+
+        /// 인라인 편집 확정/취소 처리 — moveItem으로 실제 이름 변경 후 reload. 실패 시 되돌리고 경고.
+        private func commitRename(_ node: FileNode, to raw: String) {
+            let newName = raw.trimmingCharacters(in: .whitespaces)
+            guard !newName.isEmpty, newName != node.name else { return }
+            let dst = ((node.path as NSString).deletingLastPathComponent as NSString).appendingPathComponent(newName)
             do {
                 try FileManager.default.moveItem(atPath: node.path, toPath: dst)
-                reload(root: currentRoot)
+                if node.isDirectory { expandedPaths.remove(node.path) } // 옛 경로 펼침 상태 정리
             } catch {
-                warn("이름을 바꿀 수 없습니다: \(name)")
+                warn("이름을 바꿀 수 없습니다: \(newName)")
             }
+            reload(root: currentRoot) // 성공/실패 모두 원본 이름으로 셀 재표시
+        }
+
+        // MARK: 인라인 편집 델리게이트(NSTextFieldDelegate)
+
+        /// Esc → 편집 취소. 아웃라인으로 포커스를 되돌려 편집을 끝내면 didEndEditing에서 취소로 처리.
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if selector == #selector(NSResponder.cancelOperation(_:)) {
+                editCancelled = true
+                outline?.window?.makeFirstResponder(outline)
+                return true
+            }
+            return false
+        }
+
+        /// Enter/포커스 이탈로 편집 종료 — 취소가 아니면 커밋한다.
+        func controlTextDidEndEditing(_ obj: Notification) {
+            guard let node = editingNode else { return }
+            let newValue = (obj.object as? NSTextField)?.stringValue ?? node.name
+            let cancelled = editCancelled
+            editingNode = nil
+            editCancelled = false
+            editingCell?.endEditing(original: node.name)
+            editingCell = nil
+            guard !cancelled else { return }
+            commitRename(node, to: newValue)
         }
 
         /// 파일/폴더 삭제 — 휴지통으로(복구 가능). 확인 후.
@@ -328,6 +412,36 @@ final class FileCellView: NSTableCellView {
         iconView.contentTintColor = img.isTemplate ? Palette.muted : nil
         nameField.stringValue = node.name
         nameField.textColor = status?.color ?? Palette.fg
+        applyLabelStyle() // 재사용된 셀이 편집 상태로 남지 않도록 항상 라벨 스타일로 초기화
+    }
+
+    /// 인라인 이름 변경 시작 — 이름 필드를 편집 가능하게 만들고 필드에디터를 띄운다(전체 선택).
+    func beginEditing(delegate: NSTextFieldDelegate) {
+        nameField.isEditable = true
+        nameField.isSelectable = true
+        nameField.isBordered = true
+        nameField.bezelStyle = .squareBezel
+        nameField.drawsBackground = true
+        nameField.backgroundColor = .textBackgroundColor
+        nameField.textColor = Palette.fg
+        nameField.delegate = delegate
+        window?.makeFirstResponder(nameField)
+        nameField.currentEditor()?.selectAll(nil)
+    }
+
+    /// 편집 종료 — 라벨 스타일로 복귀하고 표시값을 원래 이름으로 되돌린다(실제 갱신은 reload가 처리).
+    func endEditing(original: String) {
+        nameField.delegate = nil
+        nameField.stringValue = original
+        applyLabelStyle()
+    }
+
+    /// 평상시(비편집) 라벨 스타일.
+    private func applyLabelStyle() {
+        nameField.isEditable = false
+        nameField.isSelectable = false
+        nameField.isBordered = false
+        nameField.drawsBackground = false
     }
 }
 

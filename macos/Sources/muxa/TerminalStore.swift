@@ -30,6 +30,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     /// 백그라운드 활동(●)으로 배지가 붙은 탭들(A). 프로젝트 배지가 이걸 파생·관측한다.
     var badgedTabs: Set<TabID> = []
+    /// 마지막으로 뷰어 탭으로 연 파일 경로 — 익스플로러가 관측해 그 노드로 reveal(펼침+선택+스크롤).
+    var lastOpenedFilePath: String?
+    /// reveal 트리거 시퀀스 — 같은 파일을 다시 열어도 재-reveal 되도록 매 openFile마다 증가.
+    var revealSeq = 0
     /// 배지가 하나라도 생기면 상위(AppState)에 알린다 — 프로젝트 탭 ● 표시용.
     @ObservationIgnored var onProjectActivity: (() -> Void)?
     /// 탭/뷰어 구성이 바뀔 때 상위(AppState)에 알린다 — 즉시 세션 저장(⌘Q 없이도 복원되게).
@@ -176,7 +180,11 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 파일을 종류별(문서/HTML/코드) 그룹 탭의 서브탭으로 연다.
     @discardableResult
     func openFile(_ path: String) -> TabID? {
-        let id = openInGroup(.file(FileViewTarget(path: path))); persist(); return id
+        let id = openInGroup(.file(FileViewTarget(path: path)))
+        lastOpenedFilePath = path
+        revealSeq += 1 // 익스플로러 reveal 트리거(같은 파일 재-open도 반영)
+        persist()
+        return id
     }
 
     /// 그룹 탭 상태 접근 — BonsplitWorkspaceView가 .group 탭 렌더 시 사용.

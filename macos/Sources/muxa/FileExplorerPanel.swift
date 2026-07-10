@@ -5,6 +5,10 @@ import SwiftUI
 /// 트리 구조 라이브 갱신은 새로고침/프로젝트 전환 시(후속: reloadItem 부분 갱신).
 struct FileExplorerPanel: View {
     let root: String?
+    /// 뷰어로 방금 연 파일 경로 — 트리에서 그 노드로 reveal(조상 폴더 펼침+선택+스크롤).
+    var revealPath: String? = nil
+    /// reveal 트리거 시퀀스(값이 바뀔 때만 reveal). 같은 경로 재-open도 반영.
+    var revealSeq: Int = 0
     var onOpenFile: (String) -> Void
     var onOpenTerminal: (String) -> Void
 
@@ -21,6 +25,8 @@ struct FileExplorerPanel: View {
                     root: root,
                     reloadToken: reloadToken,
                     gitStatus: gitStatus,
+                    revealPath: revealPath,
+                    revealSeq: revealSeq,
                     onOpenFile: onOpenFile,
                     onOpenTerminal: onOpenTerminal
                 )
