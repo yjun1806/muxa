@@ -105,6 +105,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state.toggleExplorer(); return true
         case .toggleGitPanel:
             state.toggleGitPanel(); return true
+        case .jumpToNextWaiting:
+            state.jumpToNextWaiting(); return true
         case .newTerminal, .split, .closeTab, .find, .focusPane, .cycleTab:
             guard let store = state.activeStore else { return false }
             return perform(action, store: store)

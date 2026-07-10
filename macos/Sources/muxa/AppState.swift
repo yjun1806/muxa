@@ -83,6 +83,62 @@ final class AppState {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    // MARK: 다음 대기 세션 전역 점프 (⌘⇧A — 알림→소비 동선의 마지막 조각)
+
+    /// 배지(대기) 있는 칸 하나의 전역 위치 + 순회 순위. 워크스페이스→프로젝트→탭 순으로 안정 정렬한다.
+    private struct WaitingSlot {
+        let workspaceId: String
+        let projectId: String
+        let tabId: TabID
+        let rank: [Int] // [워크스페이스 idx, 프로젝트 idx, 탭 idx] — 사전식 비교로 순회 순서 결정.
+    }
+
+    /// 배지 있는 모든 칸을 안정 순서로 나열한다(워크스페이스→프로젝트→탭 순).
+    /// 배지는 실행 중 스토어에서만 생기므로(미생성 프로젝트는 배지 없음) stores로 순회해도 누락이 없다.
+    private func waitingSlots() -> [WaitingSlot] {
+        var slots: [WaitingSlot] = []
+        for (wsIdx, ws) in workspaces.enumerated() {
+            for (pIdx, project) in ws.projects.enumerated() {
+                guard let store = stores[project.id], store.hasBadge else { continue }
+                for (tIdx, tabId) in store.controller.allTabIds.enumerated()
+                where store.badgedTabs.contains(tabId) {
+                    slots.append(WaitingSlot(workspaceId: ws.id, projectId: project.id, tabId: tabId,
+                                             rank: [wsIdx, pIdx, tIdx]))
+                }
+            }
+        }
+        return slots
+    }
+
+    /// 현재 위치의 전역 순위(사전식) — activeWorkspace→activeProject→활성 스토어의 선택 탭.
+    /// 이 순위보다 뒤에 있는 첫 대기 슬롯이 "다음 대기 세션"이 된다.
+    private func cursorRank() -> [Int] {
+        guard let wsIdx = workspaces.firstIndex(where: { $0.id == activeId }) else { return [-1, -1, -1] }
+        let ws = workspaces[wsIdx]
+        let pIdx = ws.projects.firstIndex(where: { $0.id == ws.activeProjectId }) ?? -1
+        var tIdx = -1
+        if let project = ws.activeProject, let store = stores[project.id],
+           let pane = store.controller.focusedPaneId,
+           let tab = store.controller.selectedTab(inPane: pane) {
+            tIdx = store.controller.allTabIds.firstIndex(of: tab.id) ?? -1
+        }
+        return [wsIdx, pIdx, tIdx]
+    }
+
+    /// ⌘⇧A — 다음 대기(배지) 세션으로 워크스페이스 경계를 넘어 순환 점프한다.
+    /// 현재 위치 다음 배지 칸으로, 없으면 처음으로 돌아가 순환한다. 배지가 하나도 없으면 무동작.
+    func jumpToNextWaiting() {
+        let slots = waitingSlots()
+        guard !slots.isEmpty else { return }
+        let cursor = cursorRank()
+        // 현재 위치보다 뒤(사전식)인 첫 슬롯, 없으면 첫 슬롯으로 순환.
+        let target = slots.first { cursor.lexicographicallyPrecedes($0.rank) } ?? slots[0]
+        setActiveId(target.workspaceId)         // 대상 워크스페이스로
+        setActiveProject(target.projectId)      // 그 안의 프로젝트로 (+배지 해제)
+        stores[target.projectId]?.revealTab(target.tabId) // 그 탭 선택·포커스 (+배지 해제)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     var activeWorkspace: Workspace? {
         workspaces.first { $0.id == activeId }
     }
