@@ -33,11 +33,11 @@
     ready = true;
     if (queued) { const q = queued; queued = null; render(q.b64, q.dark, q.lang); }
   });
-  function render(b64, dark, lang) {
+  async function render(b64, dark, lang) {
     if (!ready) { queued = { b64, dark, lang }; return; }
     document.body.classList.toggle('dark', !!dark);
     const code = decodeURIComponent(escape(atob(b64)));
-    document.getElementById('content').innerHTML = MuxaShiki.highlight(code, lang);
+    document.getElementById('content').innerHTML = await MuxaShiki.highlight(code, lang);
     window.scrollTo(0, 0);
   }
 </script>
