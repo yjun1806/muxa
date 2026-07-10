@@ -43,13 +43,16 @@ struct SidebarSUI: View {
     @ViewBuilder
     private func item(_ ws: Workspace, index: Int) -> some View {
         let active = ws.id == state.activeId
+        // 백그라운드 활동(●) — 이 워크스페이스의 프로젝트 중 배지된 게 있으면 표시(DESIGN 5절 사이드바 ●).
+        let badged = state.badgedWorkspaces.contains(ws.id)
         Button {
             state.setActiveId(ws.id)
         } label: {
             HStack(spacing: 6) {
                 if effectiveMode == .slim {
+                    // 슬림 모드는 아이콘이 없어 색 막대로 강조 — 배지면 활성처럼 강조색.
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(active ? Color.pBorderFocus : Color.pMuted.opacity(0.5))
+                        .fill(active || badged ? Color.pBorderFocus : Color.pMuted.opacity(0.5))
                         .frame(width: 4, height: 22)
                 } else {
                     Text(ws.name.first.map { String($0).uppercased() } ?? "?")
@@ -58,6 +61,16 @@ struct SidebarSUI: View {
                         .frame(width: 22, height: 22)
                         .background(active ? Color.pBorderFocus : Color.pBtnActive)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .overlay(alignment: .topTrailing) {
+                            // 아이콘 우상단 ● 배지(expanded/icon/hover→expanded 공용). 패널색 링으로 아이콘과 분리.
+                            if badged {
+                                Circle()
+                                    .fill(Color.pBorderFocus)
+                                    .frame(width: 7, height: 7)
+                                    .overlay(Circle().stroke(Color.pPanel, lineWidth: 1.5))
+                                    .offset(x: 3, y: -3)
+                            }
+                        }
                 }
                 if effectiveMode == .expanded {
                     Text(ws.name)

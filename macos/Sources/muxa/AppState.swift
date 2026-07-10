@@ -1,3 +1,4 @@
+import AppKit
 import Bonsplit
 import Foundation
 import GhosttyKit
@@ -37,6 +38,16 @@ final class AppState {
         workspaces.first { $0.id == activeId }
     }
 
+    /// 백그라운드 활동(●)이 있는 워크스페이스 id 집합. badgedProjects에서 파생 —
+    /// 프로젝트 하나라도 배지면 그 워크스페이스가 배지(사이드바 ●). 사이드바가 관측해 그린다.
+    var badgedWorkspaces: Set<String> {
+        var result: Set<String> = []
+        for ws in workspaces where ws.projects.contains(where: { badgedProjects.contains($0.id) }) {
+            result.insert(ws.id)
+        }
+        return result
+    }
+
     /// 활성 워크스페이스의 활성 프로젝트.
     var activeProject: Project? {
         activeWorkspace?.activeProject
@@ -61,10 +72,30 @@ final class AppState {
         return s
     }
 
-    /// 백그라운드 프로젝트에 활동(●)이 있음을 표시. 지금 보고 있는 활성 프로젝트면 무시.
+    /// 백그라운드 프로젝트에 활동(●)이 있음을 표시. 지금 보고 있는 활성 프로젝트(=활성 워크스페이스의
+    /// 활성 프로젝트)면 무시하고, 그 외(백그라운드 워크스페이스의 프로젝트 포함)는 전부 배지한다.
+    /// stores는 프로젝트 id로 전역 유지되므로 백그라운드 워크스페이스 store의 활동도 여기로 들어온다.
     private func markProjectBadge(_ projectId: String) {
         guard projectId != activeProject?.id else { return }
+        insertBadge(projectId)
+    }
+
+    /// 배지 추가/해제는 이 두 함수로 일원화한다 — 매번 Dock 카운트를 함께 갱신하기 위해.
+    private func insertBadge(_ projectId: String) {
         badgedProjects.insert(projectId)
+        updateDockBadge()
+    }
+
+    private func clearBadge(_ projectId: String) {
+        guard badgedProjects.contains(projectId) else { return }
+        badgedProjects.remove(projectId)
+        updateDockBadge()
+    }
+
+    /// 총 대기 수(배지된 프로젝트 수)를 Dock 아이콘 배지에 반영. 0이면 배지 제거.
+    private func updateDockBadge() {
+        let count = badgedProjects.count
+        NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
     }
 
     // MARK: 도구 패널 액션 (익스플로러·Git — 영속 없음)
@@ -79,6 +110,10 @@ final class AppState {
     func setActiveId(_ id: String) {
         guard activeId != id else { return }
         activeId = id
+        // 이 워크스페이스로 넘어와 그 활성 프로젝트를 보게 됐으니 해당 배지 해제.
+        if let ws = workspaces.first(where: { $0.id == id }), let pid = ws.activeProject?.id {
+            clearBadge(pid)
+        }
         save()
     }
 
@@ -108,7 +143,7 @@ final class AppState {
 
     /// 활성 워크스페이스에서 프로젝트를 전환한다.
     func setActiveProject(_ projectId: String) {
-        badgedProjects.remove(projectId) // 프로젝트를 보게 됐으니 배지 해제
+        clearBadge(projectId) // 프로젝트를 보게 됐으니 배지 해제
         updateActiveWorkspace { ws in
             guard ws.projects.contains(where: { $0.id == projectId }) else { return ws }
             var next = ws
@@ -143,7 +178,7 @@ final class AppState {
     func closeProject(_ projectId: String) {
         stores[projectId] = nil
         savedLayouts[projectId] = nil
-        badgedProjects.remove(projectId)
+        clearBadge(projectId)
         updateActiveWorkspace { ws in
             guard ws.projects.count > 1,
                   let idx = ws.projects.firstIndex(where: { $0.id == projectId }) else { return ws }
@@ -155,7 +190,7 @@ final class AppState {
             return next
         }
         // 닫힌 뒤 새로 활성화된 프로젝트도 배지 클리어(사용자가 보게 됐으니) — 유령 배지 방지.
-        if let newActive = activeProject?.id { badgedProjects.remove(newActive) }
+        if let newActive = activeProject?.id { clearBadge(newActive) }
     }
 
     /// 활성 워크스페이스를 불변 갱신한다(immutable — 새 배열로 교체).
