@@ -1,4 +1,4 @@
-# muxa 진행 상태 · 인수인계 (2026-07-10 · rev7)
+# muxa 진행 상태 · 인수인계 (2026-07-10 · rev8)
 
 > 다음 세션이 여기서 이어간다. 설계 원천은 [DESIGN.md](DESIGN.md), 이 문서는 **현재 상태·다음 할 일**만.
 
@@ -69,11 +69,15 @@ fable 3렌즈 검토로 도출한 백로그를 순차 파이프라인(각 단계
 
 cmux(4333 swift·상용급: SSH·모바일·브라우저·데몬·135 키액션·nucleo FFI·AI 자동명명) 4영역 대조. **muxa의 "작고 순수"는 옳았다** — 즉시저장(유실 창 0, cmux는 8초 autosave+별도 크래시 스토어)·단일 패스 realize·`selectedTab` 가시성 판정(분할 감시에 더 정확)·의존성 0·값타입 분리. 아래는 규모가 아니라 **정체성 심화**로 가져올 것. 난이도(S/M/L)·가치(상/중/하).
 
-> **진행 (2026-07-10 rev7):** ✅ 구현·커밋 완료 — **⑦** `GIT_OPTIONAL_LOCKS=0` · **⑥** 알림 카테고리 + 순수 `NotificationGate` · **①** 훅 상태 세분(muxa notify `--category needs-permission|turn-complete|idle-reminder`) · **⑤** 팔레트 액션 실행(`AppState.perform` 추출로 키맵·⌘K 공유) · **⑧** 설정 라이브 리로드(`ConfigWatcher` DispatchSource) + **DESIGN 4.2 정정**. 전부 빌드 green + 실행 init 크래시 없음.
-> **남음:** 정체성 심화 **②③④**(각 마일스톤급 대공사 — 개별 착수) + 추가 후보.
-> - **②** resume 재부착 = 프로세스 탐지 + 에이전트별 resume 명령 빌더 + `TabSnapshot` 확장(resume/env) + 승인 게이트. 새 서브시스템.
-> - **③** diff 리뷰 코멘트 = WKWebView 코멘트 UI + `lineText` 재앵커링 알고리즘 + 워크스페이스 제출 풀. 큰 UX 기능.
-> - **④** 스크롤백 리플레이 = **libghostty 텍스트 readback API 확보 선행**(가능 여부 미확인) + 저장(색 OSC 스트립·상한) + env 재출력.
+> **진행 (2026-07-10 rev8):** ✅ 구현·커밋 완료 —
+> - 저비용 즉효: **⑦** `GIT_OPTIONAL_LOCKS=0` · **⑥** 알림 카테고리 + 순수 `NotificationGate` · **①** 훅 상태 세분(muxa notify `--category`) · **⑤** 팔레트 액션 실행(`AppState.perform` 추출로 키맵·⌘K 공유) · **⑧** 설정 라이브 리로드(`ConfigWatcher`) + **DESIGN 4.2 정정**.
+> - 정체성 심화 **②** 에이전트 resume 재부착 — 훅이 재개 명령을 통째로 전달(`muxa notify --resume-command "claude --resume <id>" --agent claude`), muxa는 `ResumeBinding` 저장·영속(`TabSnapshot.resume`)·복원. 복원된 탭에 재개 배너(`ResumeBanner`) + 승인 게이트(`agent_resume` off/manual/auto, 기본 manual — 임의 셸 명령 자동실행 통제) + `TermView.sendText`(bracketed-paste 회피 위해 본문 붙여넣기 후 별도 Return 키). 실행 후 바인딩 소비.
+> - 전부 빌드 green + 실행 init 크래시 없음(GUI·훅 의존이라 실기기 육안 검증은 미수행 ★).
+>
+> **남음:** 정체성 심화 **③④** + 추가 후보.
+> - **③** diff 리뷰 코멘트 = WKWebView 코멘트 UI + `lineText` 재앵커링(anchored/moved/outdated) + 워크스페이스 제출 풀. 큰 UX 기능.
+> - **④** 스크롤백 리플레이 = **libghostty 텍스트 readback API 확보 선행**(가능 여부 미확인) + 저장(색 OSC 스트립·상한) + env 재출력. ②의 resume가 대화 맥락을 되살리므로, ④는 "화면 히스토리 시각 복원"의 보완재.
+> - **② 실기기 검증 필요**: 훅 설정(`muxa notify --resume-command`)→재시작→재개 배너→manual 클릭/auto 자동실행이 실제 셸에서 도는지. auto 0.8s 지연이 무거운 rc에서 유실 없는지.
 > - 미착수 추가 후보: 알림 dedup/coalescing · `DispatchSourceProcess(.exit)` 종료 감지 · side-by-side diff · 스냅샷 `version`+크래시 마커 · 키 충돌 감지 · notify CLI 견고성(소켓 실패 exit 0) · `MUXA_SURFACE_ID`.
 
 ### 정체성 심화 (가치 상)
