@@ -6,6 +6,9 @@ import SwiftUI
 struct TabGroupView: View {
     let group: TabGroupState
     let dir: String
+    /// 이 그룹 탭(칸)이 상호작용(서브탭 클릭·뷰어 클릭)될 때 상위에 알린다 — 그 칸을 활성(포커스)으로 만든다.
+    /// 터미널 칸은 TermView가 focusPane을 부르지만 그룹 탭 뷰어는 안 불러서, 클릭해도 활성 칸이 안 옮겨졌다.
+    var onFocus: () -> Void = {}
     var onCloseItem: (String) -> Void
 
     var body: some View {
@@ -15,6 +18,8 @@ struct TabGroupView: View {
             content
         }
         .background(Color.pBg)
+        // 뷰어(WKWebView)가 클릭을 소비해도 simultaneous 제스처는 함께 받는다 — 칸 어디를 눌러도 활성으로.
+        .simultaneousGesture(TapGesture().onEnded { onFocus() })
     }
 
     private var subTabBar: some View {
@@ -46,7 +51,7 @@ struct TabGroupView: View {
         .overlay(RoundedRectangle(cornerRadius: 5).stroke(selected ? Color.pBorder : Color.clear, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 5))
         .contentShape(Rectangle())
-        .onTapGesture { group.selectedId = item.id }
+        .onTapGesture { group.selectedId = item.id; onFocus() }
     }
 
     /// 서브탭 뷰어들 — 전부 살려두고 선택된 것만 표시(전환 시 상태·스크롤 유지).

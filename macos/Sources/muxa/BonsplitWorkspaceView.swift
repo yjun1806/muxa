@@ -49,7 +49,8 @@ struct BonsplitWorkspaceView: View {
             }
         case .group:
             if let state = store.group(for: tabId) {
-                TabGroupView(group: state, dir: store.workingDir ?? "") { itemId in
+                TabGroupView(group: state, dir: store.workingDir ?? "",
+                             onFocus: { store.controller.focusPane(paneId) }) { itemId in
                     store.closeGroupItem(tabId, itemId: itemId)
                 }
             }
