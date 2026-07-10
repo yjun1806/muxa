@@ -45,6 +45,9 @@ let package = Package(
         ),
         // 훅용 CLI — 셸 env(MUXA_SOCK/MUXA_TAB_ID)를 읽어 앱 소켓에 한 줄 쓰고 종료. 외부 의존성 없음.
         .executableTarget(name: "muxa-notify"),
+        // 순수 로직 단위 테스트 — 값 타입·순수 함수(파싱·랭킹·게이트·앵커링 등)만 검증.
+        // @testable import muxa로 앱 모듈 심볼에 접근. GhosttyKit 링크는 앱과 동일(bootstrap 필요).
+        .testTarget(name: "muxaTests", dependencies: ["muxa"]),
         // cmux fork의 prebuilt xcframework(universal, ReleaseFast). scripts/bootstrap.sh가
         // vendor/ghostty/macos/에 설치하고, 이 심링크(GhosttyKit.xcframework)가 그걸 가리킨다.
         .binaryTarget(name: "GhosttyKit", path: "GhosttyKit.xcframework"),
