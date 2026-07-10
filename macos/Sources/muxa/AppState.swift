@@ -147,13 +147,19 @@ final class AppState {
                 }
             }
         }
+        // 점프 대상 뒤에 실행 명령을 섞는다 — 같은 FuzzyMatch/랭킹을 타고, 대기(배지) 우선 정렬은 유지된다.
+        items.append(contentsOf: QuickCommandCatalog.items)
         return items
     }
 
-    /// 전환기 항목으로 점프한다 — 워크스페이스→프로젝트→탭→서브탭 좌표를 따라 라우팅(원클릭 라우팅 재사용).
-    /// 탐색·점프 전용이라(액션 아님) git 패널은 열지 않는다(revealActivity와 대비).
+    /// 전환기 항목 실행 — 명령 항목이면 KeymapAction을 실행(키맵과 같은 경로)하고, 점프 항목이면 좌표로 라우팅한다.
+    /// 어느 쪽이든 먼저 팔레트를 닫는다(dismissOnRun). 점프는 원클릭 라우팅을 재사용하고 git 패널은 열지 않는다.
     func quickJump(_ item: QuickSwitchItem) {
         showQuickSwitch = false
+        if let action = item.action {
+            perform(action) // 명령 항목 — main.swift 키 모니터와 공유하는 실행 경로.
+            return
+        }
         setActiveId(item.workspaceId)
         if let projectId = item.projectId { setActiveProject(projectId) }
         if let projectId = item.projectId, let tabId = item.tabId, let store = stores[projectId] {
@@ -161,6 +167,58 @@ final class AppState {
             if let subItemId = item.subItemId { store.selectGroupItem(tabId, itemId: subItemId) }
         }
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // MARK: 크롬 동작 실행 (키맵·팔레트 공유 단일 진실 원천 — DESIGN 7 라우팅)
+
+    /// KeymapAction 하나를 실행한다 — main.swift 로컬 키 모니터와 ⌘K 팔레트가 공유하는 실행 경로.
+    /// 실행됐으면(=소비) true. 활성 스토어가 필요한 동작(⌘T/⌘D/⌘W/⌘F 등)은 스토어가 없으면 무동작(false).
+    /// 부작용(스토어·창 조작)은 이 메서드와 아래 store 헬퍼에만 격리한다.
+    @discardableResult
+    func perform(_ action: KeymapAction) -> Bool {
+        switch action {
+        case .switchWorkspace(let n):
+            guard workspaces.indices.contains(n - 1) else { return false }
+            setActiveId(workspaces[n - 1].id)
+            return true
+        case .cycleProject(let forward):
+            cycleProject(forward: forward); return true
+        case .toggleExplorer:
+            toggleExplorer(); return true
+        case .toggleGitPanel:
+            toggleGitPanel(); return true
+        case .jumpToNextWaiting:
+            jumpToNextWaiting(); return true
+        case .quickSwitch:
+            toggleQuickSwitch(); return true
+        case .newTerminal, .split, .closeTab, .find, .focusPane, .cycleTab:
+            guard let store = activeStore else { return false }
+            return Self.perform(action, store: store)
+        }
+    }
+
+    /// 활성 스토어(분할·탭 컨트롤러) 대상 동작 실행 — 스토어 상태만 만지는 라우팅.
+    private static func perform(_ action: KeymapAction, store: TerminalStore) -> Bool {
+        let controller = store.controller
+        switch action {
+        case .newTerminal:
+            _ = store.newTerminal(inPane: controller.focusedPaneId)
+        case .split(let vertical):
+            _ = controller.splitPane(orientation: vertical ? .vertical : .horizontal)
+        case .closeTab:
+            if let pane = controller.focusedPaneId, let tab = controller.selectedTab(inPane: pane) {
+                _ = controller.closeTab(tab.id, inPane: pane)
+            }
+        case .find:
+            store.focusedTerm?.startSearch()
+        case .focusPane(let direction):
+            controller.navigateFocus(direction: direction)
+        case .cycleTab(let forward):
+            forward ? controller.selectNextTab() : controller.selectPreviousTab()
+        default:
+            return false // 스토어 비대상 동작은 상위 perform이 이미 처리 — 방어적 폴백.
+        }
+        return true
     }
 
     // MARK: 다음 대기 세션 전역 점프 (⌘⇧A — 알림→소비 동선의 마지막 조각)

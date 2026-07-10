@@ -95,54 +95,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if case .quickSwitch = action { state.toggleQuickSwitch() }
             return true
         }
-        return perform(action, state: state)
-    }
-
-    /// 크롬 동작 실행 — 성공(소비)이면 true. 활성 스토어가 필요한 동작은 없으면 통과(false).
-    private func perform(_ action: KeymapAction, state: AppState) -> Bool {
-        switch action {
-        case .switchWorkspace(let n):
-            guard state.workspaces.indices.contains(n - 1) else { return false }
-            state.setActiveId(state.workspaces[n - 1].id)
-            return true
-        case .cycleProject(let forward):
-            state.cycleProject(forward: forward); return true
-        case .toggleExplorer:
-            state.toggleExplorer(); return true
-        case .toggleGitPanel:
-            state.toggleGitPanel(); return true
-        case .jumpToNextWaiting:
-            state.jumpToNextWaiting(); return true
-        case .quickSwitch:
-            state.toggleQuickSwitch(); return true
-        case .newTerminal, .split, .closeTab, .find, .focusPane, .cycleTab:
-            guard let store = state.activeStore else { return false }
-            return perform(action, store: store)
-        }
-    }
-
-    /// 활성 스토어(분할·탭 컨트롤러)를 대상으로 하는 동작 실행.
-    private func perform(_ action: KeymapAction, store: TerminalStore) -> Bool {
-        let controller = store.controller
-        switch action {
-        case .newTerminal:
-            _ = store.newTerminal(inPane: controller.focusedPaneId)
-        case .split(let vertical):
-            _ = controller.splitPane(orientation: vertical ? .vertical : .horizontal)
-        case .closeTab:
-            if let pane = controller.focusedPaneId, let tab = controller.selectedTab(inPane: pane) {
-                _ = controller.closeTab(tab.id, inPane: pane)
-            }
-        case .find:
-            store.focusedTerm?.startSearch()
-        case .focusPane(let direction):
-            controller.navigateFocus(direction: direction)
-        case .cycleTab(let forward):
-            forward ? controller.selectNextTab() : controller.selectPreviousTab()
-        default:
-            return false // 스토어 비대상 동작은 상위 perform이 이미 처리 — 방어적 폴백.
-        }
-        return true
+        // 실행은 AppState.perform에 위임 — 팔레트(⌘K 명령 항목)와 공유하는 단일 진실 원천.
+        return state.perform(action)
     }
 
     /// 최소 메인 메뉴 — App 메뉴에 종료(⌘Q)·가리기(⌘H)만. Edit 메뉴의 ⌘C/⌘V는 터미널

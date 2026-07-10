@@ -8,6 +8,7 @@ enum QuickSwitchKind {
     case project
     case tab      // 칸 안의 탭(터미널 또는 문서/변경 그룹). 대기(배지) 신호가 실린다.
     case subtab   // 그룹 탭의 서브탭(개별 문서·diff)
+    case command  // 실행 명령(새 터미널·분할·탭 닫기 등) — 점프가 아니라 KeymapAction을 실행한다.
 
     var label: String {
         switch self {
@@ -15,6 +16,7 @@ enum QuickSwitchKind {
         case .project: return "프로젝트"
         case .tab: return "탭"
         case .subtab: return "서브탭"
+        case .command: return "명령"
         }
     }
 }
@@ -35,20 +37,63 @@ struct QuickSubTab {
     let icon: String
 }
 
-/// 빠른 전환기의 단일 탐색 항목(값 타입) — 표시 정보 + 점프 라우팅 좌표.
-/// AppState가 워크스페이스·프로젝트·스토어를 순회해 만들고, 엔터 시 좌표로 점프한다.
+/// 빠른 전환기의 단일 항목(값 타입) — 표시 정보 + (점프 좌표 | 실행 명령).
+/// AppState가 워크스페이스·프로젝트·스토어를 순회해 점프 항목을, 카탈로그가 명령 항목을 만든다.
+/// 엔터 시 `action`이 있으면 그 KeymapAction을 실행하고(키맵과 같은 경로), 없으면 좌표로 점프한다.
 struct QuickSwitchItem: Identifiable {
     let id: String
     let kind: QuickSwitchKind
     let title: String
-    let subtitle: String      // 위치 브레드크럼(워크스페이스 · 프로젝트 …)
+    let subtitle: String      // 위치 브레드크럼(워크스페이스 · 프로젝트 …) 또는 명령 설명
     let icon: String          // SF Symbol
     let waiting: Bool         // 대기(배지) — 최상단 정렬
-    // 점프 좌표
+    // 점프 좌표(점프 항목)
     let workspaceId: String
     let projectId: String?
     let tabId: TabID?
     let subItemId: String?
+    // 실행 명령(명령 항목) — 있으면 엔터 시 이 동작을 실행하고 팔레트를 닫는다.
+    let action: KeymapAction?
+    let shortcutHint: String? // 명령 항목의 단축키 힌트(예: "⌘T") — 행 우측에 표시.
+
+    init(id: String, kind: QuickSwitchKind, title: String, subtitle: String, icon: String,
+         waiting: Bool, workspaceId: String, projectId: String?, tabId: TabID?, subItemId: String?,
+         action: KeymapAction? = nil, shortcutHint: String? = nil) {
+        self.id = id; self.kind = kind; self.title = title; self.subtitle = subtitle
+        self.icon = icon; self.waiting = waiting
+        self.workspaceId = workspaceId; self.projectId = projectId
+        self.tabId = tabId; self.subItemId = subItemId
+        self.action = action; self.shortcutHint = shortcutHint
+    }
+
+    /// 명령 항목 팩토리 — KeymapAction을 실은 항목(점프 좌표는 비운다). 카탈로그가 쓴다.
+    static func command(_ action: KeymapAction, id: String, title: String, subtitle: String,
+                        icon: String, shortcutHint: String) -> QuickSwitchItem {
+        QuickSwitchItem(id: id, kind: .command, title: title, subtitle: subtitle, icon: icon,
+                        waiting: false, workspaceId: "", projectId: nil, tabId: nil, subItemId: nil,
+                        action: action, shortcutHint: shortcutHint)
+    }
+}
+
+/// 팔레트에 섞이는 실행 명령 카탈로그(순수 데이터) — KeymapAction을 재사용하고, 실행은 AppState.perform이 맡는다.
+/// 여기가 명령 목록의 단일 진실 원천. 단축키는 KeymapResolver 기본 테이블과 짝을 맞춰 힌트로만 표시한다.
+enum QuickCommandCatalog {
+    static let items: [QuickSwitchItem] = [
+        .command(.newTerminal, id: "cmd:new-terminal", title: "새 터미널",
+                 subtitle: "활성 칸에 새 터미널 탭", icon: "plus.square", shortcutHint: "⌘T"),
+        .command(.split(vertical: false), id: "cmd:split-h", title: "수평 분할",
+                 subtitle: "활성 칸 분할", icon: "rectangle.split.2x1", shortcutHint: "⌘D"),
+        .command(.split(vertical: true), id: "cmd:split-v", title: "수직 분할",
+                 subtitle: "활성 칸 분할", icon: "rectangle.split.1x2", shortcutHint: "⌘⇧D"),
+        .command(.closeTab, id: "cmd:close-tab", title: "탭 닫기",
+                 subtitle: "활성 탭 닫기", icon: "xmark.square", shortcutHint: "⌘W"),
+        .command(.toggleExplorer, id: "cmd:toggle-explorer", title: "익스플로러 토글",
+                 subtitle: "파일 탐색 패널", icon: "sidebar.left", shortcutHint: "⌘⇧E"),
+        .command(.toggleGitPanel, id: "cmd:toggle-git", title: "Git 패널 토글",
+                 subtitle: "변경사항·브랜치·워크트리", icon: "arrow.triangle.branch", shortcutHint: "⌘⇧G"),
+        .command(.jumpToNextWaiting, id: "cmd:next-waiting", title: "다음 대기 세션",
+                 subtitle: "배지된 다음 세션으로 점프", icon: "bell.badge", shortcutHint: "⌘⇧A"),
+    ]
 }
 
 /// 항목 필터·정렬(순수). 대기 항목을 최상단, 그 안에서 쿼리 퍼지 점수순.

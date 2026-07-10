@@ -115,9 +115,19 @@ struct QuickSwitcher: View {
             if item.waiting {
                 Circle().fill(Color.pBorderActivity).frame(width: 7, height: 7)
             }
-            Text(item.kind.label)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(Color.pMuted.opacity(0.8))
+            if let hint = item.shortcutHint {
+                Text(hint)
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color.pMuted)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Color.pBtnActive.opacity(0.5))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            } else {
+                Text(item.kind.label)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(Color.pMuted.opacity(0.8))
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
@@ -161,7 +171,7 @@ private struct QuickSwitchField: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSTextField {
         let field = NSTextField()
-        field.placeholderString = "워크스페이스 · 프로젝트 · 탭 검색"
+        field.placeholderString = "워크스페이스 · 프로젝트 · 탭 · 명령 검색"
         field.font = .systemFont(ofSize: 15)
         field.focusRingType = .none
         field.isBordered = false
