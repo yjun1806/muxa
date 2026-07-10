@@ -172,7 +172,7 @@ final class AppState {
     func save() {
         // 인스턴스화된 스토어(=열린 프로젝트)의 현재 분할 트리를 반영한다. 빈 스토어는 스킵.
         for (projectId, store) in stores where !store.controller.allTabIds.isEmpty {
-            savedLayouts[projectId] = store.controller.treeSnapshot()
+            savedLayouts[projectId] = store.layoutSnapshot() // 뷰어/diff 탭 제외(터미널만 복원)
         }
         let snapshot = Persisted(workspaces: workspaces, activeId: activeId, sidebarMode: sidebarMode, layouts: savedLayouts)
         guard let data = try? JSONEncoder().encode(snapshot) else { return }

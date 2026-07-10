@@ -220,6 +220,34 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         }
     }
 
+    // MARK: 세션 레이아웃 저장 — 뷰어/diff 탭을 뺀 터미널 전용 스냅샷
+    //
+    // PTY는 복원 불가라 각 패인의 '터미널 탭 수'만 복원에 의미가 있고, 뷰어(md/코드)·diff는
+    // 열려 있던 파일/커밋을 다시 띄우는 게 아니라 새 터미널로 되살아나면 오히려 잘못이다.
+    // 저장 시 이들을 걸러 분할 구조 + 터미널만 남긴다.
+
+    /// 세션 저장용 트리(터미널 탭만). AppState.save가 treeSnapshot 대신 이걸 쓴다.
+    func layoutSnapshot() -> ExternalTreeNode {
+        prune(controller.treeSnapshot())
+    }
+
+    private func prune(_ node: ExternalTreeNode) -> ExternalTreeNode {
+        switch node {
+        case .pane(let p):
+            let terminalTabs = p.tabs.filter { tab in
+                guard let uuid = UUID(uuidString: tab.id) else { return true }
+                if case .terminal = content(for: TabID(uuid: uuid)) { return true }
+                return false
+            }
+            // 터미널이 하나도 없으면 빈 패인이 되지 않게 1개는 남긴다(복원 시 새 터미널로 채워짐).
+            let kept = terminalTabs.isEmpty ? Array(p.tabs.prefix(1)) : terminalTabs
+            return .pane(ExternalPaneNode(id: p.id, frame: p.frame, tabs: kept, selectedTabId: p.selectedTabId))
+        case .split(let s):
+            return .split(ExternalSplitNode(id: s.id, orientation: s.orientation, dividerPosition: s.dividerPosition,
+                                            first: prune(s.first), second: prune(s.second)))
+        }
+    }
+
     // MARK: 세션 레이아웃 복원 — 저장된 분할 트리를 replay로 재구성
     //
     // Bonsplit엔 복원 API가 없어(1.1.1) createTab/splitPane 재생으로 구조를 다시 만든다.
