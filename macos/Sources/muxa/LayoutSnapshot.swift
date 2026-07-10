@@ -68,6 +68,10 @@ struct TabSnapshot: Codable {
     // 옵셔널을 decodeIfPresent로 처리하므로 구 state.v4.json도 정상 디코드). 복원 시 맵에 되살리기만 하고
     // 실제 재개 실행은 나중 단계가 담당한다.
     var resume: ResumeBinding? = nil
+    // 터미널 탭의 화면+스크롤백을 담은 별도 파일 경로(scrollback/<tabId>.txt). 옵셔널 — 구 스냅샷엔 없어
+    // 하위호환. 스크롤백 텍스트는 크므로 JSON에 직접 넣지 않고 경로만 저장한다. 복원 시 새 셸에
+    // env MUXA_RESTORE_SCROLLBACK_FILE로 주입하면 rc가 이 파일을 cat해 히스토리를 시각 복원한다(④).
+    var scrollbackFile: String? = nil
 }
 
 /// 그룹 서브탭 하나 — 파일이거나 커밋 diff.

@@ -26,6 +26,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 복원 시 탭별로 새 셸을 띄울 작업 디렉터리(OSC 7 스냅샷). term(for:)가 TermView 생성 시 참조.
     /// TermView가 아직 안 만들어진 탭도 다음 저장 때 cwd를 잃지 않도록 convert의 폴백으로도 쓴다.
     @ObservationIgnored private var restoredCwd: [TabID: String] = [:]
+    /// 복원된 탭의 스크롤백 파일 경로 힌트 — term(for:)가 새 셸에 env로 주입한다(④). restoredCwd와 같은 수명.
+    @ObservationIgnored private var restoredScrollbackFile: [TabID: String] = [:]
     /// 탭별 에이전트 재개 바인딩(훅이 넘긴 재개 명령). 훅 알림으로 등록되고 스냅샷에 실려 복원된다.
     /// 값 자체는 관측 대상이 아니라 뷰는 아래 resumeTabs로 표시 여부만 반응한다.
     @ObservationIgnored private var resumeBindings: [TabID: ResumeBinding] = [:]
@@ -132,6 +134,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         terms[tabId] = nil // TermView deinit이 서피스 free
         restoredCwd[tabId] = nil // 복원 cwd 힌트 해제
+        restoredScrollbackFile[tabId] = nil // 스크롤백 파일 힌트 해제
+        ScrollbackStore.delete(for: tabId) // 이 탭의 스크롤백 파일 정리(누수 방지)
         resumeBindings[tabId] = nil // 에이전트 재개 바인딩 해제
         resumeTabs.remove(tabId) // 재개 배너 표시 상태도 해제
         tabContent[tabId] = nil
@@ -230,7 +234,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         if let t = terms[tabId] { return t }
         // tabId·소켓 경로를 셸 env로 주입(훅 알림용) — TermView.init에서 서피스 생성 전에 심는다.
         // 복원된 탭이면 저장된 작업 디렉터리에서, 아니면 워크스페이스 기본 cwd에서 새 셸.
-        let t = TermView(app: app, cwd: restoredCwd[tabId] ?? cwd, tabId: tabId, sockPath: NotifyServer.socketPath)
+        let t = TermView(app: app, cwd: restoredCwd[tabId] ?? cwd, tabId: tabId, sockPath: NotifyServer.socketPath,
+                         restoreScrollbackFile: restoredScrollbackFile[tabId])
         // 콜백은 action_cb(메인 async)·becomeFirstResponder(메인)에서만 불린다 → assumeIsolated 안전.
         t.onSignal = { [weak self] signal in MainActor.assumeIsolated { self?.handleSignal(signal, from: tabId) } }
         t.onClearBadge = { [weak self] tid in MainActor.assumeIsolated { self?.clearTabBadge(tid) } }
@@ -673,6 +678,13 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         convert(controller.treeSnapshot())
     }
 
+    /// 실체화된 터미널의 화면+스크롤백을 읽어(정제·상한) 별도 파일에 쓴다. 저장된 경로(없으면 nil).
+    /// 부작용(서피스 리드백·파일 쓰기)은 경계 타입(TermView·ScrollbackStore)에 격리, 정제는 순수 함수.
+    private func captureScrollback(from term: TermView, tabId: TabID) -> String? {
+        guard let raw = term.readScreenText() else { return nil }
+        return ScrollbackStore.write(ScrollbackText.sanitize(raw), for: tabId)
+    }
+
     private func convert(_ node: ExternalTreeNode) -> PaneSnapshot {
         switch node {
         case .pane(let p):
@@ -686,9 +698,14 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                 case .terminal:
                     // 현재 셸 작업 디렉터리 기록 — TermView가 살아 있으면 그 pwd, 아직 미실체화 탭이면 복원 힌트.
                     let tabCwd = terms[tid]?.pwd ?? restoredCwd[tid]
+                    // 화면+스크롤백 캡처 — 실체화된 터미널이면 서피스에서 읽어 파일에 쓰고,
+                    // 아직 미실체화(복원만 되고 안 연) 탭이면 이전 힌트 경로를 그대로 이어 준다(④).
+                    let scrollbackFile = terms[tid].flatMap { captureScrollback(from: $0, tabId: tid) }
+                        ?? restoredScrollbackFile[tid]
                     // 에이전트 재개 바인딩도 함께 저장 — 복원 시 다시 맵에 되살린다(실행은 나중 단계).
                     tabs.append(TabSnapshot(group: nil, items: [], selectedItem: 0,
-                                            cwd: tabCwd, resume: resumeBindings[tid]))
+                                            cwd: tabCwd, resume: resumeBindings[tid],
+                                            scrollbackFile: scrollbackFile))
                 case .group(let kind):
                     let state = groups[tid]
                     let items = (state?.items ?? []).map(itemSnapshot)
@@ -754,6 +771,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                     }
                 } else if let tid = controller.createTab(title: "터미널", icon: "terminal", inPane: pane) {
                     if let cwd = t.cwd { restoredCwd[tid] = cwd } // 새 셸을 저장된 작업 디렉터리에서 띄우게 힌트.
+                    if let sf = t.scrollbackFile { restoredScrollbackFile[tid] = sf } // 새 셸에 스크롤백 파일 env 주입 힌트(④).
                     if let resume = t.resume { registerResumeBinding(resume, for: tid) } // 재개 바인딩 복구(+배너 표시). 실행은 D2 게이트가.
                     created.append(tid)
                 }

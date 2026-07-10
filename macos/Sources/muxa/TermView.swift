@@ -49,7 +49,8 @@ final class TermView: NSView, NSTextInputClient {
 
     override var acceptsFirstResponder: Bool { true }
 
-    init(app: ghostty_app_t, cwd: String?, tabId: TabID? = nil, sockPath: String? = nil) {
+    init(app: ghostty_app_t, cwd: String?, tabId: TabID? = nil, sockPath: String? = nil,
+         restoreScrollbackFile: String? = nil) {
         self.tabId = tabId
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false // 수동 프레임 — 제약 엔진 제외
@@ -77,6 +78,13 @@ final class TermView: NSView, NSTextInputClient {
         }
         if let sockPath {
             envVars.append(ghostty_env_var_s(key: dup("MUXA_SOCK"), value: dup(sockPath)))
+        }
+        // 세션 복원 시 이전 화면+스크롤백을 담은 파일 경로 — 셸 rc가 이 파일을 cat해 히스토리를 되살린다(④).
+        // 재출력은 사용자 몫(rc 훅). env만 심는다. 예시(~/.zshrc 등):
+        //   [ -n "$MUXA_RESTORE_SCROLLBACK_FILE" ] && [ -f "$MUXA_RESTORE_SCROLLBACK_FILE" ] && {
+        //       cat "$MUXA_RESTORE_SCROLLBACK_FILE"; rm -f "$MUXA_RESTORE_SCROLLBACK_FILE"; }
+        if let restoreScrollbackFile {
+            envVars.append(ghostty_env_var_s(key: dup("MUXA_RESTORE_SCROLLBACK_FILE"), value: dup(restoreScrollbackFile)))
         }
 
         // working_directory·env_vars는 const 포인터 — surface_new가 읽는 동안만 유효하면 된다.
@@ -348,6 +356,27 @@ final class TermView: NSView, NSTextInputClient {
         keyEvent.composing = false
         keyEvent.text = nil
         _ = ghostty_surface_key(surface, keyEvent)
+    }
+
+    // MARK: 스크롤백 리드백 — 세션 저장 시 화면+스크롤백 텍스트 캡처 (④)
+    //
+    // libghostty read_text: SCREEN 태그의 top-left~bottom-right 선택으로 화면 전체(스크롤백 포함)를
+    // 클립보드 형식 평문(SGR 없음)으로 읽는다. 반환 버퍼는 반드시 free_text로 해제한다.
+    // 정제·상한은 순수 로직(ScrollbackText.sanitize)이 호출부에서 담당한다.
+
+    /// 화면+스크롤백 전체를 평문으로 읽는다. 서피스가 없거나 비었으면 nil.
+    func readScreenText() -> String? {
+        guard let surface else { return nil }
+        let topLeft = ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0)
+        let bottomRight = ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0)
+        let selection = ghostty_selection_s(top_left: topLeft, bottom_right: bottomRight, rectangle: false)
+        var out = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &out), let ptr = out.text else { return nil }
+        let text = ptr.withMemoryRebound(to: UInt8.self, capacity: Int(out.text_len)) { base in
+            String(decoding: UnsafeBufferPointer(start: base, count: Int(out.text_len)), as: UTF8.self)
+        }
+        ghostty_surface_free_text(surface, &out)
+        return text.isEmpty ? nil : text
     }
 
     // MARK: 키 입력 — Ghostty SurfaceView_AppKit.keyDown 이식
