@@ -312,6 +312,44 @@ final class TermView: NSView, NSTextInputClient {
         onTitle?(title)
     }
 
+    // MARK: 명령 주입 — 셸에 텍스트 입력 + 실행 (에이전트 세션 재개용, D2)
+    //
+    // 신뢰 경계: 여기 들어오는 문자열은 훅이 넘긴 임의 셸 명령일 수 있다. 무단 실행을 막는 승인 게이트
+    // (설정 agent_resume)는 호출부(TerminalStore.executeResume)가 판정한다 — TermView는 전송만 한다.
+
+    /// 문자열을 셸에 보낸다(붙여넣기 경로). 끝의 개행 하나는 리터럴이 아니라 "실행(Enter)"으로 해석한다:
+    /// ghostty_surface_text는 텍스트를 bracketed-paste(DECSET 2004)로 감싸므로 개행을 그 안에 넣으면
+    /// 셸의 라인 에디터가 리터럴 줄바꿈으로 받아 **실행되지 않는다**. 그래서 명령 본문만 붙여넣고
+    /// 실행은 별도 Return 키 이벤트로 커밋한다(insertText와 같은 C 문자열 수명 규칙).
+    func sendText(_ s: String) {
+        guard let surface, !s.isEmpty else { return }
+        let submit = s.hasSuffix("\n")
+        let body = submit ? String(s.dropLast()) : s
+        if !body.isEmpty {
+            let len = body.utf8CString.count
+            if len > 1 {
+                body.withCString { ptr in
+                    ghostty_surface_text(surface, ptr, UInt(len - 1))
+                }
+            }
+        }
+        if submit { sendReturn(surface) }
+    }
+
+    /// Return 키를 한 번 눌러 앞서 붙여넣은 명령을 실행한다. 텍스트 없이 keycode만 넘겨 ghostty가
+    /// 현재 모드에 맞게 인코딩하게 둔다(cmux 이식). PRESS 한 번이면 셸이 라인을 커밋한다.
+    private func sendReturn(_ surface: ghostty_surface_t) {
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = GHOSTTY_ACTION_PRESS
+        keyEvent.keycode = UInt32(kVK_Return)
+        keyEvent.mods = GHOSTTY_MODS_NONE
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.unshifted_codepoint = 0
+        keyEvent.composing = false
+        keyEvent.text = nil
+        _ = ghostty_surface_key(surface, keyEvent)
+    }
+
     // MARK: 키 입력 — Ghostty SurfaceView_AppKit.keyDown 이식
 
     override func keyDown(with event: NSEvent) {

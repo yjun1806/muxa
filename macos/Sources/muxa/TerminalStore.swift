@@ -27,8 +27,14 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// TermView가 아직 안 만들어진 탭도 다음 저장 때 cwd를 잃지 않도록 convert의 폴백으로도 쓴다.
     @ObservationIgnored private var restoredCwd: [TabID: String] = [:]
     /// 탭별 에이전트 재개 바인딩(훅이 넘긴 재개 명령). 훅 알림으로 등록되고 스냅샷에 실려 복원된다.
-    /// D1은 저장·영속·복원 시 맵 복구까지만 — 복원된 바인딩의 실제 재개 실행은 나중 단계가 담당한다.
+    /// 값 자체는 관측 대상이 아니라 뷰는 아래 resumeTabs로 표시 여부만 반응한다.
     @ObservationIgnored private var resumeBindings: [TabID: ResumeBinding] = [:]
+    /// 재개 바인딩이 살아 있는 탭들 — 재개 배너(ResumeOverlay)가 관측해 표시/소비를 반응한다.
+    /// resumeBindings와 항상 동기(등록 시 insert, 소비·탭닫힘 시 remove) — 뷰가 값 대신 이 집합만 본다.
+    private(set) var resumeTabs: Set<TabID> = []
+    /// 복원된 세션 재개의 승인 게이트(off/manual/auto). 기본 manual — 임의 셸 명령 자동 실행을 막는다(신뢰 경계).
+    /// 설정 라이브 리로드로 갱신될 수 있어 var — AppState가 `updateAgentResumeMode`로 전파한다. (D2)
+    @ObservationIgnored private(set) var agentResumeMode: AgentResumeMode
     /// 터미널이 아닌 탭의 종류(그룹). 없으면 .terminal.
     @ObservationIgnored private var tabContent: [TabID: TabContent] = [:]
     /// 그룹 탭(TabID) → 서브탭 상태(문서·diff 묶음). TabGroupView가 관측한다.
@@ -74,11 +80,13 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     @ObservationIgnored private var initialized = false
 
     init(app: ghostty_app_t, cwd: String?, restoreSnap: PaneSnapshot? = nil,
-         commandFinishedThresholdNs: UInt64 = 8_000_000_000) {
+         commandFinishedThresholdNs: UInt64 = 8_000_000_000,
+         agentResumeMode: AgentResumeMode = .manual) {
         self.app = app
         self.cwd = cwd
         self.restoreSnap = restoreSnap
         self.commandFinishedThresholdNs = commandFinishedThresholdNs
+        self.agentResumeMode = agentResumeMode
         // keepAllAlive — 탭 전환 시 뷰(WKWebView 뷰어·터미널)를 파괴/재생성하지 않고 유지한다.
         // 기본 .recreateOnSwitch는 전환마다 뷰어를 재로드(굼뜸·상태 손실)해서 부적합.
         var config = BonsplitConfiguration(contentViewLifecycle: .keepAllAlive)
@@ -100,6 +108,12 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         commandFinishedThresholdNs = ns
     }
 
+    /// 재개 승인 게이트 모드를 갱신한다 — 설정 라이브 리로드 시 AppState가 실행 중 스토어에도 전파한다. (D2)
+    /// 이미 뜬 재개 배너의 다음 판정부터 새 값이 적용된다.
+    func updateAgentResumeMode(_ mode: AgentResumeMode) {
+        agentResumeMode = mode
+    }
+
     // MARK: BonsplitDelegate — 분할·새탭·닫기에 터미널 생명주기를 잇는다
 
     /// 분할 즉시 새 패인에 터미널을 만든다 — 빈 패인을 거치지 않는다(muxa 원래 동작).
@@ -119,6 +133,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         terms[tabId] = nil // TermView deinit이 서피스 free
         restoredCwd[tabId] = nil // 복원 cwd 힌트 해제
         resumeBindings[tabId] = nil // 에이전트 재개 바인딩 해제
+        resumeTabs.remove(tabId) // 재개 배너 표시 상태도 해제
         tabContent[tabId] = nil
         groups[tabId] = nil // 그룹 탭이면 서브탭 상태도 해제
         badgedTabs.remove(tabId)
@@ -269,15 +284,43 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         return true
     }
 
+    /// 바인딩을 맵 + 관측 집합에 함께 넣는다(항상 동기). 훅 등록·복원 realize가 공유하는 단일 경로.
+    private func registerResumeBinding(_ binding: ResumeBinding, for tabId: TabID) {
+        resumeBindings[tabId] = binding
+        resumeTabs.insert(tabId)
+    }
+
     /// 탭의 에이전트 재개 바인딩을 등록한다(훅 알림 경로). 즉시 저장을 트리거해 영속에 반영한다.
     func setResumeBinding(_ binding: ResumeBinding, for tabId: TabID) {
-        resumeBindings[tabId] = binding
+        registerResumeBinding(binding, for: tabId)
         persist()
     }
 
-    /// 탭의 에이전트 재개 바인딩(없으면 nil). 복원된 바인딩을 나중 단계(재개 실행·승인 게이트)가 읽는 접근자.
+    /// 탭의 에이전트 재개 바인딩(없으면 nil). 재개 배너가 라벨·명령 미리보기를 읽는 접근자.
     func resumeBinding(for tabId: TabID) -> ResumeBinding? {
         resumeBindings[tabId]
+    }
+
+    /// 재개 바인딩을 소비(제거)한다 — 한 번 재개하면 중복 실행·배너 잔존을 막고, 소비를 영속에 반영해
+    /// (스냅샷에서도 빠지므로) 재시작 후 이미 재개한 세션을 또 띄우지 않는다. (D2)
+    func consumeResumeBinding(for tabId: TabID) {
+        guard resumeBindings[tabId] != nil else { return }
+        resumeBindings[tabId] = nil
+        resumeTabs.remove(tabId)
+        persist()
+    }
+
+    /// 복원된 에이전트 세션을 재개한다 — 재개 명령을 셸에 입력·실행하고 바인딩을 소비한다.
+    ///
+    /// 신뢰 경계(D2): command는 훅이 넘긴 임의 셸 명령이다. 승인 게이트(agent_resume)가 off면 실행하지 않고,
+    /// manual은 사용자가 배너 버튼으로, auto는 복원 후 자동으로 여기를 호출한다. 어느 경로든 실행은 이 한 곳뿐이고,
+    /// 소비가 뒤따라 중복 실행을 막는다(auto의 지연 재호출·onAppear 재발화도 바인딩이 없으면 무동작).
+    func executeResume(for tabId: TabID) {
+        guard agentResumeMode != .off,
+              let binding = resumeBindings[tabId],
+              let term = terms[tabId] else { return }
+        term.sendText(binding.command + "\n") // 명령 + 실행(Return). sendText가 개행을 Enter로 커밋한다.
+        consumeResumeBinding(for: tabId)
     }
 
     /// 알림/배지 클릭으로 이 탭을 앞으로 가져온다 — 그 칸을 선택·포커스하고 배지를 끈다.
@@ -711,7 +754,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                     }
                 } else if let tid = controller.createTab(title: "터미널", icon: "terminal", inPane: pane) {
                     if let cwd = t.cwd { restoredCwd[tid] = cwd } // 새 셸을 저장된 작업 디렉터리에서 띄우게 힌트.
-                    if let resume = t.resume { resumeBindings[tid] = resume } // 재개 바인딩 복구(실행은 나중 단계).
+                    if let resume = t.resume { registerResumeBinding(resume, for: tid) } // 재개 바인딩 복구(+배너 표시). 실행은 D2 게이트가.
                     created.append(tid)
                 }
             }

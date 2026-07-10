@@ -23,6 +23,8 @@ struct BonsplitWorkspaceView: View {
             // 상시 에이전트 상태 테두리(waiting=주황·done=초록) 위에 순간 활동 플래시를 얹는다.
             .overlay(AgentStateBorder(store: store, tabId: tabId))
             .overlay(ActivityFlashBorder(store: store, tabId: tabId))
+            // 복원된 재개 바인딩이 있는 터미널 탭엔 상단에 세션 재개 배너를 얹는다(D2). 바인딩 없으면 아무것도 안 그린다.
+            .overlay(alignment: .top) { ResumeOverlay(store: store, tabId: tabId) }
     }
 
     @ViewBuilder

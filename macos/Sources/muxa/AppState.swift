@@ -58,7 +58,10 @@ final class AppState {
     func applyConfig(_ newConfig: MuxaConfig) {
         config = newConfig
         let ns = newConfig.commandFinishedThresholdNs
-        for store in stores.values { store.updateCommandFinishedThreshold(ns) }
+        for store in stores.values {
+            store.updateCommandFinishedThreshold(ns)
+            store.updateAgentResumeMode(newConfig.agentResume) // 재개 승인 게이트도 실행 중 스토어에 전파(D2)
+        }
     }
 
     /// 훅 알림 리스너를 켜고 라우팅 콜백을 건다. AppDelegate가 앱 시작 시 1회 호출.
@@ -319,7 +322,8 @@ final class AppState {
         if let s = stores[project.id] { return s }
         let cwd = project.path ?? workspace.path
         let s = TerminalStore(app: app, cwd: cwd, restoreSnap: savedLayouts[project.id],
-                              commandFinishedThresholdNs: config.commandFinishedThresholdNs)
+                              commandFinishedThresholdNs: config.commandFinishedThresholdNs,
+                              agentResumeMode: config.agentResume)
         let pid = project.id
         s.onProjectActivity = { [weak self] in MainActor.assumeIsolated { self?.markProjectBadge(pid) } }
         // 데스크톱 알림에 라우팅 컨텍스트(프로젝트·워크스페이스)를 붙여 발사 — 클릭 시 원클릭 검토로 이어짐.

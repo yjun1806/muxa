@@ -19,6 +19,9 @@ struct MuxaConfig: Equatable {
     /// 단축키 재정의: 동작 이름 → 조합 문자열(예: `new_terminal → "cmd+t"`). 비면 기본 테이블 그대로.
     /// KeymapResolver가 기본 테이블 위에 얹는다 — 파싱 실패한 항목은 조용히 무시. (DESIGN 7)
     var keybindings: [String: String]
+    /// 복원된 에이전트 세션 재개의 승인 게이트(off/manual/auto). 기본 manual — 임의 셸 명령을
+    /// 자동 실행하지 않고 사용자 확인을 강제한다(신뢰 경계). (D2)
+    var agentResume: AgentResumeMode
 
     /// 전부 기본값(= 빈 설정 파일과 동일). 각 항목의 단일 진실 원천.
     static let defaults = MuxaConfig(
@@ -26,7 +29,8 @@ struct MuxaConfig: Equatable {
         confirmQuit: true,
         commandFinishedThresholdSec: 8,
         defaultWorkspacePath: nil,
-        keybindings: [:]
+        keybindings: [:],
+        agentResume: .manual
     )
 
     /// 완료 배지 임계를 나노초로 환산 — TerminalStore가 이 단위로 비교한다. 음수는 0으로 클램프.
@@ -46,7 +50,8 @@ extension MuxaConfig {
             commandFinishedThresholdSec: pairs["command_finished_threshold_sec"].flatMap(Double.init)
                 ?? defaults.commandFinishedThresholdSec,
             defaultWorkspacePath: pairs["default_workspace_path"] ?? defaults.defaultWorkspacePath,
-            keybindings: extractKeybindings(pairs)
+            keybindings: extractKeybindings(pairs),
+            agentResume: pairs["agent_resume"].flatMap(AgentResumeMode.init(rawValue:)) ?? defaults.agentResume
         )
     }
 
