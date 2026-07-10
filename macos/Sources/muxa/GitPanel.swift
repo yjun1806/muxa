@@ -4,16 +4,22 @@ import SwiftUI
 /// 파일/커밋 클릭 → onOpenDiff로 diff 시트를 연다. 읽기 전용(M3). 스테이징·커밋은 M4.
 struct GitPanel: View {
     let dir: String?
+    /// 세션 기준선(rev-parse HEAD) — "이번 세션" 탭이 base..HEAD 커밋을 구하는 기준. nil이면 기록 전.
+    var sessionBase: String?
+    /// "여기까지 봤음" — 기준선을 현재 HEAD로 리셋(상위 AppState가 프로젝트 값 타입을 갱신).
+    var onResetBaseline: () -> Void = {}
     var onOpenDiff: (GitDiffTarget) -> Void
 
     private enum Mode: String, CaseIterable {
         case changes = "변경사항"
+        case session = "이번 세션"
         case history = "히스토리"
     }
 
     @State private var mode: Mode = .changes
     @State private var status: GitStatus?
     @State private var commits: [GitCommit] = []
+    @State private var sessionCommits: [GitCommit] = []
     @State private var branches: [String] = []
     @State private var loaded = false
     @State private var watcher: FileWatcher?
@@ -43,6 +49,7 @@ struct GitPanel: View {
                 Rectangle().fill(Color.pBorder).frame(height: 1)
                 switch mode {
                 case .changes: changesView
+                case .session: sessionView
                 case .history: historyView
                 }
             }
@@ -58,6 +65,7 @@ struct GitPanel: View {
             if let dir { watcher = FileWatcher(path: dir) } // B-2: 변경 시 git 패널 자동 갱신
         }
         .onChange(of: watcher?.changeSeq) { _, _ in Task { await refresh() } }
+        .onChange(of: sessionBase) { _, _ in Task { await refresh() } } // 기준선 기록·리셋 후 세션 커밋 재계산
     }
 
     private var header: some View {
@@ -302,6 +310,47 @@ struct GitPanel: View {
         }
     }
 
+    // MARK: 이번 세션 (기준선 이후 커밋 = 에이전트가 이번 세션에 커밋한 것)
+
+    @ViewBuilder
+    private var sessionView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sessionToolbar
+            Rectangle().fill(Color.pBorder).frame(height: 1)
+            if sessionBase == nil {
+                label("기준선 기록 중…")
+            } else if sessionCommits.isEmpty {
+                label(loaded ? "이번 세션 새 커밋 없음" : "불러오는 중…")
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(sessionCommits) { commitRow($0) }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+    }
+
+    /// 세션 도구줄 — 커밋 수 + "여기까지 봤음"(기준선을 현재 HEAD로 리셋).
+    private var sessionToolbar: some View {
+        HStack(spacing: 6) {
+            Text("이번 세션 커밋").font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.pMuted)
+            Text("\(sessionCommits.count)").font(.system(size: 10, design: .monospaced)).foregroundStyle(Color.pMuted.opacity(0.7))
+            Spacer(minLength: 0)
+            Button(action: onResetBaseline) {
+                HStack(spacing: 3) {
+                    Image(systemName: "checkmark.circle").font(.system(size: 10))
+                    Text("여기까지 봤음").font(.system(size: 10))
+                }
+            }
+            .buttonStyle(.plain).foregroundStyle(Color.pMuted)
+            .help("기준선을 현재 HEAD로 리셋 — 이후 커밋만 '이번 세션'에 표시")
+            .disabled(sessionBase == nil)
+        }
+        .padding(.horizontal, 10).frame(height: 26)
+    }
+
     private func commitRow(_ commit: GitCommit) -> some View {
         Button { onOpenDiff(.commit(hash: commit.hash, subject: commit.subject)) } label: {
             VStack(alignment: .leading, spacing: 2) {
@@ -390,6 +439,7 @@ struct GitPanel: View {
         guard let dir else {
             status = nil
             commits = []
+            sessionCommits = []
             branches = []
             loaded = true
             return
@@ -397,6 +447,12 @@ struct GitPanel: View {
         status = await GitService.status(in: dir)
         commits = status == nil ? [] : await GitService.log(in: dir)
         branches = status == nil ? [] : await GitService.localBranches(in: dir)
+        // 이번 세션 = 기준선 이후 커밋(base..HEAD). 기준선 없거나 git 저장소 아니면 빈 목록.
+        if let base = sessionBase, status != nil {
+            sessionCommits = await GitService.sessionCommits(base: base, in: dir)
+        } else {
+            sessionCommits = []
+        }
         loaded = true
     }
 

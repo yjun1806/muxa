@@ -50,17 +50,38 @@ enum GitService {
         return await run(["diff", "--no-color", "--cached", "--", change.path], in: dir).stdout // 스테이지만
     }
 
-    /// 최근 커밋 목록(히스토리).
-    static func log(in dir: String, limit: Int = 40) async -> [GitCommit] {
+    /// 최근 커밋 목록(히스토리). range를 주면 `<base>..HEAD` 같은 범위로 제한한다(세션 커밋용).
+    static func log(in dir: String, limit: Int = 40, range: String? = nil) async -> [GitCommit] {
         // \u{1f}(unit separator)로 필드 구분 — 제목에 포함될 일이 없다.
         let format = "%H%x1f%h%x1f%s%x1f%an%x1f%ar"
-        let result = await run(["log", "-n", "\(limit)", "--pretty=format:\(format)"], in: dir)
+        var args = ["log", "-n", "\(limit)", "--pretty=format:\(format)"]
+        if let range { args.append(range) }
+        let result = await run(args, in: dir)
         guard result.exitCode == 0 else { return [] }
-        return result.stdout.split(separator: "\n").compactMap { line in
+        return parseLog(result.stdout)
+    }
+
+    /// log 출력(unit-separator 포맷) → 커밋 배열. 순수 파싱(테스트·재사용).
+    static func parseLog(_ output: String) -> [GitCommit] {
+        output.split(separator: "\n").compactMap { line in
             let f = String(line).components(separatedBy: "\u{1f}")
             guard f.count == 5 else { return nil }
             return GitCommit(hash: f[0], shortHash: f[1], subject: f[2], author: f[3], date: f[4])
         }
+    }
+
+    /// 현재 HEAD 커밋 해시(rev-parse). 세션 기준선 기록·리셋에 쓴다. git 저장소가 아니거나 커밋이 없으면 nil.
+    static func headHash(in dir: String) async -> String? {
+        let r = await run(["rev-parse", "HEAD"], in: dir)
+        guard r.exitCode == 0 else { return nil }
+        let h = r.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return h.isEmpty ? nil : h
+    }
+
+    /// 세션 기준선 이후 커밋들(`base..HEAD`) — "이번 세션에 에이전트가 커밋한 것". 각 커밋 diff는 commitDiff로 연다.
+    /// 기준선이 유효하지 않거나(리베이스 등) 새 커밋이 없으면 빈 배열.
+    static func sessionCommits(base: String, in dir: String) async -> [GitCommit] {
+        await log(in: dir, limit: 200, range: "\(base)..HEAD")
     }
 
     /// 커밋 하나의 상세(메시지 + 변경 통계 + diff).

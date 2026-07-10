@@ -102,7 +102,11 @@ struct ContentView: View {
                 if state.showGitPanel {
                     Rectangle().fill(Color.pBorder).frame(width: 1)
                     // 파일/커밋 클릭 → 활성 프로젝트의 새 탭으로 diff를 연다(모달 아님).
-                    GitPanel(dir: project.path ?? ws.path) { state.store(for: project, in: ws).openDiff($0) }
+                    GitPanel(
+                        dir: project.path ?? ws.path,
+                        sessionBase: project.sessionBaseHead,
+                        onResetBaseline: { state.resetSessionBaseline(projectId: project.id, cwd: project.path ?? ws.path) }
+                    ) { state.store(for: project, in: ws).openDiff($0) }
                 }
             }
         } else {

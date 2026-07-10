@@ -117,7 +117,47 @@ final class AppState {
         // 탭/뷰어가 바뀔 때마다 즉시 저장 — ⌘Q 없이(pkill·크래시) 종료돼도 다음 실행에 복원.
         s.onStateChange = { [weak self] in MainActor.assumeIsolated { self?.save() } }
         stores[project.id] = s
+        // 첫 store 생성(=첫 터미널이 이 경로에서 시작) 시점에 세션 기준선을 1회 기록(DESIGN 4.4 #2).
+        recordSessionBaseline(projectId: project.id, cwd: cwd)
         return s
+    }
+
+    // MARK: 세션 기준선 (DESIGN 4.4 #2 — "이번 세션에 에이전트가 한 일"의 기준점)
+
+    /// 프로젝트의 세션 기준선을 최초 1회 기록한다 — 이미 값이 있으면 유지(세션 지속). git 저장소가 아니면 무시.
+    private func recordSessionBaseline(projectId: String, cwd: String?) {
+        guard let cwd, project(projectId)?.sessionBaseHead == nil else { return }
+        Task {
+            guard let head = await GitService.headHash(in: cwd) else { return }
+            // Task 대기 중 다른 경로로 이미 기록됐을 수 있으니 다시 검사 후 설정(중복 방지).
+            updateProject(projectId) { p in
+                guard p.sessionBaseHead == nil else { return p }
+                var next = p
+                next.sessionBaseHead = head
+                return next
+            }
+        }
+    }
+
+    /// 세션 기준선을 현재 HEAD로 갱신한다("여기까지 봤음" = 읽음 처리). GitPanel 리셋 버튼이 호출.
+    func resetSessionBaseline(projectId: String, cwd: String?) {
+        guard let cwd else { return }
+        Task {
+            guard let head = await GitService.headHash(in: cwd) else { return }
+            updateProject(projectId) { p in
+                var next = p
+                next.sessionBaseHead = head
+                return next
+            }
+        }
+    }
+
+    /// 프로젝트 id로 프로젝트를 찾는다(어느 워크스페이스든).
+    private func project(_ projectId: String) -> Project? {
+        for ws in workspaces {
+            if let p = ws.projects.first(where: { $0.id == projectId }) { return p }
+        }
+        return nil
     }
 
     /// 백그라운드 프로젝트에 활동(●)이 있음을 표시. 지금 보고 있는 활성 프로젝트(=활성 워크스페이스의
@@ -239,6 +279,20 @@ final class AppState {
         }
         // 닫힌 뒤 새로 활성화된 프로젝트도 배지 클리어(사용자가 보게 됐으니) — 유령 배지 방지.
         if let newActive = activeProject?.id { clearBadge(newActive) }
+    }
+
+    /// 프로젝트 하나를 불변 갱신한다(어느 워크스페이스든 — 소속을 id로 찾는다). 새 배열로 교체.
+    private func updateProject(_ projectId: String, _ transform: (Project) -> Project) {
+        guard let wsIdx = workspaces.firstIndex(where: { $0.projects.contains { $0.id == projectId } }),
+              let pIdx = workspaces[wsIdx].projects.firstIndex(where: { $0.id == projectId }) else { return }
+        var nextWorkspaces = workspaces
+        var ws = nextWorkspaces[wsIdx]
+        var projects = ws.projects
+        projects[pIdx] = transform(projects[pIdx])
+        ws.projects = projects
+        nextWorkspaces[wsIdx] = ws
+        workspaces = nextWorkspaces
+        save()
     }
 
     /// 활성 워크스페이스를 불변 갱신한다(immutable — 새 배열로 교체).

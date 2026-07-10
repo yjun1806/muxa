@@ -7,6 +7,9 @@ struct Project: Codable, Identifiable {
     let id: String
     var name: String
     var path: String? // nil이면 워크스페이스 경로 상속. 워크트리면 자체 경로.
+    /// 세션 기준선 커밋(rev-parse HEAD) — 첫 터미널 시작 시 1회 기록. "이번 세션에 에이전트가 한 일"의
+    /// 기준점이다(base..HEAD). 옵셔널이라 하위호환(옛 저장분엔 없음). 리셋으로 현재 HEAD까지 "읽음" 처리.
+    var sessionBaseHead: String?
 }
 
 /// 워크스페이스 = 메인 폴더(레포) + 프로젝트 묶음. 사이드바 최상위.
