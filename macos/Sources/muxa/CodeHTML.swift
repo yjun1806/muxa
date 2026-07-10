@@ -82,6 +82,14 @@ enum CodeHTML {
         .cmtdel:hover{color:\(t.delFg);}
         .outdatedwrap{margin:8px 16px;padding:6px 10px;border:1px solid \(t.delFg);border-radius:5px;background:\(t.delBg);}
         .outdatedttl{font-size:11px;font-weight:600;color:\(t.delFg);margin-bottom:4px;}
+        table.sxs{border-collapse:collapse;width:max-content;min-width:100%;table-layout:auto;}
+        table.sxs td{vertical-align:top;}
+        table.sxs td.ln{width:1%;white-space:nowrap;text-align:right;padding:0 8px;color:\(t.muted);
+              user-select:none;background:\(t.gutter);}
+        table.sxs td.src{white-space:pre;padding:0 12px 0 8px;}
+        table.sxs td.midsrc{border-right:1px solid \(t.gutter);}
+        table.sxs td.empty{background:\(t.gutter);}
+        table.sxs td.hunkhdr{padding:2px 16px;white-space:pre;color:\(t.hunk);}
         </style></head><body><div class="wrap">\(body)</div>\(script)</body></html>
         """
     }
@@ -128,8 +136,10 @@ enum CodeHTML {
     /// `stageable`이면 hunk(@@ 헤더)마다 '스테이지' 버튼을 붙이고, 클릭 시 hunk 인덱스를 Swift로 postMessage 한다.
     /// `aggregate`(통합 diff)면 `diff --git` 경계마다 파일 경로 sticky 헤더를 세워 여러 파일을 한 번에 훑게 한다.
     /// `commentable`이면 각 내용 줄에 hover '＋' 코멘트 버튼을 달고, `comments`(재앵커링됨)를 줄 아래 카드로 얹는다.
+    /// `sideBySide`면 통합 뷰 대신 2열(좌 old / 우 new) 나란히 보기로 렌더한다(코멘트는 통합 뷰 전용).
     static func diff(lines: [String], dark: Bool, stageable: Bool = false, aggregate: Bool = false,
-                     commentable: Bool = false, comments: [AnchoredComment] = []) -> String {
+                     commentable: Bool = false, comments: [AnchoredComment] = [], sideBySide: Bool = false) -> String {
+        if sideBySide { return diffTwoColumn(lines: lines, dark: dark, stageable: stageable) }
         let t = Theme.of(dark: dark)
         // 앵커된 코멘트는 배치 키로, 오래된 코멘트는 상단 배너로.
         var placed: [String: [AnchoredComment]] = [:]
@@ -205,5 +215,52 @@ enum CodeHTML {
         }
         script += "</script>"
         return page(body, theme: t, script: script)
+    }
+
+    /// 나란히 보기(2열) diff — SideBySideDiff 행 모델을 좌(old)/우(new) 표로 렌더. 통합 뷰 스타일·색 재사용.
+    /// `stageable`이면 hunk 헤더 행에 '스테이지' 버튼(통합 뷰와 같은 muxaStageHunk 브리지)을 붙인다.
+    private static func diffTwoColumn(lines: [String], dark: Bool, stageable: Bool) -> String {
+        let t = Theme.of(dark: dark)
+        var body = "<table class=\"sxs\">"
+        for row in SideBySideDiff.rows(lines) {
+            switch row {
+            case .file(let path):
+                body += "<tr><td colspan=\"4\" class=\"filehdr\">\(esc(path))</td></tr>"
+            case let .hunk(text, index):
+                let txt = "<span class=\"hunktext\">\(esc(text))</span>"
+                if stageable {
+                    let btn = "<button class=\"stagebtn\" onclick=\"muxaStageHunk(\(index))\">＋ 스테이지</button>"
+                    body += "<tr><td colspan=\"4\" class=\"hunkhdr\"><div class=\"hunkrow\">\(btn)\(txt)</div></td></tr>"
+                } else {
+                    body += "<tr><td colspan=\"4\" class=\"hunkhdr\">\(txt)</td></tr>"
+                }
+            case let .pair(left, right):
+                body += "<tr>\(cell(left, isLeft: true))\(cell(right, isLeft: false))</tr>"
+            }
+        }
+        body += "</table>"
+
+        var script = "<script>"
+        if stageable {
+            script += "function muxaStageHunk(i){try{window.webkit.messageHandlers.\(CodeWebView.messageName).postMessage(i);}catch(e){}}"
+        }
+        script += "</script>"
+        return page(body, theme: t, script: script)
+    }
+
+    /// 나란히 보기 한쪽 열의 두 셀(줄번호 + 내용). 비어 있으면(짝 없음) 회색 filler.
+    private static func cell(_ c: SideBySideDiff.Cell?, isLeft: Bool) -> String {
+        let divider = isLeft ? " midsrc" : ""
+        guard let c else {
+            return "<td class=\"ln empty\"></td><td class=\"src empty\(divider)\"></td>"
+        }
+        let kindCls: String
+        switch c.kind {
+        case .add: kindCls = " add"
+        case .del: kindCls = " del"
+        case .context: kindCls = ""
+        }
+        let content = esc(c.text.isEmpty ? " " : c.text)
+        return "<td class=\"ln\">\(c.lineNo)</td><td class=\"src\(kindCls)\(divider)\">\(content)</td>"
     }
 }

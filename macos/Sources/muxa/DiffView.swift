@@ -69,6 +69,8 @@ struct DiffView: View {
     @State private var repoRoot: String?
     /// 코멘트 입력 시트 초안(줄의 '＋' 클릭으로 설정). nil이면 시트 닫힘.
     @State private var draft: CommentDraft?
+    /// 나란히 보기(2열) 여부 — 도구줄 [통합 | 나란히] 토글. 기본은 통합. 뷰 로컬 상태.
+    @State private var sideBySide = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -76,7 +78,7 @@ struct DiffView: View {
                 header
                 Rectangle().fill(Color.pBorder).frame(height: 1)
             }
-            stageToolbar
+            toolbar
             if !loaded {
                 centerLabel("불러오는 중…")
             } else if lines.isEmpty {
@@ -85,9 +87,10 @@ struct DiffView: View {
                 CodeWebView(
                     html: CodeHTML.diff(lines: lines, dark: GhosttyRuntime.systemIsDark,
                                         stageable: hunkStageable, aggregate: target.isAggregate,
-                                        commentable: commentable, comments: resolvedComments),
+                                        commentable: commentable && !sideBySide, comments: resolvedComments,
+                                        sideBySide: sideBySide),
                     onMessage: hunkStageable ? { idx in Task { @MainActor in await stageHunk(idx) } } : nil,
-                    onComment: commentable ? handleComment : nil,
+                    onComment: (commentable && !sideBySide) ? handleComment : nil,
                     busy: applying
                 )
             }
@@ -212,30 +215,56 @@ struct DiffView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// 변경 파일 diff 위의 스테이지 도구줄 — [전체 스테이지/언스테이지] 버튼(hunk 버튼은 HTML 안).
+    /// diff 위 도구줄 — 파일 diff면 [전체 스테이지/언스테이지/버리기](hunk 버튼은 HTML 안), 오른쪽엔
+    /// 항상 [통합 | 나란히] 보기 토글. 표시할 내용이 있을 때만 그린다.
     @ViewBuilder
-    private var stageToolbar: some View {
-        if let change = fileChange {
+    private var toolbar: some View {
+        let showToggle = loaded && !lines.isEmpty
+        if fileChange != nil || showToggle {
             HStack(spacing: 8) {
-                if change.worktree != " " {
-                    toolbarButton("전체 스테이지", icon: "plus") { Task { await stageWholeFile(change) } }
+                if let change = fileChange {
+                    if change.worktree != " " {
+                        toolbarButton("전체 스테이지", icon: "plus") { Task { await stageWholeFile(change) } }
+                    }
+                    if change.isStaged {
+                        toolbarButton("언스테이지", icon: "minus") { Task { await unstageWholeFile(change) } }
+                    }
+                    toolbarButton("변경 버리기", icon: "trash", destructive: true) { discardFile(change) }
                 }
-                if change.isStaged {
-                    toolbarButton("언스테이지", icon: "minus") { Task { await unstageWholeFile(change) } }
-                }
-                toolbarButton("변경 버리기", icon: "trash", destructive: true) { discardFile(change) }
                 if let stageError {
                     Text(stageError)
                         .font(.system(size: 10)).foregroundStyle(.red).lineLimit(1).truncationMode(.middle)
                 }
                 Spacer(minLength: 0)
                 if applying { ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 16) }
+                if showToggle { viewModeToggle }
             }
             .padding(.horizontal, 12)
             .frame(height: 32)
             .background(Color.pPanel)
             Rectangle().fill(Color.pBorder).frame(height: 1)
         }
+    }
+
+    /// [통합 | 나란히] 세그먼트 토글 — 선택 칸만 강조. WKWebView가 html 변화로 모드 전환을 재로드한다.
+    private var viewModeToggle: some View {
+        HStack(spacing: 0) {
+            segButton("통합", selected: !sideBySide) { sideBySide = false }
+            segButton("나란히", selected: sideBySide) { sideBySide = true }
+        }
+        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.pBorder, lineWidth: 1))
+    }
+
+    private func segButton(_ title: String, selected: Bool, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11))
+                .padding(.horizontal, 10)
+                .frame(height: 22)
+                .background(selected ? Color.pBtnActive : Color.clear)
+                .foregroundStyle(selected ? Color.pFg : Color.pMuted)
+        }
+        .buttonStyle(.plain)
     }
 
     private func toolbarButton(_ title: String, icon: String, destructive: Bool = false, _ action: @escaping () -> Void) -> some View {
