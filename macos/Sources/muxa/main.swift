@@ -29,10 +29,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationService.shared.requestAuthorizationIfPossible() // 데스크톱 알림 권한(번들일 때만)
         setupMainMenu() // ⌘Q(종료)·⌘H(가리기) — 메뉴가 없으면 ⌘Q가 안 묶인다
 
-        // 저장된 세션 복원(없으면 현재 디렉토리로 초기 워크스페이스 생성)
-        let state = AppState(app: app)
+        // muxa 설정(~/.config/muxa/config) 로드 — 없으면 전부 기본값. 폰트·테마는 ghostty config 재사용(GhosttyRuntime). (DESIGN 4.6)
+        let config = MuxaConfigLoader.load()
+
+        // 저장된 세션 복원(없으면 설정의 기본 경로/현재 디렉토리로 초기 워크스페이스 생성)
+        let state = AppState(app: app, config: config)
         state.load()
-        state.ensureInitial(path: SystemPaths.currentDir ?? SystemPaths.home)
+        state.ensureInitial(path: config.defaultWorkspacePath ?? SystemPaths.currentDir ?? SystemPaths.home)
         state.startNotifyServer() // 훅 알림 소켓 리스너 시작 — `muxa notify`가 결정론적 신호를 보낸다
         // 시스템 알림 클릭 → 프로젝트 활성 + Git 패널(원클릭 검토 동선). 라우팅 소유는 AppState.
         NotificationService.shared.onActivate = { [weak state] ctx in
@@ -148,8 +151,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
-    /// 종료 확인 — 실행 중인 터미널 세션이 다 닫히므로 실수 종료를 막는다.
+    /// 종료 확인 — 실행 중인 터미널 세션이 다 닫히므로 실수 종료를 막는다. 설정 confirm_quit=false면 건너뛴다. (DESIGN 4.6)
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard state?.config.confirmQuit ?? true else { return .terminateNow }
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "muxa를 종료할까요?"

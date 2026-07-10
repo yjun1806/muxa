@@ -25,6 +25,8 @@ final class AppState {
     var showGitPanel = false
 
     @ObservationIgnored private let app: ghostty_app_t
+    /// muxa 설정(`~/.config/muxa/config`) — 시작 시 1회 로드해 주입. 기본 사이드바 모드·완료 배지 임계 등. (DESIGN 4.6)
+    @ObservationIgnored let config: MuxaConfig
     /// 프로젝트 id → TerminalStore. 프로젝트가 독립 분할 레이아웃 하나를 소유한다.
     @ObservationIgnored private var stores: [String: TerminalStore] = [:]
     /// 프로젝트 id → 통합 레이아웃 스냅샷(재시작 복원용). 아직 안 연 프로젝트 것도 보존한다.
@@ -33,8 +35,11 @@ final class AppState {
     /// 훅 알림 리스너(Unix 소켓). 앱 상태가 소유하고, 수신 시 tabId→store로 라우팅한다.
     @ObservationIgnored private let notifyServer = NotifyServer()
 
-    init(app: ghostty_app_t) {
+    init(app: ghostty_app_t, config: MuxaConfig = .defaults) {
         self.app = app
+        self.config = config
+        // 설정의 사이드바 기본 모드를 초기값으로. 저장된 세션이 있으면 load()가 사용자의 마지막 선택으로 덮는다.
+        self.sidebarMode = config.sidebarMode
     }
 
     /// 훅 알림 리스너를 켜고 라우팅 콜백을 건다. AppDelegate가 앱 시작 시 1회 호출.
@@ -107,7 +112,8 @@ final class AppState {
     func store(for project: Project, in workspace: Workspace) -> TerminalStore {
         if let s = stores[project.id] { return s }
         let cwd = project.path ?? workspace.path
-        let s = TerminalStore(app: app, cwd: cwd, restoreSnap: savedLayouts[project.id])
+        let s = TerminalStore(app: app, cwd: cwd, restoreSnap: savedLayouts[project.id],
+                              commandFinishedThresholdNs: config.commandFinishedThresholdNs)
         let pid = project.id
         s.onProjectActivity = { [weak self] in MainActor.assumeIsolated { self?.markProjectBadge(pid) } }
         // 데스크톱 알림에 라우팅 컨텍스트(프로젝트·워크스페이스)를 붙여 발사 — 클릭 시 원클릭 검토로 이어짐.

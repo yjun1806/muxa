@@ -61,10 +61,12 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// ensureInitialTerminal 1회 보장 — Bonsplit이 초기 "Welcome" 탭을 넣어 allTabIds가 비지 않으므로 플래그로 판별.
     @ObservationIgnored private var initialized = false
 
-    init(app: ghostty_app_t, cwd: String?, restoreSnap: PaneSnapshot? = nil) {
+    init(app: ghostty_app_t, cwd: String?, restoreSnap: PaneSnapshot? = nil,
+         commandFinishedThresholdNs: UInt64 = 8_000_000_000) {
         self.app = app
         self.cwd = cwd
         self.restoreSnap = restoreSnap
+        self.commandFinishedThresholdNs = commandFinishedThresholdNs
         // keepAllAlive — 탭 전환 시 뷰(WKWebView 뷰어·터미널)를 파괴/재생성하지 않고 유지한다.
         // 기본 .recreateOnSwitch는 전환마다 뷰어를 재로드(굼뜸·상태 손실)해서 부적합.
         var config = BonsplitConfiguration(contentViewLifecycle: .keepAllAlive)
@@ -175,8 +177,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     // 3~4분할 동시 감시에서 비포커스여도 화면에 보이는 칸(그 칸의 선택 탭)은 배지를 억제한다.
 
     /// 정상 종료(코드 0/미보고)면서 이 시간(ns)보다 짧게 끝난 명령은 배지를 억제한다.
-    /// 짧은 `ls`·`cd` 완료로 배지가 쌓이는 오탐 방지. (나중에 설정에서 덮을 수 있게 상수 한 곳에.) 8초.
-    private static let shortCommandThresholdNs: UInt64 = 8_000_000_000
+    /// 짧은 `ls`·`cd` 완료로 배지가 쌓이는 오탐 방지. 기본 8초 — muxa 설정
+    /// `command_finished_threshold_sec`로 덮인다(AppState가 init에 주입). (DESIGN 4.6)
+    @ObservationIgnored private let commandFinishedThresholdNs: UInt64
     /// 마지막 벨로부터 이 시간(초) 안쪽 벨은 무시 — 벨 연타 오탐 억제.
     private static let bellDebounce: TimeInterval = 1.0
 
@@ -205,7 +208,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         case .commandFinished(let exitCode, let duration):
             // 비정상 종료(코드 != 0)는 지속시간과 무관하게 알린다. 정상+짧은 명령은 억제.
             let abnormal = (exitCode ?? 0) != 0
-            guard abnormal || duration >= Self.shortCommandThresholdNs else { return }
+            guard abnormal || duration >= commandFinishedThresholdNs else { return }
             fireActivity(tabId, visible: visible)
         case .bell:
             let now = ProcessInfo.processInfo.systemUptime
