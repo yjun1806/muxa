@@ -14,15 +14,25 @@ struct GitPanel: View {
     @State private var mode: Mode = .changes
     @State private var status: GitStatus?
     @State private var commits: [GitCommit] = []
+    @State private var branches: [String] = []
     @State private var loaded = false
     @State private var watcher: FileWatcher?
     @State private var commitMessage = ""
     @State private var commitError: String?
+    @State private var syncBusy = false
+    @State private var syncError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Rectangle().fill(Color.pBorder).frame(height: 1)
+            if let syncError {
+                Text(syncError)
+                    .font(.system(size: 10)).foregroundStyle(.red).lineLimit(2)
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Rectangle().fill(Color.pBorder).frame(height: 1)
+            }
             if dir != nil, loaded, status == nil {
                 label("git 저장소 아님")
             } else if dir == nil {
@@ -50,24 +60,65 @@ struct GitPanel: View {
     private var header: some View {
         HStack(spacing: 6) {
             Image(systemName: "arrow.triangle.branch").font(.system(size: 12)).foregroundStyle(Color.pMuted)
-            Text(status?.branch ?? "Git")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Color.pFg)
-                .lineLimit(1)
+            branchLabel
             if let status {
                 if status.ahead > 0 { counter("arrow.up", status.ahead) }
                 if status.behind > 0 { counter("arrow.down", status.behind) }
             }
             Spacer(minLength: 4)
-            Button { Task { await refresh() } } label: {
-                Image(systemName: "arrow.clockwise").font(.system(size: 11))
+            if status != nil {
+                if syncBusy {
+                    ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 16)
+                } else {
+                    iconButton("arrow.down.to.line", help: "Pull") { runSync { await GitService.pull(in: $0) } }
+                    iconButton("arrow.up.to.line", help: "Push") { runSync { await GitService.push(in: $0) } }
+                }
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.pMuted)
-            .help("새로고침")
+            iconButton("arrow.clockwise", help: "새로고침") { Task { await refresh() } }
         }
         .padding(.horizontal, 10)
         .frame(height: 34)
+    }
+
+    /// 브랜치명 — git 저장소면 로컬 브랜치 목록 메뉴, 아니면 "Git" 라벨.
+    @ViewBuilder
+    private var branchLabel: some View {
+        if let status, !branches.isEmpty, let dir {
+            Menu {
+                ForEach(branches, id: \.self) { b in
+                    Button {
+                        runSync { await GitService.checkout(b, in: $0) }
+                    } label: {
+                        if b == status.branch { Label(b, systemImage: "checkmark") } else { Text(b) }
+                    }
+                    .disabled(b == status.branch)
+                }
+            } label: {
+                Text(status.branch)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.pFg)
+                    .lineLimit(1)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .disabled(syncBusy)
+        } else {
+            Text(status?.branch ?? "Git")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.pFg)
+                .lineLimit(1)
+        }
+    }
+
+    /// 헤더용 아이콘 버튼.
+    private func iconButton(_ icon: String, help: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon).font(.system(size: 11))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.pMuted)
+        .help(help)
     }
 
     private var picker: some View {
@@ -252,15 +303,30 @@ struct GitPanel: View {
         }
     }
 
+    /// pull/push/checkout 공통 실행 — 진행 표시·에러 표시·성공 후 갱신.
+    private func runSync(_ op: @escaping (String) async -> String?) {
+        guard let dir, !syncBusy else { return }
+        syncBusy = true
+        syncError = nil
+        Task {
+            let msg = await op(dir)
+            syncError = msg
+            syncBusy = false
+            if msg == nil { await refresh() }
+        }
+    }
+
     private func refresh() async {
         guard let dir else {
             status = nil
             commits = []
+            branches = []
             loaded = true
             return
         }
         status = await GitService.status(in: dir)
         commits = status == nil ? [] : await GitService.log(in: dir)
+        branches = status == nil ? [] : await GitService.localBranches(in: dir)
         loaded = true
     }
 }
