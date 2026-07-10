@@ -1,4 +1,4 @@
-# muxa 진행 상태 · 인수인계 (2026-07-10 · rev8)
+# muxa 진행 상태 · 인수인계 (2026-07-10 · rev9)
 
 > 다음 세션이 여기서 이어간다. 설계 원천은 [DESIGN.md](DESIGN.md), 이 문서는 **현재 상태·다음 할 일**만.
 
@@ -70,16 +70,15 @@ fable 3렌즈 검토로 도출한 백로그를 순차 파이프라인(각 단계
 
 cmux(4333 swift·상용급: SSH·모바일·브라우저·데몬·135 키액션·nucleo FFI·AI 자동명명) 4영역 대조. **muxa의 "작고 순수"는 옳았다** — 즉시저장(유실 창 0, cmux는 8초 autosave+별도 크래시 스토어)·단일 패스 realize·`selectedTab` 가시성 판정(분할 감시에 더 정확)·의존성 0·값타입 분리. 아래는 규모가 아니라 **정체성 심화**로 가져올 것. 난이도(S/M/L)·가치(상/중/하).
 
-> **진행 (2026-07-10 rev8):** ✅ 구현·커밋 완료 —
-> - 저비용 즉효: **⑦** `GIT_OPTIONAL_LOCKS=0` · **⑥** 알림 카테고리 + 순수 `NotificationGate` · **①** 훅 상태 세분(muxa notify `--category`) · **⑤** 팔레트 액션 실행(`AppState.perform` 추출로 키맵·⌘K 공유) · **⑧** 설정 라이브 리로드(`ConfigWatcher`) + **DESIGN 4.2 정정**.
-> - 정체성 심화 **②** 에이전트 resume 재부착 — 훅이 재개 명령을 통째로 전달(`muxa notify --resume-command "claude --resume <id>" --agent claude`), muxa는 `ResumeBinding` 저장·영속(`TabSnapshot.resume`)·복원. 복원된 탭에 재개 배너(`ResumeBanner`) + 승인 게이트(`agent_resume` off/manual/auto, 기본 manual — 임의 셸 명령 자동실행 통제) + `TermView.sendText`(bracketed-paste 회피 위해 본문 붙여넣기 후 별도 Return 키). 실행 후 바인딩 소비.
-> - 전부 빌드 green + 실행 init 크래시 없음(GUI·훅 의존이라 실기기 육안 검증은 미수행 ★).
+> **진행 (2026-07-10 rev9): cmux 대조 배울점 전부(①~⑧ + 추가 후보 7) 구현·커밋 완료.** 매 단계 빌드 green + 실행 init 크래시 없음. **GUI·훅 의존이라 실기기 육안 검증은 미수행(★).**
+> - **저비용 즉효**: ⑦ `GIT_OPTIONAL_LOCKS=0` · ⑥ 순수 `NotificationGate` · ① 훅 카테고리(muxa notify `--category`) · ⑤ 팔레트 액션 실행(`AppState.perform` 추출) · ⑧ 설정 라이브 리로드(`ConfigWatcher`) + DESIGN 4.2 정정.
+> - **정체성 심화**: ② resume 재부착(`ResumeBinding`·`ResumeBanner`·승인 게이트 `agent_resume`·`TermView.sendText` bracketed-paste 회피) · **③ diff 리뷰 코멘트 + 제출 풀**(`ReviewComment`·`ReviewCommentAnchor` 재앵커링·`ReviewCommentStore` 리포키 SHA256·`ReviewCommentSheet`·WKWebView `muxaComment` 브리지·"N개 보내기"로 터미널 되먹임) · **④ 스크롤백 리플레이**(`ghostty_surface_read_text`로 화면+스크롤백 캡처→`ScrollbackStore` 별도 파일→복원 시 env `MUXA_RESTORE_SCROLLBACK_FILE` 재출력).
+> - **추가 후보 7**: 프로세스 종료 감지(`DispatchSourceProcess.exit`, foreground_pid) · 스냅샷 `version` + 크래시 마커(`CrashMarker` running-lock) · notify CLI 견고성(소켓 실패 exit 0) · `MUXA_SURFACE_ID`(env 슬롯만 — 탭=서피스 1:1이라 최소) · 알림 dedup/coalescing(cooldown) · 키 충돌·예약키 감지(`KeymapDiagnostic`) · side-by-side diff 토글(`SideBySideDiff` 순수 2열).
 >
-> **남음:** 정체성 심화 **③④** + 추가 후보.
-> - **③** diff 리뷰 코멘트 = WKWebView 코멘트 UI + `lineText` 재앵커링(anchored/moved/outdated) + 워크스페이스 제출 풀. 큰 UX 기능.
-> - **④** 스크롤백 리플레이 = **libghostty 텍스트 readback API 확보 선행**(가능 여부 미확인) + 저장(색 OSC 스트립·상한) + env 재출력. ②의 resume가 대화 맥락을 되살리므로, ④는 "화면 히스토리 시각 복원"의 보완재.
-> - **② 실기기 검증 필요**: 훅 설정(`muxa notify --resume-command`)→재시작→재개 배너→manual 클릭/auto 자동실행이 실제 셸에서 도는지. auto 0.8s 지연이 무거운 rc에서 유실 없는지.
-> - 미착수 추가 후보: 알림 dedup/coalescing · `DispatchSourceProcess(.exit)` 종료 감지 · side-by-side diff · 스냅샷 `version`+크래시 마커 · 키 충돌 감지 · notify CLI 견고성(소켓 실패 exit 0) · `MUXA_SURFACE_ID`.
+> **남음 — 실기기 검증 + 잔여:**
+> - **실기기 검증 ★**: ② 재개 배너·명령 주입 타이밍(auto 0.8s 지연 유실 여부) · ③ diff 코멘트 브리지·터미널 되먹임 · ④ 스크롤백은 **사용자가 `~/.zshrc`에 `[ -n "$MUXA_RESTORE_SCROLLBACK_FILE" ] && [ -f "$MUXA_RESTORE_SCROLLBACK_FILE" ] && { cat "$MUXA_RESTORE_SCROLLBACK_FILE"; rm -f "$MUXA_RESTORE_SCROLLBACK_FILE"; }` 추가해야 시각 복원 동작**(인프라만 제공) · side-by-side.
+> - **잔여 미완**: ④ 스크롤백 파일 GC(복원 시 tabId 변경으로 고아 1회 가능 — 앱 시작 시 디렉터리 GC 후속) · ③ 재앵커링 파일 전체 스코프(hunk 아님)·다중줄/커밋 diff 코멘트 미지원 · 종료 감지 foreground_pid 휘발성(셸 종료 위주, '셸 생존+에이전트만 크래시'는 OSC133과 중복 회피로 미포착) · dedup cooldown·키 진단·크래시 마커 판정값이 로그만(UI 미노출) · `MUXA_SURFACE_ID` 실 라우팅 미배선(env만).
+> - **다음 마일스톤 후보**: 실기기 검증 통과 후 — **테스트 타깃 신설**(순수 로직 다수 축적: `FuzzyMatch`·`ReviewCommentAnchor`·`SideBySideDiff`·`KeymapResolver`·`NotificationGate`·`MuxaConfig.parse`·`AgentActivityEstimator`·`AgentResumeMode`) · 상태머신 튜닝 실사용 · 크래시 마커→auto resume 연동 · 진단(키 충돌·크래시)의 상단바/인박스 표면화.
 
 ### 정체성 심화 (가치 상)
 
