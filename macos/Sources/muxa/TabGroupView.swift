@@ -73,6 +73,8 @@ struct TabGroupView: View {
             switch target.kind {
             case .markdown, .html: MarkdownView(target: target, chrome: false, onClose: {})
             case .code: CodeView(target: target, chrome: false, onClose: {})
+            case .image: ImageFileView(target: target, chrome: false, onClose: {})
+            case .video: VideoFileView(target: target, chrome: false, onClose: {})
             }
         case .diff(let target):
             DiffView(target: target, dir: dir, chrome: false, onClose: {})

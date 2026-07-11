@@ -6,6 +6,7 @@ enum TabGroupKind: Equatable {
     case documents // 마크다운
     case html
     case code
+    case media // 이미지·영상
     case diffs
 
     var title: String {
@@ -13,6 +14,7 @@ enum TabGroupKind: Equatable {
         case .documents: return "문서"
         case .html: return "HTML"
         case .code: return "코드"
+        case .media: return "미디어"
         case .diffs: return "변경"
         }
     }
@@ -22,6 +24,7 @@ enum TabGroupKind: Equatable {
         case .documents: return "doc.richtext"
         case .html: return "chevron.left.forwardslash.chevron.right"
         case .code: return "curlybraces"
+        case .media: return "photo"
         case .diffs: return "plusminus"
         }
     }
@@ -32,6 +35,7 @@ enum TabGroupKind: Equatable {
         case .documents: return "documents"
         case .html: return "html"
         case .code: return "code"
+        case .media: return "media"
         case .diffs: return "diffs"
         }
     }
@@ -41,6 +45,7 @@ enum TabGroupKind: Equatable {
         case "documents": self = .documents
         case "html": self = .html
         case "code": self = .code
+        case "media": self = .media
         case "diffs": self = .diffs
         default: return nil
         }
@@ -80,6 +85,7 @@ enum GroupItemContent: Identifiable {
             case .markdown: return .documents
             case .html: return .html
             case .code: return .code
+            case .image, .video: return .media
             }
         case .diff: return .diffs
         }

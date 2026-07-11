@@ -8,12 +8,17 @@ struct FileViewTarget: Identifiable, Equatable {
     /// 탭 dedup·복원 키. 제목이 아니라 전체 경로로 식별(동명 파일 충돌 방지).
     var id: String { "file:\(path)" }
 
-    enum Kind { case markdown, code, html }
+    enum Kind { case markdown, code, html, image, video }
 
     var kind: Kind {
         switch (path as NSString).pathExtension.lowercased() {
         case "md", "markdown", "mdown", "mkd", "mkdn": return .markdown
         case "html", "htm", "xhtml": return .html
+        case "png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif", "heic", "heif", "ico", "icns":
+            return .image
+        // AVFoundation이 재생 가능한 컨테이너만(webm·mkv 등은 코덱 미지원이라 제외).
+        case "mp4", "mov", "m4v", "mpg", "mpeg", "3gp":
+            return .video
         default: return .code
         }
     }
@@ -26,6 +31,8 @@ struct FileViewTarget: Identifiable, Equatable {
         case .markdown: return "doc.richtext"
         case .html: return "chevron.left.forwardslash.chevron.right"
         case .code: return "doc.text"
+        case .image: return "photo"
+        case .video: return "play.rectangle"
         }
     }
 
