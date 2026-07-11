@@ -7,7 +7,8 @@ cd "$(dirname "$0")"
 ROOT=../..
 
 OUT=out; rm -rf "$OUT"; mkdir "$OUT"
-swift icon-gen.swift "$OUT/icon_1024.png"
+# variant e = 색반전 알림 배지(청록 배경 + 차콜 ❯ + 우상단 주황 배지 점). 다른 안은 a~d로 재생성 가능.
+swift icon-gen.swift e "$OUT/icon_1024.png"
 
 ICONSET="$OUT/AppIcon.iconset"; mkdir "$ICONSET"
 for sz in 16 32 128 256 512; do
