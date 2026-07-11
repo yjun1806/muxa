@@ -27,24 +27,29 @@ final class AppState {
     /// 상단바 토글 버튼·단축키(⌘⇧E/⌘⇧G)·알림이 이 상태를 연다.
     var showExplorer = false
     var showGitPanel = false
-    /// 우측 도구 패널(익스플로러·Git) 폭 — 좌측 경계 드래그로 리사이즈, 영속. 드래그 중엔 persist:false로
-    /// 갱신하고 손을 뗄 때 true로 저장한다(매 프레임 디스크 쓰기 방지).
+    /// 우측 도구 패널(익스플로러·Git) 폭 — 좌측 경계 드래그로 리사이즈, 영속. 드래그 중엔 ResizablePanel의
+    /// 로컬 상태로만 움직이고(전역 재렌더 방지), 손을 뗀 순간에만 여기로 커밋해 저장한다.
     private(set) var explorerWidth: CGFloat = AppState.defaultPanelWidth
-    private(set) var gitPanelWidth: CGFloat = AppState.defaultPanelWidth
+    private(set) var gitPanelWidth: CGFloat = AppState.defaultGitPanelWidth
 
     static let defaultPanelWidth: CGFloat = 280
     static let panelWidthRange: ClosedRange<CGFloat> = 180 ... 720
-    static func clampPanelWidth(_ w: CGFloat) -> CGFloat {
-        min(max(w, panelWidthRange.lowerBound), panelWidthRange.upperBound)
+    // Git 패널은 브랜치 헤더·3분할 피커·커밋 박스가 들어가 익스플로러(파일 트리)보다 최소 너비가 크다.
+    static let defaultGitPanelWidth: CGFloat = 320
+    static let gitPanelWidthRange: ClosedRange<CGFloat> = 300 ... 720
+    static func clampPanelWidth(_ w: CGFloat) -> CGFloat { clamp(w, to: panelWidthRange) }
+    static func clampGitPanelWidth(_ w: CGFloat) -> CGFloat { clamp(w, to: gitPanelWidthRange) }
+    private static func clamp(_ w: CGFloat, to range: ClosedRange<CGFloat>) -> CGFloat {
+        min(max(w, range.lowerBound), range.upperBound)
     }
 
-    func setExplorerWidth(_ w: CGFloat, persist: Bool) {
+    func setExplorerWidth(_ w: CGFloat, persist: Bool = true) {
         explorerWidth = Self.clampPanelWidth(w)
         if persist { save() }
     }
 
-    func setGitPanelWidth(_ w: CGFloat, persist: Bool) {
-        gitPanelWidth = Self.clampPanelWidth(w)
+    func setGitPanelWidth(_ w: CGFloat, persist: Bool = true) {
+        gitPanelWidth = Self.clampGitPanelWidth(w)
         if persist { save() }
     }
 
@@ -618,7 +623,7 @@ final class AppState {
         activeId = snapshot.activeId
         sidebarMode = snapshot.sidebarMode
         if let w = snapshot.explorerWidth { explorerWidth = Self.clampPanelWidth(CGFloat(w)) }
-        if let w = snapshot.gitPanelWidth { gitPanelWidth = Self.clampPanelWidth(CGFloat(w)) }
+        if let w = snapshot.gitPanelWidth { gitPanelWidth = Self.clampGitPanelWidth(CGFloat(w)) }
         // 복원 직전 상한·손상 방어를 통과시킨다(순수 함수). 비대·변조된 스냅샷의 복원 폭주를 막는다.
         savedLayouts = SnapshotSanitize.clampAll(snapshot.layouts ?? [:])
     }

@@ -92,31 +92,31 @@ struct ContentView: View {
                 BonsplitWorkspaceView(store: state.store(for: project, in: ws))
                     .id(project.id)
                 if state.showExplorer {
-                    // 좌측 경계 드래그로 폭 조절(영속). 파일 클릭 → 뷰어 탭. 우클릭 "여기에서 터미널 열기".
-                    PanelResizeHandle(width: state.explorerWidth, range: AppState.panelWidthRange) { w, committed in
-                        state.setExplorerWidth(w, persist: committed)
+                    // 좌측 경계 드래그로 폭 조절(손 뗄 때 영속). 파일 클릭 → 뷰어 탭. 우클릭 "여기에서 터미널 열기".
+                    ResizablePanel(width: state.explorerWidth, range: AppState.panelWidthRange) { w in
+                        state.setExplorerWidth(w, persist: true)
+                    } content: {
+                        FileExplorerPanel(
+                            root: project.path ?? ws.path,
+                            revealPath: state.store(for: project, in: ws).lastOpenedFilePath,
+                            revealSeq: state.store(for: project, in: ws).revealSeq,
+                            onOpenFile: { state.store(for: project, in: ws).openFile($0) },
+                            onOpenTerminal: { dir in state.addProject(name: basename(dir), path: dir) }
+                        )
                     }
-                    FileExplorerPanel(
-                        root: project.path ?? ws.path,
-                        revealPath: state.store(for: project, in: ws).lastOpenedFilePath,
-                        revealSeq: state.store(for: project, in: ws).revealSeq,
-                        onOpenFile: { state.store(for: project, in: ws).openFile($0) },
-                        onOpenTerminal: { dir in state.addProject(name: basename(dir), path: dir) }
-                    )
-                    .frame(width: state.explorerWidth)
                 }
                 if state.showGitPanel {
                     // 파일/커밋 클릭 → 활성 프로젝트의 새 탭으로 diff를 연다(모달 아님). 좌측 경계로 폭 조절.
-                    PanelResizeHandle(width: state.gitPanelWidth, range: AppState.panelWidthRange) { w, committed in
-                        state.setGitPanelWidth(w, persist: committed)
+                    ResizablePanel(width: state.gitPanelWidth, range: AppState.gitPanelWidthRange) { w in
+                        state.setGitPanelWidth(w, persist: true)
+                    } content: {
+                        GitPanel(
+                            dir: project.path ?? ws.path,
+                            sessionBase: project.sessionBaseHead,
+                            onResetBaseline: { state.resetSessionBaseline(projectId: project.id, cwd: project.path ?? ws.path) },
+                            onSendReview: { state.store(for: project, in: ws).injectToTerminal($0) }
+                        ) { state.store(for: project, in: ws).openDiff($0) }
                     }
-                    GitPanel(
-                        dir: project.path ?? ws.path,
-                        sessionBase: project.sessionBaseHead,
-                        onResetBaseline: { state.resetSessionBaseline(projectId: project.id, cwd: project.path ?? ws.path) },
-                        onSendReview: { state.store(for: project, in: ws).injectToTerminal($0) }
-                    ) { state.store(for: project, in: ws).openDiff($0) }
-                    .frame(width: state.gitPanelWidth)
                 }
             }
         } else {
