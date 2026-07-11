@@ -10,10 +10,48 @@ import SwiftUI
 /// - 회색 스케일은 Tailwind zinc/neutral 계열의 어두운 톤에 대응시킨다.
 /// - 강조(borderFocus)는 어두운 배경에서 잘 보이도록 라이트보다 밝은 청록으로 올린다.
 enum Palette {
+    // MARK: - 브랜드 키 컬러 (muxa teal)
+    //
+    // 서비스 키 컬러 = 앱 아이콘 배경색인 teal. 강조·포커스·CTA·선택의 단일 출처다.
+    // Tailwind teal 계열의 지각 균등 스케일을 채택했고, **키 컬러는 `Brand.key`(= 400)**.
+    // 아이콘 배경은 이 400 주변 명암 그라디언트(`gradTop`↔`gradBottom`)로 칠한다.
+    // 새 강조색이 필요하면 이 스케일에서 고르고, 하드코딩하지 않는다.
+    enum Brand {
+        static let s50: UInt32 = 0xF0FDFA
+        static let s100: UInt32 = 0xCCFBF1
+        static let s200: UInt32 = 0x99F6E4
+        static let s300: UInt32 = 0x5EEAD4
+        static let s400: UInt32 = 0x2DD4BF // ★ 키 컬러 (앱 아이콘 배경)
+        static let s500: UInt32 = 0x14B8A6
+        static let s600: UInt32 = 0x0D9488
+        static let s700: UInt32 = 0x0F766E
+        static let s800: UInt32 = 0x115E59
+        static let s900: UInt32 = 0x134E4A
+
+        /// 서비스 키 컬러(= 400). 아이콘 배경·브랜드 강조의 기준값.
+        static let key: UInt32 = s400
+        /// 아이콘 배경 squircle 그라디언트 양 끝 — 키 컬러 주변 명(위)·암(아래).
+        static let gradTop: UInt32 = 0x35DECA
+        static let gradBottom: UInt32 = 0x27C4B1
+    }
+
+    // MARK: 브랜드 semantic 토큰 (키 컬러 파생)
+    //
+    /// 브랜드 강조 — 포커스·활성·선택·CTA. 라이트는 대비 위해 s600, 다크는 키 s400.
+    /// (`borderFocus`가 이 토큰의 별칭 — 브랜드 스케일이 강조색의 단일 출처다.)
+    static let brand = NSColor.dynamic(light: Brand.s600, dark: Brand.s400)
+    /// 브랜드 배경 틴트 — 옅은 강조 배경·선택 하이라이트(키 컬러의 저채도 버전).
+    static let brandSubtle = NSColor.dynamic(light: Brand.s100, dark: Brand.s800)
+    /// 브랜드 강조 hover — 한 단계 진하게(라이트 s700, 다크 s300).
+    static let brandHover = NSColor.dynamic(light: Brand.s700, dark: Brand.s300)
+    /// 키 컬러(밝은 청록) 위에 얹는 전경 — 아이콘 심볼과 같은 딥 차콜. 텍스트·아이콘 on-brand.
+    static let onBrand = NSColor.dynamic(light: 0x0A2E2A, dark: 0x0A2E2A)
+
+    // MARK: - 중립·기능색
     static let bg = NSColor.dynamic(light: 0xFFFFFF, dark: 0x1B1B1D) // 콘텐츠·패인 배경
     static let panel = NSColor.dynamic(light: 0xF3F4F6, dark: 0x252528) // 상단바·사이드바·패인 헤더(한 덩어리 회색)
     static let border = NSColor.dynamic(light: 0xE2E5E9, dark: 0x38383C)
-    static let borderFocus = NSColor.dynamic(light: 0x0D9488, dark: 0x2DD4BF) // 포커스·활성 강조(청록)
+    static let borderFocus = brand // 포커스·활성 강조 = 브랜드 키 컬러(브랜드 스케일 단일 출처)
     static let borderActivity = NSColor.dynamic(light: 0xF59E0B, dark: 0xFBBF24) // 칸 활동 플래시(주황) — focus(청록)와 구분되는 주의 환기색
     static let muted = NSColor.dynamic(light: 0x6B7280, dark: 0x8A8A90)
     static let mutedHover = NSColor.dynamic(light: 0x1F2937, dark: 0xE4E4E7)
@@ -60,6 +98,10 @@ extension Color {
     static let pPanel = Color(nsColor: Palette.panel)
     static let pBorder = Color(nsColor: Palette.border)
     static let pBorderFocus = Color(nsColor: Palette.borderFocus)
+    static let pBrand = Color(nsColor: Palette.brand)
+    static let pBrandSubtle = Color(nsColor: Palette.brandSubtle)
+    static let pBrandHover = Color(nsColor: Palette.brandHover)
+    static let pOnBrand = Color(nsColor: Palette.onBrand)
     static let pBorderActivity = Color(nsColor: Palette.borderActivity)
     static let pMuted = Color(nsColor: Palette.muted)
     static let pFg = Color(nsColor: Palette.fg)
