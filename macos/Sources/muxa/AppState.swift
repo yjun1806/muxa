@@ -23,7 +23,7 @@ final class AppState {
     /// 이건 "자리 비웠다 돌아왔을 때의 복구 동선". 상단바 벨 팝오버가 관측해 렌더한다.
     let attention = AttentionLog()
 
-    /// 도구 패널 표시 상태(B). 기본 닫힘 — 세션 영속 대상 아님(Persisted에 안 넣는다).
+    /// 도구 패널 표시 상태(B). 재시작 시 마지막 열림/닫힘을 복원(Persisted에 저장) — 매번 다시 열 필요 없이.
     /// 상단바 토글 버튼·단축키(⌘⇧E/⌘⇧G)·알림이 이 상태를 연다.
     var showExplorer = false
     var showGitPanel = false
@@ -447,10 +447,10 @@ final class AppState {
 
     // MARK: 도구 패널 액션 (익스플로러·Git — 영속 없음)
 
-    func toggleExplorer() { showExplorer.toggle() }
-    func toggleGitPanel() { showGitPanel.toggle() }
-    func setExplorer(_ open: Bool) { showExplorer = open }
-    func setGitPanel(_ open: Bool) { showGitPanel = open }
+    func toggleExplorer() { showExplorer.toggle(); save() }
+    func toggleGitPanel() { showGitPanel.toggle(); save() }
+    func setExplorer(_ open: Bool) { showExplorer = open; save() }
+    func setGitPanel(_ open: Bool) { showGitPanel = open; save() }
 
     // MARK: 워크스페이스 액션
 
@@ -577,13 +577,17 @@ final class AppState {
         var layouts: [String: PaneSnapshot]? // 프로젝트 id → 통합 스냅샷(터미널·문서·diff 전부).
         var explorerWidth: Double? // 도구 패널 폭(리사이즈, 나중에 추가된 필드라 옵셔널 하위호환).
         var gitPanelWidth: Double?
+        var showExplorer: Bool? // 도구 패널 열림 상태(나중에 추가된 필드라 옵셔널 하위호환).
+        var showGitPanel: Bool?
 
         init(workspaces: [Workspace], activeId: String, sidebarMode: SidebarMode,
              layouts: [String: PaneSnapshot]?, explorerWidth: Double?, gitPanelWidth: Double?,
+             showExplorer: Bool?, showGitPanel: Bool?,
              version: Int = currentVersion) {
             self.version = version
             self.workspaces = workspaces; self.activeId = activeId; self.sidebarMode = sidebarMode; self.layouts = layouts
             self.explorerWidth = explorerWidth; self.gitPanelWidth = gitPanelWidth
+            self.showExplorer = showExplorer; self.showGitPanel = showGitPanel
         }
 
         // layouts는 포맷이 바뀔 수 있어 관대하게 디코드 — 옛 포맷이면 nil로 두고 워크스페이스는 보존한다.
@@ -597,6 +601,8 @@ final class AppState {
             layouts = (try? c.decodeIfPresent([String: PaneSnapshot].self, forKey: .layouts)) ?? nil
             explorerWidth = try c.decodeIfPresent(Double.self, forKey: .explorerWidth)
             gitPanelWidth = try c.decodeIfPresent(Double.self, forKey: .gitPanelWidth)
+            showExplorer = try c.decodeIfPresent(Bool.self, forKey: .showExplorer)
+            showGitPanel = try c.decodeIfPresent(Bool.self, forKey: .showGitPanel)
         }
     }
 
@@ -610,7 +616,8 @@ final class AppState {
         }
         let snapshot = Persisted(workspaces: workspaces, activeId: activeId, sidebarMode: sidebarMode,
                                  layouts: savedLayouts, explorerWidth: Double(explorerWidth),
-                                 gitPanelWidth: Double(gitPanelWidth))
+                                 gitPanelWidth: Double(gitPanelWidth),
+                                 showExplorer: showExplorer, showGitPanel: showGitPanel)
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         try? data.write(to: Self.fileURL, options: .atomic)
     }
@@ -624,6 +631,8 @@ final class AppState {
         sidebarMode = snapshot.sidebarMode
         if let w = snapshot.explorerWidth { explorerWidth = Self.clampPanelWidth(CGFloat(w)) }
         if let w = snapshot.gitPanelWidth { gitPanelWidth = Self.clampGitPanelWidth(CGFloat(w)) }
+        if let open = snapshot.showExplorer { showExplorer = open }
+        if let open = snapshot.showGitPanel { showGitPanel = open }
         // 복원 직전 상한·손상 방어를 통과시킨다(순수 함수). 비대·변조된 스냅샷의 복원 폭주를 막는다.
         savedLayouts = SnapshotSanitize.clampAll(snapshot.layouts ?? [:])
     }
