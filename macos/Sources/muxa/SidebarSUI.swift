@@ -6,18 +6,12 @@ import SwiftUI
 struct SidebarSUI: View {
     let state: AppState
     @State private var peeking = false
-    @State private var hoveredId: String? // 접힌 모드에서 이름 툴팁 표시 대상
 
     private var effectiveMode: SidebarMode {
         (state.sidebarMode == .hover && peeking) ? .expanded : state.sidebarMode
     }
 
     private var width: CGFloat { effectiveMode.baseWidth }
-
-    /// 이름이 안 보이는 접힌 모드(아이콘·슬림)에서만 호버 이름 툴팁을 띄운다.
-    private var showsNameOnHover: Bool {
-        effectiveMode == .icon || effectiveMode == .slim
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -93,33 +87,14 @@ struct SidebarSUI: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(ws.path ?? ws.name)
-        .onHover { hovering in
-            guard showsNameOnHover else { return }
-            if hovering { hoveredId = ws.id }
-            else if hoveredId == ws.id { hoveredId = nil }
-        }
-        .popover(isPresented: nameTooltip(ws), arrowEdge: .trailing) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(ws.name)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color.pFg)
-                if let path = ws.path {
-                    Text(displayPath(path, home: SystemPaths.home))
-                        .font(.system(size: 10))
-                        .foregroundStyle(Color.pMuted)
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-        }
+        // 이름 툴팁은 네이티브 .help로만 — 이전의 .popover는 모달이라 열린 상태에서 첫 클릭이
+        // "팝오버 닫기"로 소비돼 워크스페이스 전환이 한 번 씹혔다. .help는 클릭을 먹지 않는다.
+        .help(helpText(ws))
     }
 
-    /// 접힌 모드에서 이 항목이 호버 중일 때만 이름 팝오버를 연다.
-    private func nameTooltip(_ ws: Workspace) -> Binding<Bool> {
-        Binding(
-            get: { showsNameOnHover && hoveredId == ws.id },
-            set: { open in if !open, hoveredId == ws.id { hoveredId = nil } }
-        )
+    /// 접힌 모드에서 유용한 이름(+경로) 툴팁 문자열. 네이티브 툴팁은 개행을 렌더한다.
+    private func helpText(_ ws: Workspace) -> String {
+        guard let path = ws.path else { return ws.name }
+        return "\(ws.name)\n\(displayPath(path, home: SystemPaths.home))"
     }
 }

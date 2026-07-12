@@ -83,12 +83,15 @@ final class TermView: NSView, NSTextInputClient {
         if let sockPath {
             envVars.append(ghostty_env_var_s(key: dup("MUXA_SOCK"), value: dup(sockPath)))
         }
-        // 세션 복원 시 이전 화면+스크롤백을 담은 파일 경로 — 셸 rc가 이 파일을 cat해 히스토리를 되살린다(④).
-        // 재출력은 사용자 몫(rc 훅). env만 심는다. 예시(~/.zshrc 등):
-        //   [ -n "$MUXA_RESTORE_SCROLLBACK_FILE" ] && [ -f "$MUXA_RESTORE_SCROLLBACK_FILE" ] && {
-        //       cat "$MUXA_RESTORE_SCROLLBACK_FILE"; rm -f "$MUXA_RESTORE_SCROLLBACK_FILE"; }
+        // 세션 복원: 새 셸이 시작하면 저장된 이전 화면을 재출력해 프롬프트 위에 복원한다(rc 훅 불필요).
+        // initial_input은 셸 stdin으로 들어가 "정상 출력 경로"를 타므로 엔진 렌더와 충돌하지 않는다(process_output
+        // 직접 주입은 이 ghostty 포크에서 흰 화면을 냈다). DESIGN 123 "새 셸에서 재출력"의 구현.
+        // 앞에 `clear`를 둬 echo된 명령 줄·login 배너를 화면에서 지우고 순수 내용만 남긴다 — 다음 저장 캡처가
+        // 깨끗해져 재출력 아티팩트(cat/배너)가 매 복원마다 쌓이는 중첩도 준다. (rm은 하지 않는다 — 저장
+        // 레이아웃이 이 파일을 가리키므로 지우면 다음 복원에서 빈 파일이 돼 복원이 실패한다. 정리는 GC가 담당.)
         if let restoreScrollbackFile {
-            envVars.append(ghostty_env_var_s(key: dup("MUXA_RESTORE_SCROLLBACK_FILE"), value: dup(restoreScrollbackFile)))
+            let quoted = "'" + restoreScrollbackFile.replacingOccurrences(of: "'", with: "'\\''") + "'"
+            config.initial_input = dup("clear; cat \(quoted)\n")
         }
 
         // working_directory·env_vars는 const 포인터 — surface_new가 읽는 동안만 유효하면 된다.
@@ -110,6 +113,9 @@ final class TermView: NSView, NSTextInputClient {
         search.applyNeedle = { [weak self] needle in
             self?.performBindingAction("search:\(needle)")
         }
+
+        // 파일·이미지를 터미널에 떨구면 경로를 프롬프트에 삽입한다(아래 NSDraggingDestination).
+        registerForDraggedTypes([.fileURL, .png, .tiff])
 
         // 셸 스폰 직후의 foreground pid(=셸)를 잡아 OS 레벨 종료 감시를 건다. pid가 아직 0이면 재시도한다.
         armProcessWatcher()
@@ -196,7 +202,11 @@ final class TermView: NSView, NSTextInputClient {
     /// force=true면 값이 같아 보여도 재전달 + 리드로우한다 — 모니터 이동처럼 뷰 좌표는 그대로여도
     /// 화면 배율·물리 해상도가 바뀌었을 때 강제로 다시 맞춘다.
     private func syncScaleAndSize(force: Bool = false) {
-        guard let surface, frame.width > 0, frame.height > 0 else { return }
+        // window에 붙기 전엔 아무것도 하지 않는다. Metal 레이어가 drawable에 연결되지 않은 상태의
+        // set_size/refresh는 화면에 반영되지 않는데, lastBacking만 소진돼 정작 부착 후 첫 유효 크기의
+        // firstValidSize refresh를 막아 빈 화면으로 남긴다(세션 복귀 간헐 빈 화면의 근인). window 가드로
+        // "부착 이후"에만 크기·refresh를 흘려보내, 부착 후 첫 유효 크기에 반드시 리드로우되게 한다.
+        guard let surface, window != nil, frame.width > 0, frame.height > 0 else { return }
         // 처음으로 유효한 크기를 얻는 순간(복원 직후 등)엔 반드시 리드로우 — 안 그러면 서피스가
         // 크기만 받고 그려지지 않아 빈 화면으로 남는다(재시작 시 터미널 빈 화면의 원인).
         let firstValidSize = (lastBacking == .zero)
@@ -240,7 +250,16 @@ final class TermView: NSView, NSTextInputClient {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         syncDisplayID()
-        syncScaleAndSize()
+        // window에 실제로 붙는 순간엔 force refresh. firstValidSize 1회 refresh가 부착 전에
+        // 소진되면(복원 시 뷰 attach 순서가 비결정적) lastBacking/lastScale 가드가 재-refresh를
+        // 전부 막아 빈 화면으로 남는다. 부착·재부착(탭 전환 시 removeFromSuperview→addSubview 포함)이라는
+        // 결정적 순간에 무조건 다시 그려 그 구멍을 닫는다.
+        syncScaleAndSize(force: window != nil)
+        // 부착 시점에 frame이 아직 0이면 위 force refresh가 무효다. 복원은 keepAllAlive가 모든 탭 서피스를
+        // 한 패스에 일괄 생성해 "부착↔유효 frame" 순서가 어긋나기 쉽고, 그러면 재-setFrameSize가 없어
+        // firstValidSize refresh가 영영 안 불려 빈 화면이 된다(cmux는 forceRefreshSurface로 이를 보장).
+        // 유효 frame이 배정되는 즉시 확정 리드로우를 재시도로 보장해 그 레이스를 닫는다.
+        if window != nil { scheduleAttachRefresh() }
 
         // 창이 다른 모니터로 이동하면(배율/해상도 변화) 재동기화한다.
         // 배율이 같은 화면으로 옮기면 viewDidChangeBackingProperties가 안 떠서 이 알림으로 잡는다.
@@ -262,6 +281,28 @@ final class TermView: NSView, NSTextInputClient {
         }
     }
 
+    /// 부착 후 재시도 횟수(유효 frame 대기). 유효해지거나 window에서 떨어지면 리셋한다.
+    private var attachRefreshAttempts = 0
+    /// 부착 재시도 상한(약 1초). SwiftUI 레이아웃이 유효 frame을 배정할 때까지의 여유.
+    private static let maxAttachRefreshAttempts = 40
+
+    /// window에 붙은 뒤, 유효 frame이 배정되는 즉시 딱 한 번 확정 리드로우를 보장한다(cmux forceRefreshSurface 대응).
+    /// 복원 배치 생성에서 "부착↔유효 frame" 순서가 어긋나 firstValidSize refresh가 유실되는 창을 닫는다.
+    /// frame이 아직 0이면 짧게 재시도하고, 유효해지면 force refresh 후 종료. window에서 떨어지면 중단.
+    private func scheduleAttachRefresh() {
+        guard window != nil else { attachRefreshAttempts = 0; return }
+        if frame.width > 0, frame.height > 0 {
+            attachRefreshAttempts = 0
+            syncScaleAndSize(force: true)
+            return
+        }
+        guard attachRefreshAttempts < Self.maxAttachRefreshAttempts else { attachRefreshAttempts = 0; return }
+        attachRefreshAttempts += 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) { [weak self] in
+            self?.scheduleAttachRefresh()
+        }
+    }
+
     override func becomeFirstResponder() -> Bool {
         isFocused = true // didSet이 ghostty_surface_set_focus(true) — 논리 포커스도 실제와 동기화
         if let tabId { onClearBadge?(tabId) } // 이 탭을 보게 됐으니 배지 해제
@@ -276,6 +317,40 @@ final class TermView: NSView, NSTextInputClient {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         onFocus?()
+    }
+
+    // MARK: 스크롤 — NSEvent 스크롤을 ghostty로 전달 (Ghostty 업스트림 scrollWheel 이식)
+    //
+    // TermView는 ghostty가 직접 그리는 뷰라 스크롤도 우리가 서피스에 넘겨야 한다. 안 넘기면 스크롤백을
+    // 못 올린다. 정밀 델타(트랙패드)는 precision 비트(0x1)로, 모멘텀 페이즈는 상위 비트로 인코딩한다.
+
+    override func scrollWheel(with event: NSEvent) {
+        guard let surface else { return }
+        var x = event.scrollingDeltaX
+        var y = event.scrollingDeltaY
+
+        var mods: ghostty_input_scroll_mods_t = 0
+        if event.hasPreciseScrollingDeltas {
+            mods = 1 // precision(픽셀 단위 트랙패드)
+            // 체감 속도 보정 — 업스트림과 동일한 2배.
+            x *= 2
+            y *= 2
+        }
+
+        // 모멘텀 페이즈를 상위 비트로 싣는다(관성 스크롤 정확도).
+        var momentum = GHOSTTY_MOUSE_MOMENTUM_NONE
+        switch event.momentumPhase {
+        case .began: momentum = GHOSTTY_MOUSE_MOMENTUM_BEGAN
+        case .stationary: momentum = GHOSTTY_MOUSE_MOMENTUM_STATIONARY
+        case .changed: momentum = GHOSTTY_MOUSE_MOMENTUM_CHANGED
+        case .ended: momentum = GHOSTTY_MOUSE_MOMENTUM_ENDED
+        case .cancelled: momentum = GHOSTTY_MOUSE_MOMENTUM_CANCELLED
+        case .mayBegin: momentum = GHOSTTY_MOUSE_MOMENTUM_MAY_BEGIN
+        default: break
+        }
+        mods |= ghostty_input_scroll_mods_t(momentum.rawValue) << 1
+
+        ghostty_surface_mouse_scroll(surface, x, y, mods)
     }
 
     // MARK: 스크롤백 검색 — ghostty binding-action 문자열로 구동 (cmux 이식)
@@ -429,11 +504,81 @@ final class TermView: NSView, NSTextInputClient {
         return text.isEmpty ? nil : text
     }
 
+    // MARK: 드래그&드롭 — 파일·이미지를 떨구면 셸-이스케이프한 경로를 프롬프트에 삽입
+    //
+    // libghostty는 드롭을 처리하지 않아 뷰가 직접 받는다. Finder 파일은 경로를, 브라우저/스크린샷의
+    // 이미지 데이터는 임시 PNG로 저장해 그 경로를 넣는다. claude code는 삽입된 이미지 경로를 인식해
+    // 첨부한다(cmux 동일). 실행(Enter)은 사용자 몫이라 개행 없이 삽입만 한다.
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        dropPaths(from: sender) != nil ? .copy : []
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let paths = dropPaths(from: sender), !paths.isEmpty else { return false }
+        window?.makeFirstResponder(self)
+        onFocus?()
+        sendText(paths.map(Self.shellQuote).joined(separator: " "))
+        return true
+    }
+
+    /// 드래그 페이스트보드에서 삽입할 경로들을 뽑는다 — 파일 URL 우선, 없으면 이미지 데이터를 임시 파일로.
+    private func dropPaths(from sender: NSDraggingInfo) -> [String]? {
+        let pb = sender.draggingPasteboard
+        if let urls = pb.readObjects(forClasses: [NSURL.self],
+                                     options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
+            return urls.map(\.path)
+        }
+        if let image = NSImage(pasteboard: pb), let path = Self.writeTempImage(image) {
+            return [path]
+        }
+        return nil
+    }
+
+    /// 이미지를 임시 PNG로 저장하고 경로를 돌려준다(파일이 아닌 이미지 드래그용). 실패 시 nil.
+    private static func writeTempImage(_ image: NSImage) -> String? {
+        guard let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        let path = (NSTemporaryDirectory() as NSString)
+            .appendingPathComponent("muxa-drop-\(UUID().uuidString).png")
+        do {
+            try png.write(to: URL(fileURLWithPath: path))
+            return path
+        } catch {
+            return nil
+        }
+    }
+
+    /// 셸에 안전하게 넘길 단일 인용 이스케이프 — 공백·특수문자가 있는 경로를 한 토큰으로.
+    private static func shellQuote(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     // MARK: 키 입력 — Ghostty SurfaceView_AppKit.keyDown 이식
 
     override func keyDown(with event: NSEvent) {
         guard let surface else {
             interpretKeyEvents([event])
+            return
+        }
+
+        // 제어 조합(Ctrl + 키)은 텍스트가 아니라 곧장 ghostty가 인코딩해야 한다. interpretKeyEvents로
+        // 넘기면 아래 translation이 control을 떼어내(control은 번역 모디파이어가 아님) 맨 글자만 남고,
+        // 한글 입력 소스에선 그 글자가 조합을 시작해(두벌식 c→ㅊ) Ctrl+C가 preedit로 먹혀 터미널에 닿지 않는다.
+        // 조합 중이 아닐 때만 우회 — 조합 중이면 아래 정상 경로가 확정/취소를 처리한다.
+        // (⌘ 조합은 제외 — 앱 단축키는 로컬 모니터가, ⌘C/⌘V 복사·붙여넣기는 ghostty 내장 키바인드가 처리한다.)
+        // text는 nil — 제어 조합은 ghostty가 keycode+mods+unshifted_codepoint에서 직접 제어 바이트를 만든다.
+        // 단, 한글 등 IME가 활성이면 event 기반 unshifted_codepoint가 자모(c키→ㅊ, 0x314A)라 ghostty가
+        // Ctrl+C를 0x03으로 인코딩하지 못한다 → 물리 키의 ASCII 문자로 교정해야 한다(cmux physicalControlKey 대응).
+        if markedText.length == 0, event.modifierFlags.contains(.control) {
+            let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
+            var keyEvent = ghosttyKeyEvent(event, action: action)
+            if let ascii = TermView.asciiKeyChar(forKeyCode: event.keyCode) {
+                keyEvent.unshifted_codepoint = ascii.value
+            }
+            keyEvent.composing = false
+            _ = ghostty_surface_key(surface, keyEvent)
             return
         }
 
@@ -507,6 +652,30 @@ final class TermView: NSView, NSTextInputClient {
 
     override func keyUp(with event: NSEvent) {
         _ = keyAction(GHOSTTY_ACTION_RELEASE, event: event)
+    }
+
+    /// 물리 키의 ASCII 문자(입력 소스 무관). 한글/중국어 IME가 활성이어도 Ctrl+C의 'c'를 얻는다 —
+    /// NSEvent의 characters류는 현재 IME 레이아웃을 타 자모('ㅊ')를 돌려줘 제어 인코딩이 깨지기 때문이다.
+    /// ASCII 호환 키보드 레이아웃으로 keyCode를 modifier 없이 직접 번역한다(cmux physicalControlKey 대응).
+    static func asciiKeyChar(forKeyCode keyCode: UInt16) -> UnicodeScalar? {
+        guard let source = TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue(),
+              let ptr = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData)
+        else { return nil }
+        let layoutData = Unmanaged<CFData>.fromOpaque(ptr).takeUnretainedValue() as Data
+        var scalar: UnicodeScalar?
+        layoutData.withUnsafeBytes { raw in
+            guard let layout = raw.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else { return }
+            var deadKeys: UInt32 = 0
+            var chars = [UniChar](repeating: 0, count: 4)
+            var count = 0
+            let status = UCKeyTranslate(
+                layout, keyCode, UInt16(kUCKeyActionDown), 0,
+                UInt32(LMGetKbdType()), OptionBits(kUCKeyTranslateNoDeadKeysBit),
+                &deadKeys, chars.count, &count, &chars
+            )
+            if status == noErr, count > 0, let s = UnicodeScalar(chars[0]) { scalar = s }
+        }
+        return scalar
     }
 
     /// 비프음 방지 + AppKit 셀렉터 디스패치 흡수 (인코딩은 keyAction이 담당)

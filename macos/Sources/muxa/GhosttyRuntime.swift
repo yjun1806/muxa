@@ -14,10 +14,11 @@ final class GhosttyRuntime {
         // 시스템 외관에 맞춘 배경/전경 폴백을 먼저 깐다 — 사용자 config가 theme를 지정하면 아래
         // load_default_files가 덮는다(사용자 우선). 설정이 없으면 ghostty 기본 테마가 다크라, 라이트
         // 시스템에서도 터미널만 다크로 어긋나므로 muxa 팔레트에 맞춰 폴백한다(Palette.bg/fg 대응).
+        // ANSI 16색 팔레트 + 배경/전경 폴백. ghostty 기본 팔레트는 다크 배경 기준이라 라이트에 얹으면
+        // 물빠져 보인다 — cmux 기본(Apple System Colors)과 동일 팔레트를 심어 색을 맞춘다.
+        // 배경/전경은 muxa 크롬(Palette.bg/fg)에 맞추고, 나머지 16색은 cmux 테마 그대로다.
         let dark = Self.systemIsDark
-        let fallback = dark
-            ? "background = 1b1b1d\nforeground = e4e4e7"
-            : "background = ffffff\nforeground = 1f2937"
+        let fallback = dark ? Self.darkPalette : Self.lightPalette
         fallback.withCString { ghostty_config_load_string(config, $0, UInt(strlen($0)), "muxa-fallback") }
         ghostty_config_load_default_files(config)
         ghostty_config_load_recursive_files(config)
@@ -148,6 +149,51 @@ final class GhosttyRuntime {
         // 현재 시스템 외관을 ghostty에 알린다(theme = light:,dark: 설정 시 자동 전환에 사용).
         ghostty_app_set_color_scheme(app, dark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
     }
+
+    // 터미널 ANSI 16색 폴백 — cmux 기본 테마(Apple System Colors)와 동일 팔레트. 색의 단일 출처.
+    // 사용자 ~/.config/ghostty/config가 theme/palette를 지정하면 load_default_files가 덮어 우선한다.
+    // 0~7 표준, 8~15 밝은 변형. 배경/전경만 muxa 크롬(Palette.bg/fg)에 맞춰 라이트/다크가 다르다.
+    private static let lightPalette = """
+    palette = 0=#1a1a1a
+    palette = 1=#cc372e
+    palette = 2=#26a439
+    palette = 3=#cdac08
+    palette = 4=#0869cb
+    palette = 5=#9647bf
+    palette = 6=#479ec2
+    palette = 7=#98989d
+    palette = 8=#464646
+    palette = 9=#ff453a
+    palette = 10=#32d74b
+    palette = 11=#e5bc00
+    palette = 12=#0a84ff
+    palette = 13=#bf5af2
+    palette = 14=#69c9f2
+    palette = 15=#ffffff
+    background = #ffffff
+    foreground = #1f2937
+    """
+
+    private static let darkPalette = """
+    palette = 0=#1a1a1a
+    palette = 1=#cc372e
+    palette = 2=#26a439
+    palette = 3=#cdac08
+    palette = 4=#0869cb
+    palette = 5=#9647bf
+    palette = 6=#479ec2
+    palette = 7=#98989d
+    palette = 8=#464646
+    palette = 9=#ff453a
+    palette = 10=#32d74b
+    palette = 11=#ffd60a
+    palette = 12=#0a84ff
+    palette = 13=#bf5af2
+    palette = 14=#76d6ff
+    palette = 15=#ffffff
+    background = #1b1b1d
+    foreground = #e4e4e7
+    """
 
     /// 현재 시스템 외관이 다크인가 — 터미널 폴백 테마·color scheme 판정.
     static var systemIsDark: Bool {

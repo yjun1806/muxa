@@ -21,11 +21,13 @@ final class FileNode: Identifiable, Hashable {
 
 /// 파일 트리 로딩 — 순수 함수(부작용 없음). CLAUDE.md: 트리 로직은 뷰가 아닌 함수로.
 enum FileTree {
-    /// 무시할 디렉토리(대형 리포에서 트리·감시 폭주 방지).
-    static let ignored: Set<String> = [".git", "node_modules", ".build", ".worktrees", "target", "dist", ".next"]
+    /// 무시할 항목(대형 리포에서 트리·감시 폭주 방지 + OS 노이즈). dotfile을 보여도 이건 항상 숨긴다.
+    static let ignored: Set<String> = [".git", "node_modules", ".build", ".worktrees", "target", "dist", ".next", ".DS_Store"]
 
     /// 디렉토리 자식 노드(디렉토리 우선·이름 자연 정렬). 실패 시 빈 배열.
-    static func children(of dir: String, showHidden: Bool = false) -> [FileNode] {
+    /// showHidden 기본 true — 개발 환경이라 `.env`·`.gitignore`·`.github` 등 dotfile은 보여준다.
+    /// (진짜 노이즈는 위 `ignored`가 dotfile 여부와 무관하게 걸러낸다.)
+    static func children(of dir: String, showHidden: Bool = true) -> [FileNode] {
         let fm = FileManager.default
         guard let entries = try? fm.contentsOfDirectory(atPath: dir) else { return [] }
         let nodes = entries.compactMap { name -> FileNode? in
