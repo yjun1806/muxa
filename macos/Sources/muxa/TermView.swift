@@ -319,6 +319,48 @@ final class TermView: NSView, NSTextInputClient {
         onFocus?()
     }
 
+    // MARK: 마우스 위치 — ghostty_surface_mouse_pos 동기화 (cmux 이식)
+    //
+    // libghostty는 마우스 리포팅을 켠 앱(claude code 등, DECSET 1000/1002)에는 스크롤을
+    // "현재 커서 위치의 버튼 4/5 이벤트"로 변환해 보낸다. 위치를 한 번도 안 알려주면 embedded
+    // cursor_pos가 초기값 (-1,-1)에 머물러 뷰포트 밖 판정으로 리포트가 통째로 버려지고
+    // 뷰포트 스크롤도 건너뛴다 — claude code 안에서 스크롤이 죽던 근인. 그래서 커서가 뷰 위에
+    // 있는 동안 위치를 계속 동기화한다. NSTrackingArea의 .mouseMoved가 window 설정 없이
+    // mouseMoved 이벤트 수신을 보장한다.
+
+    private var trackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    /// 이벤트 좌표를 ghostty 좌표계(좌상단 원점)로 변환해 서피스에 알린다.
+    private func syncMousePos(with event: NSEvent) {
+        guard let surface else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, ghosttyMods(event.modifierFlags))
+    }
+
+    override func mouseMoved(with event: NSEvent) { syncMousePos(with: event) }
+    override func mouseEntered(with event: NSEvent) { syncMousePos(with: event) }
+    override func mouseDragged(with event: NSEvent) { syncMousePos(with: event) }
+
+    override func mouseExited(with event: NSEvent) {
+        guard let surface else { return }
+        // 드래그 중 이탈은 위치를 유지한다 — 선택 오토스크롤이 "뷰포트 밖 포인터"를 관측해야 한다(cmux).
+        if NSEvent.pressedMouseButtons != 0 { return }
+        ghostty_surface_mouse_pos(surface, -1, -1, ghosttyMods(event.modifierFlags))
+    }
+
     // MARK: 스크롤 — NSEvent 스크롤을 ghostty로 전달 (Ghostty 업스트림 scrollWheel 이식)
     //
     // TermView는 ghostty가 직접 그리는 뷰라 스크롤도 우리가 서피스에 넘겨야 한다. 안 넘기면 스크롤백을
@@ -326,6 +368,9 @@ final class TermView: NSView, NSTextInputClient {
 
     override func scrollWheel(with event: NSEvent) {
         guard let surface else { return }
+        // 트래킹 이벤트를 아직 못 받았어도(부착 직후 커서가 이미 뷰 안 등) 스크롤 이벤트 자신의
+        // 좌표로 위치를 확정한다 — 마우스 리포팅 앱으로의 스크롤 변환이 위치에 의존하기 때문.
+        syncMousePos(with: event)
         var x = event.scrollingDeltaX
         var y = event.scrollingDeltaY
 
