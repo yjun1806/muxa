@@ -139,6 +139,16 @@ final class TermView: NSView, NSTextInputClient {
     // 에이전트 크래시·강제종료·비정상 종료를 결정론으로 잡는다. store가 상태 확정·배지(안 보이는 탭)를 판정한다.
     // 서피스는 libghostty가 우리 프로세스 내에서 스폰한 자식이라 kqueue(NOTE_EXIT) 감시가 성립한다.
 
+    /// 스폰 직후 잡은 셸 pid(=이 pty의 프로세스 트리 루트). 재개 자동감지가 여기서 foreground까지 훑는다.
+    private(set) var shellPid: pid_t?
+
+    /// pty의 현재 foreground 프로세스 pid(에이전트 감지 시작점). 유효하지 않으면 nil.
+    var foregroundPid: pid_t? {
+        guard let surface else { return nil }
+        let raw = ghostty_surface_foreground_pid(surface)
+        return (raw > 0 && raw <= UInt64(pid_t.max)) ? pid_t(raw) : nil
+    }
+
     /// 프로세스 종료 감시 소스(무장되면 non-nil). deinit·종료 시 취소한다.
     private var processWatcher: DispatchSourceProcess?
     /// pid 무장 재시도 횟수 — 셸 스폰이 늦어 foreground_pid가 아직 0일 때 몇 번 다시 시도한다.
@@ -161,6 +171,7 @@ final class TermView: NSView, NSTextInputClient {
             }
             return
         }
+        shellPid = pid_t(raw) // 트리 루트 기록 — 재개 자동감지가 foreground→여기까지 부모 사슬을 훑는다.
         let source = DispatchSource.makeProcessSource(identifier: pid_t(raw), eventMask: .exit, queue: .main)
         source.setEventHandler { [weak self] in self?.handleProcessExit() }
         processWatcher = source

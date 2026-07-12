@@ -14,7 +14,7 @@ struct ResumeOverlay: View {
 
     var body: some View {
         // resumeTabs(관측)가 소비 시 줄어들며 배너가 자동으로 사라진다. 전략이 .none(off)면 아예 그리지 않는다.
-        let strategy = store.resumeStrategy
+        let strategy = store.resumeStrategy(for: tabId)
         if store.resumeTabs.contains(tabId), strategy != .none,
            let binding = store.resumeBinding(for: tabId) {
             ResumeBanner(

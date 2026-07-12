@@ -354,10 +354,16 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         resumeBindings[tabId]
     }
 
-    /// 복원된 세션의 재개 전략 — 승인 게이트 모드 + 직전 더티 여부의 순수 판정(ResumeStrategy.decide).
-    /// 배너(ResumeOverlay)가 이 값 하나로 표시·자동 실행·강조 라벨을 정한다. 탭에 무관(세션 단위 판정).
-    var resumeStrategy: ResumeStrategy {
-        ResumeStrategy.decide(mode: agentResumeMode, wasDirty: sessionWasDirty)
+    /// 이 탭의 재개 전략 — 배너(ResumeOverlay)가 이 값 하나로 표시·자동 실행·강조 라벨을 정한다.
+    ///
+    /// 신뢰(trusted) 바인딩(muxa 자가구성 `claude --resume`)은 승인 게이트를 건너뛰고 항상 자동 실행한다(제로설정).
+    /// 명령이 검증된 고정 꼴이라 안전하기 때문. 단 `off`는 사용자의 명시적 전면 비활성이라 존중한다.
+    /// 훅이 넘긴 임의 명령(trusted=false)은 기존대로 모드+더티 순수 판정(ResumeStrategy.decide)을 따른다(D2 경계).
+    func resumeStrategy(for tabId: TabID) -> ResumeStrategy {
+        if resumeBindings[tabId]?.trusted == true {
+            return agentResumeMode == .off ? .none : .auto
+        }
+        return ResumeStrategy.decide(mode: agentResumeMode, wasDirty: sessionWasDirty)
     }
 
     /// 재개 바인딩을 소비(제거)한다 — 한 번 재개하면 중복 실행·배너 잔존을 막고, 소비를 영속에 반영해
@@ -792,6 +798,14 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         return ScrollbackStore.write(ScrollbackText.sanitize(raw), for: tabId)
     }
 
+    /// 저장 시점에 이 터미널에서 claude가 돌고 있으면 세션 인덱스로 자동 재개 바인딩을 만든다(제로설정, cmux식).
+    /// 프로세스 트리(foreground→셸)로 claude 실행을 감지하고, OSC7 cwd로 마지막 세션을 해석한다. 없으면 nil.
+    private func detectClaudeResume(from term: TermView, cwd: String?) -> ResumeBinding? {
+        guard let cwd, let fg = term.foregroundPid, let shell = term.shellPid,
+              AgentProcessDetector.agentRunning(commNames: ["claude"], from: fg, upTo: shell) else { return nil }
+        return ClaudeSessionIndex.resumeBinding(forCwd: cwd)
+    }
+
     private func convert(_ node: ExternalTreeNode) -> PaneSnapshot {
         switch node {
         case .pane(let p):
@@ -809,9 +823,11 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                     // 아직 미실체화(복원만 되고 안 연) 탭이면 이전 힌트 경로를 그대로 이어 준다(④).
                     let scrollbackFile = terms[tid].flatMap { captureScrollback(from: $0, tabId: tid) }
                         ?? restoredScrollbackFile[tid]
-                    // 에이전트 재개 바인딩도 함께 저장 — 복원 시 다시 맵에 되살린다(실행은 나중 단계).
+                    // 재개 바인딩: 지금 이 터미널에서 claude가 돌고 있으면 세션 인덱스로 자동 구성(제로설정, trusted),
+                    // 아니면 훅이 등록한 바인딩(있으면). 복원 시 되살아나 배너·자동 실행으로 이어진다.
+                    let resume = terms[tid].flatMap { detectClaudeResume(from: $0, cwd: tabCwd) } ?? resumeBindings[tid]
                     tabs.append(TabSnapshot(group: nil, items: [], selectedItem: 0,
-                                            cwd: tabCwd, resume: resumeBindings[tid],
+                                            cwd: tabCwd, resume: resume,
                                             scrollbackFile: scrollbackFile))
                 case .group(let kind):
                     let state = groups[tid]
@@ -878,8 +894,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                     }
                 } else if let tid = controller.createTab(title: "터미널", icon: "terminal", inPane: pane) {
                     if let cwd = t.cwd { restoredCwd[tid] = cwd } // 새 셸을 저장된 작업 디렉터리에서 띄우게 힌트.
-                    if let sf = t.scrollbackFile { restoredScrollbackFile[tid] = sf } // 새 셸에 스크롤백 파일 env 주입 힌트(④).
-                    if let resume = t.resume { registerResumeBinding(resume, for: tid) } // 재개 바인딩 복구(+배너 표시). 실행은 D2 게이트가.
+                    if let resume = t.resume { registerResumeBinding(resume, for: tid) } // 재개 바인딩 복구(+배너 표시). 실행은 게이트가.
+                    // 신뢰 재개(claude 자동)는 곧 claude가 화면을 덮으므로 죽은 스크롤백 리플레이를 건너뛴다(잔상·중복 방지).
+                    if let sf = t.scrollbackFile, t.resume?.trusted != true { restoredScrollbackFile[tid] = sf } // 새 셸에 스크롤백 파일 env 주입 힌트(④).
                     created.append(tid)
                 }
             }

@@ -15,10 +15,24 @@ struct ResumeBinding: Codable, Equatable {
     var agentLabel: String?
     /// 재개를 실행할 작업 디렉터리(옵셔널). 미지정이면 탭의 복원 cwd를 따른다.
     var cwd: String?
+    /// muxa가 세션 인덱스에서 스스로 구성한 안전한 재개 명령인지([[ClaudeSessionIndex]]). true면 복원 시
+    /// 승인 게이트(agent_resume) 없이 자동 실행한다 — 명령이 `claude --resume <검증된-UUID>` 꼴로 고정돼
+    /// 임의 셸 명령이 아니기 때문이다. false(기본)는 훅이 넘긴 임의 명령이라 D2 신뢰 경계(manual 게이트)를 거친다.
+    var trusted: Bool
 
-    init(command: String, agentLabel: String? = nil, cwd: String? = nil) {
+    init(command: String, agentLabel: String? = nil, cwd: String? = nil, trusted: Bool = false) {
         self.command = command
         self.agentLabel = agentLabel
         self.cwd = cwd
+        self.trusted = trusted
+    }
+
+    // 하위호환: trusted가 없던 구 스냅샷은 훅 바인딩이므로 false로 디코드한다(자동 실행 안 함).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        command = try c.decode(String.self, forKey: .command)
+        agentLabel = try c.decodeIfPresent(String.self, forKey: .agentLabel)
+        cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
+        trusted = try c.decodeIfPresent(Bool.self, forKey: .trusted) ?? false
     }
 }
