@@ -1,15 +1,16 @@
 import SwiftUI
 
-/// 푸터의 서비스 칩 — **접혀 있을 때의 유일한 상시 신호**.
+/// 푸터의 서비스 칩 — **접혀 있을 때의 유일한 상시 신호**. 칩은 "문제가 있나 없나"만 말하고,
+/// 무엇이 왜 그런지는 hover 팝오버(`ServicePopover`)가, 실제 로그는 도크(`ServiceDock`)가 맡는다.
 ///
-/// 여기는 "문제가 있나 없나"만 말한다(간략). 무엇이 왜 그런지는 hover 팝오버(ServicePopover)가,
-/// 실제 로그는 클릭해서 여는 도크(ServiceDock)가 맡는다 — 사용량 칩과 같은 문법이다.
+/// **두 세그먼트로 나뉜다** — 사용량 칩과 같은 문법(하나의 알약 + 얇은 세로선):
+///  - 앞 [**지금**] = 활성 프로젝트의 서비스. 클릭 → 그 로그(도크). 도크가 보여주는 것과 정확히 같다.
+///  - 뒤 [**전체**] = 창 전체(모든 워크스페이스·프로젝트). 클릭 → 전역 목록(팝오버 고정).
 ///
-/// 서비스마다 칩을 늘어놓으면 푸터가 금세 넘친다(경로·브랜치·사용량과 폭을 다툰다). 그래서
-/// **하나로 요약**하고, 죽은 게 하나라도 있으면 그게 요약이 된다(초록 다수에 묻히면 안 된다).
-///
-/// **요약은 창 전체가 대상이다.** 활성 프로젝트만 세면, 다른 워크스페이스의 dev 서버가 죽어도
-/// 거기 들어가야만 알 수 있다 — 그러면 이 신호는 있으나 마나다. 어디 것이 죽었는지는 팝오버가 밝힌다.
+/// 나눈 이유: 전역 요약만 있으면 "여기 뭐가 도나"를 모르고, 활성 프로젝트만 있으면 다른
+/// 워크스페이스의 dev 서버가 죽어도 거기 들어가야만 안다 — **둘 다 필요하다.**
+/// 다만 전역과 현재가 같으면(워크스페이스·프로젝트가 하나뿐) 뒤 세그먼트는 숨긴다 — 같은 말을
+/// 두 번 하지 않는다.
 struct ServiceStrip: View {
     let state: AppState
     let project: Project
@@ -17,32 +18,36 @@ struct ServiceStrip: View {
     @State private var hovered = false
     @State private var showPopover = false
 
+    /// 지금 보고 있는 프로젝트의 서비스 — **도크가 보여주는 것과 같은 집합**.
+    private var current: [Service] { state.services(of: project.id) }
     /// 창 전체의 서비스(모든 워크스페이스·프로젝트).
-    private var services: [LocatedService] { state.allLocatedServices }
+    private var all: [LocatedService] { state.allLocatedServices }
 
-    private var statuses: [ServiceState] {
-        services.map { state.serviceMonitor.states[$0.service.id] ?? .missing }
-    }
+    /// 전체가 현재보다 많을 때만 [전체] 세그먼트가 의미 있다.
+    private var showsGlobal: Bool { all.count > current.count }
 
     var body: some View {
-        Button {
-            showPopover = false
-            state.openServiceDock(serviceId: nil)
-        } label: {
-            label
-                .padding(.horizontal, Space.sm)
-                .frame(height: RowHeight.tight)
-                .background(chipColor, in: RoundedRectangle(cornerRadius: Radius.md))
-                .contentShape(RoundedRectangle(cornerRadius: Radius.md))
+        HStack(spacing: 0) {
+            if !TmuxService.isAvailable || all.isEmpty {
+                // tmux가 없거나 등록이 없어도 **숨기지 않는다** — 숨기면 이 기능이 있는지조차 모른다.
+                placeholder
+            } else {
+                currentSegment
+                if showsGlobal {
+                    VDivider(height: 12)
+                    globalSegment
+                }
+            }
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, Space.sm)
+        .frame(height: RowHeight.tight)
+        .background(chipColor, in: RoundedRectangle(cornerRadius: Radius.md))
         .onHover { inside in
             hovered = inside
-            // hover로 상세를 연다(사용량은 클릭이지만, 서비스는 클릭이 "로그 열기"라 hover에 배정).
+            // hover하면 전역 목록을 편다 — 클릭은 "열기"에 쓰이므로 상세는 hover에 배정한다.
             if inside { showPopover = true }
         }
         .animation(Motion.fast, value: hovered)
-        .help(helpText)
         .popover(isPresented: $showPopover, arrowEdge: .top) {
             ServicePopover(state: state, currentProjectId: project.id) { located in
                 showPopover = false
@@ -54,54 +59,116 @@ struct ServiceStrip: View {
         }
     }
 
-    @ViewBuilder
-    private var label: some View {
-        if !TmuxService.isAvailable {
-            // tmux가 없어도 **숨기지 않는다** — 숨기면 이 기능이 있는지조차 모른다.
+    // MARK: 앞 — 지금 이 프로젝트 (클릭 = 도크 열기)
+
+    private var currentSegment: some View {
+        Button {
+            showPopover = false
+            state.openServiceDock(serviceId: nil)
+        } label: {
             HStack(alignment: .center, spacing: Space.xs) {
-                Image(systemName: "square.stack.3d.up").font(.muxa(.micro))
-                Text("서비스").font(.muxa(.label))
+                if current.isEmpty {
+                    // 창 어딘가엔 서비스가 있지만 **여기엔 없다** — 그 사실을 말한다(0을 띄우지 않는다).
+                    Image(systemName: "circle.dotted")
+                        .font(.muxa(.micro))
+                        .foregroundStyle(Color.pMuted.opacity(0.6))
+                    Text("없음")
+                        .font(.muxa(.caption))
+                        .foregroundStyle(Color.pMuted.opacity(0.6))
+                } else {
+                    let summary = ServiceStatusStyle.summarize(statuses(of: current.map(\.id)))
+                    Image(systemName: ServiceStatusStyle.glyph(summary))
+                        .font(.muxa(.micro))
+                        .foregroundStyle(ServiceStatusStyle.color(summary))
+                    Text("\(current.count)")
+                        .font(.muxaMono(.label, weight: .semibold))
+                        .foregroundStyle(Color.pFg)
+                    if deadCount(of: current.map(\.id)) > 0 {
+                        Text("· \(deadCount(of: current.map(\.id))) 종료됨")
+                            .font(.muxa(.caption))
+                            .foregroundStyle(Color.pServiceExited)
+                    }
+                }
             }
-            .foregroundStyle(Color.pMuted.opacity(0.6))
-        } else if services.isEmpty {
+            .padding(.trailing, Space.xs)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(currentHelp)
+    }
+
+    // MARK: 뒤 — 창 전체 (클릭 = 전역 목록)
+
+    private var globalSegment: some View {
+        Button { showPopover.toggle() } label: {
             HStack(alignment: .center, spacing: Space.xs) {
-                Image(systemName: "square.stack.3d.up").font(.muxa(.micro))
-                Text("서비스").font(.muxa(.label))
-            }
-            .foregroundStyle(Color.pMuted)
-        } else {
-            let summary = ServiceStatusStyle.summarize(statuses)
-            HStack(alignment: .center, spacing: Space.xs) {
-                Image(systemName: ServiceStatusStyle.glyph(summary))
+                Image(systemName: "square.stack.3d.up")
                     .font(.muxa(.micro))
-                    .foregroundStyle(ServiceStatusStyle.color(summary))
-                // 개수만 — 이름·포트는 팝오버에서 본다(푸터는 좁다).
-                Text("\(services.count)")
+                    .foregroundStyle(globalDead > 0 ? Color.pServiceExited : Color.pMuted)
+                Text("\(all.count)")
                     .font(.muxaMono(.label, weight: .semibold))
                     .foregroundStyle(Color.pMuted)
-                if deadCount > 0 {
-                    // 죽은 게 있으면 몇 개인지까지는 칩에서 말한다 — 열지 않고도 심각도를 안다.
-                    Text("· \(deadCount) 종료됨")
+                if globalDead > 0 {
+                    // 다른 프로젝트에서 죽은 게 있으면 **여기서 말한다** — 그러려고 만든 세그먼트다.
+                    Text("· \(globalDead) 종료됨")
                         .font(.muxa(.caption))
                         .foregroundStyle(Color.pServiceExited)
                 }
             }
+            .padding(.leading, Space.xs)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .help(globalHelp)
     }
 
-    private var deadCount: Int {
-        statuses.filter { if case .exited(let c) = $0 { return c != 0 } else { return false } }.count
+    private var placeholder: some View {
+        Button {
+            showPopover = false
+            state.openServiceDock(serviceId: nil)
+        } label: {
+            HStack(alignment: .center, spacing: Space.xs) {
+                Image(systemName: "square.stack.3d.up").font(.muxa(.micro))
+                Text("서비스").font(.muxa(.label))
+            }
+            .foregroundStyle(Color.pMuted.opacity(TmuxService.isAvailable ? 1 : 0.6))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(TmuxService.isAvailable
+              ? "서비스 추가 — dev 서버처럼 오래 도는 명령"
+              : "서비스 — tmux 설치가 필요합니다")
     }
+
+    // MARK: 집계
+
+    private func statuses(of ids: [String]) -> [ServiceState] {
+        ids.map { state.serviceMonitor.states[$0] ?? .missing }
+    }
+
+    /// 비정상 종료(exit ≠ 0)만 센다 — 정상 종료(0)는 문제가 아니다.
+    private func deadCount(of ids: [String]) -> Int {
+        statuses(of: ids).filter {
+            if case .exited(let c) = $0 { return c != 0 } else { return false }
+        }.count
+    }
+
+    private var globalDead: Int { deadCount(of: all.map(\.service.id)) }
 
     private var chipColor: Color {
         if showPopover { return Color.pBtnActive }
         return hovered ? Color.pBtnHover : Color.pBtnHover.opacity(0.5)
     }
 
-    private var helpText: String {
-        if !TmuxService.isAvailable { return "서비스 — tmux 설치가 필요합니다" }
-        if services.isEmpty { return "서비스 추가 — dev 서버처럼 오래 도는 명령" }
-        if deadCount > 0 { return "서비스 \(services.count)개 중 \(deadCount)개가 종료됨 — 클릭해 로그 보기" }
-        return "서비스 \(services.count)개 실행 중 — 클릭해 로그 보기 (⌘J)"
+    private var currentHelp: String {
+        if current.isEmpty { return "이 프로젝트엔 서비스가 없습니다 — 클릭해 추가" }
+        let dead = deadCount(of: current.map(\.id))
+        if dead > 0 { return "이 프로젝트: \(current.count)개 중 \(dead)개 종료됨 — 클릭해 로그 보기 (⌘J)" }
+        return "이 프로젝트: \(current.count)개 실행 중 — 클릭해 로그 보기 (⌘J)"
+    }
+
+    private var globalHelp: String {
+        if globalDead > 0 { return "창 전체: \(all.count)개 중 \(globalDead)개 종료됨 — 클릭해 전체 보기" }
+        return "창 전체: \(all.count)개 실행 중 — 클릭해 전체 보기"
     }
 }

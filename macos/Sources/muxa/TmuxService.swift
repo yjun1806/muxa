@@ -6,8 +6,20 @@ import Foundation
 /// **전용 소켓(`-L muxa`)만 쓴다.** 사용자의 기본 tmux 서버와 완전히 분리되므로,
 /// 우리가 세션을 죽여도 남의 작업에 닿지 않는다(고아 정리가 파괴적 동작이라 이 격리가 중요하다).
 enum TmuxService {
-    /// muxa 전용 tmux 소켓. 사용자의 기본 서버(`tmux`)와 섞이지 않는다.
-    static let socket = "muxa"
+    /// **서비스 전용** tmux 소켓 — 셋을 동시에 격리한다.
+    ///
+    ///  1. **사용자의 기본 tmux 서버**와 안 섞인다(전용 소켓).
+    ///  2. **muxa의 다른 tmux 용도**와 안 섞인다. 세션 복원이 터미널을 tmux에 얹으면
+    ///     (`muxa__<proj>__term__<uuid>`) 같은 소켓에서 서로가 "등록되지 않은 고아"로 보여
+    ///     **서비스 청소가 남의 터미널을 죽인다.**
+    ///  3. **다른 개발빌드**와 안 섞인다(`AppInfo.devKey`). 워크트리마다 muxa를 띄우면 각자의 state를
+    ///     기준으로 고아를 판정하므로, 소켓이 같으면 서로의 dev 서버를 죽인다. 실제로 그렇게 터졌다.
+    ///
+    /// 정리가 **파괴적 동작**이라 "판정을 조심하기"보다 **대상을 물리적으로 분리**하는 쪽이 안전하다.
+    static let socket: String = {
+        guard let key = AppInfo.devKey else { return "muxa-services" }
+        return "muxa-services-\(key)"
+    }()
 
     struct Output {
         let stdout: String

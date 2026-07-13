@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// 이 프로세스가 어떤 빌드로 떠 있는지.
@@ -20,6 +21,39 @@ enum AppInfo {
            !bundleName.isEmpty { return bundleName }
         return "muxa (dev)"
     }()
+
+    /// **개발 빌드의 격리 키.** 릴리스면 nil(사용자 데이터는 하나뿐이다).
+    ///
+    /// 격리하지 않으면 워크트리마다 띄운 개발빌드들이 **같은 `state.v4.json`과 같은 tmux 소켓을 두고
+    /// 싸운다** — 서로의 세션을 덮어쓰고, 서로의 tmux 세션을 "등록되지 않은 고아"로 오인해 죽인다.
+    /// 실제로 그렇게 터졌다. 저장소·소켓을 이 키로 갈라 **구조적으로 못 섞이게** 한다.
+    ///
+    /// 키는 **실행 파일 경로**에서 뽑는다(브랜치명이 아니라). 같은 워크트리에서 브랜치를 갈아타도
+    /// 같은 저장소를 쓰는 게 자연스럽고, 브랜치는 바뀌어도 워크트리는 그대로이기 때문이다.
+    /// 로그·경로에서 알아볼 수 있게 `<워크트리이름>-<해시6>` 형태로 만든다(해시가 있어 충돌하지 않는다).
+    static let devKey: String? = {
+        guard isDev else { return nil }
+        let path = Bundle.main.bundlePath
+        let digest = SHA256.hash(data: Data(path.utf8))
+        let hash = digest.prefix(3).map { String(format: "%02x", $0) }.joined() // 6자
+        return "\(worktreeLabel(from: path))-\(hash)"
+    }()
+
+    /// 경로에서 사람이 알아볼 이름을 뽑는다 — `…/muxa-services/macos/.build/…` → `muxa-services`.
+    private static func worktreeLabel(from path: String) -> String {
+        let parts = path.split(separator: "/").map(String.init)
+        // `.build`(SPM 산출물) 바로 앞이 `macos`, 그 앞이 워크트리 루트다.
+        if let buildIdx = parts.firstIndex(of: ".build"), buildIdx >= 2 {
+            return sanitize(parts[buildIdx - 2])
+        }
+        return parts.last.map(sanitize) ?? "dev"
+    }
+
+    /// 소켓·디렉터리 이름에 안전한 문자만 남긴다.
+    private static func sanitize(_ s: String) -> String {
+        let allowed = s.filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+        return allowed.isEmpty ? "dev" : String(allowed.prefix(24))
+    }
 
     private static let bundleId = Bundle.main.bundleIdentifier
     private static let devBundlePrefix = "com.muxa.dev."
