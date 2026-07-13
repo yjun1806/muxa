@@ -23,6 +23,17 @@ final class AppState {
     /// 이건 "자리 비웠다 돌아왔을 때의 복구 동선". 상단바 벨 팝오버가 관측해 렌더한다.
     let attention = AttentionLog()
 
+    /// 서비스(장수 프로세스) 상태 관측 — 접혀 있어도 tmux에 물어 돈다. 앱 전체에 하나(Service.swift).
+    let serviceMonitor = ServiceMonitor()
+
+    /// 서비스 도크(하단 오버레이) 표시 상태와 선택된 서비스.
+    ///
+    /// **오버레이인 이유**: 레이아웃을 차지하는 도크로 만들면 열고 닫을 때마다 콘텐츠 카드가 줄었다 늘고,
+    /// 그때마다 ghostty 그리드가 리플로우된다. 그러면 "슬쩍 보고 닫기"의 비용이 커져 결국 안 열게 된다.
+    /// 카드 위에 겹치면 메인 그리드 리플로우가 0이다.
+    var showServiceDock = false
+    var selectedServiceId: String?
+
     /// 도구 패널 표시 상태(B). 재시작 시 마지막 열림/닫힘을 복원(Persisted에 저장) — 매번 다시 열 필요 없이.
     /// 상단바 토글 버튼·단축키(⌘⇧E/⌘⇧G)·알림이 이 상태를 연다.
     var showExplorer = false
@@ -484,6 +495,11 @@ final class AppState {
         project(projectId)?.services ?? []
     }
 
+    /// 모든 워크스페이스의 서비스 — 모니터 폴링·고아 판정의 입력.
+    private var allServices: [Service] {
+        workspaces.flatMap(\.projects).flatMap { $0.services ?? [] }
+    }
+
     /// 서비스를 등록하고 곧바로 기동한다. cwd는 프로젝트 경로(없으면 워크스페이스 경로).
     func addService(name: String, command: String, to projectId: String, cwd: String) {
         let service = Service(id: newId(), name: name, command: command)
@@ -492,7 +508,10 @@ final class AppState {
             next.services = (p.services ?? []) + [service]
             return next
         }
-        Task { await TmuxService.start(service, projectId: projectId, cwd: cwd) }
+        Task {
+            await TmuxService.start(service, projectId: projectId, cwd: cwd)
+            syncServiceMonitor()
+        }
     }
 
     /// 서비스를 등록 해제하고 프로세스도 죽인다.
@@ -506,7 +525,66 @@ final class AppState {
             next.services = (p.services ?? []).filter { $0.id != serviceId }
             return next
         }
-        Task { await TmuxService.kill(projectId: projectId, serviceId: serviceId) }
+        if selectedServiceId == serviceId { selectedServiceId = nil }
+        Task {
+            await TmuxService.kill(projectId: projectId, serviceId: serviceId)
+            syncServiceMonitor()
+        }
+    }
+
+    /// 죽은 서비스를 같은 명령으로 다시 띄운다(재시작). tmux 세션을 지우고 새로 만든다.
+    ///
+    /// **자동 재시작은 하지 않는다.** 포트를 문 좀비나 설정 오류로 즉사하는 경우 크래시 루프에 빠져
+    /// 로그가 덮여 원인이 사라진다. 죽으면 그대로 두고(remain-on-exit로 로그가 보존된다) 사용자가
+    /// 로그를 본 뒤 직접 누르게 한다.
+    func restartService(_ serviceId: String, in projectId: String, cwd: String) {
+        guard let service = services(of: projectId).first(where: { $0.id == serviceId }) else { return }
+        Task {
+            await TmuxService.kill(projectId: projectId, serviceId: serviceId)
+            await TmuxService.start(service, projectId: projectId, cwd: cwd)
+            syncServiceMonitor()
+        }
+    }
+
+    /// 등록된 서비스가 바뀔 때마다 모니터에 알린다(폴링 대상 갱신). 서비스가 0개면 폴링이 멈춘다.
+    func syncServiceMonitor() {
+        serviceMonitor.sync(services: allServices)
+    }
+
+    /// 앱 시작 시 1회 — 알림 배선 + 저장된 서비스 재기동 + 폴링 시작.
+    ///
+    /// **재기동은 "복원"이지 "자동 실행"이 아니다.** tmux 세션이 살아 있으면 start가 멱등이라 아무 일도
+    /// 없고(그게 보통), 앱을 재부팅하거나 tmux 서버가 죽은 뒤에만 실제로 다시 뜬다.
+    func startServices() {
+        guard TmuxService.isAvailable else { return }
+        serviceMonitor.onExit = { [weak self] service, code in
+            guard let self, code != 0 else { return } // 정상 종료(0)는 알리지 않는다 — 시끄럽기만 하다
+            guard let location = self.locate(serviceId: service.id) else { return }
+            self.attention.record(workspaceId: location.workspaceId, projectId: location.projectId,
+                                  tabId: service.id, kind: .system,
+                                  title: "\(service.name) 종료됨 (exit \(code))")
+            self.markProjectBadge(location.projectId)
+        }
+        for ws in workspaces {
+            for project in ws.projects {
+                let cwd = project.path ?? ws.path
+                guard let cwd else { continue }
+                for service in project.services ?? [] {
+                    Task { await TmuxService.start(service, projectId: project.id, cwd: cwd) }
+                }
+            }
+        }
+        syncServiceMonitor()
+    }
+
+    /// 서비스가 속한 워크스페이스·프로젝트를 찾는다(알림 라우팅용).
+    private func locate(serviceId: String) -> (workspaceId: String, projectId: String)? {
+        for ws in workspaces {
+            for project in ws.projects where (project.services ?? []).contains(where: { $0.id == serviceId }) {
+                return (ws.id, project.id)
+            }
+        }
+        return nil
     }
 
     /// 좀비 청소 — 등록이 사라졌는데 살아남은 서비스 세션을 죽인다. 앱 시작 시 1회.
