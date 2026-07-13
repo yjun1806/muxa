@@ -564,6 +564,24 @@ final class AppState {
         serviceMonitor.sync(services: allServices)
     }
 
+    /// 프로젝트가 사라질 때(프로젝트 닫기·워크스페이스 제거) 그 서비스 프로세스도 함께 죽인다.
+    ///
+    /// **등록만 지우면 좀비가 된다.** tmux 세션은 muxa와 무관하게 살아남아 포트를 계속 문다 —
+    /// 다음 앱 시작의 청소(collectServiceGarbage)까지 남아 있고, 그 사이 `:3000`이 잡혀 있으면
+    /// 사용자는 "왜 dev 서버가 안 뜨지"로 시간을 버린다. 사라지는 순간 함께 죽인다.
+    /// (호출자는 **정말 제거될 때만** 부른다 — 마지막 하나라 안 닫히는데 서비스만 죽으면 더 나쁘다.)
+    private func killServices(of project: Project) {
+        let services = project.services ?? []
+        guard !services.isEmpty, TmuxService.isAvailable else { return }
+        for service in services {
+            dropDockTerm(service.id)
+            if selectedServiceId == service.id { selectedServiceId = nil }
+            Task { await TmuxService.kill(projectId: project.id, serviceId: service.id) }
+        }
+        // 폴링 대상 갱신은 workspaces가 실제로 줄어든 뒤에 유효하다 — 다음 런루프에 맞춘다.
+        Task { @MainActor in syncServiceMonitor() }
+    }
+
     /// 앱 시작 시 1회 — 알림 배선 + 저장된 서비스 재기동 + 폴링 시작.
     ///
     /// **재기동은 "복원"이지 "자동 실행"이 아니다.** tmux 세션이 살아 있으면 start가 멱등이라 아무 일도
@@ -634,6 +652,21 @@ final class AppState {
     func openServiceDock(serviceId: String?) {
         selectedServiceId = serviceId ?? selectedServiceId
         showServiceDock = true
+    }
+
+    /// **창 전체**의 서비스 — 소속(워크스페이스·프로젝트)을 달고 온다.
+    /// 푸터 칩·팝오버가 이걸 본다: 다른 워크스페이스의 dev 서버가 죽었는데 거기 들어가야만
+    /// 알 수 있다면 알림으로서 실패다.
+    var allLocatedServices: [LocatedService] {
+        collectAllServices(in: workspaces)
+    }
+
+    /// 어느 워크스페이스·프로젝트의 서비스든 **그리로 데려가서** 로그를 연다.
+    /// (팝오버에서 다른 프로젝트의 서비스를 클릭했을 때 — 사용자가 직접 찾아 들어가지 않게.)
+    func revealService(_ located: LocatedService) {
+        if activeId != located.workspaceId { setActiveId(located.workspaceId) }
+        if activeProject?.id != located.projectId { setActiveProject(located.projectId) }
+        openServiceDock(serviceId: located.service.id)
     }
 
     /// 도크를 열면서 곧바로 추가 시트를 띄운다 — 팝오버의 "서비스 추가"가 두 번 클릭이 되지 않게.
@@ -785,10 +818,12 @@ final class AppState {
         return copy
     }
 
-    /// 워크스페이스 제거(마지막 하나는 남긴다). 소속 프로젝트의 스토어·저장 레이아웃·배지를 함께 정리한다.
+    /// 워크스페이스 제거(마지막 하나는 남긴다). 소속 프로젝트의 스토어·저장 레이아웃·배지·**서비스**를
+    /// 함께 정리한다.
     func removeWorkspace(_ id: String) {
         guard workspaces.count > 1, let idx = workspaces.firstIndex(where: { $0.id == id }) else { return }
         for project in workspaces[idx].projects {
+            killServices(of: project) // 등록만 지우면 dev 서버가 포트를 문 채 살아남는다
             stores[project.id] = nil
             savedLayouts[project.id] = nil
             clearBadge(project.id)
@@ -856,7 +891,14 @@ final class AppState {
     }
 
     /// 프로젝트를 닫는다(마지막 하나는 남긴다). 활성이면 인접 프로젝트로 전환.
+    /// 닫히는 프로젝트의 **서비스 프로세스도 함께 죽인다**.
     func closeProject(_ projectId: String) {
+        // **정말 닫힐 때만** 서비스를 죽인다 — 마지막 하나는 안 닫히는데(아래 guard) 서비스만 죽으면
+        // 프로젝트는 그대로인 채 dev 서버만 사라진다.
+        if let ws = activeWorkspace, ws.projects.count > 1,
+           let project = ws.projects.first(where: { $0.id == projectId }) {
+            killServices(of: project)
+        }
         stores[projectId] = nil
         savedLayouts[projectId] = nil
         clearBadge(projectId)

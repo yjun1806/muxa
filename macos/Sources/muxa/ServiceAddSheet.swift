@@ -40,6 +40,11 @@ struct ServiceAddSheet: View {
                 Text("또는 직접 입력")
                     .font(.muxa(.caption))
                     .foregroundStyle(Color.pMuted)
+            } else {
+                // 스크립트가 하나도 없는 프로젝트(네이티브 앱 등) — 침묵하지 않고 왜 없는지 말한다.
+                Text("package.json·Makefile·scripts/ 에서 찾은 스크립트가 없습니다.\n실행할 명령을 직접 적어주세요.")
+                    .font(.muxa(.caption))
+                    .foregroundStyle(Color.pMuted)
             }
 
             VStack(alignment: .leading, spacing: Space.xs) {
@@ -85,27 +90,32 @@ struct ServiceAddSheet: View {
 
     // MARK: package.json 스크립트 — 클릭 한 번으로 이름·명령을 채운다
 
+    /// package.json 스크립트가 하나라도 있을 때만 패키지 매니저가 의미 있다(Makefile·sh는 무관).
+    private var hasPackageScripts: Bool { scripts.contains { $0.source == .packageJSON } }
+
     private var scriptPicker: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             HStack(spacing: Space.sm) {
-                Text("package.json 스크립트")
+                Text("프로젝트 스크립트")
                     .font(.muxa(.caption))
                     .foregroundStyle(Color.pMuted)
                 Spacer(minLength: Space.sm)
-                if manager == nil {
-                    // lock 파일이 없다 — **추측하지 않고 물어본다.** pnpm 프로젝트에 `npm run`을 넣으면
-                    // lock이 깨지거나 엉뚱한 의존성이 깔린다. 기본값을 조용히 쓰지 않는다.
-                    Picker("", selection: $pickedManager) {
-                        ForEach(PackageManager.allCases) { Text($0.rawValue).tag($0) }
+                if hasPackageScripts {
+                    if manager == nil {
+                        // lock 파일이 없다 — **추측하지 않고 물어본다.** pnpm 프로젝트에 `npm run`을 넣으면
+                        // lock이 깨지거나 엉뚱한 의존성이 깔린다. 기본값을 조용히 쓰지 않는다.
+                        Picker("", selection: $pickedManager) {
+                            ForEach(PackageManager.allCases) { Text($0.rawValue).tag($0) }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                        .help("lock 파일이 없어 패키지 매니저를 알 수 없습니다 — 직접 고르세요")
+                    } else {
+                        Pill(color: Color.pBrand) {
+                            Text(effectiveManager.rawValue).font(.muxa(.caption, weight: .semibold))
+                        }
+                        .help("lock 파일로 감지한 패키지 매니저")
                     }
-                    .labelsHidden()
-                    .fixedSize()
-                    .help("lock 파일이 없어 패키지 매니저를 알 수 없습니다 — 직접 고르세요")
-                } else {
-                    Pill(color: Color.pBrand) {
-                        Text(effectiveManager.rawValue).font(.muxa(.caption, weight: .semibold))
-                    }
-                    .help("lock 파일로 감지한 패키지 매니저")
                 }
             }
 
@@ -122,20 +132,31 @@ struct ServiceAddSheet: View {
         }
     }
 
-    /// 스크립트 한 줄 — [이름 | 설명(있으면) · 실제 명령].
+    /// 스크립트가 실제로 실행할 명령. package.json만 패키지 매니저로 조립하고
+    /// (`pnpm run dev`), Makefile·셸 스크립트는 이미 완성된 명령이다(`make dev`·`./scripts/dev.sh`).
+    private func runCommand(_ script: ProjectScript) -> String {
+        script.source == .packageJSON ? effectiveManager.runCommand(script.name) : script.body
+    }
+
+    /// 스크립트 한 줄 — [출처] 이름 | 설명(있으면) · 실제 명령.
     /// 클릭하면 아래 입력칸이 채워진다(바로 등록하지 않는다 — 이름을 바꾸거나 명령을 손볼 수 있게).
     private func scriptRow(_ script: ProjectScript) -> some View {
-        let filled = effectiveManager.runCommand(script.name)
+        let filled = runCommand(script)
         let isSelected = command == filled
         return Button {
             name = script.name
             command = filled
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
+                // 출처를 밝힌다 — 여러 소스가 섞이면 "이게 어디서 왔지"가 곧바로 궁금해진다.
+                Text(sourceLabel(script.source))
+                    .font(.muxa(.nano, weight: .semibold))
+                    .foregroundStyle(Color.pMuted)
+                    .frame(width: 34, alignment: .leading)
                 Text(script.name)
                     .font(.muxaMono(.label, weight: .semibold))
                     .foregroundStyle(Color.pFg)
-                    .frame(minWidth: 56, alignment: .leading)
+                    .frame(minWidth: 52, alignment: .leading)
                 VStack(alignment: .leading, spacing: 1) {
                     // 설명이 있으면 그게 주인공이다 — 명령보다 사람 말이 먼저 읽혀야 한다.
                     if let note = script.note {
@@ -144,7 +165,7 @@ struct ServiceAddSheet: View {
                             .foregroundStyle(Color.pFg)
                             .lineLimit(1)
                     }
-                    Text(script.body)
+                    Text(filled)
                         .font(.muxaMono(.caption))
                         .foregroundStyle(Color.pMuted)
                         .lineLimit(1)
@@ -164,5 +185,14 @@ struct ServiceAddSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    private func sourceLabel(_ source: ScriptSource) -> String {
+        switch source {
+        case .packageJSON: return "pkg"
+        case .makefile: return "make"
+        case .justfile: return "just"
+        case .shell: return "sh"
+        }
     }
 }

@@ -111,6 +111,75 @@ final class ProjectScriptsTests: XCTestCase {
         XCTAssertEqual(ProjectScripts.parsePackageScripts(json).first?.note, "명시적 설명")
     }
 
+    // MARK: Makefile — package.json이 없는 생태계(Go·Rust·C)의 사실상 표준
+
+    /// self-documenting makefile 관례: `target: ## 설명`. 설명이 있는 타깃을 먼저 보여준다.
+    func testParsesMakefileTargets() {
+        let make = """
+        .PHONY: dev build
+
+        dev: ## 개발 서버 (:8080)
+        \tgo run ./cmd/server
+
+        build:
+        \tgo build -o bin/app ./cmd/server
+
+        # 이건 주석일 뿐 타깃이 아니다
+        """
+        let targets = ProjectScripts.parseMakefile(make)
+        XCTAssertEqual(targets.map(\.name), ["build", "dev"])
+        XCTAssertEqual(targets.first { $0.name == "dev" }?.note, "개발 서버 (:8080)")
+        XCTAssertEqual(targets.first { $0.name == "dev" }?.body, "make dev")
+        XCTAssertNil(targets.first { $0.name == "build" }?.note)
+    }
+
+    /// `.PHONY`·변수 대입·패턴 규칙은 타깃이 아니다.
+    func testMakefileIgnoresNonTargets() {
+        let make = """
+        .PHONY: all
+        CC = gcc
+        CFLAGS := -O2
+        %.o: %.c
+        \t$(CC) -c $<
+        run: ## 실행
+        \t./app
+        """
+        XCTAssertEqual(ProjectScripts.parseMakefile(make).map(\.name), ["run"])
+    }
+
+    func testMakefileEmpty() {
+        XCTAssertTrue(ProjectScripts.parseMakefile("").isEmpty)
+        XCTAssertTrue(ProjectScripts.parseMakefile("# 주석만 있다").isEmpty)
+    }
+
+    // MARK: 셸 스크립트 — 상단 주석을 설명으로 읽는다
+
+    func testShellScriptDescription() {
+        let sh = """
+        #!/usr/bin/env bash
+        # 개발 서버를 띄운다 (포트 3000)
+        set -euo pipefail
+        exec node server.js
+        """
+        XCTAssertEqual(ProjectScripts.shellScriptNote(sh), "개발 서버를 띄운다 (포트 3000)")
+    }
+
+    /// shebang 뒤 첫 주석만 설명으로 본다 — `set -e` 이후의 주석은 코드 설명이지 스크립트 설명이 아니다.
+    func testShellScriptNoteStopsAtFirstCode() {
+        let sh = """
+        #!/bin/sh
+        set -e
+        # 이건 내부 로직 주석
+        echo hi
+        """
+        XCTAssertNil(ProjectScripts.shellScriptNote(sh))
+    }
+
+    func testShellScriptNoteAbsent() {
+        XCTAssertNil(ProjectScripts.shellScriptNote("#!/bin/sh\necho hi"))
+        XCTAssertNil(ProjectScripts.shellScriptNote(""))
+    }
+
     // MARK: discover — 실제 디렉터리를 읽는 경계
 
     func testDiscoverReadsRealDirectory() throws {
@@ -145,5 +214,34 @@ final class ProjectScriptsTests: XCTestCase {
         let found = ProjectScripts.discover(in: nil)
         XCTAssertTrue(found.scripts.isEmpty)
         XCTAssertNil(found.manager)
+    }
+
+    // MARK: dogfooding — 우리 리포에서 실제로 동작하는가
+
+    /// **muxa 자신을 읽는다.** 합성 픽스처만으로는 "현실의 파일에서 되는가"를 증명하지 못한다.
+    /// muxa는 package.json이 없는 프로젝트(Swift/SPM)라 Makefile·scripts/ 경로를 검증한다.
+    func testDiscoverFindsOurOwnMakefileAndScripts() {
+        // .../macos/Tests/muxaTests/ProjectScriptsTests.swift → 리포 루트
+        let repo = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // muxaTests
+            .deletingLastPathComponent() // Tests
+            .deletingLastPathComponent() // macos
+            .deletingLastPathComponent() // (리포 루트)
+        let found = ProjectScripts.discover(in: repo.path)
+
+        // Makefile 타깃 — 설명(## 주석)까지 읽힌다
+        let make = found.scripts.filter { $0.source == .makefile }
+        XCTAssertTrue(make.contains { $0.name == "test" && $0.body == "make test" },
+                      "Makefile의 test 타깃을 못 찾았다: \(make.map(\.name))")
+        XCTAssertNotNil(make.first { $0.name == "app" }?.note, "## 설명을 못 읽었다")
+
+        // scripts/*.sh — 실행 가능한 셸 스크립트
+        let shell = found.scripts.filter { $0.source == .shell }
+        XCTAssertTrue(shell.contains { $0.name == "bootstrap" && $0.body == "./scripts/bootstrap.sh" },
+                      "scripts/bootstrap.sh를 못 찾았다: \(shell.map(\.name))")
+
+        // package.json이 없는 프로젝트다 — 매니저는 nil이어야 한다(추측하지 않는다)
+        XCTAssertNil(found.manager)
+        XCTAssertTrue(found.scripts.filter { $0.source == .packageJSON }.isEmpty)
     }
 }

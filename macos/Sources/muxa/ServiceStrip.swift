@@ -7,6 +7,9 @@ import SwiftUI
 ///
 /// 서비스마다 칩을 늘어놓으면 푸터가 금세 넘친다(경로·브랜치·사용량과 폭을 다툰다). 그래서
 /// **하나로 요약**하고, 죽은 게 하나라도 있으면 그게 요약이 된다(초록 다수에 묻히면 안 된다).
+///
+/// **요약은 창 전체가 대상이다.** 활성 프로젝트만 세면, 다른 워크스페이스의 dev 서버가 죽어도
+/// 거기 들어가야만 알 수 있다 — 그러면 이 신호는 있으나 마나다. 어디 것이 죽었는지는 팝오버가 밝힌다.
 struct ServiceStrip: View {
     let state: AppState
     let project: Project
@@ -14,10 +17,11 @@ struct ServiceStrip: View {
     @State private var hovered = false
     @State private var showPopover = false
 
-    private var services: [Service] { state.services(of: project.id) }
+    /// 창 전체의 서비스(모든 워크스페이스·프로젝트).
+    private var services: [LocatedService] { state.allLocatedServices }
 
     private var statuses: [ServiceState] {
-        services.map { state.serviceMonitor.states[$0.id] ?? .missing }
+        services.map { state.serviceMonitor.states[$0.service.id] ?? .missing }
     }
 
     var body: some View {
@@ -40,9 +44,9 @@ struct ServiceStrip: View {
         .animation(Motion.fast, value: hovered)
         .help(helpText)
         .popover(isPresented: $showPopover, arrowEdge: .top) {
-            ServicePopover(state: state, project: project) { serviceId in
+            ServicePopover(state: state, currentProjectId: project.id) { located in
                 showPopover = false
-                state.openServiceDock(serviceId: serviceId)
+                state.revealService(located) // 다른 프로젝트 것이면 그리로 데려간다
             } onAdd: {
                 showPopover = false
                 state.requestAddService()
