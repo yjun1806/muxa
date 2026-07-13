@@ -88,7 +88,7 @@ final class AppState {
 
     @ObservationIgnored private let app: ghostty_app_t
     /// muxa 설정(`~/.config/muxa/config`) — 시작 시 로드해 주입하고, 파일 저장 시 ConfigWatcher가
-    /// `applyConfig`로 라이브 갱신한다(재시작 불필요). 기본 사이드바 모드·완료 배지 임계 등. (DESIGN 4.6)
+    /// `applyConfig`로 라이브 갱신한다(재시작 불필요). 기본 사이드바 모드·완료 배지 임계 등. (ARCHITECTURE 4.6)
     @ObservationIgnored private(set) var config: MuxaConfig
     /// 프로젝트 id → TerminalStore. 프로젝트가 독립 분할 레이아웃 하나를 소유한다.
     @ObservationIgnored private var stores: [String: TerminalStore] = [:]
@@ -105,7 +105,7 @@ final class AppState {
         self.sidebarMode = config.sidebarMode
     }
 
-    /// 설정 파일 저장이 감지됐을 때 새 설정을 반영한다(ConfigWatcher → AppDelegate가 호출). (DESIGN 4.6)
+    /// 설정 파일 저장이 감지됐을 때 새 설정을 반영한다(ConfigWatcher → AppDelegate가 호출). (ARCHITECTURE 4.6)
     /// 라이브 반영 대상은 "런타임 동작값"뿐 — 완료 배지 임계는 이미 생성된 스토어에도 전파한다.
     /// confirm_quit은 종료 시점에 config를 읽으므로 값 교체만으로 즉시 유효하다.
     /// sidebar_mode·default_workspace_path는 "초기 기본값" 성격이라 라이브 반영 제외 —
@@ -293,7 +293,7 @@ final class AppState {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    // MARK: 크롬 동작 실행 (키맵·팔레트 공유 단일 진실 원천 — DESIGN 7 라우팅)
+    // MARK: 크롬 동작 실행 (키맵·팔레트 공유 단일 진실 원천 — ARCHITECTURE 7 라우팅)
 
     /// KeymapAction 하나를 실행한다 — main.swift 로컬 키 모니터와 ⌘K 팔레트가 공유하는 실행 경로.
     /// 실행됐으면(=소비) true. 활성 스토어가 필요한 동작(⌘T/⌘D/⌘W/⌘F 등)은 스토어가 없으면 무동작(false).
@@ -456,12 +456,12 @@ final class AppState {
         // 탭/뷰어가 바뀔 때마다 즉시 저장 — ⌘Q 없이(pkill·크래시) 종료돼도 다음 실행에 복원.
         s.onStateChange = { [weak self] in MainActor.assumeIsolated { self?.save() } }
         stores[project.id] = s
-        // 첫 store 생성(=첫 터미널이 이 경로에서 시작) 시점에 세션 기준선을 1회 기록(DESIGN 4.4 #2).
+        // 첫 store 생성(=첫 터미널이 이 경로에서 시작) 시점에 세션 기준선을 1회 기록(ARCHITECTURE 4.4 #2).
         recordSessionBaseline(projectId: project.id, cwd: cwd)
         return s
     }
 
-    // MARK: 세션 기준선 (DESIGN 4.4 #2 — "이번 세션에 에이전트가 한 일"의 기준점)
+    // MARK: 세션 기준선 (ARCHITECTURE 4.4 #2 — "이번 세션에 에이전트가 한 일"의 기준점)
 
     /// 프로젝트의 세션 기준선을 최초 1회 기록한다 — 이미 값이 있으면 유지(세션 지속). git 저장소가 아니면 무시.
     private func recordSessionBaseline(projectId: String, cwd: String?) {

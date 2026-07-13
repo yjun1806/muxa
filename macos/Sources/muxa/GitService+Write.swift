@@ -27,7 +27,7 @@ extension GitService {
         await run(["reset", "-q"], in: dir).exitCode == 0
     }
 
-    /// 파일 하나의 변경을 버린다(discard) — 체크 동선의 "거부" 반쪽(DESIGN 4.4).
+    /// 파일 하나의 변경을 버린다(discard) — 체크 동선의 "거부" 반쪽(ARCHITECTURE 4.4).
     /// 성공 시 nil, 실패 시 사용자용 에러 메시지. 안전한 단계는 순수 계획(DiscardPlan)이 정하고 여기선 실행만.
     /// 리네임(R)은 원본·대상을 모두 처리해 데이터 손실을 막는다(DiscardPlan 참고).
     static func discard(_ change: GitFileChange, in dir: String) async -> String? {

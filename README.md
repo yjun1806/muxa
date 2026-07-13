@@ -7,7 +7,8 @@
 ## 상태
 
 구현 중. 터미널 코어(분할·탭·검색·세션 복원)와 git 읽기(상태·diff·히스토리)까지 동작한다.
-설계는 [docs/DESIGN.md](docs/DESIGN.md), 현재 상태·다음 할 일은 [docs/STATUS.md](docs/STATUS.md).
+아키텍처·결정은 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), UI 디자인 시스템은 [docs/DESIGN.md](docs/DESIGN.md),
+현재 상태·다음 할 일은 [docs/STATUS.md](docs/STATUS.md).
 
 ## 핵심 아이디어
 

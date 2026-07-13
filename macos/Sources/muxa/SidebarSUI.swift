@@ -54,7 +54,7 @@ struct SidebarSUI: View {
     @ViewBuilder
     private func item(_ ws: Workspace, index: Int) -> some View {
         let active = ws.id == state.activeId
-        // 백그라운드 활동(●) — 이 워크스페이스의 프로젝트 중 배지된 게 있으면 표시(DESIGN 5절 사이드바 ●).
+        // 백그라운드 활동(●) — 이 워크스페이스의 프로젝트 중 배지된 게 있으면 표시(DESIGN.md 사이드바 ●).
         let badged = state.badgedWorkspaces.contains(ws.id)
         let hovered = hoveredId == ws.id || menuOpenId == ws.id
         Button {

@@ -2,12 +2,12 @@ import AppKit
 import Bonsplit
 import Carbon.HIToolbox
 
-// 앱 크롬 단축키 판정을 데이터 테이블로 표현하는 순수 타입. (DESIGN 7 "키 라우팅 충돌")
+// 앱 크롬 단축키 판정을 데이터 테이블로 표현하는 순수 타입. (ARCHITECTURE 7 "키 라우팅 충돌")
 //
 // main.swift의 로컬 키 모니터는 "무엇을 할지" 판정만 이 타입에 위임하고(부작용 없음),
 // 실제 실행(AppState·컨트롤러 호출)은 호출부(AppDelegate)가 맡는다.
 //
-// 라우팅 규칙(DESIGN 4.6 · 7 리스크):
+// 라우팅 규칙(ARCHITECTURE 4.6 · 7 리스크):
 //   ① 테이블 매치 → Action 반환 → 호출부가 실행하고 이벤트를 소비(터미널로 안 흘림)
 //   ② 미매치 → nil → 이벤트를 그대로 터미널로 통과(포커스된 ghostty가 먹는다)
 // 모든 기본 바인딩이 ⌘·⌘⇧·⌘⌥ 조합(탭 순환만 ⌃Tab)이라 터미널 안 vim 평문(hjkl 등)과 충돌하지 않는다.
@@ -187,7 +187,7 @@ extension KeymapResolver {
 
 // MARK: - 재정의 진단 (순수)
 
-/// keybind 재정의를 흡수하며 감지한 문제. 값 타입 — 로깅·UI 노출은 호출부가 결정한다. (DESIGN 7)
+/// keybind 재정의를 흡수하며 감지한 문제. 값 타입 — 로깅·UI 노출은 호출부가 결정한다. (ARCHITECTURE 7)
 /// "왜 내 단축키가 안 먹지"의 원인(파싱 실패·미인식 동작·예약키·충돌)을 조용히 삼키지 않고 표면화한다.
 enum KeymapDiagnostic: Equatable {
     /// 동작 이름을 못 알아봤다(예: `keybind.zoom`). 재정의 무시.

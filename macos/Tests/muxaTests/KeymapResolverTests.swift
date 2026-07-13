@@ -2,7 +2,7 @@ import XCTest
 import Carbon.HIToolbox
 @testable import muxa
 
-/// KeymapResolver 순수 판정 + 재정의 진단 검증. (DESIGN 7 키 라우팅)
+/// KeymapResolver 순수 판정 + 재정의 진단 검증. (ARCHITECTURE 7 키 라우팅)
 final class KeymapResolverTests: XCTestCase {
     private let r = KeymapResolver.default
 

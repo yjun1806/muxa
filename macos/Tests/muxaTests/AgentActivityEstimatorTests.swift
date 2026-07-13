@@ -1,7 +1,7 @@
 import XCTest
 @testable import muxa
 
-/// AgentActivityEstimator 순수 상태 전이 검증 — 명시 신호 pin + idle 추정. (DESIGN 4.5)
+/// AgentActivityEstimator 순수 상태 전이 검증 — 명시 신호 pin + idle 추정. (ARCHITECTURE 4.5)
 final class AgentActivityEstimatorTests: XCTestCase {
     func testInitialIdle() {
         XCTAssertEqual(AgentActivityEstimator().state, .idle)
