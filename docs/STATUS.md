@@ -78,6 +78,29 @@ fable 3렌즈 검토로 도출한 백로그를 순차 파이프라인(각 단계
 
 신규 파일: `NotifyServer` · `MuxaConfig` · `KeymapResolver` · `QuickSwitcher`/`QuickSwitchItem` · `FuzzyMatch` · `TerminalSignal` · `DiscardConfirm` · `WorktreeMergeConfirm`.
 
+## 서비스(장수 프로세스) — 완료 (2026-07-13, `feat/services`)
+
+dev 서버를 **탭 트리 밖 "서비스"**로 두고 실행을 muxa 전용 tmux 서버(`-L muxa`)에 위임. 설계 근거는
+[DESIGN D19 · 4.7](DESIGN.md). 순수 로직 테스트 포함 **199개 통과**.
+
+- **생존** — tmux 서버는 ppid=1(launchd). muxa를 꺼도 dev 서버가 산다(실측 확인). 재실행 시 세션
+  생성 시각 불변 = 중복 기동 없음(`start` 멱등).
+- **접힌 상태 감지** — 서피스 렌더 없이 `list-panes`/`capture-pane`으로 상태·로그를 읽는다.
+  `remain-on-exit on` **필수**(없으면 죽는 순간 pane이 증발해 exit code·로그를 잃는다).
+- **UI** — 푸터 요약 칩(사용량 오른쪽, "2 · 1 종료됨") → hover 팝오버(서비스별 상태·포트) →
+  클릭 시 하단 **오버레이** 도크(좌: 목록, 우: 로그). 오버레이라 여닫아도 ghostty 리플로우 0.
+  살아있으면 attach(진짜 터미널), 죽었으면 읽기 전용 로그(`ServiceLogView`).
+- **좀비 정리** — **우리가 확실히 아는 세션만** 죽인다: muxa 소유 접두사 + **내 state가 아는
+  프로젝트**. muxa 인스턴스가 여럿이면 소켓을 공유하므로 이 범위 제한이 없으면 서로의 dev 서버를 몰살한다.
+- **tmux 미설치** — 숨기지 않고 안내한다. `brew install tmux`를 터미널에 **주입만** 하고 Enter는
+  사용자가 누른다(앱이 직접 설치하지 않는다).
+
+실측으로 잡은 함정: `.app`은 PATH를 상속 안 해 `pnpm`·`tmux`를 못 찾는다(로그인 셸 래핑 + 절대경로
+해석) · zsh의 `=word` 확장이 `attach -t =세션`을 삼킨다(인용 필수) · `capture-pane` 타겟은 `=<세션>:`.
+
+**미검증(★)**: 죽은 서비스의 로그 뷰가 화면에 제대로 뜨는지 육안 미확인(코드·순수 함수 테스트는 통과,
+스크린샷으로 확증 실패). hover 팝오버도 육안 미확인(자동화 불가). ⌘J 토글 실기기 미확인.
+
 ## 다음 할 일 (백로그) — 잔여·후속
 
 ### 실기기 검증 (최우선 ★)
