@@ -24,11 +24,18 @@ struct TerminalRepresentable: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         term.onFocus = onFocus // 매 렌더마다 현재 paneId로 갱신(탭 이동 대응)
-        if term.superview !== nsView {
-            term.removeFromSuperview()
-            term.frame = nsView.bounds
-            term.autoresizingMask = [.width, .height]
-            nsView.addSubview(term)
-        }
+        guard term.superview !== nsView else { return }
+        // **화면에 붙어 있는 TermView를 화면 밖 컨테이너가 뺏어가지 못하게 한다.**
+        //
+        // TermView는 TerminalStore가 소유하는 단일 인스턴스인데, 복원 중 트리가 .pane → .split으로
+        // 바뀌면 같은 TermView를 그리는 SwiftUI 뷰가 잠시 둘 공존한다. 그때 소유권 검사 없이
+        // "내 자식이 아니면 가져온다"를 하면, **죽어가는 쪽이 나중에 돌 경우 TermView를 곧 폐기될
+        // 계층으로 끌고 간다** — 화면의 칸은 빈 껍데기(흰 화면)로 남는다. 게다가 TermView가 계층에
+        // 없으니 mouseDown조차 오지 않아 클릭으로도 복구되지 않는다(자기잠금).
+        if term.window != nil, nsView.window == nil { return }
+        term.removeFromSuperview()
+        term.frame = nsView.bounds
+        term.autoresizingMask = [.width, .height]
+        nsView.addSubview(term)
     }
 }

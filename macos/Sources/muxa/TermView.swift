@@ -111,10 +111,22 @@ final class TermView: NSView, NSTextInputClient {
         }
         for p in envStorage { free(p) }
 
+        // 서피스 생성 실패는 조용한 흰 화면이 된다 — 레이어가 안 생기고, 키·클릭·리드로우가 전부
+        // `guard let surface`에 막혀 무동작이라 원인을 알 길이 없다. 최소한 로그는 남긴다.
+        if surface == nil {
+            NSLog("[muxa] ghostty_surface_new 실패 — 터미널이 빈 화면으로 남습니다 (tabId=\(tabId?.uuid.uuidString ?? "-"))")
+        }
+
         // 서피스가 생기자마자 display ID를 심는다. 이 뷰는 아직 창에 붙기 전(SwiftUI makeNSView)이라
         // window?.screen이 없지만, syncDisplayID가 주 화면으로 폴백해 **무조건 하나는** 설정한다.
-        // 늦게 심으면 ghostty가 vsync를 "도는 중"으로 오인한 채 프레임을 안 내보내 흰 화면으로 굳는다.
         syncDisplayID()
+
+        // **포커스 상태를 명시적으로 맞춘다(desync 제거).**
+        // ghostty의 Surface.focused 기본값은 `true`인데(Surface.zig) muxa의 isFocused는 false로 시작하고
+        // didSet은 "값이 바뀔 때만" 전달한다 — 그래서 서피스는 서로 어긋난 채 태어난다. 그 상태에서
+        // 사용자가 칸을 클릭해 set_focus(true)를 보내도 ghostty는 `focused == focused`로 **즉시 무시**해
+        // 커서 블링크·리드로우 등 어떤 복구 신호도 일어나지 않는다(빈 칸을 클릭해도 안 살아나는 이유).
+        if let surface { ghostty_surface_set_focus(surface, isFocused) }
 
         // 검색어를 ghostty로 밀어넣는 브리지 — 전용 API가 없어 binding-action 문자열로만 가능(cmux 동일).
         search.applyNeedle = { [weak self] needle in
