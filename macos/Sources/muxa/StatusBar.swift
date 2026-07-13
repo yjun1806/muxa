@@ -78,6 +78,12 @@ struct StatusBar: View {
             }
             Spacer(minLength: Space.md)
             usageView
+            // 서비스 칩 — 도크가 접혀 있을 때의 유일한 상시 신호라 항상 자리를 지킨다.
+            // 사용량 칩과 같은 문법(칩 + 상세 팝오버)이라 나란히 두고, 폭이 고정된 요약이므로
+            // 오른쪽 끝에 붙여도 경로·브랜치를 밀어내지 않는다.
+            if let ws = state.activeWorkspace, let project = ws.activeProject {
+                ServiceStrip(state: state, project: project)
+            }
         }
         .panelBar(height: RowHeight.toolbar) // 내용이 세로 중앙에 오도록 여유를 준다(24는 빡빡해 아래로 붙어 보인다)
         .background(Color.pPanel)

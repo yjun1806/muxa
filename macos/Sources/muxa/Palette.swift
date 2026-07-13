@@ -72,6 +72,10 @@ enum Palette {
     /// 에러·파괴적 동작(빨강). git 삭제색과 같은 값이지만 의미가 달라 별칭으로 둔다 —
     /// 에러 메시지에 `.red`(시스템색)를 직접 쓰면 팔레트 밖으로 새서 라이트/다크 대비가 어긋난다.
     static let danger = gitDeleted
+
+    // 서비스(장수 프로세스) 상태 점 — "정상/문제"라는 같은 의미축이라 git 상태색을 재사용한다.
+    static let serviceRunning = gitAdded // 실행 중(초록)
+    static let serviceExited = gitDeleted // 비정상 종료(빨강)
 }
 
 extension NSColor {
@@ -112,4 +116,6 @@ extension Color {
     static let pBtnHover = Color(nsColor: Palette.btnHover)
     static let pBtnActive = Color(nsColor: Palette.btnActive)
     static let pDanger = Color(nsColor: Palette.danger)
+    static let pServiceRunning = Color(nsColor: Palette.serviceRunning)
+    static let pServiceExited = Color(nsColor: Palette.serviceExited)
 }

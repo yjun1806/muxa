@@ -23,6 +23,17 @@ final class AppState {
     /// 이건 "자리 비웠다 돌아왔을 때의 복구 동선". 상단바 벨 팝오버가 관측해 렌더한다.
     let attention = AttentionLog()
 
+    /// 서비스(장수 프로세스) 상태 관측 — 접혀 있어도 tmux에 물어 돈다. 앱 전체에 하나(Service.swift).
+    let serviceMonitor = ServiceMonitor()
+
+    /// 서비스 도크(하단 오버레이) 표시 상태와 선택된 서비스.
+    ///
+    /// **오버레이인 이유**: 레이아웃을 차지하는 도크로 만들면 열고 닫을 때마다 콘텐츠 카드가 줄었다 늘고,
+    /// 그때마다 ghostty 그리드가 리플로우된다. 그러면 "슬쩍 보고 닫기"의 비용이 커져 결국 안 열게 된다.
+    /// 카드 위에 겹치면 메인 그리드 리플로우가 0이다.
+    var showServiceDock = false
+    var selectedServiceId: String?
+
     /// 도구 패널 표시 상태(B). 재시작 시 마지막 열림/닫힘을 복원(Persisted에 저장) — 매번 다시 열 필요 없이.
     /// 상단바 토글 버튼·단축키(⌘⇧E/⌘⇧G)·알림이 이 상태를 연다.
     var showExplorer = false
@@ -304,6 +315,17 @@ final class AppState {
             jumpToNextWaiting(); return true
         case .quickSwitch:
             toggleQuickSwitch(); return true
+        case .toggleServiceDock:
+            if showServiceDock { closeServiceDock() } else { openServiceDock(serviceId: nil) }
+            return true
+        case .closeTab where showServiceDock:
+            // ⌘W 오폭 방지 — 도크가 열려 있으면 ⌘W는 도크를 닫는다.
+            //
+            // 도크의 attach 터미널이 firstResponder여도 Bonsplit의 focusedPaneId는 여전히 뒤의 칸을
+            // 가리킨다. 그대로 두면 사용자는 "지금 보고 있는 것(도크)"을 닫으려 ⌘W를 눌렀는데
+            // **보이지도 않는 탭이 닫힌다.** 눈에 보이는 것이 닫히는 게 유일하게 옳은 동작이다.
+            closeServiceDock()
+            return true
         case .newTerminal, .split, .closeTab, .find, .focusPane, .cycleTab:
             guard let store = activeStore else { return false }
             return Self.perform(action, store: store)
@@ -484,6 +506,11 @@ final class AppState {
         project(projectId)?.services ?? []
     }
 
+    /// 모든 워크스페이스의 서비스 — 모니터 폴링·고아 판정의 입력.
+    private var allServices: [Service] {
+        workspaces.flatMap(\.projects).flatMap { $0.services ?? [] }
+    }
+
     /// 서비스를 등록하고 곧바로 기동한다. cwd는 프로젝트 경로(없으면 워크스페이스 경로).
     func addService(name: String, command: String, to projectId: String, cwd: String) {
         let service = Service(id: newId(), name: name, command: command)
@@ -492,7 +519,10 @@ final class AppState {
             next.services = (p.services ?? []) + [service]
             return next
         }
-        Task { await TmuxService.start(service, projectId: projectId, cwd: cwd) }
+        Task {
+            await TmuxService.start(service, projectId: projectId, cwd: cwd)
+            syncServiceMonitor()
+        }
     }
 
     /// 서비스를 등록 해제하고 프로세스도 죽인다.
@@ -506,15 +536,133 @@ final class AppState {
             next.services = (p.services ?? []).filter { $0.id != serviceId }
             return next
         }
-        Task { await TmuxService.kill(projectId: projectId, serviceId: serviceId) }
+        if selectedServiceId == serviceId { selectedServiceId = nil }
+        dropDockTerm(serviceId)
+        Task {
+            await TmuxService.kill(projectId: projectId, serviceId: serviceId)
+            syncServiceMonitor()
+        }
+    }
+
+    /// 죽은 서비스를 같은 명령으로 다시 띄운다(재시작). tmux 세션을 지우고 새로 만든다.
+    ///
+    /// **자동 재시작은 하지 않는다.** 포트를 문 좀비나 설정 오류로 즉사하는 경우 크래시 루프에 빠져
+    /// 로그가 덮여 원인이 사라진다. 죽으면 그대로 두고(remain-on-exit로 로그가 보존된다) 사용자가
+    /// 로그를 본 뒤 직접 누르게 한다.
+    func restartService(_ serviceId: String, in projectId: String, cwd: String) {
+        guard let service = services(of: projectId).first(where: { $0.id == serviceId }) else { return }
+        dropDockTerm(serviceId) // 옛 세션에 attach된 터미널은 버린다 — 다시 열 때 새 세션에 붙는다
+        Task {
+            await TmuxService.kill(projectId: projectId, serviceId: serviceId)
+            await TmuxService.start(service, projectId: projectId, cwd: cwd)
+            syncServiceMonitor()
+        }
+    }
+
+    /// 등록된 서비스가 바뀔 때마다 모니터에 알린다(폴링 대상 갱신). 서비스가 0개면 폴링이 멈춘다.
+    func syncServiceMonitor() {
+        serviceMonitor.sync(services: allServices)
+    }
+
+    /// 앱 시작 시 1회 — 알림 배선 + 저장된 서비스 재기동 + 폴링 시작.
+    ///
+    /// **재기동은 "복원"이지 "자동 실행"이 아니다.** tmux 세션이 살아 있으면 start가 멱등이라 아무 일도
+    /// 없고(그게 보통), 앱을 재부팅하거나 tmux 서버가 죽은 뒤에만 실제로 다시 뜬다.
+    func startServices() {
+        guard TmuxService.isAvailable else { return }
+        serviceMonitor.onExit = { [weak self] service, code in
+            guard let self, code != 0 else { return } // 정상 종료(0)는 알리지 않는다 — 시끄럽기만 하다
+            guard let location = self.locate(serviceId: service.id) else { return }
+            self.attention.record(workspaceId: location.workspaceId, projectId: location.projectId,
+                                  tabId: service.id, kind: .system,
+                                  title: "\(service.name) 종료됨 (exit \(code))")
+            self.markProjectBadge(location.projectId)
+        }
+        for ws in workspaces {
+            for project in ws.projects {
+                let cwd = project.path ?? ws.path
+                guard let cwd else { continue }
+                for service in project.services ?? [] {
+                    Task { await TmuxService.start(service, projectId: project.id, cwd: cwd) }
+                }
+            }
+        }
+        syncServiceMonitor()
+    }
+
+    /// 서비스가 속한 워크스페이스·프로젝트를 찾는다(알림 라우팅용).
+    private func locate(serviceId: String) -> (workspaceId: String, projectId: String)? {
+        for ws in workspaces {
+            for project in ws.projects where (project.services ?? []).contains(where: { $0.id == serviceId }) {
+                return (ws.id, project.id)
+            }
+        }
+        return nil
+    }
+
+    // MARK: 서비스 도크의 터미널 — 펼칠 때 attach, 접을 때 버린다
+
+    /// serviceId → attach 터미널. 도크가 열려 있는 동안만 산다.
+    @ObservationIgnored private var dockTerms: [String: TermView] = [:]
+
+    /// 재시작 횟수 — 세션이 갈아엎어졌음을 로그 뷰에 알리는 토큰(다시 읽게 한다).
+    private(set) var serviceRestartSeq = 0
+
+    /// **살아있는** 서비스의 attach 터미널(없으면 만든다). 죽은 서비스는 터미널이 아니라
+    /// 읽기 전용 로그를 보여준다(ServiceLogView) — 죽는 순간 터미널을 갈아끼우면 새 ghostty 서피스가
+    /// 빈 화면으로 뜨는 레이스를 밟고, 정작 사인(死因)을 봐야 할 때 아무것도 안 보인다.
+    ///
+    /// **접을 때 버려도 안전한 이유**: 이 서피스에서 도는 건 `tmux attach` 클라이언트일 뿐이고,
+    /// dev 서버는 tmux 서버(ppid=1) 쪽에 있다. 서피스를 해제해도 프로세스는 살아 있으므로
+    /// 상태를 유지하려고 숨은 서피스를 붙들 필요가 없다 — 재부착 빈 화면 레이스를 아예 안 밟는다.
+    func dockTerm(serviceId: String, projectId: String, cwd: String?) -> TermView {
+        if let existing = dockTerms[serviceId] { return existing }
+        let term = TermView(app: app, cwd: cwd,
+                            initialCommand: TmuxService.attachCommand(projectId: projectId,
+                                                                      serviceId: serviceId))
+        dockTerms[serviceId] = term
+        return term
+    }
+
+    /// 도크를 닫는다 — attach 터미널을 전부 버린다(프로세스는 tmux가 계속 붙잡는다).
+    func closeServiceDock() {
+        showServiceDock = false
+        dockTerms.removeAll()
+    }
+
+    /// 도크를 열고 서비스를 고른다(푸터 칩·팝오버·알림에서 호출).
+    func openServiceDock(serviceId: String?) {
+        selectedServiceId = serviceId ?? selectedServiceId
+        showServiceDock = true
+    }
+
+    /// 도크를 열면서 곧바로 추가 시트를 띄운다 — 팝오버의 "서비스 추가"가 두 번 클릭이 되지 않게.
+    /// 도크가 소비하고 내린다(원샷 요청).
+    var serviceAddRequested = false
+
+    func requestAddService() {
+        showServiceDock = true
+        serviceAddRequested = true
+    }
+
+    /// 재시작·제거로 세션이 갈아엎어지면 그 서비스의 터미널을 버린다(옛 세션에 붙은 채 남지 않게).
+    /// 로그 뷰도 다시 읽도록 시퀀스를 올린다.
+    private func dropDockTerm(_ serviceId: String) {
+        dockTerms[serviceId] = nil
+        serviceRestartSeq += 1
     }
 
     /// 좀비 청소 — 등록이 사라졌는데 살아남은 서비스 세션을 죽인다. 앱 시작 시 1회.
-    /// 판정 입력은 **모든 워크스페이스**의 서비스여야 한다(활성만 훑으면 남의 서비스를 죽인다).
+    ///
+    /// 판정 입력은 **모든 워크스페이스**여야 한다:
+    ///  - 서비스: 활성 워크스페이스만 훑으면 다른 워크스페이스의 서비스가 고아로 몰려 죽는다.
+    ///  - 프로젝트: 내가 아는 프로젝트의 세션만 판정 대상이다. muxa 인스턴스가 여럿이면 tmux 소켓을
+    ///    공유하므로, 이 범위 제한이 없으면 서로의 dev 서버를 죽인다.
     func collectServiceGarbage() {
         guard TmuxService.isAvailable else { return }
         let live = collectLiveServiceIds(in: workspaces)
-        Task { await TmuxService.collectGarbage(liveServiceIds: live) }
+        let known = collectKnownProjectIds(in: workspaces)
+        Task { await TmuxService.collectGarbage(liveServiceIds: live, knownProjectIds: known) }
     }
 
     /// 백그라운드 프로젝트에 활동(●)이 있음을 표시. 지금 보고 있는 활성 프로젝트(=활성 워크스페이스의

@@ -40,8 +40,25 @@ struct ContentView: View {
     private var contentCard: some View {
         workspaceColumn
             .contentCard(radius: Radius.lg, border: Color.pBorder)
+            // 서비스 도크는 카드 위에 겹친다 — 카드를 리사이즈하지 않으므로 여닫아도 ghostty 그리드가
+            // 리플로우되지 않는다(레이아웃을 차지하는 도크였다면 열 때마다 터미널이 출렁인다).
+            //
+            // **contentCard 뒤에 얹는 이유**: 카드는 칸 강조 테두리를 클립 바깥 맨 위 레이어에 그린다
+            // (ContentCard 주석 참조). 카드 *안쪽* 오버레이로 두면 그 테두리가 도크를 뚫고 지나간다.
+            // 여기 두면 테두리보다 위에 온다. 대신 카드 클립을 못 받으므로 하단 모서리는 직접 깎는다.
+            .overlay(alignment: .bottom) { serviceDock }
             .padding(.trailing, Space.sm)
             .padding(.bottom, Space.xs)
+    }
+
+    @ViewBuilder
+    private var serviceDock: some View {
+        if state.showServiceDock, let ws = state.activeWorkspace, let project = ws.activeProject {
+            ServiceDock(state: state, project: project, cwd: project.path ?? ws.path)
+                // 카드의 라운드 클립 바깥이라 하단 모서리를 직접 맞춰 깎는다(카드 밖으로 삐져나오지 않게).
+                .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: Radius.lg,
+                                                  bottomTrailingRadius: Radius.lg))
+        }
     }
 
     /// 전체 폭 상단바 — 신호등 · 워드마크 · 사이드바 컨트롤 · 프로젝트 탭 · 우측 토글.

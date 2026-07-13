@@ -71,21 +71,41 @@ final class ServiceTests: XCTestCase {
 
     // MARK: 고아 판정 — 좀비 tmux 세션 정리 (ScrollbackStore.orphans 와 같은 원칙: 의심되면 안 지운다)
 
-    func testOrphanIsUnregisteredMuxaSession() {
+    func testOrphanIsUnregisteredServiceOfAKnownProject() {
         let orphans = ServiceSession.orphans(sessions: ["muxa__P__web", "muxa__P__ghost"],
-                                             liveServiceIds: ["web"])
+                                             liveServiceIds: ["web"], knownProjectIds: ["P"])
         XCTAssertEqual(orphans, ["muxa__P__ghost"])
     }
 
     /// muxa 소유가 아닌 세션은 절대 고아로 보지 않는다 — 사용자의 다른 tmux 작업을 죽이면 안 된다.
     func testForeignSessionIsNeverOrphan() {
         let orphans = ServiceSession.orphans(sessions: ["my-work", "irssi", "muxa__P__web"],
-                                             liveServiceIds: ["web"])
+                                             liveServiceIds: ["web"], knownProjectIds: ["P"])
         XCTAssertTrue(orphans.isEmpty)
     }
 
-    func testNoRegisteredServicesMakesAllMuxaSessionsOrphan() {
-        let orphans = ServiceSession.orphans(sessions: ["muxa__P__a", "muxa__P__b"], liveServiceIds: [])
+    /// **모르는 프로젝트의 세션은 건드리지 않는다.** muxa 인스턴스가 여럿 떠 있으면(창 여러 개·개발용
+    /// 워크트리 빌드) 같은 tmux 소켓을 공유하므로, 내 state에 없는 프로젝트의 세션은 남의 것이다.
+    /// 이 가드가 없으면 서로의 dev 서버를 몰살한다.
+    func testUnknownProjectSessionIsNeverOrphan() {
+        let orphans = ServiceSession.orphans(sessions: ["muxa__OTHER__svc", "muxa__P__ghost"],
+                                             liveServiceIds: [], knownProjectIds: ["P"])
+        XCTAssertEqual(orphans, ["muxa__P__ghost"])
+    }
+
+    /// **아는 프로젝트가 하나도 없으면 아무것도 안 지운다.** 아직 state를 못 읽었거나 서비스를 안 쓰는
+    /// 인스턴스가 "등록이 0개니 전부 고아"라고 판단해 남의 세션을 쓸어버리는 것을 막는다.
+    /// (ScrollbackStore.orphans의 "의심되면 안 지운다"와 같은 원칙.)
+    func testNoKnownProjectsDeletesNothing() {
+        let orphans = ServiceSession.orphans(sessions: ["muxa__P__a", "muxa__P__b"],
+                                             liveServiceIds: [], knownProjectIds: [])
+        XCTAssertTrue(orphans.isEmpty)
+    }
+
+    /// 아는 프로젝트인데 등록된 서비스가 0개면, 그 프로젝트의 세션은 정말 고아다(사용자가 전부 지웠다).
+    func testKnownProjectWithNoServicesYieldsOrphans() {
+        let orphans = ServiceSession.orphans(sessions: ["muxa__P__a", "muxa__P__b"],
+                                             liveServiceIds: [], knownProjectIds: ["P"])
         XCTAssertEqual(Set(orphans), ["muxa__P__a", "muxa__P__b"])
     }
 
@@ -126,6 +146,17 @@ final class ServiceTests: XCTestCase {
         XCTAssertNil(ServiceSession.extractPort("compiling..."))
     }
 
+    // MARK: attach 명령 — 유일하게 '셸을 거쳐' 실행되는 명령이라 인용이 필요하다
+
+    /// zsh의 `=word`(EQUALS 확장)에 당하지 않도록 타겟이 인용돼야 한다.
+    /// 인용이 빠지면 zsh가 세션 이름을 명령 경로로 치환하려다 `not found`로 죽는다 —
+    /// 도크가 로그를 아예 못 여는 치명적 버그였다.
+    func testAttachCommandQuotesTarget() {
+        let cmd = TmuxService.attachCommand(projectId: "P", serviceId: "S")
+        XCTAssertTrue(cmd.contains("'=muxa__P__S'"), "타겟이 인용되지 않았다: \(cmd)")
+        XCTAssertFalse(cmd.contains(" =muxa"), "인용 안 된 '=' 가 셸에 노출됐다: \(cmd)")
+    }
+
     // MARK: 살아있는 서비스 id 수집 — 고아 정리의 입력. 여기가 틀리면 멀쩡한 dev 서버를 죽인다.
 
     func testLiveServiceIdsSpanAllWorkspacesAndProjects() {
@@ -144,6 +175,36 @@ final class ServiceTests: XCTestCase {
         let p = Project(id: "P", name: "a", path: nil)
         let ws = Workspace(id: "W", path: nil, name: "w", projects: [p], activeProjectId: "P")
         XCTAssertTrue(collectLiveServiceIds(in: [ws]).isEmpty)
+    }
+
+    // MARK: 죽은 서비스의 로그 정리 — tmux는 pane 화면 그대로를 준다(빈 줄 밭 포함)
+
+    /// 로그 두 줄과 사인(Pane is dead) 사이에 빈 줄 스무 개가 끼면, 정작 봐야 할 것이 화면 밖으로 나간다.
+    func testTidyCollapsesBlankRunsBetweenLogAndCause() {
+        let raw = """
+        ➜ Local: http://localhost:4321/
+        ready in 320 ms
+
+
+        \n\n
+        Pane is dead (status 0)
+
+        """
+        XCTAssertEqual(ServiceLogView.tidy(raw), """
+        ➜ Local: http://localhost:4321/
+        ready in 320 ms
+
+        Pane is dead (status 0)
+        """)
+    }
+
+    func testTidyStripsTrailingSpacesOnEachLine() {
+        XCTAssertEqual(ServiceLogView.tidy("Error: EADDRINUSE   \n  at Server   "),
+                       "Error: EADDRINUSE\n  at Server")
+    }
+
+    func testTidyEmpty() {
+        XCTAssertEqual(ServiceLogView.tidy("\n\n   \n"), "")
     }
 
     // MARK: 영속 — 서비스는 Project에 실려 Persisted에 자동 편승한다

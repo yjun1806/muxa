@@ -52,7 +52,7 @@ final class TermView: NSView, NSTextInputClient {
     override var acceptsFirstResponder: Bool { true }
 
     init(app: ghostty_app_t, cwd: String?, tabId: TabID? = nil, sockPath: String? = nil,
-         restoreScrollbackFile: String? = nil) {
+         restoreScrollbackFile: String? = nil, initialCommand: String? = nil) {
         self.tabId = tabId
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false // 수동 프레임 — 제약 엔진 제외
@@ -94,6 +94,15 @@ final class TermView: NSView, NSTextInputClient {
         if let restoreScrollbackFile {
             let quoted = "'" + restoreScrollbackFile.replacingOccurrences(of: "'", with: "'\\''") + "'"
             config.initial_input = dup("clear; cat \(quoted)\n")
+        } else if let initialCommand {
+            // 서비스 도크가 `tmux attach`(살아있음) 또는 로그 출력(죽음)을 태우는 경로.
+            // 스크롤백 복원과 같은 stdin 주입 방식을 쓴다(같은 슬롯이라 둘은 배타적 —
+            // 서비스 터미널은 복원 대상이 아니라 충돌하지 않는다).
+            //
+            // **exec로 태우지 않는다.** 로그 출력은 즉시 끝나므로 exec면 셸까지 함께 죽어 서피스가
+            // 사라진다. 명령이 끝나면 셸 프롬프트로 돌아가게 두면, 사용자가 그 자리에서 직접
+            // 명령을 칠 수 있다(detach 후에도 마찬가지).
+            config.initial_input = dup("clear; \(initialCommand)\n")
         }
 
         // working_directory·env_vars는 const 포인터 — surface_new가 읽는 동안만 유효하면 된다.

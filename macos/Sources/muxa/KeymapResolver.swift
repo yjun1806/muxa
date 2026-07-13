@@ -26,6 +26,7 @@ enum KeymapAction {
     case cycleTab(forward: Bool)        // ⌃Tab / ⌃⇧Tab
     case jumpToNextWaiting              // ⌘⇧A — 다음 대기 세션 전역 점프
     case quickSwitch                    // ⌘K — 빠른 전환기(명령 팔레트)
+    case toggleServiceDock              // ⌘J — 서비스 도크(장수 프로세스 로그)
 }
 
 /// (keyCode, 수정자) → KeymapAction 매핑 테이블 + 순수 판정 함수. 설정의 재정의를 기본 위에 얹는다.
@@ -99,6 +100,9 @@ struct KeymapResolver {
             Binding(keyCode: kVK_Tab, mods: ctrlShift): .cycleTab(forward: false),
             Binding(keyCode: kVK_ANSI_A, mods: cmdShift): .jumpToNextWaiting,
             Binding(keyCode: kVK_ANSI_K, mods: cmd): .quickSwitch,
+            // ⌘J — 서비스 도크. Xcode의 디버그 영역(⌘⇧Y)과 성격이 같지만, VS Code 패널(⌘J) 쪽이
+            // "하단에서 올라오는 로그 서랍"이라는 이 UI의 정체와 더 가깝다.
+            Binding(keyCode: kVK_ANSI_J, mods: cmd): .toggleServiceDock,
         ]
         // 칸 방향 포커스 이동(⌘⌥) — 화살표와 vim hjkl 둘 다 받아 근육기억에 맞춘다.
         let focus: [(Int, NavigationDirection)] = [
@@ -131,6 +135,7 @@ extension KeymapAction {
         case "tab_prev": return .cycleTab(forward: false)
         case "jump_next_waiting": return .jumpToNextWaiting
         case "quick_switch": return .quickSwitch
+        case "toggle_service_dock": return .toggleServiceDock
         case "focus_left": return .focusPane(.left)
         case "focus_right": return .focusPane(.right)
         case "focus_up": return .focusPane(.up)
