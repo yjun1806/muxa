@@ -43,6 +43,30 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     @ObservationIgnored private var lastPwd: String?
     /// 복원된 탭의 스크롤백 파일 경로 힌트 — term(for:)가 새 셸에 env로 주입한다(④). pendingCwd와 같은 수명.
     @ObservationIgnored private var restoredScrollbackFile: [TabID: String] = [:]
+
+    // MARK: L3 — tmux 세션(프로세스 연속성)
+
+    /// 이 스토어가 속한 프로젝트 id. tmux 세션 네임스페이스에 들어간다.
+    @ObservationIgnored private let projectId: String
+    /// 터미널을 tmux 세션 안에서 띄우는가(설정 + tmux 설치 여부).
+    @ObservationIgnored private let persistentSessions: Bool
+    /// 탭 → tmux 세션명. 복원된 탭은 **저장된 이름**을 그대로 이어받는다(tabId가 새로 발급되므로).
+    @ObservationIgnored private var tmuxSessions: [TabID: String] = [:]
+
+    /// 이 탭이 쓸 tmux 세션명 — 복원분이 있으면 그것, 없으면 새로 발급. L3가 꺼져 있으면 nil.
+    ///
+    /// **발급 즉시 저장한다.** 세션명은 렌더 시점(term(for:))에 정해지는데, 그때 저장하지 않으면
+    /// 스냅샷에 안 남는다. 그러면 다음 실행에서 tabId가 새로 발급되며 **새 세션을 만들고**, 옛 세션은
+    /// 스냅샷이 참조하지 않으니 고아로 판정돼 죽는다 — 그 안에서 돌던 빌드·에이전트가 함께 죽는다.
+    /// (실측으로 확인한 실패다. 앱을 강제 종료하면 종료 훅도 안 타므로 영영 저장되지 않는다.)
+    private func tmuxSessionName(for tabId: TabID) -> String? {
+        guard persistentSessions else { return nil }
+        if let existing = tmuxSessions[tabId] { return existing }
+        let name = TerminalSession.name(projectId: projectId, tabId: tabId.uuid.uuidString)
+        tmuxSessions[tabId] = name
+        persist()
+        return name
+    }
     /// 복원 리플레이 명령의 완료 신호를 아직 삼키지 않은 탭들. 리플레이를 건 탭만 담고,
     /// 첫 commandFinished에서 하나씩 소비한다(§handleSignal — 복원이 만드는 "완료" 오탐 차단).
     @ObservationIgnored private var replayPendingTabs: Set<TabID> = []
@@ -126,13 +150,18 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     init(app: ghostty_app_t, cwd: String?, restoreSnap: PaneSnapshot? = nil,
          commandFinishedThresholdNs: UInt64 = 8_000_000_000,
          agentResumeMode: AgentResumeMode = .manual,
-         sessionWasDirty: Bool = false) {
+         sessionWasDirty: Bool = false,
+         projectId: String = "",
+         persistentSessions: Bool = false) {
         self.app = app
         self.cwd = cwd
         self.restoreSnap = restoreSnap
         self.commandFinishedThresholdNs = commandFinishedThresholdNs
         self.agentResumeMode = agentResumeMode
         self.sessionWasDirty = sessionWasDirty
+        self.projectId = projectId
+        // tmux가 없으면 옵션이 켜져 있어도 일반 셸로 폴백한다(설치를 강요하지 않는다).
+        self.persistentSessions = persistentSessions && TmuxService.isAvailable
         // keepAllAlive — 탭 전환 시 뷰(WKWebView 뷰어·터미널)를 파괴/재생성하지 않고 유지한다.
         // 기본 .recreateOnSwitch는 전환마다 뷰어를 재로드(굼뜸·상태 손실)해서 부적합.
         var config = BonsplitConfiguration(contentViewLifecycle: .keepAllAlive)
@@ -228,6 +257,11 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         lastBellAt[tabId] = nil // 벨 디바운스 상태 해제
         resetCoalescers(for: tabId) // 배지·알림 병합 이력 해제(맵 누수 방지)
         manualTitles[tabId] = nil // 수동 지정 제목 해제
+        // 탭을 닫은 건 "이 작업은 끝났다"는 뜻이다 — tmux 세션도 함께 죽인다. 안 그러면 앱이 꺼져도
+        // 살아남는다는 성질 때문에 좀비 세션이 계속 쌓이고 포트를 문다(서비스가 같은 이유로 배운 것).
+        if let session = tmuxSessions.removeValue(forKey: tabId) {
+            Task { await TmuxService.kill(session: session) }
+        }
         engineTitles[tabId] = nil // 엔진 제목 캐시 해제
         syncHasTabs() // 마지막 탭이 닫히면 빈 상태 뷰로 전환(관측 갱신)
         persist()
@@ -371,8 +405,18 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         if let t = terms[tabId] { return t }
         // tabId·소켓 경로를 셸 env로 주입(훅 알림용) — TermView.init에서 서피스 생성 전에 심는다.
         // 복원·상속 힌트가 있으면 그 디렉터리에서, 없으면 워크스페이스 기본 cwd에서 새 셸.
-        let t = TermView(app: app, cwd: pendingCwd[tabId] ?? cwd, tabId: tabId, sockPath: NotifyServer.socketPath,
-                         restoreScrollbackFile: restoredScrollbackFile[tabId])
+        // L3(persistentSessions)면 셸을 tmux 세션 안에서 띄운다 — 앱을 껐다 켜도 그 안의 프로세스가 살아남는다.
+        // 그 탭에서는 스크롤백 리플레이를 하지 않는다: tmux가 화면과 프로세스를 통째로 갖고 있으므로
+        // 죽은 텍스트를 덧그리면 잔상만 생긴다.
+        let tabCwd = pendingCwd[tabId] ?? cwd
+        let tmuxSession = tmuxSessionName(for: tabId)
+        let initialCommand = tmuxSession.map {
+            TerminalSession.startCommand(tmux: TmuxService.executable ?? "tmux", socket: TmuxService.socket,
+                                         session: $0, cwd: tabCwd ?? SystemPaths.home)
+        }
+        let t = TermView(app: app, cwd: tabCwd, tabId: tabId, sockPath: NotifyServer.socketPath,
+                         restoreScrollbackFile: tmuxSession == nil ? restoredScrollbackFile[tabId] : nil,
+                         initialCommand: initialCommand)
         // 콜백은 action_cb(메인 async)·becomeFirstResponder(메인)에서만 불린다 → assumeIsolated 안전.
         t.onSignal = { [weak self] signal in MainActor.assumeIsolated { self?.handleSignal(signal, from: tabId) } }
         t.onClearBadge = { [weak self] tid in MainActor.assumeIsolated { self?.clearTabBadge(tid) } }
@@ -1101,7 +1145,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                     tabs.append(TabSnapshot(group: nil, items: [], selectedItem: 0,
                                             cwd: tabCwd, resume: resume,
                                             scrollbackFile: scrollbackFile,
-                                            manualTitle: manualTitles[tid]))
+                                            manualTitle: manualTitles[tid],
+                                            tmuxSession: tmuxSessions[tid]))
                 case .group(let kind):
                     let state = groups[tid]
                     let items = (state?.items ?? []).map(itemSnapshot)
@@ -1170,7 +1215,11 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                     if let cwd = t.cwd { pendingCwd[tid] = cwd } // 새 셸을 저장된 작업 디렉터리에서 띄우게 힌트.
                     if let resume = t.resume { registerResumeBinding(resume, for: tid) } // 재개 바인딩 복구(+배너 표시). 실행은 게이트가.
                     // 신뢰 재개(claude 자동)는 곧 claude가 화면을 덮으므로 죽은 스크롤백 리플레이를 건너뛴다(잔상·중복 방지).
-                    if let sf = t.scrollbackFile, t.resume?.trusted != true {
+                    // tmux 세션명은 **저장된 이름 그대로** 이어받는다 — tabId는 방금 새로 발급됐으므로
+                    // 재조립하면 엉뚱한 세션을 만들고, 돌던 프로세스는 고아가 된다.
+                    if persistentSessions, let session = t.tmuxSession { tmuxSessions[tid] = session }
+                    // tmux 탭은 스크롤백 리플레이를 하지 않는다 — tmux가 화면을 통째로 갖고 있다.
+                    if t.tmuxSession == nil, let sf = t.scrollbackFile, t.resume?.trusted != true {
                         restoredScrollbackFile[tid] = sf // 새 셸에 스크롤백 파일 주입 힌트(④).
                         replayPendingTabs.insert(tid) // 이 탭의 첫 commandFinished(=리플레이 명령)는 삼킨다.
                     }

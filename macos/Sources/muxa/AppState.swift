@@ -442,7 +442,9 @@ final class AppState {
         let s = TerminalStore(app: app, cwd: cwd, restoreSnap: savedLayouts[project.id],
                               commandFinishedThresholdNs: config.commandFinishedThresholdNs,
                               agentResumeMode: config.agentResume,
-                              sessionWasDirty: lastLaunchWasDirty)
+                              sessionWasDirty: lastLaunchWasDirty,
+                              projectId: project.id,
+                              persistentSessions: config.persistentSessions)
         let pid = project.id
         s.onProjectActivity = { [weak self] in MainActor.assumeIsolated { self?.markProjectBadge(pid) } }
         // 데스크톱 알림에 라우팅 컨텍스트(프로젝트·워크스페이스)를 붙여 발사 — 클릭 시 원클릭 검토로 이어짐.
@@ -663,6 +665,19 @@ final class AppState {
         let live = collectLiveServiceIds(in: workspaces)
         let known = collectKnownProjectIds(in: workspaces)
         Task { await TmuxService.collectGarbage(liveServiceIds: live, knownProjectIds: known) }
+    }
+
+    /// 고아 **터미널** tmux 세션 정리(L3) — 닫힌 탭이 남긴 세션을 죽인다. 복원 직후 1회.
+    ///
+    /// 보존 목록은 **스냅샷이 참조하는 세션 전부**다(열린 스토어 + 아직 안 연 프로젝트의 저장분).
+    /// 열린 탭만 세면 lazy 프로젝트의 셸이 고아로 몰려 죽는다 — 서비스 GC가 "활성 워크스페이스만
+    /// 훑으면 안 된다"고 배운 것과 같은 함정이다.
+    func collectTerminalSessionGarbage() {
+        guard TmuxService.isAvailable, config.persistentSessions else { return }
+        var live: Set<String> = []
+        for snap in savedLayouts.values { live.formUnion(snap.tmuxSessions()) }
+        let known = collectKnownProjectIds(in: workspaces)
+        Task { await TmuxService.collectTerminalGarbage(liveSessionNames: live, knownProjectIds: known) }
     }
 
     /// 백그라운드 프로젝트에 활동(●)이 있음을 표시. 지금 보고 있는 활성 프로젝트(=활성 워크스페이스의

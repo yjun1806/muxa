@@ -207,4 +207,16 @@ enum TmuxService {
         for session in orphans { await kill(session: session) }
         return orphans
     }
+
+    /// 고아 **터미널** 세션 정리(L3) — 닫힌 탭이 남긴 셸을 죽인다. 판정은 순수([[TerminalSession]]),
+    /// 여기서는 죽이기만 한다. 서비스 세션과 남의 tmux 작업은 판정 단계에서 이미 걸러진다.
+    @discardableResult
+    static func collectTerminalGarbage(liveSessionNames: Set<String>,
+                                       knownProjectIds: Set<String>) async -> [String] {
+        let orphans = TerminalSession.orphans(sessions: await sessions(),
+                                              liveSessionNames: liveSessionNames,
+                                              knownProjectIds: knownProjectIds)
+        for session in orphans { await kill(session: session) }
+        return orphans
+    }
 }

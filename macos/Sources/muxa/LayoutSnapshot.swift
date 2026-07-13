@@ -49,6 +49,18 @@ indirect enum PaneSnapshot: Codable {
         }
     }
 
+    /// 이 스냅샷이 참조하는 tmux 세션명 전부(L3 고아 정리의 보존 목록).
+    /// **아직 안 연 프로젝트의 세션도 여기 들어와야 한다** — 열린 탭만 세면 lazy 프로젝트의 셸이
+    /// 고아로 몰려 죽는다.
+    func tmuxSessions() -> Set<String> {
+        switch self {
+        case .leaf(let tabs, _, _):
+            return Set(tabs.compactMap { $0.tmuxSession })
+        case .split(_, _, let first, let second):
+            return first.tmuxSessions().union(second.tmuxSessions())
+        }
+    }
+
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CaseKey.self)
         switch self {
@@ -86,6 +98,12 @@ struct TabSnapshot: Codable {
     // 사용자가 손으로 붙인 탭 이름. nil이면 자동 명명(엔진 제목/그룹 종류). 옵셔널 — 구 스냅샷엔 없어 하위호환.
     // 없을 때는 저장은 되면서 복원이 안 돼 재시작마다 이름이 날아갔다.
     var manualTitle: String? = nil
+    // 이 탭의 셸이 사는 tmux 세션명(L3). nil이면 일반 셸(tmux 미사용).
+    //
+    // **세션명을 통째로 저장하는 이유**: 복원 시 tabId가 새로 발급된다(realize → createTab).
+    // 세션명을 tabId로 조립하면 재시작 후 자기 세션을 못 찾아 새 셸이 뜨고, 돌던 프로세스는
+    // 고아가 된다. 스크롤백이 파일 경로를 저장해 푼 것과 같은 문제다.
+    var tmuxSession: String? = nil
 }
 
 /// 그룹 서브탭 하나 — 파일이거나 커밋 diff.
