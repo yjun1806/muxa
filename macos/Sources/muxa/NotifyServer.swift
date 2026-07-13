@@ -193,7 +193,7 @@ final class NotifyServer {
         let resumeCommand = parts.count > 5 ? parts[5] : ""
         let agentLabel = parts.count > 6 ? parts[6] : ""
         let resume = resumeCommand.isEmpty ? nil
-            : ResumeBinding(command: resumeCommand, agentLabel: agentLabel.isEmpty ? nil : agentLabel)
+            : ResumeBinding(command: resumeCommand, agentLabel: agentLabel.isEmpty ? nil : agentLabel, source: .hook)
         // 유효 신호가 아무것도 없으면(상태도, 바인딩도) 폐기 — 구 동작(미인식 state 폐기)과 동일.
         guard state != nil || resume != nil else { return nil }
         return NotifyMessage(tabId: tabId, state: state, title: title, body: body,

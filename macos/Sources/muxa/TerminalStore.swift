@@ -528,9 +528,11 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     /// 이 탭의 재개 전략 — 배너(ResumeOverlay)가 이 값 하나로 표시·자동 실행·강조 라벨을 정한다.
     ///
-    /// 신뢰(trusted) 바인딩(muxa 자가구성 `claude --resume`)은 승인 게이트를 건너뛰고 항상 자동 실행한다(제로설정).
-    /// 명령이 검증된 고정 꼴이라 안전하기 때문. 단 `off`는 사용자의 명시적 전면 비활성이라 존중한다.
-    /// 훅이 넘긴 임의 명령(trusted=false)은 기존대로 모드+더티 순수 판정(ResumeStrategy.decide)을 따른다(D2 경계).
+    /// **훅이 확인해 준 세션(source=.hook)만** 승인 게이트를 건너뛰고 자동 실행한다. 단 `off`는
+    /// 사용자의 명시적 전면 비활성이라 존중한다.
+    ///
+    /// cwd 스캔으로 **추측한** 세션(.scan)은 모드+더티 판정(ResumeStrategy.decide)을 거쳐 배너로
+    /// 확인받는다 — 추측이 틀리면 엉뚱한 대화를 이어받게 되므로 자동 실행하지 않는다(D2 경계).
     func resumeStrategy(for tabId: TabID) -> ResumeStrategy {
         if resumeBindings[tabId]?.trusted == true {
             return agentResumeMode == .off ? .none : .auto
@@ -1062,9 +1064,11 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                     // 아직 미실체화(복원만 되고 안 연) 탭이면 이전 힌트 경로를 그대로 이어 준다(④).
                     let scrollbackFile = terms[tid].flatMap { captureScrollback(from: $0, tabId: tid) }
                         ?? restoredScrollbackFile[tid]
-                    // 재개 바인딩: 지금 이 터미널에서 claude가 돌고 있으면 세션 인덱스로 자동 구성(제로설정, trusted),
-                    // 아니면 훅이 등록한 바인딩(있으면). 복원 시 되살아나 배너·자동 실행으로 이어진다.
-                    let resume = terms[tid].flatMap { detectClaudeResume(from: $0, cwd: tabCwd) } ?? resumeBindings[tid]
+                    // 재개 바인딩 — **훅이 알려준 사실이 먼저다.**
+                    // 종전엔 cwd 스캔(추측)이 훅 바인딩을 덮어썼다. 훅은 "이 탭의 세션은 이것"이라고
+                    // 확정해 주는데, 그걸 버리고 "이 디렉터리에서 가장 최근에 수정된 jsonl"이라는 추측으로
+                    // 갈아끼운 셈이다. 스캔은 훅이 없을 때의 폴백으로만 쓴다.
+                    let resume = resumeBindings[tid] ?? terms[tid].flatMap { detectClaudeResume(from: $0, cwd: tabCwd) }
                     tabs.append(TabSnapshot(group: nil, items: [], selectedItem: 0,
                                             cwd: tabCwd, resume: resume,
                                             scrollbackFile: scrollbackFile,

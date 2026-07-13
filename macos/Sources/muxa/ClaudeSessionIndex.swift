@@ -5,7 +5,7 @@ import Foundation
 /// Claude는 프로젝트(cwd)마다 `~/.claude/projects/<인코딩된-cwd>/<세션UUID>.jsonl`에 대화를 기록하고,
 /// 그 디렉터리에서 가장 최근에 수정된 `.jsonl`이 현재(마지막) 세션이다. muxa는 훅 없이 이 인덱스를 직접 읽어
 /// `claude --resume <세션UUID>`를 스스로 구성한다 — 명령이 muxa 자가구성(임의 문자열 아님)이라 복원 시
-/// 자동 실행이 안전하다([[ResumeBinding]]의 trusted).
+/// 이건 **추측**이다(mtime이 가장 최근인 파일). 훅이 알려준 사실이 아니므로 자동 실행하지 않는다([[ResumeBinding]] source=.scan).
 ///
 /// 부작용(디렉터리 읽기)은 이 경계 타입에 격리하고, 인코딩 규칙(`encodeProjectDir`)·세션 id 검증
 /// (`isSafeSessionId`)은 순수 함수로 분리해 테스트 가능하게 둔다.
@@ -44,10 +44,11 @@ enum ClaudeSessionIndex {
         return id
     }
 
-    /// cwd에 Claude 세션이 있으면 신뢰(trusted) 재개 바인딩을 만든다. 없으면 nil.
+    /// cwd에 Claude 세션이 있으면 **추측** 재개 바인딩(.scan)을 만든다. 없으면 nil.
+    /// 훅 바인딩이 없을 때의 폴백이다 — 배너로 사용자 확인을 받은 뒤에만 실행된다.
     static func resumeBinding(forCwd cwd: String, projectsRoot: URL = defaultProjectsRoot) -> ResumeBinding? {
         guard let id = latestSessionId(forCwd: cwd, projectsRoot: projectsRoot) else { return nil }
-        return ResumeBinding(command: "claude --resume \(id)", agentLabel: "claude", cwd: cwd, trusted: true)
+        return ResumeBinding(command: "claude --resume \(id)", agentLabel: "claude", cwd: cwd, source: .scan)
     }
 
     private static func modified(_ url: URL) -> Date {

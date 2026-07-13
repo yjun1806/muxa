@@ -20,7 +20,8 @@ struct ResumeOverlay: View {
             ResumeBanner(
                 label: binding.agentLabel.flatMap { $0.isEmpty ? nil : $0 } ?? "에이전트",
                 command: binding.command,
-                strategy: strategy
+                strategy: strategy,
+                isGuess: binding.source == .scan
             ) {
                 store.executeResume(for: tabId)
             }
@@ -35,6 +36,9 @@ private struct ResumeBanner: View {
     let label: String
     let command: String
     let strategy: ResumeStrategy
+    /// 이 세션이 훅이 알려준 사실이 아니라 **cwd로 추측한 것**인가. 추측이면 사용자가 확인할 수 있게
+    /// 그렇다고 말해 준다 — 같은 폴더에서 여러 세션을 돌렸다면 다른 대화가 잡혔을 수 있다.
+    let isGuess: Bool
     let onResume: () -> Void
 
     /// auto 자동 실행 전 지연 — 새 셸이 뜨고 프롬프트가 준비될 시간을 준다. 완벽한 프롬프트 감지는
@@ -62,6 +66,13 @@ private struct ResumeBanner: View {
                 .foregroundStyle(Color.pMuted)
                 .lineLimit(1)
                 .truncationMode(.middle)
+
+            if isGuess {
+                // 훅이 없어 폴더에서 추정한 세션 — 자동 실행하지 않고, 추정이라는 사실을 밝힌다.
+                Text("이 폴더에서 추정")
+                    .font(.muxa(.caption))
+                    .foregroundStyle(Color.pBorderActivity)
+            }
 
             switch strategy {
             case .auto:

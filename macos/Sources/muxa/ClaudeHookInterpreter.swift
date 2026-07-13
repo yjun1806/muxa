@@ -59,7 +59,7 @@ enum ClaudeHookInterpreter {
             // 상태 신호는 없다(세션이 떴을 뿐 작업 중이 아니다). 재개 바인딩만 등록한다.
             var out = HookOutcome()
             if let sessionId = payload.sessionId {
-                out.resume = ResumeBinding(command: "claude --resume \(sessionId)", agentLabel: "claude")
+                out.resume = ResumeBinding(command: "claude --resume \(sessionId)", agentLabel: "claude", source: .hook)
             }
             return (out, next)
 
