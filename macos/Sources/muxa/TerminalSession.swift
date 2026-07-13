@@ -43,11 +43,19 @@ enum TerminalSession {
     /// zsh에서 `=word`는 명령 경로로 치환되는 EQUALS 확장이라 타겟은 반드시 인용한다(서비스 attach와 동일).
     /// - Parameter session: **세션명을 그대로 받는다.** 복원된 탭은 저장된 이름을 이어받아야 하는데,
     ///   여기서 tabId로 재조립하면 새로 발급된 id로 엉뚱한 세션을 만든다(§tmuxSession).
-    static func startCommand(tmux: String, socket: String, session: String, cwd: String) -> String {
+    /// - Parameter env: 세션 안 셸에 심을 환경변수(`-e`). **비우면 훅과 셸 통합이 통째로 죽는다** —
+    ///   tmux 세션의 셸은 tmux **서버**의 환경을 상속하지, ghostty가 띄운 바깥 셸의 env를 받지 않는다.
+    ///   그래서 MUXA_TAB_ID·MUXA_SOCK이 없어 `muxa notify`가 어느 탭인지 못 찾고(알림·배지 소실),
+    ///   rc 스니펫도 조건이 안 맞아 OSC를 안 쏜다(cwd 추적 소실). 실측으로 확인한 실패다.
+    static func startCommand(tmux: String, socket: String, session: String, cwd: String,
+                             env: [String: String] = [:]) -> String {
         let t = "\(tmux) -L \(socket)"
+        // -e는 **세션을 새로 만들 때만** 적용된다(이미 있으면 무시). 복원된 세션의 셸에는 옛 tabId가
+        // 남아 있는데, 그건 세션명으로 되짚어 현재 탭을 찾는다(§resolve).
+        let envArgs = env.keys.sorted().map { " -e '\($0)=\(env[$0]!)'" }.joined()
         let q = "'\(session)'"
         return [
-            "\(t) new-session -d -s \(q) -c '\(cwd)' 2>/dev/null",
+            "\(t) new-session -d -s \(q) -c '\(cwd)'\(envArgs) 2>/dev/null",
             "\(t) set-option -t \(q) remain-on-exit off 2>/dev/null",
             "\(t) set-option -g allow-passthrough on 2>/dev/null",
             // 탭 이름 — tmux는 기본으로 자기 제목(= `tmux … attach …` 명령줄)을 내보내, 탭 이름이
@@ -56,6 +64,26 @@ enum TerminalSession {
             "\(t) set-option -g set-titles-string '#{b:pane_current_path}' 2>/dev/null",
             "\(t) attach -t '=\(session)'",
         ].joined(separator: "; ")
+    }
+
+    /// 훅이 보낸 tabId를 **현재 살아있는 탭**으로 되짚는다(순수).
+    ///
+    /// tmux 세션 안 셸의 `MUXA_TAB_ID`는 **그 세션이 처음 만들어질 때의 tabId**다. 복원하면 tabId가
+    /// 새로 발급되는데(Bonsplit `createTab`은 id를 지정받지 않는다) 세션 안 셸의 env는 그대로다.
+    /// 그래서 훅은 옛 id로 신호를 보내고, 그대로 두면 muxa가 **어느 탭인지 못 찾아 알림이 사라진다**.
+    ///
+    /// 다행히 세션명이 다리가 된다: `muxa__<projectId>__term__<처음tabId>`. 현재 탭이 어떤 세션을
+    /// 쓰는지는 muxa가 알고 있으므로(§tmuxSessions), 세션명에 박힌 옛 id로 현재 탭을 되찾을 수 있다.
+    ///
+    /// - Parameter sessionsByTab: 현재 tabId → 세션명.
+    /// - Returns: 신호를 배달할 현재 tabId. 매칭이 없으면 nil(호출부가 원래 id를 그대로 쓴다).
+    static func resolve(incomingTabId: String, sessionsByTab: [String: String]) -> String? {
+        // 살아있는 탭 id면 그대로 — tmux를 안 쓰는 탭·같은 세션에서 새로 만든 탭의 정상 경로.
+        if sessionsByTab[incomingTabId] != nil { return incomingTabId }
+        for (currentTab, session) in sessionsByTab {
+            if let parsed = parse(session), parsed.tabId == incomingTabId { return currentTab }
+        }
+        return nil
     }
 
     /// 정리해도 안전한 고아 터미널 세션 — 살아있는 탭이 참조하지 않는 것들.

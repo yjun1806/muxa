@@ -117,4 +117,38 @@ struct TerminalSessionTests {
         #expect(cmd.contains("set-titles on"))
         #expect(cmd.contains("set-titles-string '#{b:pane_current_path}'"))
     }
+
+    /// tmux 세션의 셸은 tmux **서버**의 환경을 상속한다 — ghostty가 띄운 바깥 셸의 env를 못 받는다.
+    /// `-e`로 심지 않으면 MUXA_TAB_ID가 없어 훅 알림이 어느 탭인지 못 찾고, rc 스니펫도 안 돈다(실측).
+    @Test func 세션에_env를_심는다() {
+        let cmd = TerminalSession.startCommand(
+            tmux: "tmux", socket: "muxa",
+            session: TerminalSession.name(projectId: "p1", tabId: "t1"), cwd: "/repo",
+            env: ["MUXA_TAB_ID": "t1", "MUXA_SOCK": "/tmp/muxa.sock"])
+        #expect(cmd.contains("-e 'MUXA_TAB_ID=t1'"))
+        #expect(cmd.contains("-e 'MUXA_SOCK=/tmp/muxa.sock'"))
+    }
+
+    // MARK: 훅 라우팅 역매핑 — 복원해도 알림이 올바른 탭에 꽂힌다
+
+    /// 복원하면 tabId가 새로 발급되지만 tmux 세션 안 셸의 MUXA_TAB_ID는 **처음 id** 그대로다.
+    /// 세션명에 박힌 옛 id로 현재 탭을 되찾지 못하면 알림이 조용히 사라진다.
+    @Test func 옛_tabId를_현재_탭으로_되짚는다() {
+        let sessions = ["새tab": TerminalSession.name(projectId: "p1", tabId: "옛tab")]
+        #expect(TerminalSession.resolve(incomingTabId: "옛tab", sessionsByTab: sessions) == "새tab")
+    }
+
+    @Test func 살아있는_tabId는_그대로_쓴다() {
+        let sessions = ["t1": TerminalSession.name(projectId: "p1", tabId: "t1")]
+        #expect(TerminalSession.resolve(incomingTabId: "t1", sessionsByTab: sessions) == "t1")
+    }
+
+    @Test func 모르는_tabId는_nil() {
+        let sessions = ["t1": TerminalSession.name(projectId: "p1", tabId: "t1")]
+        #expect(TerminalSession.resolve(incomingTabId: "모르는id", sessionsByTab: sessions) == nil)
+    }
+
+    @Test func tmux를_안_쓰면_되짚을_것이_없다() {
+        #expect(TerminalSession.resolve(incomingTabId: "t1", sessionsByTab: [:]) == nil)
+    }
 }

@@ -53,6 +53,22 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 탭 → tmux 세션명. 복원된 탭은 **저장된 이름**을 그대로 이어받는다(tabId가 새로 발급되므로).
     @ObservationIgnored private var tmuxSessions: [TabID: String] = [:]
 
+    /// 훅이 보낸 tabId를 **이 스토어의 살아있는 탭**으로 되짚는다. 아니면 nil(다른 스토어가 가져간다).
+    ///
+    /// tmux 세션 안 셸의 `MUXA_TAB_ID`는 그 세션이 처음 만들어질 때의 id다. 복원하면 tabId가 새로
+    /// 발급되므로(Bonsplit createTab은 id를 지정받지 않는다) 훅은 옛 id로 신호를 보낸다. 그대로 두면
+    /// **알림이 조용히 사라진다** — 세션명에 박힌 옛 id로 현재 탭을 찾아낸다(판정은 순수 함수).
+    private func resolveTab(_ incoming: TabID) -> TabID? {
+        if terms[incoming] != nil { return incoming }
+        guard !tmuxSessions.isEmpty else { return nil }
+        let byTab = Dictionary(uniqueKeysWithValues: tmuxSessions.map { ($0.key.uuid.uuidString, $0.value) })
+        guard let resolved = TerminalSession.resolve(incomingTabId: incoming.uuid.uuidString,
+                                                     sessionsByTab: byTab),
+              let uuid = UUID(uuidString: resolved) else { return nil }
+        let tab = TabID(uuid: uuid)
+        return terms[tab] != nil ? tab : nil
+    }
+
     /// 이 탭이 쓸 tmux 세션명 — 복원분이 있으면 그것, 없으면 새로 발급. L3가 꺼져 있으면 nil.
     ///
     /// **발급 즉시 저장한다.** 세션명은 렌더 시점(term(for:))에 정해지는데, 그때 저장하지 않으면
@@ -410,9 +426,16 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         // 죽은 텍스트를 덧그리면 잔상만 생긴다.
         let tabCwd = pendingCwd[tabId] ?? cwd
         let tmuxSession = tmuxSessionName(for: tabId)
-        let initialCommand = tmuxSession.map {
-            TerminalSession.startCommand(tmux: TmuxService.executable ?? "tmux", socket: TmuxService.socket,
-                                         session: $0, cwd: tabCwd ?? SystemPaths.home)
+        // env를 -e로 심는다 — tmux 세션의 셸은 tmux 서버 환경을 상속해서, 이걸 빼면 훅 알림이
+        // 어느 탭인지 못 찾고 rc 스니펫도 안 돈다(실측).
+        let initialCommand = tmuxSession.map { session in
+            let env = ["MUXA_TAB_ID": tabId.uuid.uuidString,
+                       "MUXA_SURFACE_ID": tabId.uuid.uuidString,
+                       "MUXA_SOCK": NotifyServer.socketPath]
+            return TerminalSession.startCommand(tmux: TmuxService.executable ?? "tmux",
+                                                socket: TmuxService.socket,
+                                                session: session, cwd: tabCwd ?? SystemPaths.home,
+                                                env: env)
         }
         let t = TermView(app: app, cwd: tabCwd, tabId: tabId, sockPath: NotifyServer.socketPath,
                          restoreScrollbackFile: tmuxSession == nil ? restoredScrollbackFile[tabId] : nil,
@@ -463,9 +486,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// working(작업 재개)은 주의 해소로 보고 배지를 끈다. resume이 실려 오면 재개 바인딩을 등록한다
     /// (state 없이 바인딩만 오는 메시지도 있어 state는 옵셔널 — 없으면 상태 신호 없이 바인딩만 등록).
     @discardableResult
-    func deliverNotify(tabId: TabID, state: NotifyState?, title: String, body: String,
+    func deliverNotify(tabId incoming: TabID, state: NotifyState?, title: String, body: String,
                        category: NotifyCategory? = nil, resume: ResumeBinding? = nil) -> Bool {
-        guard terms[tabId] != nil else { return false }
+        guard let tabId = resolveTab(incoming) else { return false }
         if let resume { setResumeBinding(resume, for: tabId) }
         if let state {
             // 명시 신호는 상태 추정의 ground truth — 배지 경로와 별개로 추정기에 항상 고정 반영한다(DESIGN 4.5).
@@ -500,8 +523,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 해석은 순수 함수(ClaudeHookInterpreter)가 하고, 여기서는 부작용만 실행한다:
     /// 상태 전이 고정(pin) · 진행 표시 갱신 · 재개 바인딩 등록 · 알림 발사.
     @discardableResult
-    func deliverHook(tabId: TabID, event: ClaudeHookEvent, payload: ClaudeHookPayload) -> Bool {
-        guard terms[tabId] != nil else { return false }
+    func deliverHook(tabId incoming: TabID, event: ClaudeHookEvent, payload: ClaudeHookPayload) -> Bool {
+        guard let tabId = resolveTab(incoming) else { return false }
         hookedTabs.insert(tabId)
 
         let (outcome, next) = ClaudeHookInterpreter.interpret(
