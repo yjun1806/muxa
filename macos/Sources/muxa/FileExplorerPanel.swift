@@ -19,7 +19,7 @@ struct FileExplorerPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Rectangle().fill(Color.pBorder).frame(height: 1)
+            HDivider()
             if let root {
                 FileExplorerOutline(
                     root: root,
@@ -49,15 +49,15 @@ struct FileExplorerPanel: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            Image(systemName: "folder").font(.system(size: 12)).foregroundStyle(Color.pMuted)
+            Image(systemName: "folder").font(.muxa(.body)).foregroundStyle(Color.pMuted)
             Text(root.map(basename) ?? "익스플로러")
-                .font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.pFg).lineLimit(1)
+                .font(.muxa(.body, weight: .semibold)).foregroundStyle(Color.pFg).lineLimit(1)
             Spacer(minLength: 4)
             Button {
                 reloadToken += 1 // 트리 구조 새로 읽기
                 if let root { Task { await loadGit(root) } }
             } label: {
-                Image(systemName: "arrow.clockwise").font(.system(size: 11))
+                Image(systemName: "arrow.clockwise").font(.muxa(.label))
             }
             .buttonStyle(.plain).foregroundStyle(Color.pMuted).help("새로고침")
         }
@@ -67,7 +67,7 @@ struct FileExplorerPanel: View {
 
     private func label(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 11)).foregroundStyle(Color.pMuted)
+            .font(.muxa(.label)).foregroundStyle(Color.pMuted)
             .padding(.horizontal, 10).padding(.vertical, 8)
     }
 

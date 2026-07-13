@@ -19,11 +19,11 @@ struct WorktreePicker: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Rectangle().fill(Color.pBorder).frame(height: 1)
+            HDivider()
             content
             if let errorMessage {
                 Text(errorMessage)
-                    .font(.system(size: 11)).foregroundStyle(.red)
+                    .font(.muxa(.label)).foregroundStyle(Color.pDanger)
                     .padding(.horizontal, 16).padding(.bottom, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -36,7 +36,7 @@ struct WorktreePicker: View {
     private var header: some View {
         HStack(spacing: 8) {
             Image(systemName: "arrow.triangle.branch").foregroundStyle(Color.pMuted)
-            Text("워크트리").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color.pFg)
+            Text("워크트리").font(.muxa(.title, weight: .semibold)).foregroundStyle(Color.pFg)
             Spacer()
             Button("닫기", action: onCancel).keyboardShortcut(.cancelAction)
         }
@@ -71,16 +71,16 @@ struct WorktreePicker: View {
         HStack(spacing: 8) {
             Button { onPick(wt.displayName, wt.path) } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: "arrow.triangle.branch").font(.system(size: 11)).foregroundStyle(Color.pMuted)
-                    Text(wt.displayName).font(.system(size: 12)).foregroundStyle(Color.pFg).lineLimit(1)
+                    Image(systemName: "arrow.triangle.branch").font(.muxa(.label)).foregroundStyle(Color.pMuted)
+                    Text(wt.displayName).font(.muxa(.body)).foregroundStyle(Color.pFg).lineLimit(1)
                     if isMain {
-                        Text("메인").font(.system(size: 9)).foregroundStyle(Color.pMuted)
+                        Text("메인").font(.muxa(.micro)).foregroundStyle(Color.pMuted)
                             .padding(.horizontal, 4).padding(.vertical, 1)
                             .background(Color.pBorder).clipShape(Capsule())
                     }
                     Spacer(minLength: 8)
                     Text(displayPath(wt.path, home: SystemPaths.home))
-                        .font(.system(size: 10)).foregroundStyle(Color.pMuted).lineLimit(1).truncationMode(.head)
+                        .font(.muxa(.caption)).foregroundStyle(Color.pMuted).lineLimit(1).truncationMode(.head)
                 }
                 .contentShape(Rectangle())
             }
@@ -89,7 +89,7 @@ struct WorktreePicker: View {
             // 메인이 아니고 브랜치가 있으며 기본 브랜치와 다르면 "병합 후 정리" 노출(마무리 원액션).
             if !isMain, let branch = wt.branch, let target = defaultBranch, branch != target {
                 Button { mergeCleanup(wt, branch: branch, target: target) } label: {
-                    Image(systemName: "arrow.triangle.merge").font(.system(size: 11)).foregroundStyle(Color.pMuted)
+                    Image(systemName: "arrow.triangle.merge").font(.muxa(.label)).foregroundStyle(Color.pMuted)
                 }
                 .buttonStyle(.plain).disabled(busy)
                 .help("\(target)에 병합 후 정리")
@@ -97,7 +97,7 @@ struct WorktreePicker: View {
             // 메인 워크트리는 제거 불가. 비강제 remove라 변경사항이 있으면 git이 거부한다.
             if !isMain {
                 Button { remove(wt) } label: {
-                    Image(systemName: "trash").font(.system(size: 11)).foregroundStyle(Color.pMuted)
+                    Image(systemName: "trash").font(.muxa(.label)).foregroundStyle(Color.pMuted)
                 }
                 .buttonStyle(.plain).disabled(busy)
                 .help("워크트리 제거")
@@ -125,7 +125,7 @@ struct WorktreePicker: View {
             TextField("브랜치명 (예: feature/x)", text: $newBranchName)
                 .textFieldStyle(.roundedBorder)
             HStack(spacing: 8) {
-                Text("base").font(.system(size: 11)).foregroundStyle(Color.pMuted)
+                Text("base").font(.muxa(.label)).foregroundStyle(Color.pMuted)
                 Picker("", selection: $baseRef) {
                     Text("HEAD").tag("HEAD")
                     ForEach(branches, id: \.self) { Text($0).tag($0) }
@@ -141,13 +141,13 @@ struct WorktreePicker: View {
 
     private func sectionLabel(_ t: String) -> some View {
         Text(t)
-            .font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.pMuted)
+            .font(.muxa(.caption, weight: .semibold)).foregroundStyle(Color.pMuted)
             .padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 4)
     }
 
     private func center(_ t: String) -> some View {
         Text(t)
-            .font(.system(size: 12)).foregroundStyle(Color.pMuted)
+            .font(.muxa(.body)).foregroundStyle(Color.pMuted)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 

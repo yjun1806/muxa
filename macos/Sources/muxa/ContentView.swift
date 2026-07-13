@@ -9,7 +9,7 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             topBar
-            Rectangle().fill(Color.pBorder).frame(height: 1)
+            HDivider()
             // 사이드바는 오버레이로 떠 있고, 레이아웃엔 접힌 폭(baseWidth)만 예약한다 —
             // hover peek로 펼쳐져도 콘텐츠(워크스페이스)가 밀리지 않는다.
             HStack(spacing: 0) {
@@ -42,7 +42,7 @@ struct ContentView: View {
                 gitToggle
                 // 우측: 워크스페이스 · 활성 프로젝트 실효 경로
                 Text(displayPath(ws.activeProject?.path ?? ws.path, home: home))
-                    .font(.system(size: 11))
+                    .font(.muxa(.label))
                     .foregroundStyle(Color.pMuted)
                     .lineLimit(1)
                     .truncationMode(.head)
@@ -59,7 +59,7 @@ struct ContentView: View {
     private var explorerToggle: some View {
         Button { state.toggleExplorer() } label: {
             Image(systemName: "folder")
-                .font(.system(size: 12))
+                .font(.muxa(.body))
                 .foregroundStyle(state.showExplorer ? Color.pFg : Color.pMuted)
         }
         .buttonStyle(.plain)
@@ -73,7 +73,7 @@ struct ContentView: View {
     private var gitToggle: some View {
         Button { state.toggleGitPanel() } label: {
             Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: 12))
+                .font(.muxa(.body))
                 .foregroundStyle(state.showGitPanel ? Color.pFg : Color.pMuted)
         }
         .buttonStyle(.plain)

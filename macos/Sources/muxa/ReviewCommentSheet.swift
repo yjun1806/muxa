@@ -21,13 +21,13 @@ struct ReviewCommentSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Image(systemName: "text.bubble").foregroundStyle(Color.pMuted)
-                Text("리뷰 코멘트").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color.pFg)
+                Text("리뷰 코멘트").font(.muxa(.title, weight: .semibold)).foregroundStyle(Color.pFg)
                 Spacer()
                 Text("\(basename(draft.file)):\(draft.line)")
-                    .font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.pMuted)
+                    .font(.muxaMono(.label)).foregroundStyle(Color.pMuted)
             }
             Text(draft.lineText.isEmpty ? " " : draft.lineText)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.muxaMono(.label))
                 .foregroundStyle(Color.pMuted)
                 .lineLimit(2)
                 .padding(6)
@@ -35,7 +35,7 @@ struct ReviewCommentSheet: View {
                 .background(Color.pBg, in: RoundedRectangle(cornerRadius: 5))
 
             TextEditor(text: $body_)
-                .font(.system(size: 12))
+                .font(.muxa(.body))
                 .frame(height: 90)
                 .scrollContentBackground(.hidden)
                 .padding(6)

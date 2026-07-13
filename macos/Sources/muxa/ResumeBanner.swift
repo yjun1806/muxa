@@ -45,8 +45,8 @@ private struct ResumeBanner: View {
         HStack(spacing: 8) {
             Button(action: onResume) {
                 HStack(spacing: 6) {
-                    Image(systemName: "play.fill").font(.system(size: 10))
-                    Text("\(label) 세션 재개").font(.system(size: 12, weight: .medium))
+                    Image(systemName: "play.fill").font(.muxa(.caption))
+                    Text("\(label) 세션 재개").font(.muxa(.body, weight: .medium))
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
@@ -58,18 +58,18 @@ private struct ResumeBanner: View {
 
             // 실행될 명령 미리보기 — 길면 가운데를 잘라 양끝(명령·인자)을 보이게.
             Text(command)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.muxaMono(.label))
                 .foregroundStyle(Color.pMuted)
                 .lineLimit(1)
                 .truncationMode(.middle)
 
             switch strategy {
             case .auto:
-                Text("자동 재개 중…").font(.system(size: 10)).foregroundStyle(Color.pMuted)
+                Text("자동 재개 중…").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
             case .manualDirty:
                 // 비정상 종료 후 복원 — 재개를 놓치지 않게 강조(자동 실행은 안 함, manual 신뢰 경계 유지).
                 Text("비정상 종료 후 복원됨")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.muxa(.caption, weight: .medium))
                     .foregroundStyle(Color.pBorderActivity)
             case .none, .manual:
                 EmptyView()

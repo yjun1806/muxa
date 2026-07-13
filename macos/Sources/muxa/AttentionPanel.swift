@@ -10,11 +10,11 @@ struct AttentionBell: View {
         Button { open.toggle() } label: {
             ZStack(alignment: .topTrailing) {
                 Image(systemName: unread > 0 ? "bell.badge" : "bell")
-                    .font(.system(size: 12))
+                    .font(.muxa(.body))
                     .foregroundStyle(open || unread > 0 ? Color.pFg : Color.pMuted)
                 if unread > 0 {
                     Text(unread > 99 ? "99+" : "\(unread)")
-                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .font(.muxaMono(.nano, weight: .bold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 3)
                         .frame(minWidth: 12)
@@ -49,7 +49,7 @@ struct AttentionInbox: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Rectangle().fill(Color.pBorder).frame(height: 1)
+            HDivider()
             if entries.isEmpty {
                 emptyState
             } else {
@@ -72,14 +72,14 @@ struct AttentionInbox: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            Image(systemName: "bell").font(.system(size: 11)).foregroundStyle(Color.pMuted)
-            Text("알림 인박스").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.pFg)
+            Image(systemName: "bell").font(.muxa(.label)).foregroundStyle(Color.pMuted)
+            Text("알림 인박스").font(.muxa(.body, weight: .semibold)).foregroundStyle(Color.pFg)
             Text("\(state.attention.entries.count)")
-                .font(.system(size: 10, design: .monospaced)).foregroundStyle(Color.pMuted.opacity(0.7))
+                .font(.muxaMono(.caption)).foregroundStyle(Color.pMuted.opacity(0.7))
             Spacer(minLength: 0)
             if !entries.isEmpty {
                 Button { state.attention.clear() } label: {
-                    Text("모두 지우기").font(.system(size: 10))
+                    Text("모두 지우기").font(.muxa(.caption))
                 }
                 .buttonStyle(.plain).foregroundStyle(Color.pMuted)
                 .help("이력 비우기")
@@ -90,11 +90,7 @@ struct AttentionInbox: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 6) {
-            Image(systemName: "bell.slash").font(.system(size: 22)).foregroundStyle(Color.pMuted.opacity(0.6))
-            Text("놓친 알림 없음").font(.system(size: 12)).foregroundStyle(Color.pMuted)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        EmptyState(icon: "bell.slash", title: "놓친 알림 없음", compact: true)
     }
 
     /// 이력 한 줄 — [종류 아이콘][제목 / 위치][상대 시각]. 클릭하면 그 칸으로 점프하고 팝오버를 닫는다.
@@ -105,21 +101,21 @@ struct AttentionInbox: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: entry.kind.icon)
-                    .font(.system(size: 12))
+                    .font(.muxa(.body))
                     .foregroundStyle(Color(nsColor: entry.kind.color))
                     .frame(width: 16)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.title.isEmpty ? entry.kind.label : entry.title)
-                        .font(.system(size: 12)).foregroundStyle(Color.pFg).lineLimit(1)
+                        .font(.muxa(.body)).foregroundStyle(Color.pFg).lineLimit(1)
                     let location = state.attentionLocationLabel(projectId: entry.projectId)
                     if !location.isEmpty {
                         Text(location)
-                            .font(.system(size: 10)).foregroundStyle(Color.pMuted).lineLimit(1)
+                            .font(.muxa(.caption)).foregroundStyle(Color.pMuted).lineLimit(1)
                     }
                 }
                 Spacer(minLength: 4)
                 Text(Self.relativeTime(entry.date))
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.muxaMono(.caption))
                     .foregroundStyle(Color.pMuted.opacity(0.8))
             }
             .padding(.horizontal, 10)

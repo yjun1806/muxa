@@ -14,7 +14,7 @@ struct TabGroupView: View {
     var body: some View {
         VStack(spacing: 0) {
             subTabBar
-            Rectangle().fill(Color.pBorder).frame(height: 1)
+            HDivider()
             content
         }
         .background(Color.pBg)
@@ -36,10 +36,10 @@ struct TabGroupView: View {
     private func chip(_ item: GroupItemContent) -> some View {
         let selected = item.id == group.selectedId
         return HStack(spacing: 5) {
-            Image(systemName: item.icon).font(.system(size: 10))
-            Text(item.title).font(.system(size: 11)).lineLimit(1)
+            Image(systemName: item.icon).font(.muxa(.caption))
+            Text(item.title).font(.muxa(.label)).lineLimit(1)
             Button { onCloseItem(item.id) } label: {
-                Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+                Image(systemName: "xmark").font(.muxa(.nano, weight: .bold))
             }
             .buttonStyle(.plain)
             .opacity(selected ? 0.8 : 0.4)

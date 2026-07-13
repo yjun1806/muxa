@@ -64,7 +64,7 @@ struct BonsplitWorkspaceView: View {
             store.newTerminal(inPane: paneId)
         } label: {
             Label("새 터미널", systemImage: "plus")
-                .font(.system(size: 13))
+                .font(.muxa(.title))
                 .foregroundStyle(Color.pMuted)
         }
         .buttonStyle(.plain)
@@ -82,29 +82,22 @@ private struct EmptyProjectView: View {
     let store: TerminalStore
 
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "terminal")
-                .font(.system(size: 34))
-                .foregroundStyle(Color.pMuted)
-            Text("터미널이 없습니다")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Color.pFg)
+        EmptyState(icon: "terminal", title: "터미널이 없습니다") {
             Button {
                 store.newTerminal()
             } label: {
                 Label("새 터미널", systemImage: "plus")
-                    .font(.system(size: 13))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 7)
-                    .background(Color.pBtnHover, in: RoundedRectangle(cornerRadius: 6))
+                    .font(.muxa(.title))
+                    .padding(.horizontal, Space.xl - Space.tight)
+                    .padding(.vertical, Space.sm)
+                    .background(Color.pBtnHover, in: RoundedRectangle(cornerRadius: Radius.md))
                     .foregroundStyle(Color.pFg)
             }
             .buttonStyle(.plain)
             Text("⌘T")
-                .font(.system(size: 11))
+                .font(.muxa(.label))
                 .foregroundStyle(Color.pMuted)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.pBg)
     }
 }

@@ -27,7 +27,7 @@ struct SearchOverlay: View {
                 .frame(width: 180, height: 22)
 
                 Text(counter)
-                    .font(.system(size: 11).monospacedDigit())
+                    .font(.muxa(.label).monospacedDigit())
                     .foregroundStyle(Color.pMuted)
                     .frame(minWidth: 42, alignment: .trailing)
 
@@ -55,7 +55,7 @@ struct SearchOverlay: View {
 
     private func iconButton(_ icon: String, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: icon).font(.system(size: 11, weight: .medium))
+            Image(systemName: icon).font(.muxa(.label, weight: .medium))
         }
         .buttonStyle(.plain)
         .foregroundStyle(Color.pFg)

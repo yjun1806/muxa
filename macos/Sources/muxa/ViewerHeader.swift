@@ -8,9 +8,9 @@ struct ViewerHeader: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: icon).font(.system(size: 12)).foregroundStyle(Color.pMuted)
+            Image(systemName: icon).font(.muxa(.body)).foregroundStyle(Color.pMuted)
             Text(title)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .font(.muxaMono(.body, weight: .medium))
                 .foregroundStyle(Color.pFg)
                 .lineLimit(1)
                 .truncationMode(.head)

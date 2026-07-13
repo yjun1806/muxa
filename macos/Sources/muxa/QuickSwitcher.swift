@@ -49,7 +49,7 @@ struct QuickSwitcher: View {
             .frame(height: 40)
             .padding(.horizontal, 12)
 
-            Rectangle().fill(Color.pBorder).frame(height: 1)
+            HDivider()
 
             if items.isEmpty {
                 emptyState
@@ -65,7 +65,7 @@ struct QuickSwitcher: View {
 
     private var emptyState: some View {
         Text("일치하는 항목 없음")
-            .font(.system(size: 12))
+            .font(.muxa(.body))
             .foregroundStyle(Color.pMuted)
             .frame(maxWidth: .infinity)
             .frame(height: 64)
@@ -95,17 +95,17 @@ struct QuickSwitcher: View {
     private func row(_ item: QuickSwitchItem, selected: Bool) -> some View {
         HStack(spacing: 10) {
             Image(systemName: item.icon)
-                .font(.system(size: 13))
+                .font(.muxa(.title))
                 .foregroundStyle(selected ? Color.pFg : Color.pMuted)
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title)
-                    .font(.system(size: 13))
+                    .font(.muxa(.title))
                     .foregroundStyle(Color.pFg)
                     .lineLimit(1)
                 if !item.subtitle.isEmpty {
                     Text(item.subtitle)
-                        .font(.system(size: 10))
+                        .font(.muxa(.caption))
                         .foregroundStyle(Color.pMuted)
                         .lineLimit(1)
                         .truncationMode(.head)
@@ -125,7 +125,7 @@ struct QuickSwitcher: View {
                     .clipShape(RoundedRectangle(cornerRadius: 4))
             } else {
                 Text(item.kind.label)
-                    .font(.system(size: 9, weight: .medium))
+                    .font(.muxa(.micro, weight: .medium))
                     .foregroundStyle(Color.pMuted.opacity(0.8))
             }
         }

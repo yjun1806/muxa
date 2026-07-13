@@ -76,7 +76,7 @@ struct DiffView: View {
         VStack(spacing: 0) {
             if chrome {
                 header
-                Rectangle().fill(Color.pBorder).frame(height: 1)
+                HDivider()
             }
             toolbar
             if !loaded {
@@ -195,9 +195,9 @@ struct DiffView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: "plusminus").font(.system(size: 12)).foregroundStyle(Color.pMuted)
+            Image(systemName: "plusminus").font(.muxa(.body)).foregroundStyle(Color.pMuted)
             Text(target.title)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .font(.muxaMono(.body, weight: .medium))
                 .foregroundStyle(Color.pFg)
                 .lineLimit(1)
                 .truncationMode(.head)
@@ -212,7 +212,7 @@ struct DiffView: View {
 
     private func centerLabel(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 12))
+            .font(.muxa(.body))
             .foregroundStyle(Color.pMuted)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -235,7 +235,7 @@ struct DiffView: View {
                 }
                 if let stageError {
                     Text(stageError)
-                        .font(.system(size: 10)).foregroundStyle(.red).lineLimit(1).truncationMode(.middle)
+                        .font(.muxa(.caption)).foregroundStyle(Color.pDanger).lineLimit(1).truncationMode(.middle)
                 }
                 Spacer(minLength: 0)
                 if applying { ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 16) }
@@ -244,7 +244,7 @@ struct DiffView: View {
             .padding(.horizontal, 12)
             .frame(height: 32)
             .background(Color.pPanel)
-            Rectangle().fill(Color.pBorder).frame(height: 1)
+            HDivider()
         }
     }
 
@@ -260,7 +260,7 @@ struct DiffView: View {
     private func segButton(_ title: String, selected: Bool, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 11))
+                .font(.muxa(.label))
                 .padding(.horizontal, 10)
                 .frame(height: 22)
                 .background(selected ? Color.pBtnActive : Color.clear)
@@ -272,8 +272,8 @@ struct DiffView: View {
     private func toolbarButton(_ title: String, icon: String, destructive: Bool = false, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 4) {
-                Image(systemName: icon).font(.system(size: 10, weight: .bold))
-                Text(title).font(.system(size: 11))
+                Image(systemName: icon).font(.muxa(.caption, weight: .bold))
+                Text(title).font(.muxa(.label))
             }
             .padding(.horizontal, 8)
             .frame(height: 22)

@@ -16,7 +16,7 @@ struct ImageFileView: View {
         VStack(spacing: 0) {
             if chrome {
                 ViewerHeader(icon: target.tabIcon, title: target.path, onClose: onClose)
-                Rectangle().fill(Color.pBorder).frame(height: 1)
+                HDivider()
             }
             // 원본 크기를 넘겨 확대하지 않고(작은 이미지는 그대로), 창보다 크면 여백을 두고 축소.
             ScalingImageView(path: target.path)
@@ -84,7 +84,7 @@ struct VideoFileView: View {
         VStack(spacing: 0) {
             if chrome {
                 ViewerHeader(icon: target.tabIcon, title: target.path, onClose: onClose)
-                Rectangle().fill(Color.pBorder).frame(height: 1)
+                HDivider()
             }
             Group {
                 if let player {

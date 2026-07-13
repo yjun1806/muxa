@@ -33,10 +33,10 @@ struct ProjectTabBar: View {
         let active = project.id == workspace.activeProjectId
         HStack(spacing: 6) {
             Image(systemName: project.path == nil ? "folder" : "arrow.triangle.branch")
-                .font(.system(size: 11))
+                .font(.muxa(.label))
                 .foregroundStyle(active ? Color.pFg : Color.pMuted)
             Text(project.name)
-                .font(.system(size: 12, weight: active ? .medium : .regular))
+                .font(.muxa(.body, weight: active ? .medium : .regular))
                 .foregroundStyle(active ? Color.pFg : Color.pMuted)
                 .lineLimit(1)
             if !active, state.badgedProjects.contains(project.id) {
@@ -47,7 +47,7 @@ struct ProjectTabBar: View {
                 Button {
                     state.closeProject(project.id)
                 } label: {
-                    Image(systemName: "xmark").font(.system(size: 9, weight: .semibold))
+                    Image(systemName: "xmark").font(.muxa(.micro, weight: .semibold))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.pMuted)
@@ -93,7 +93,7 @@ struct ProjectTabBar: View {
                 Label("임의 폴더 선택…", systemImage: "folder")
             }
         } label: {
-            Image(systemName: "plus").font(.system(size: 12)).foregroundStyle(Color.pMuted)
+            Image(systemName: "plus").font(.muxa(.body)).foregroundStyle(Color.pMuted)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)

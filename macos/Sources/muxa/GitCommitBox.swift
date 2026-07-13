@@ -16,7 +16,7 @@ struct GitCommitBox: View {
         VStack(alignment: .leading, spacing: 6) {
             TextField("커밋 메시지", text: $message, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
+                .font(.muxa(.body))
                 .lineLimit(1...4)
                 .padding(6)
                 .background(Color.pBg)
@@ -24,15 +24,15 @@ struct GitCommitBox: View {
                 .onSubmit { if canCommit { onCommit() } }
             if let error {
                 Text(error)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.red)
+                    .font(.muxa(.caption))
+                    .foregroundStyle(Color.pDanger)
                     .lineLimit(2)
             }
             Button(action: onCommit) {
                 HStack(spacing: 4) {
-                    Image(systemName: "checkmark").font(.system(size: 10, weight: .bold))
+                    Image(systemName: "checkmark").font(.muxa(.caption, weight: .bold))
                     Text(stagedCount > 0 ? "커밋 (\(stagedCount))" : "커밋")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.muxa(.body, weight: .medium))
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 26)

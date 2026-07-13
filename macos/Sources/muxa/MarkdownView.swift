@@ -27,7 +27,7 @@ struct MarkdownView: View {
                     title: target.path,
                     onClose: onClose
                 )
-                Rectangle().fill(Color.pBorder).frame(height: 1)
+                HDivider()
             }
             content(for: state)
         }
@@ -59,7 +59,7 @@ struct MarkdownView: View {
 
     private func centerLabel(_ t: String) -> some View {
         Text(t)
-            .font(.system(size: 12)).foregroundStyle(Color.pMuted)
+            .font(.muxa(.body)).foregroundStyle(Color.pMuted)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
