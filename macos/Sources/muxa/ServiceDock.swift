@@ -50,14 +50,15 @@ struct ServiceDock: View {
 
     private var list: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
+            HStack(spacing: Space.sm) {
                 Text("서비스").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
-                Spacer()
-                Button { showAdd = true } label: {
-                    Image(systemName: "plus").font(.muxa(.micro)).foregroundStyle(Color.pMuted)
+                Spacer(minLength: Space.xs)
+                IconButton(icon: "plus", help: "서비스 추가") { showAdd = true }
+                // 닫기는 **여기에도** 둔다 — 우측 헤더는 선택된 서비스가 있을 때만 뜨므로,
+                // 서비스가 하나도 없으면 도크를 닫을 방법이 사라진다.
+                IconButton(icon: "xmark", help: "도크 닫기 (⌘J) — 프로세스는 계속 돕니다") {
+                    state.closeServiceDock()
                 }
-                .buttonStyle(.plain)
-                .help("서비스 추가")
             }
             .padding(.horizontal, Space.panelInset)
             .frame(height: RowHeight.toolbar)
@@ -109,52 +110,50 @@ struct ServiceDock: View {
             VStack(spacing: 0) {
                 header(service)
                 // 진짜 터미널이다 — Ctrl+C로 죽이고, 스크롤하고, 그 자리에서 디버깅한다.
+                // 죽은 서비스면 attach 대신 보존된 로그를 뿌린다(AppState.dockTerm 주석).
                 TerminalRepresentable(
-                    term: state.dockTerm(serviceId: service.id, projectId: project.id, cwd: cwd),
+                    term: state.dockTerm(serviceId: service.id, projectId: project.id,
+                                         cwd: cwd, isDead: isDead(service)),
                     onFocus: {}
                 )
-                .id(service.id) // 서비스를 바꾸면 그 서비스의 터미널로 갈아 끼운다
+                // 서비스를 바꾸거나 생사가 뒤집히면 그에 맞는 터미널로 갈아 끼운다.
+                .id("\(service.id)|\(isDead(service))")
             }
         } else {
             emptyState
         }
     }
 
+    /// 도크 헤더 — 이름·명령·조작 버튼.
+    ///
+    /// 버튼은 `IconButton`(14x14 고정)을 쓰고 명령 텍스트의 레이아웃 우선순위를 낮춘다.
+    /// 크기가 유연한 버튼을 쓰면 HStack이 공간을 배분할 때 **명령 텍스트가 공간을 먼저 가져가고
+    /// 버튼이 0폭으로 압축돼 사라진다** — 닫기 버튼이 사라져서 도크를 닫을 수 없게 된다.
     private func header(_ service: Service) -> some View {
         HStack(spacing: Space.sm) {
-            Text(service.name).font(.muxa(.label, weight: .semibold)).foregroundStyle(Color.pFg)
+            Text(service.name)
+                .font(.muxa(.label, weight: .semibold))
+                .foregroundStyle(Color.pFg)
+                .fixedSize()
             Text(service.command)
                 .font(.muxaMono(.caption))
                 .foregroundStyle(Color.pMuted)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Spacer(minLength: Space.md)
+                .layoutPriority(-1) // 자리가 모자라면 여기부터 줄인다(버튼은 끝까지 남는다)
+            Spacer(minLength: Space.sm)
             // 재시작은 죽었을 때만이 아니라 언제나 유효하다(코드 고치고 다시 띄우기).
-            Button {
+            IconButton(icon: "arrow.clockwise", help: "재시작") {
                 guard let cwd else { return }
                 state.restartService(service.id, in: project.id, cwd: cwd)
-            } label: {
-                Image(systemName: "arrow.clockwise").font(.muxa(.micro))
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.pMuted)
-            .help("재시작")
-
-            Button { state.removeService(service.id, from: project.id) } label: {
-                Image(systemName: "trash").font(.muxa(.micro))
+            IconButton(icon: "trash", help: "서비스 제거 — 등록을 지우고 프로세스도 종료합니다") {
+                state.removeService(service.id, from: project.id)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.pMuted)
-            .help("서비스 제거 — 등록을 지우고 프로세스도 종료합니다")
-
             VDivider(height: 12)
-
-            Button { state.closeServiceDock() } label: {
-                Image(systemName: "xmark").font(.muxa(.micro))
+            IconButton(icon: "xmark", help: "도크 닫기 (⌘J) — 프로세스는 계속 돕니다") {
+                state.closeServiceDock()
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.pMuted)
-            .help("도크 닫기 (⌘J) — 프로세스는 계속 돕니다")
         }
         .padding(.horizontal, Space.panelInset)
         .frame(height: RowHeight.toolbar)
@@ -175,6 +174,13 @@ struct ServiceDock: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.pBg)
+    }
+
+    /// 죽었나 — tmux가 진실 원천이다. 아직 상태를 모르면(missing) 살아있다고 보고 attach를 시도한다
+    /// (폴링 첫 바퀴 전이라도 도크가 빈 화면으로 뜨지 않게).
+    private func isDead(_ service: Service) -> Bool {
+        if case .exited = state.serviceMonitor.states[service.id] ?? .missing { return true }
+        return false
     }
 
     private func dotColor(_ status: ServiceState) -> Color {

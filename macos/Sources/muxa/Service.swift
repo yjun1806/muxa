@@ -21,6 +21,12 @@ func collectLiveServiceIds(in workspaces: [Workspace]) -> Set<String> {
     Set(workspaces.flatMap(\.projects).flatMap { $0.services ?? [] }.map(\.id))
 }
 
+/// 이 인스턴스가 아는 프로젝트 id 전부. 고아 정리의 **판정 범위**다 — 여기 없는 프로젝트의 세션은
+/// 다른 muxa 인스턴스의 것으로 보고 건드리지 않는다(ServiceSession.orphans 주석 참조).
+func collectKnownProjectIds(in workspaces: [Workspace]) -> Set<String> {
+    Set(workspaces.flatMap(\.projects).map(\.id))
+}
+
 /// 서비스의 현재 상태. 진실 원천은 muxa가 아니라 tmux다 — 접혀 있어도 읽힌다.
 enum ServiceState: Equatable {
     case running
@@ -75,13 +81,20 @@ enum ServiceSession {
     /// tmux 세션은 muxa가 죽어도 살아남는데(그게 이 설계의 존재 이유다), 그 대가로 등록이 사라진 뒤에도
     /// 프로세스가 남아 포트를 물고 있을 수 있다. 여기서 그걸 골라낸다.
     ///
+    /// **죽이는 건 우리가 확실히 아는 것만.** 파괴적 동작이라 판정은 좁게, 보존은 넓게 잡는다.
     /// 보존(=건드리지 않음) 조건 — 하나라도 참이면 남긴다:
     ///  1) muxa 소유 세션이 아님 — 사용자의 다른 tmux 작업은 절대 죽이지 않는다(전용 소켓이라 원래
     ///     섞일 일이 없지만, 파괴적 동작이므로 판정에서 한 번 더 막는다)
-    ///  2) 등록된 서비스에 대응함(serviceId ∈ liveServiceIds)
-    static func orphans(sessions: [String], liveServiceIds: Set<String>) -> [String] {
+    ///  2) **내가 모르는 프로젝트의 세션** — muxa 인스턴스는 여럿 떠 있을 수 있고(창 여러 개, 개발용
+    ///     워크트리 빌드) 같은 tmux 소켓을 공유한다. 내 state에 없는 프로젝트의 세션은 남의 것이다.
+    ///     이 가드가 없으면 인스턴스끼리 서로의 dev 서버를 몰살한다.
+    ///     따라서 아는 프로젝트가 하나도 없으면(knownProjectIds가 비면) 아무것도 지우지 않는다.
+    ///  3) 등록된 서비스에 대응함(serviceId ∈ liveServiceIds)
+    static func orphans(sessions: [String], liveServiceIds: Set<String>,
+                        knownProjectIds: Set<String>) -> [String] {
         sessions.filter { session in
             guard let parsed = parse(session) else { return false }
+            guard knownProjectIds.contains(parsed.projectId) else { return false }
             return !liveServiceIds.contains(parsed.serviceId)
         }
     }

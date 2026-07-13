@@ -605,17 +605,25 @@ final class AppState {
     /// serviceId → attach 터미널. 도크가 열려 있는 동안만 산다.
     @ObservationIgnored private var dockTerms: [String: TermView] = [:]
 
-    /// 선택된 서비스의 attach 터미널(없으면 만든다).
+    /// 선택된 서비스의 터미널(없으면 만든다).
+    ///
+    /// **살아 있으면 attach, 죽었으면 로그를 뿌린다.** 죽은 pane에 attach하면 tmux가 클라이언트
+    /// 크기로 리사이즈하면서 화면 내용이 날아가고 `Pane is dead`만 남는다 — 정작 왜 죽었는지를 못 본다.
+    /// capture-pane은 그 내용을 온전히 갖고 있다.
     ///
     /// **접을 때 버려도 안전한 이유**: 이 서피스에서 도는 건 `tmux attach` 클라이언트일 뿐이고,
     /// dev 서버는 tmux 서버(ppid=1) 쪽에 있다. 서피스를 해제해도 프로세스는 살아 있으므로
     /// 상태를 유지하려고 숨은 서피스를 붙들 필요가 없다 — 재부착 빈 화면 레이스를 아예 안 밟는다.
-    func dockTerm(serviceId: String, projectId: String, cwd: String?) -> TermView {
-        if let existing = dockTerms[serviceId] { return existing }
-        let term = TermView(app: app, cwd: cwd,
-                            initialCommand: TmuxService.attachCommand(projectId: projectId,
-                                                                      serviceId: serviceId))
-        dockTerms[serviceId] = term
+    ///
+    /// 캐시 키에 생사를 넣어, 죽는 순간 attach 화면이 로그 화면으로 갈아 끼워지게 한다.
+    func dockTerm(serviceId: String, projectId: String, cwd: String?, isDead: Bool) -> TermView {
+        let key = "\(serviceId)|\(isDead)"
+        if let existing = dockTerms[key] { return existing }
+        let command = isDead
+            ? TmuxService.logCommand(projectId: projectId, serviceId: serviceId)
+            : TmuxService.attachCommand(projectId: projectId, serviceId: serviceId)
+        let term = TermView(app: app, cwd: cwd, initialCommand: command)
+        dockTerms[key] = term
         return term
     }
 
@@ -631,17 +639,23 @@ final class AppState {
         showServiceDock = true
     }
 
-    /// 재시작·제거로 세션이 갈아엎어지면 그 서비스의 attach 터미널도 버린다(옛 세션에 붙은 채 남지 않게).
+    /// 재시작·제거로 세션이 갈아엎어지면 그 서비스의 터미널을 버린다(옛 세션에 붙은 채 남지 않게).
+    /// 캐시 키가 생사별로 둘이라(serviceId|true / |false) 양쪽 다 지운다.
     private func dropDockTerm(_ serviceId: String) {
-        dockTerms[serviceId] = nil
+        dockTerms = dockTerms.filter { !$0.key.hasPrefix("\(serviceId)|") }
     }
 
     /// 좀비 청소 — 등록이 사라졌는데 살아남은 서비스 세션을 죽인다. 앱 시작 시 1회.
-    /// 판정 입력은 **모든 워크스페이스**의 서비스여야 한다(활성만 훑으면 남의 서비스를 죽인다).
+    ///
+    /// 판정 입력은 **모든 워크스페이스**여야 한다:
+    ///  - 서비스: 활성 워크스페이스만 훑으면 다른 워크스페이스의 서비스가 고아로 몰려 죽는다.
+    ///  - 프로젝트: 내가 아는 프로젝트의 세션만 판정 대상이다. muxa 인스턴스가 여럿이면 tmux 소켓을
+    ///    공유하므로, 이 범위 제한이 없으면 서로의 dev 서버를 죽인다.
     func collectServiceGarbage() {
         guard TmuxService.isAvailable else { return }
         let live = collectLiveServiceIds(in: workspaces)
-        Task { await TmuxService.collectGarbage(liveServiceIds: live) }
+        let known = collectKnownProjectIds(in: workspaces)
+        Task { await TmuxService.collectGarbage(liveServiceIds: live, knownProjectIds: known) }
     }
 
     /// 백그라운드 프로젝트에 활동(●)이 있음을 표시. 지금 보고 있는 활성 프로젝트(=활성 워크스페이스의
