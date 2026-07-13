@@ -39,6 +39,8 @@ final class TermView: NSView, NSTextInputClient {
     /// 엔진(SET_TITLE)이 보낸 터미널 제목 — store가 받아 탭 이름에 반영한다.
     /// 수동 지정 탭은 store가 덮지 않게 판정하므로 TermView는 값만 넘긴다.
     var onTitle: ((String) -> Void)?
+    /// 셸이 디렉터리를 옮길 때(OSC 7) store에 알린다 — 워크스페이스의 "마지막 pwd" 추적용.
+    var onPwd: ((String) -> Void)?
 
     /// IME 조합 중(preedit) 텍스트. NSTextInputClient가 채운다.
     private var markedText = NSMutableAttributedString()
@@ -322,9 +324,49 @@ final class TermView: NSView, NSTextInputClient {
         return super.resignFirstResponder()
     }
 
+    // MARK: 마우스 버튼 — ghostty_surface_mouse_button 전달
+    //
+    // 위치(mouse_pos)만 넘기고 버튼을 안 넘기면 ghostty는 "눌렸다"는 걸 모른다 —
+    // 드래그 텍스트 선택·클릭 위치 지정·마우스 리포팅을 켠 TUI 앱(vim·claude code)의 클릭이 전부 죽는다.
+    // 버튼은 항상 최신 위치 위에서 해석되므로 위치를 먼저 동기화한 뒤 보낸다.
+
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         onFocus?()
+        sendMouseButton(.press, .left, event)
+    }
+
+    override func mouseUp(with event: NSEvent) { sendMouseButton(.release, .left, event) }
+
+    override func rightMouseDown(with event: NSEvent) { sendMouseButton(.press, .right, event) }
+    override func rightMouseUp(with event: NSEvent) { sendMouseButton(.release, .right, event) }
+
+    override func otherMouseDown(with event: NSEvent) { sendMouseButton(.press, .middle, event) }
+    override func otherMouseUp(with event: NSEvent) { sendMouseButton(.release, .middle, event) }
+
+    private func sendMouseButton(_ state: MouseState, _ button: MouseButton, _ event: NSEvent) {
+        guard let surface else { return }
+        syncMousePos(with: event) // 버튼은 "지금 커서가 있는 칸"에 적용된다 — 위치가 먼저다
+        _ = ghostty_surface_mouse_button(surface, state.raw, button.raw, ghosttyMods(event.modifierFlags))
+    }
+
+    /// ghostty 마우스 상태·버튼 열거를 Swift 쪽 이름으로 감싼다(C 상수를 호출부에 흩뿌리지 않는다).
+    private enum MouseState {
+        case press, release
+        var raw: ghostty_input_mouse_state_e {
+            self == .press ? GHOSTTY_MOUSE_PRESS : GHOSTTY_MOUSE_RELEASE
+        }
+    }
+
+    private enum MouseButton {
+        case left, right, middle
+        var raw: ghostty_input_mouse_button_e {
+            switch self {
+            case .left: return GHOSTTY_MOUSE_LEFT
+            case .right: return GHOSTTY_MOUSE_RIGHT
+            case .middle: return GHOSTTY_MOUSE_MIDDLE
+            }
+        }
     }
 
     // MARK: 마우스 위치 — ghostty_surface_mouse_pos 동기화 (cmux 이식)
@@ -361,6 +403,8 @@ final class TermView: NSView, NSTextInputClient {
     override func mouseMoved(with event: NSEvent) { syncMousePos(with: event) }
     override func mouseEntered(with event: NSEvent) { syncMousePos(with: event) }
     override func mouseDragged(with event: NSEvent) { syncMousePos(with: event) }
+    override func rightMouseDragged(with event: NSEvent) { syncMousePos(with: event) }
+    override func otherMouseDragged(with event: NSEvent) { syncMousePos(with: event) }
 
     override func mouseExited(with event: NSEvent) {
         guard let surface else { return }
@@ -488,9 +532,11 @@ final class TermView: NSView, NSTextInputClient {
         onSignal?(.outputHeartbeat)
     }
 
-    /// OSC 7 작업 디렉터리 변경. 저장은 스냅샷 시점에 store가 pwd를 읽는 방식이라 여기선 값만 갱신한다.
+    /// OSC 7 작업 디렉터리 변경. 저장은 스냅샷 시점에 store가 pwd를 읽는 방식이라 값만 갱신하고,
+    /// 새 탭·분할이 이어받을 "마지막 pwd"만 store에 알린다.
     func onPwdChange(_ pwd: String) {
         self.pwd = pwd
+        onPwd?(pwd)
     }
 
     /// OSC 0/2 터미널 제목(SET_TITLE). 수동 rename 여부·탭 반영은 store가 결정한다.

@@ -12,6 +12,17 @@ struct HDivider: View {
     }
 }
 
+/// 세로 구분선 — 한 줄 안에서 성격이 다른 영역을 가른다(상단바의 워크스페이스 컨트롤 ↔ 프로젝트 탭).
+struct VDivider: View {
+    var height: CGFloat = 16
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.pBorder)
+            .frame(width: RowHeight.hairline, height: height)
+    }
+}
+
 /// 패널 안의 보조 텍스트 — 빈 상태 메시지("변경 없음")·설명.
 struct PanelLabel: View {
     let text: String

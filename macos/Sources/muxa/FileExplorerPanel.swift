@@ -19,7 +19,8 @@ struct FileExplorerPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            HDivider()
+            // 헤더 아래 구분선을 두지 않는다 — 옆 칸의 탭바(Bonsplit)엔 없어서, 이 선 1px 때문에
+            // 두 줄의 아래 경계가 어긋나 보인다. 패널 배경색이 이미 헤더와 트리를 나눈다.
             if let root {
                 FileExplorerOutline(
                     root: root,
@@ -61,8 +62,7 @@ struct FileExplorerPanel: View {
             }
             .buttonStyle(.plain).foregroundStyle(Color.pMuted).help("새로고침")
         }
-        .padding(.horizontal, 10)
-        .frame(height: 34)
+        .panelBar(height: RowHeight.header) // 칸 탭바(Bonsplit)와 같은 높이 — 두 줄이 한 선에 이어진다
     }
 
     private func label(_ text: String) -> some View {

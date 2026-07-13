@@ -6,62 +6,89 @@ struct ContentView: View {
     let state: AppState
     let home: String
 
+    /// 콘텐츠 카드의 실제 크기 — 칸 테두리가 "카드 모서리에 닿았나"를 판단하는 기준.
+    @State private var cardSize: CGSize = .zero
+
     var body: some View {
+        // 크롬(상단바·사이드바·푸터)은 한 덩어리 배경이고, 그 위에 콘텐츠가 카드로 떠 있다.
+        // 크롬끼리는 구분선을 넣지 않는다 — 같은 색으로 이어져야 "창 전체가 하나의 틀"로 읽힌다.
+        // 콘텐츠와 크롬은 카드의 모서리·테두리가 구분한다(선을 긋지 않아도 층이 보인다).
         VStack(spacing: 0) {
             topBar
-            HDivider()
             // 사이드바는 오버레이로 떠 있고, 레이아웃엔 접힌 폭(baseWidth)만 예약한다 —
             // hover peek로 펼쳐져도 콘텐츠(워크스페이스)가 밀리지 않는다.
             HStack(spacing: 0) {
                 Color.clear.frame(width: state.sidebarMode.baseWidth)
-                Rectangle().fill(Color.pBorder).frame(width: 1)
-                workspaceColumn
+                contentCard
             }
             .overlay(alignment: .topLeading) {
                 SidebarSUI(state: state)
             }
-            HDivider()
+            // 푸터도 크롬이라 창 가장자리에 딱 붙이지 않는다 — 카드와 같은 여백 안에 놓는다.
             StatusBar(state: state, home: home)
+                .padding(.trailing, Space.sm)
+                .padding(.bottom, Space.xs)
         }
         .background(Color.pPanel)
         // ⌘K 빠른 전환기 — 크롬 전체 위에 뜨는 오버레이(닫혀 있으면 아무것도 안 그린다).
         .overlay { QuickSwitcher(state: state) }
     }
 
-    /// 전체 폭 상단바 한 줄 — 신호등 · 사이드바/워크스페이스 컨트롤 · 프로젝트 탭 · 우측 경로.
-    /// 타이틀바와 프로젝트 헤더를 한 줄로 합친다(두 줄로 따로 놀지 않게). fullSizeContentView라
-    /// 콘텐츠가 타이틀바까지 올라와 신호등이 이 줄 위에 뜬다.
+    /// 콘텐츠 카드 — 터미널·패널이 사는 판. 크롬 배경 위에 얹혀 층이 드러난다.
+    ///
+    /// 콘텐츠는 카드 모서리로 정확히 클리핑한다(여백으로 밀어내지 않는다 — 터미널 주위에 흰 띠가
+    /// 생기면 화면만 좁아진다). 활성 칸의 강조 테두리가 이 모서리에 잘리는 문제는 테두리 쪽에서
+    /// 푼다: 칸 경계에 걸터앉히지 않고 안쪽으로 넣으면 애초에 잘릴 일이 없다(`PaneBorder`).
+    private var contentCard: some View {
+        workspaceColumn
+            // 칸들이 "내가 카드의 어느 모서리에 닿았나"를 재려면 카드의 좌표계·크기를 알아야 한다.
+            .contentCardSpace(size: cardSize)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.onAppear { cardSize = geo.size }
+                        .onChange(of: geo.size) { _, new in cardSize = new }
+                }
+            )
+            .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.lg)
+                    .stroke(Color.pBorder, lineWidth: 1)
+            )
+            .padding(.trailing, Space.sm)
+            .padding(.bottom, Space.xs)
+    }
+
+    /// 전체 폭 상단바 — 신호등 · 워드마크 · 사이드바 컨트롤 · 프로젝트 탭 · 우측 토글.
+    /// fullSizeContentView라 콘텐츠가 타이틀바까지 올라오고, 신호등은 `TrafficLights`가 이 줄 중앙으로 내린다.
     private var topBar: some View {
-        HStack(spacing: Space.md) {
-            Color.clear.frame(width: 68) // 신호등 3개 확보
+        HStack(alignment: .center, spacing: Space.md) {
+            // 신호등 3개 + 왼쪽 여백(TrafficLights.leadingInset) 확보 — 워드마크가 버튼에 닿지 않게.
+            Color.clear.frame(width: 76)
             wordmark
             TopBarControls(state: state, home: home)
             if let ws = state.activeWorkspace {
-                Rectangle().fill(Color.pBorder).frame(width: 1, height: 16)
+                // 워크스페이스 관리(사이드바 컨트롤)와 프로젝트 탭은 성격이 다른 영역이라 선으로 가른다.
+                VDivider(height: 18)
                 ProjectTabBar(state: state, workspace: ws)
-                Spacer(minLength: 12)
+                Spacer(minLength: Space.lg)
                 AttentionBell(state: state)
                 explorerToggle
                 gitToggle
-                // 경로는 상단바에 두지 않는다 — 푸터가 활성 터미널의 실제 pwd(OSC 7)를 보여주므로
-                // 여기 프로젝트 경로까지 띄우면 비슷한 두 경로가 화면에 동시에 뜨고, 상단바만 좁아진다.
-                    .padding(.trailing, Space.lg)
             } else {
                 Spacer(minLength: 0)
             }
         }
-        // 신호등은 fullSizeContentView에서도 표준 타이틀바 위치(창 상단 기준 중심 ≈14pt)에 고정된다.
-        // 상단바를 그 높이에 맞춰야 신호등과 우리 컨트롤이 같은 선에 놓인다(38이면 신호등만 위로 뜬다).
+        .padding(.horizontal, Space.lg)
         .frame(height: RowHeight.topBar)
-        .background(Color.pPanel)
     }
 
     /// 워드마크 — 창에 앱 이름을 남긴다(타이틀바를 숨겼으므로 여기가 유일한 자리).
     private var wordmark: some View {
         Text("Muxa")
             .font(.muxa(.title, weight: .semibold))
-            .foregroundStyle(Color.pBrand)
+            .foregroundStyle(Color.pFg)
             .fixedSize()
+            .padding(.horizontal, Space.xs)
             .help("muxa")
     }
 
@@ -75,7 +102,7 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .frame(width: 24, height: 24)
         .background(state.showExplorer ? Color.pBtnActive.opacity(0.6) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.md))
         .help("파일 익스플로러")
     }
 
@@ -89,7 +116,7 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .frame(width: 24, height: 24)
         .background(state.showGitPanel ? Color.pBtnActive.opacity(0.6) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.md))
         .help("Git 패널")
     }
 

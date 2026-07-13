@@ -47,12 +47,15 @@ struct BonsplitWorkspaceView: View {
                 }
                 SearchOverlay(term: term) // active일 때만 우상단에 뜬다
             }
+            // 칸 본문 우클릭은 터미널(ghostty)에 그대로 넘긴다 — TUI 앱의 마우스 리포팅을 뺏지 않는다.
         case .group:
             if let state = store.group(for: tabId) {
-                TabGroupView(group: state, dir: store.workingDir ?? "",
-                             onFocus: { store.controller.focusPane(paneId) }) { itemId in
-                    store.closeGroupItem(tabId, itemId: itemId)
-                }
+                TabGroupView(
+                    group: state, dir: store.workingDir ?? "",
+                    onFocus: { store.controller.focusPane(paneId) },
+                    onCloseItem: { store.closeGroupItem(tabId, itemId: $0) },
+                    onCloseOtherItems: { store.closeOtherGroupItems(tabId, keeping: $0) }
+                )
             }
         }
     }
@@ -102,6 +105,51 @@ private struct EmptyProjectView: View {
     }
 }
 
+/// 칸 강조 테두리의 공통 껍데기 — 색·굵기·애니메이션만 다르고 그리는 방식은 같다.
+///
+/// **여백 없이 칸 경계에 딱 붙여 그리고, 카드 모서리에 닿는 코너만 둥글린다.**
+/// - 안쪽으로 밀면(inset) 테두리와 화면 사이에 어중간한 틈이 생긴다.
+/// - 네 코너를 모두 둥글리면, 카드 모서리에 닿지도 않는 분할 경계에서 테두리가 괜히 패인다.
+///
+/// 그래서 카드 좌표계(`ContentCard.space`)에서 자기 위치를 재어 **닿은 코너에만** 카드와 같은
+/// 반경을 준다. 곡선이 정확히 겹치므로 카드가 콘텐츠를 클리핑해도 테두리가 깎이지 않는다
+/// (`strokeBorder`는 도형 안쪽으로 그린다).
+private struct PaneBorder: View {
+    let color: Color?
+    var lineWidth: CGFloat = 2
+    let animation: Animation
+
+    @Environment(\.contentCardSize) private var cardSize
+
+    var body: some View {
+        GeometryReader { geo in
+            let corners = touchingCorners(paneFrame: geo.frame(in: .named(ContentCard.space)))
+            UnevenRoundedRectangle(
+                topLeadingRadius: corners.topLeading ? Radius.lg : 0,
+                bottomLeadingRadius: corners.bottomLeading ? Radius.lg : 0,
+                bottomTrailingRadius: corners.bottomTrailing ? Radius.lg : 0,
+                topTrailingRadius: corners.topTrailing ? Radius.lg : 0
+            )
+            .strokeBorder(color ?? .clear, lineWidth: lineWidth)
+        }
+        .opacity(color == nil ? 0 : 1)
+        .animation(animation, value: color)
+        .allowsHitTesting(false)
+    }
+
+    /// 이 칸이 카드의 어느 모서리에 닿아 있는지. 카드 크기를 아직 모르면(.zero) 전부 둥글린 것으로 본다.
+    private func touchingCorners(paneFrame: CGRect) -> (topLeading: Bool, bottomLeading: Bool,
+                                                        topTrailing: Bool, bottomTrailing: Bool) {
+        guard cardSize.width > 0, cardSize.height > 0 else { return (true, true, true, true) }
+        let t = ContentCard.touchTolerance
+        let left = paneFrame.minX <= t
+        let right = paneFrame.maxX >= cardSize.width - t
+        let top = paneFrame.minY <= t
+        let bottom = paneFrame.maxY >= cardSize.height - t
+        return (left && top, left && bottom, right && top, right && bottom)
+    }
+}
+
 /// 활성(포커스) 칸 강조 — Bonsplit의 `focusedPaneId`(@Observable)를 읽어 포커스 전환 시 자동 재렌더된다.
 /// 활성 칸엔 청록 테두리만 얹어 "지금 입력이 가는 칸"을 표시한다(비활성 칸을 어둡게 하지 않는다).
 /// 상태/활동 테두리와 배타적: 활성 칸은 그 칸을 봤다는 뜻이라 에이전트 상태 테두리(waiting/done)가 해제된다.
@@ -111,11 +159,9 @@ private struct FocusBorder: View {
 
     var body: some View {
         let focused = store.controller.focusedPaneId == paneId
-        RoundedRectangle(cornerRadius: 4)
-            .strokeBorder(Color.pBorderFocus, lineWidth: 3)
-            .opacity(focused ? 1 : 0)
-            .animation(.easeInOut(duration: 0.15), value: focused)
-            .allowsHitTesting(false)
+        PaneBorder(color: focused ? Color.pBorderFocus : nil,
+                   lineWidth: 2,
+                   animation: .easeInOut(duration: 0.15))
     }
 }
 
@@ -127,12 +173,8 @@ private struct AgentStateBorder: View {
     let tabId: TabID
 
     var body: some View {
-        let color = store.agentActivity(for: tabId).borderColor
-        RoundedRectangle(cornerRadius: 4)
-            .strokeBorder(color.map { Color(nsColor: $0) } ?? .clear, lineWidth: 2)
-            .opacity(color == nil ? 0 : 1)
-            .animation(.easeInOut(duration: 0.25), value: color != nil)
-            .allowsHitTesting(false)
+        let color = store.agentActivity(for: tabId).borderColor.map { Color(nsColor: $0) }
+        PaneBorder(color: color, animation: .easeInOut(duration: 0.25))
     }
 }
 
@@ -144,11 +186,8 @@ private struct ActivityFlashBorder: View {
 
     var body: some View {
         let active = store.flashingTabs.contains(tabId)
-        RoundedRectangle(cornerRadius: 4)
-            .strokeBorder(Color.pBorderActivity, lineWidth: 2)
-            .opacity(active ? 1 : 0)
-            // 켤 땐 빠르게(주의 환기), 끌 땐 천천히 페이드.
-            .animation(.easeOut(duration: active ? 0.12 : 0.5), value: active)
-            .allowsHitTesting(false)
+        // 켤 땐 빠르게(주의 환기), 끌 땐 천천히 페이드.
+        PaneBorder(color: active ? Color.pBorderActivity : nil,
+                   animation: .easeOut(duration: active ? 0.12 : 0.5))
     }
 }

@@ -20,6 +20,14 @@ enum TabContent {
 final class TerminalStore: NSObject, BonsplitDelegate {
     let controller: BonsplitController
 
+    // 크롬 색(chromeColors)은 설정하지 않는다.
+    //
+    // `tabBarBackgroundHex`를 주면 활성 탭 대비는 조금 살지만, 분할 버튼 레인의 backdrop이
+    // 그 색에서 파생돼 **불투명해진다**. 기본값은 반투명 크롬(.translucentChrome + masksTabContent)이라
+    // 탭이 레인 아래로 흐릿하게 흘러가는데, 불투명해지면 탭이 레인 앞에서 뚝 잘린 것처럼 보인다.
+    // 활성 탭 대비를 얻자고 탭바의 기본 동작을 깨는 건 남는 장사가 아니다 —
+    // 탭 스타일을 정말 바꾸려면 Bonsplit을 포크해야 한다.
+
     @ObservationIgnored private let app: ghostty_app_t
     @ObservationIgnored private let cwd: String?
     @ObservationIgnored private var terms: [TabID: TermView] = [:]
@@ -122,6 +130,11 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         // 탭바 내장 액션 버튼: [새 터미널(+), 우측 분할, 하단 분할]. 브라우저는 muxa에 없어 제외.
         // .newTerminal → requestNewTab(kind:"terminal") → didRequestNewTab 델리게이트 → newTerminal().
         config.appearance.splitButtons = [.newTerminal, .splitRight, .splitDown]
+        // 칸 탭바를 도구 패널(탐색기·git) 헤더와 같은 높이로 — 두 줄이 한 선에 이어져 보이게.
+        config.appearance.tabBarHeight = RowHeight.header
+        // 탭 폭 모드는 기본(.fixed)을 유지한다.
+        // .fill로 바꾸면 탭이 "분할 버튼 레인을 뺀 폭"에 맞춰져, 탭 스크롤이 레인 앞에서 끊긴다
+        // (원래는 탭이 레인 아래로 흘러가며 페이드된다 — 그 동작이 옳다).
         self.controller = BonsplitController(configuration: config)
         super.init()
         controller.delegate = self
@@ -198,13 +211,44 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         persist()
     }
 
-    /// 탭 컨텍스트 메뉴 액션 — 이름 변경/이름 지움만 처리한다(나머지는 미사용).
+    /// 탭바(Bonsplit) 컨텍스트 메뉴 액션. Bonsplit이 자체 NSMenu로 띄우고 선택 결과만 여기로 넘긴다
+    /// (메뉴를 커스텀 뷰로 갈아끼울 확장점이 라이브러리에 없어 이 메뉴만 시스템 스타일이다).
+    /// 처리하지 않는 액션(브라우저·SSH·fork 등 muxa에 없는 기능)은 메뉴에도 뜨지 않는다.
     func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Tab, inPane pane: PaneID) {
         switch action {
-        case .rename: promptRename(tab)
+        case .rename: promptRenameTab(tab.id)
         case .clearName: clearTabName(tab.id)
+        case .closeOthers: closeTabs(inPane: pane) { $0.id != tab.id }
+        case .closeToLeft: closeTabs(inPane: pane, side: .left, of: tab.id)
+        case .closeToRight: closeTabs(inPane: pane, side: .right, of: tab.id)
+        case .newTerminalToRight: newTerminal(inPane: pane)
+        case .copyIdentifiers: copyTabId(tab.id)
         default: break
         }
+    }
+
+    private enum TabSide { case left, right }
+
+    /// 기준 탭의 한쪽에 있는 탭을 모두 닫는다(탭바 메뉴의 "왼쪽/오른쪽 탭 닫기").
+    private func closeTabs(inPane pane: PaneID, side: TabSide, of tabId: TabID) {
+        let tabs = controller.tabs(inPane: pane)
+        guard let pivot = tabs.firstIndex(where: { $0.id == tabId }) else { return }
+        let range = side == .left ? tabs[..<pivot] : tabs[(pivot + 1)...]
+        let doomed = Set(range.map(\.id))
+        closeTabs(inPane: pane) { doomed.contains($0.id) }
+    }
+
+    /// 조건에 맞는 탭을 닫는다. 닫는 도중 목록이 바뀌므로 대상 id를 먼저 확정한 뒤 지운다.
+    private func closeTabs(inPane pane: PaneID, where predicate: (Tab) -> Bool) {
+        for id in controller.tabs(inPane: pane).filter(predicate).map(\.id) {
+            _ = controller.closeTab(id, inPane: pane)
+        }
+    }
+
+    /// 탭 id를 클립보드로 — muxa notify 등 훅에서 이 칸을 지목할 때 쓴다(MUXA_TAB_ID와 같은 값).
+    private func copyTabId(_ tabId: TabID) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(tabId.uuid.uuidString, forType: .string)
     }
 
     // MARK: 탭 명명 — 자동(SET_TITLE) + 수동 rename
@@ -223,7 +267,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 엔진(SET_TITLE)이 보낸 제목을 탭에 반영한다 — 터미널 탭만, 수동 지정 탭은 건드리지 않는다.
     private func applyEngineTitle(_ raw: String, for tabId: TabID) {
         guard case .terminal = content(for: tabId) else { return } // 그룹 탭은 종류 제목 유지
-        let title = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 셸 기본 제목("user@host:~/path")은 탭 폭에 안 들어가 잘린다 — 마지막 폴더 이름만 남긴다.
+        let title = TabTitle.shorten(raw)
         guard !title.isEmpty else { return }
         engineTitles[tabId] = title
         guard manualTitles[tabId] == nil else { return } // 수동 지정 우선
@@ -249,18 +294,19 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     }
 
     /// 탭 이름 변경 입력 시트(NSAlert + 텍스트 필드). 확정하면 renameTab.
-    private func promptRename(_ tab: Tab) {
+    /// 탭바 메뉴(Bonsplit)와 칸 우클릭 메뉴(TerminalPaneMenu)가 함께 쓴다.
+    func promptRenameTab(_ tabId: TabID) {
         let alert = NSAlert()
         alert.messageText = "탭 이름 변경"
         alert.addButton(withTitle: "변경")
         alert.addButton(withTitle: "취소")
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
-        field.stringValue = tab.title
+        field.stringValue = tabTitle(tabId)
         field.placeholderString = Self.defaultTerminalTitle
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
         if alert.runModal() == .alertFirstButtonReturn {
-            renameTab(tab.id, to: field.stringValue)
+            renameTab(tabId, to: field.stringValue)
         }
     }
 
@@ -768,6 +814,16 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         } else {
             _ = controller.closeTab(tab.id, inPane: pane)
         }
+    }
+
+    /// 이 서브탭만 남기고 같은 그룹의 나머지를 닫는다(서브탭 우클릭 "다른 서브탭 모두 닫기").
+    /// 하나는 반드시 남으므로 그룹 탭 자체가 사라지지 않는다.
+    func closeOtherGroupItems(_ tabId: TabID, keeping itemId: String) {
+        guard let state = groups[tabId] else { return }
+        for other in state.items.map(\.id) where other != itemId {
+            _ = state.remove(other)
+        }
+        persist()
     }
 
     /// 서브탭 닫기 → 그룹이 비면 그룹 탭 자체를 닫는다.

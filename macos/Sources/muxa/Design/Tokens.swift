@@ -27,7 +27,9 @@ enum Space {
 /// 모서리 반경.
 enum Radius {
     static let sm: CGFloat = 4
+    /// 탭·버튼처럼 작은 면.
     static let md: CGFloat = 6
+    /// 콘텐츠 카드처럼 큰 면. 터미널이 사는 창이라 과하게 둥글리지 않는다.
     static let lg: CGFloat = 8
 }
 
@@ -43,9 +45,12 @@ enum RowHeight {
     static let bar: CGFloat = 30
     /// 패널 헤더.
     static let header: CGFloat = 34
-    /// 창 상단바 — macOS 표준 타이틀바(28pt)에 맞춘 높이. 신호등이 이 선의 중앙에 오도록 정한 값이라
-    /// 함부로 키우면 신호등만 위로 뜬다.
-    static let topBar: CGFloat = 30
+    /// 창 상단바 — 프로젝트 탭이 카드로 앉는 줄.
+    /// 표준 타이틀바(28pt)보다 높으므로 **신호등을 이 높이의 중앙으로 내려야** 한다
+    /// (`TrafficLights.align` — 안 하면 신호등만 위로 붙는다).
+    static let topBar: CGFloat = 38
+    /// 상단바 안에 앉는 프로젝트 탭의 높이.
+    static let tab: CGFloat = 28
     /// 경계선 두께(1px 구분선).
     static let hairline: CGFloat = 1
 }

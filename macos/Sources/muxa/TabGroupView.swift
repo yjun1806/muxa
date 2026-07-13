@@ -10,6 +10,8 @@ struct TabGroupView: View {
     /// 터미널 칸은 TermView가 focusPane을 부르지만 그룹 탭 뷰어는 안 불러서, 클릭해도 활성 칸이 안 옮겨졌다.
     var onFocus: () -> Void = {}
     var onCloseItem: (String) -> Void
+    /// 이 서브탭만 남기고 나머지를 닫는다(우클릭 메뉴).
+    var onCloseOtherItems: (String) -> Void = { _ in }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -52,6 +54,12 @@ struct TabGroupView: View {
         .clipShape(RoundedRectangle(cornerRadius: 5))
         .contentShape(Rectangle())
         .onTapGesture { group.selectedId = item.id; onFocus() }
+        .onRightClick { point in
+            let menu = SubTabMenu.items(item, dir: dir, siblings: group.items.count,
+                                        onClose: { onCloseItem(item.id) },
+                                        onCloseOthers: { onCloseOtherItems(item.id) })
+            MuxaMenuWindow.shared.show(menu, at: point)
+        }
     }
 
     /// 서브탭 뷰어들 — 전부 살려두고 선택된 것만 표시(전환 시 상태·스크롤 유지).

@@ -17,15 +17,19 @@ guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == GHOSTTY_SU
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var runtime: GhosttyRuntime?
     private var state: AppState?
     private var window: NSWindow?
     private var keyMonitor: Any?
+    /// 휠 마우스 → 가로 전용 스크롤 영역(탭바·서브탭 바) 브리지. 앱 수명 동안 유지.
+    private var wheelMonitor: Any?
     /// 단축키 판정 테이블 — 설정 로드 후 재정의를 얹어 교체한다(그전까진 기본 테이블). 라이브 리로드로 다시 교체된다.
     private var keymap = KeymapResolver.default
     /// 설정 파일 감시자 — 저장 시 자동 재적용(재시작 불필요). 부작용은 이 경계 타입에 격리. (DESIGN 4.6)
     private var configWatcher: ConfigWatcher?
+    /// ⌘Q 시트에서 이미 "종료"를 확인받았는지 — applicationShouldTerminate가 다시 묻지 않게 한다.
+    private var quitConfirmed = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard let runtime = GhosttyRuntime(), let app = runtime.app else {
@@ -54,6 +58,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.state = state
         // 단축키 테이블 — 설정의 keybinding 재정의를 기본 위에 얹고(없으면 기본 그대로) 진단을 로그·노출한다. (DESIGN 7)
         rebuildKeymap(config)
+        // 휠 마우스로도 탭바를 좌우로 굴릴 수 있게 — 가로 전용 스크롤뷰에만 적용된다.
+        wheelMonitor = WheelScrollBridge.install()
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1000, height: 680),
@@ -77,7 +83,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hosting.safeAreaRegions = []
         window.contentView = hosting
 
+        // 신호등을 상단바 중앙으로 — 상단바가 표준 타이틀바보다 높아 기본 위치면 위로 붙는다.
+        // 시스템이 레이아웃을 되돌리므로 창 이벤트마다 다시 맞춘다(아래 windowDid* 델리게이트).
+        window.delegate = self
         window.makeKeyAndOrderFront(nil)
+        TrafficLights.align(in: window, barHeight: RowHeight.topBar)
         self.window = window
 
         // 단축키 — 포커스된 터미널이 키를 먼저 먹으므로 로컬 모니터로 가로챈다.
@@ -153,21 +163,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "muxa 가리기", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "muxa 종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        // ⌘Q는 곧장 terminate로 보내지 않는다 — requestQuit이 먼저 시트로 확인한다(위 주석).
+        let quitItem = NSMenuItem(title: "muxa 종료", action: #selector(requestQuit), keyEquivalent: "q")
+        quitItem.target = self
+        appMenu.addItem(quitItem)
         appItem.submenu = appMenu
         NSApp.mainMenu = mainMenu
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
-    /// 종료 확인 — 실행 중인 터미널 세션이 다 닫히므로 실수 종료를 막는다. 설정 confirm_quit=false면 건너뛴다. (DESIGN 4.6)
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard state?.config.confirmQuit ?? true else { return .terminateNow }
+    // MARK: NSWindowDelegate — 신호등 재정렬
+    //
+    // 시스템은 리사이즈·활성화·풀스크린 전환 때 타이틀바를 다시 레이아웃하며 신호등을 표준 위치로
+    // 되돌린다. 그때마다 상단바 중앙으로 다시 내린다.
+
+    func windowDidResize(_ notification: Notification) { realignTrafficLights(notification) }
+    func windowDidBecomeKey(_ notification: Notification) { realignTrafficLights(notification) }
+    func windowDidExitFullScreen(_ notification: Notification) { realignTrafficLights(notification) }
+
+    private func realignTrafficLights(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        TrafficLights.align(in: window, barHeight: RowHeight.topBar)
+    }
+
+    /// ⌘Q(메뉴) 착지점 — **종료 흐름에 들어가기 전에** 묻는다.
+    ///
+    /// `applicationShouldTerminate`에서 묻지 않는 이유: 거기서 `.terminateLater`를 반환하는 순간
+    /// 앱은 이미 "종료 대기" 상태로 들어가고 런루프가 모달로 바뀐다. 그러면 터미널(Metal) 렌더가
+    /// 멈춰 **창이 텅 빈 채로 시트만 떠 있는** 모양이 된다 — 앱이 이미 죽은 뒤 물음창만 남은 꼴이다.
+    /// 그래서 종료를 시작하기 전에 시트를 띄우고, 사용자가 확인했을 때만 실제 종료로 넘어간다.
+    @objc private func requestQuit() {
+        guard state?.config.confirmQuit ?? true else {
+            NSApp.terminate(nil)
+            return
+        }
+        guard let window, window.isVisible else {
+            NSApp.terminate(nil) // 붙일 창이 없으면 물을 자리도 없다
+            return
+        }
+
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "muxa를 종료할까요?"
         alert.informativeText = "실행 중인 터미널 세션이 모두 종료됩니다."
         alert.addButton(withTitle: "종료") // 첫 버튼 = 기본(Enter)
+        alert.addButton(withTitle: "취소")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.quitConfirmed = true
+            NSApp.terminate(nil)
+        }
+    }
+
+    /// 종료 확인 — 실행 중인 터미널 세션이 다 닫히므로 실수 종료를 막는다. 설정 confirm_quit=false면 건너뛴다. (DESIGN 4.6)
+    ///
+    /// ⌘Q는 `requestQuit`이 먼저 물어보고 오므로 여기선 통과시킨다. Dock 우클릭 종료·시스템 종료처럼
+    /// 그 경로를 안 거친 종료만 여기서 막는다(그 경우엔 창이 아직 살아 있어 독립 모달로 물어도 어색하지 않다).
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if quitConfirmed { return .terminateNow }
+        guard state?.config.confirmQuit ?? true else { return .terminateNow }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "muxa를 종료할까요?"
+        alert.informativeText = "실행 중인 터미널 세션이 모두 종료됩니다."
+        alert.addButton(withTitle: "종료")
         alert.addButton(withTitle: "취소")
         return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
     }

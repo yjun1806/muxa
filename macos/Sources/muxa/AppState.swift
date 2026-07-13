@@ -486,6 +486,77 @@ final class AppState {
         save()
     }
 
+    /// 워크스페이스 표시 이름 변경. 빈 이름은 무시(이름 없는 항목은 사이드바에서 식별 불가).
+    func renameWorkspace(_ id: String, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        updateWorkspace(id) { ws in
+            var next = ws
+            next.name = trimmed
+            return next
+        }
+    }
+
+    /// 워크스페이스 기본 경로 변경 — 경로를 상속하는 프로젝트(path == nil)의 cwd가 바뀐다.
+    /// 즉시 반영되는 곳: 파일 익스플로러·Git 패널·**앞으로 여는 터미널**. 이미 떠 있는 PTY는 그 폴더에 남는다
+    /// (프로세스의 cwd는 밖에서 못 바꾼다 — 호출부가 사용자에게 이 사실을 알린다).
+    /// 이름이 옛 폴더명 그대로였다면(=사용자가 따로 이름을 안 지었다면) 새 폴더명으로 함께 갱신한다.
+    func setWorkspacePath(_ id: String, path: String) {
+        updateWorkspace(id) { ws in
+            var next = ws
+            let wasDefaultName = ws.path.map { ws.name == basename($0) } ?? false
+            next.path = path
+            if wasDefaultName || ws.path == nil { next.name = basename(path) }
+            // 경로를 상속하던 프로젝트의 세션 기준선은 다른 리포의 커밋일 수 있으니 버린다(다음 조회에서 재기록).
+            next.projects = ws.projects.map { p in
+                guard p.path == nil else { return p }
+                var np = p
+                np.sessionBaseHead = nil
+                return np
+            }
+            return next
+        }
+    }
+
+    /// 워크스페이스 복제 — 경로·프로젝트 구성만 복제한다(새 id). 터미널 세션·스크롤백은 프로세스라 복제 불가라
+    /// 복제본은 빈 터미널로 시작한다. 새 워크스페이스가 곧바로 활성이 된다.
+    @discardableResult
+    func duplicateWorkspace(_ id: String) -> Workspace? {
+        guard let source = workspaces.first(where: { $0.id == id }) else { return nil }
+        let projects = source.projects.map { Project(id: newId(), name: $0.name, path: $0.path) }
+        guard let first = projects.first else { return nil }
+        let copy = Workspace(id: newId(), path: source.path, name: "\(source.name) 복사본",
+                             projects: projects, activeProjectId: first.id)
+        workspaces.append(copy)
+        activeId = copy.id
+        save()
+        return copy
+    }
+
+    /// 워크스페이스 제거(마지막 하나는 남긴다). 소속 프로젝트의 스토어·저장 레이아웃·배지를 함께 정리한다.
+    func removeWorkspace(_ id: String) {
+        guard workspaces.count > 1, let idx = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        for project in workspaces[idx].projects {
+            stores[project.id] = nil
+            savedLayouts[project.id] = nil
+            clearBadge(project.id)
+        }
+        var next = workspaces
+        next.remove(at: idx)
+        workspaces = next
+        if activeId == id { activeId = next[min(idx, next.count - 1)].id }
+        save()
+    }
+
+    /// 워크스페이스 하나를 불변 갱신한다(id로 지정 — 활성이 아니어도 된다).
+    private func updateWorkspace(_ id: String, _ transform: (Workspace) -> Workspace) {
+        guard let idx = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        var next = workspaces
+        next[idx] = transform(workspaces[idx])
+        workspaces = next
+        save()
+    }
+
     // MARK: 프로젝트 액션 (활성 워크스페이스 대상)
 
     /// 활성 워크스페이스에서 프로젝트를 전환한다.
@@ -510,6 +581,17 @@ final class AppState {
             return next
         }
         return activeWorkspace == nil ? nil : project
+    }
+
+    /// 프로젝트 표시 이름 변경(어느 워크스페이스든). 빈 이름은 무시.
+    func renameProject(_ projectId: String, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        updateProject(projectId) { p in
+            var next = p
+            next.name = trimmed
+            return next
+        }
     }
 
     /// 활성 워크스페이스에서 프로젝트를 앞/뒤로 순환 전환한다(⌘⇧] / ⌘⇧[).

@@ -60,7 +60,7 @@ struct StatusBar: View {
             Spacer(minLength: Space.md)
             usageView
         }
-        .panelBar(height: RowHeight.row)
+        .panelBar(height: RowHeight.toolbar) // 내용이 세로 중앙에 오도록 여유를 준다(24는 빡빡해 아래로 붙어 보인다)
         .background(Color.pPanel)
         .task(id: projectDir) {
             branch = if let dir = projectDir { await GitService.currentBranch(in: dir) } else { nil }

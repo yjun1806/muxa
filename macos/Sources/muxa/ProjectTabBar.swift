@@ -9,9 +9,11 @@ struct ProjectTabBar: View {
     let workspace: Workspace
 
     @State private var showWorktreePicker = false
+    /// 지금 마우스가 올라간 탭 — 닫기 버튼·배경 강조 대상.
+    @State private var hoveredId: String?
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: Space.xs) {
             ForEach(workspace.projects) { project in
                 tab(project)
             }
@@ -28,22 +30,26 @@ struct ProjectTabBar: View {
         }
     }
 
+    /// 프로젝트 탭 — 활성 탭은 콘텐츠와 같은 판(흰 배경 + 테두리)이 되어 "이 탭이 아래 화면"임을 잇는다.
+    /// 비활성은 배경 없이 글자만, hover하면 옅게 떠오른다.
     @ViewBuilder
     private func tab(_ project: Project) -> some View {
         let active = project.id == workspace.activeProjectId
-        HStack(spacing: 6) {
+        let hovered = hoveredId == project.id
+        HStack(alignment: .center, spacing: Space.sm) {
             Image(systemName: project.path == nil ? "folder" : "arrow.triangle.branch")
                 .font(.muxa(.label))
                 .foregroundStyle(active ? Color.pFg : Color.pMuted)
             Text(project.name)
                 .font(.muxa(.body, weight: active ? .medium : .regular))
-                .foregroundStyle(active ? Color.pFg : Color.pMuted)
+                .foregroundStyle(active || hovered ? Color.pFg : Color.pMuted)
                 .lineLimit(1)
             if !active, state.badgedProjects.contains(project.id) {
                 // 백그라운드 활동(에이전트 끝남·벨·알림) — 이 프로젝트를 안 보는 동안 쌓임.
                 Circle().fill(Color.pBorderFocus).frame(width: 6, height: 6)
             }
-            if workspace.projects.count > 1 {
+            if workspace.projects.count > 1, active || hovered {
+                // 닫기는 활성·hover일 때만 — 비활성 탭마다 ✕가 떠 있으면 탭바가 산만하다.
                 Button {
                     state.closeProject(project.id)
                 } label: {
@@ -54,15 +60,19 @@ struct ProjectTabBar: View {
                 .frame(width: 14, height: 14)
             }
         }
-        .padding(.horizontal, 10)
-        .frame(height: 26)
-        .background(active ? Color.pBg : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(active ? Color.pBorder : Color.clear, lineWidth: 1)
-        )
+        .padding(.horizontal, Space.lg)
+        .frame(height: RowHeight.tab)
+        .background(tabBackground(active: active, hovered: hovered))
         .contentShape(Rectangle())
+        .onHover { hovering in
+            if hovering { hoveredId = project.id } else if hoveredId == project.id { hoveredId = nil }
+        }
+        // 우클릭 → 프로젝트 메뉴(이름·터미널·경로·닫기). 좌클릭 전환은 그대로.
+        .onRightClick { point in
+            MuxaMenuWindow.shared.show(
+                ProjectMenu.items(for: project, in: workspace, state: state), at: point)
+        }
+        .animation(Motion.fast, value: hovered)
         .onTapGesture {
             // 배지(●) 있는 프로젝트로 이동하면 자동으로 Git 패널까지 연다(원클릭 검토 동선).
             // 배지 없는 일반 전환은 패널을 강제로 열지 않는다.
@@ -73,6 +83,22 @@ struct ProjectTabBar: View {
             }
         }
         .help(project.path.map { displayPath($0, home: SystemPaths.home) } ?? "워크스페이스 폴더")
+    }
+
+    /// 탭 배경 — 활성은 콘텐츠와 같은 판(테두리로 마감), 비활성은 hover에만 옅게.
+    @ViewBuilder
+    private func tabBackground(active: Bool, hovered: Bool) -> some View {
+        if active {
+            RoundedRectangle(cornerRadius: Radius.md)
+                .fill(Color.pBg)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Radius.md)
+                        .stroke(Color.pBorder, lineWidth: 1)
+                )
+        } else if hovered {
+            RoundedRectangle(cornerRadius: Radius.md)
+                .fill(Color.pBtnHover.opacity(0.5))
+        }
     }
 
     private var addButton: some View {
@@ -98,7 +124,7 @@ struct ProjectTabBar: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .frame(width: 26, height: 26)
+        .frame(width: RowHeight.tab, height: RowHeight.tab)
         .help("새 프로젝트")
     }
 

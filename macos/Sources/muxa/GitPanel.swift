@@ -36,7 +36,8 @@ struct GitPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            HDivider()
+            // 헤더 아래 구분선 없음 — 옆 칸 탭바(Bonsplit)와 아래 경계를 같은 높이로 맞추기 위해서다
+            // (탐색기 패널과 같은 이유).
             reviewBar
             if let syncError {
                 Text(syncError)
