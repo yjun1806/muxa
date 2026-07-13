@@ -125,4 +125,42 @@ final class ServiceTests: XCTestCase {
         XCTAssertNil(ServiceSession.extractPort(""))
         XCTAssertNil(ServiceSession.extractPort("compiling..."))
     }
+
+    // MARK: 살아있는 서비스 id 수집 — 고아 정리의 입력. 여기가 틀리면 멀쩡한 dev 서버를 죽인다.
+
+    func testLiveServiceIdsSpanAllWorkspacesAndProjects() {
+        let p1 = Project(id: "P1", name: "a", path: nil,
+                         services: [Service(id: "S1", name: "web", command: "pnpm dev")])
+        let p2 = Project(id: "P2", name: "b", path: nil,
+                         services: [Service(id: "S2", name: "api", command: "go run .")])
+        let ws1 = Workspace(id: "W1", path: nil, name: "w1", projects: [p1], activeProjectId: "P1")
+        let ws2 = Workspace(id: "W2", path: nil, name: "w2", projects: [p2], activeProjectId: "P2")
+        // 활성이 아닌 워크스페이스·프로젝트의 서비스도 반드시 '살아있음'으로 쳐야 한다
+        // (안 그러면 다른 워크스페이스를 보는 동안 그 서비스가 고아로 몰려 죽는다).
+        XCTAssertEqual(collectLiveServiceIds(in: [ws1, ws2]), ["S1", "S2"])
+    }
+
+    func testLiveServiceIdsEmptyWhenNoServices() {
+        let p = Project(id: "P", name: "a", path: nil)
+        let ws = Workspace(id: "W", path: nil, name: "w", projects: [p], activeProjectId: "P")
+        XCTAssertTrue(collectLiveServiceIds(in: [ws]).isEmpty)
+    }
+
+    // MARK: 영속 — 서비스는 Project에 실려 Persisted에 자동 편승한다
+
+    func testProjectServicesRoundTrip() throws {
+        let p = Project(id: "P", name: "a", path: "/repo",
+                        services: [Service(id: "S", name: "web", command: "pnpm dev")])
+        let data = try JSONEncoder().encode(p)
+        let back = try JSONDecoder().decode(Project.self, from: data)
+        XCTAssertEqual(back.services, [Service(id: "S", name: "web", command: "pnpm dev")])
+    }
+
+    /// 서비스 필드가 없던 옛 저장분도 그대로 열려야 한다(하위호환) — sessionBaseHead와 같은 원칙.
+    func testOldProjectJSONWithoutServicesDecodes() throws {
+        let old = #"{"id":"P","name":"메인"}"#.data(using: .utf8)!
+        let p = try JSONDecoder().decode(Project.self, from: old)
+        XCTAssertNil(p.services)
+        XCTAssertEqual(p.id, "P")
+    }
 }

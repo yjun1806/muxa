@@ -477,6 +477,46 @@ final class AppState {
         return nil
     }
 
+    // MARK: 서비스 (장수 프로세스 — Service.swift, 실행은 tmux 위임)
+
+    /// 프로젝트에 등록된 서비스 목록.
+    func services(of projectId: String) -> [Service] {
+        project(projectId)?.services ?? []
+    }
+
+    /// 서비스를 등록하고 곧바로 기동한다. cwd는 프로젝트 경로(없으면 워크스페이스 경로).
+    func addService(name: String, command: String, to projectId: String, cwd: String) {
+        let service = Service(id: newId(), name: name, command: command)
+        updateProject(projectId) { p in
+            var next = p
+            next.services = (p.services ?? []) + [service]
+            return next
+        }
+        Task { await TmuxService.start(service, projectId: projectId, cwd: cwd) }
+    }
+
+    /// 서비스를 등록 해제하고 프로세스도 죽인다.
+    ///
+    /// **등록만 지우면 좀비가 된다** — tmux 세션은 muxa와 무관하게 살아남아 포트를 계속 문다.
+    /// 그래서 여기서 반드시 함께 죽인다. 그럼에도 놓친 것(앱이 죽은 사이 등록이 사라진 경우 등)은
+    /// 시작 시 collectServiceGarbage가 쓸어간다 — 두 겹 방어.
+    func removeService(_ serviceId: String, from projectId: String) {
+        updateProject(projectId) { p in
+            var next = p
+            next.services = (p.services ?? []).filter { $0.id != serviceId }
+            return next
+        }
+        Task { await TmuxService.kill(projectId: projectId, serviceId: serviceId) }
+    }
+
+    /// 좀비 청소 — 등록이 사라졌는데 살아남은 서비스 세션을 죽인다. 앱 시작 시 1회.
+    /// 판정 입력은 **모든 워크스페이스**의 서비스여야 한다(활성만 훑으면 남의 서비스를 죽인다).
+    func collectServiceGarbage() {
+        guard TmuxService.isAvailable else { return }
+        let live = collectLiveServiceIds(in: workspaces)
+        Task { await TmuxService.collectGarbage(liveServiceIds: live) }
+    }
+
     /// 백그라운드 프로젝트에 활동(●)이 있음을 표시. 지금 보고 있는 활성 프로젝트(=활성 워크스페이스의
     /// 활성 프로젝트)면 무시하고, 그 외(백그라운드 워크스페이스의 프로젝트 포함)는 전부 배지한다.
     /// stores는 프로젝트 id로 전역 유지되므로 백그라운드 워크스페이스 store의 활동도 여기로 들어온다.

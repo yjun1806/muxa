@@ -52,6 +52,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         state.load()
         state.beginSession() // 크래시 마커 arm + 직전 더티 종료 여부 판정(노출용)
         state.ensureInitial(path: config.defaultWorkspacePath ?? SystemPaths.currentDir ?? SystemPaths.home)
+        // 좀비 청소 — 서비스 tmux 세션은 muxa를 꺼도 살아남는다(그게 존재 이유다). 그 대가로 등록이
+        // 사라진 세션이 포트를 문 채 남을 수 있어, 복원 직후 등록과 대조해 쓸어낸다. (Service.swift)
+        state.collectServiceGarbage()
         state.startNotifyServer() // 훅 알림 소켓 리스너 시작 — `muxa notify`가 결정론적 신호를 보낸다
         // 시스템 알림 클릭 → 프로젝트 활성 + Git 패널(원클릭 검토 동선). 라우팅 소유는 AppState.
         NotificationService.shared.onActivate = { [weak state] ctx in

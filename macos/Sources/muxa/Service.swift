@@ -13,6 +13,14 @@ struct Service: Codable, Identifiable, Equatable {
     var command: String // 실행 명령 ("pnpm dev")
 }
 
+/// 모든 워크스페이스·프로젝트에 등록된 서비스 id 전부. 고아 정리(TmuxService.collectGarbage)의 입력이다.
+///
+/// **활성 워크스페이스만 훑으면 안 된다.** 다른 워크스페이스의 서비스가 '등록 없음'으로 몰려 고아로
+/// 판정되고, 멀쩡히 돌던 dev 서버가 죽는다. 반드시 전체를 훑는다.
+func collectLiveServiceIds(in workspaces: [Workspace]) -> Set<String> {
+    Set(workspaces.flatMap(\.projects).flatMap { $0.services ?? [] }.map(\.id))
+}
+
 /// 서비스의 현재 상태. 진실 원천은 muxa가 아니라 tmux다 — 접혀 있어도 읽힌다.
 enum ServiceState: Equatable {
     case running
