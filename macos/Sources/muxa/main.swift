@@ -22,6 +22,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// 개발 빌드와 릴리스가 같은 키를 쓰면 창 위치가 서로 튀므로 앱 이름으로 갈라둔다.
     static let windowFrameAutosaveName = "\(AppInfo.name).main"
 
+    /// 복원한 프레임이 현재 연결된 화면들에서 실제로 보이는가(판정은 순수 함수에 위임).
+    static func isReachable(_ frame: NSRect) -> Bool {
+        WindowFrame.isReachable(frame, screens: NSScreen.screens.map(\.visibleFrame))
+    }
+
     private var runtime: GhosttyRuntime?
     private var state: AppState?
     private var window: NSWindow?
@@ -87,10 +92,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true // 빈 영역 드래그로 창 이동(Tauri drag-region 대체)
         window.backgroundColor = Palette.panel // 창 배경을 상단바와 같은 회색으로
-        // 창 크기·위치 복원. AppKit이 프레임을 저장/복원하고 화면 밖으로 나간 프레임도 보정해 준다.
-        // 저장분이 없을 때만(=최초 실행) 가운데 정렬 — center()를 뒤에 두면 복원한 위치를 덮어쓴다.
+        // 창 크기·위치 복원. 저장분이 없을 때만(=최초 실행) 가운데 정렬 — center()를 뒤에 두면 복원한 위치를 덮는다.
+        //
+        // **화면 밖 검사는 우리가 한다.** setFrameUsingName이 알아서 보정해 줄 거라 믿었다가 창이 통째로
+        // 화면 밖(외장 모니터를 뽑은 뒤의 옛 좌표)에 떠서 앱이 보이지 않는 회귀를 냈다. 모니터를 뽑거나
+        // 해상도가 바뀌면 저장된 좌표는 언제든 무효가 되므로, 복원 직후 실제로 보이는지 직접 확인한다.
         window.setFrameAutosaveName(Self.windowFrameAutosaveName)
-        if !window.setFrameUsingName(Self.windowFrameAutosaveName) { window.center() }
+        if !window.setFrameUsingName(Self.windowFrameAutosaveName) || !Self.isReachable(window.frame) {
+            window.setContentSize(NSSize(width: 1000, height: 680))
+            window.center()
+        }
 
         // 크롬(상단바·사이드바) + 활성 워크스페이스(Bonsplit 탭바·분할)를 SwiftUI로 렌더.
         let hosting = NSHostingView(rootView: ContentView(state: state, home: SystemPaths.home))

@@ -43,6 +43,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     @ObservationIgnored private var lastPwd: String?
     /// 복원된 탭의 스크롤백 파일 경로 힌트 — term(for:)가 새 셸에 env로 주입한다(④). pendingCwd와 같은 수명.
     @ObservationIgnored private var restoredScrollbackFile: [TabID: String] = [:]
+    /// 복원 리플레이 명령의 완료 신호를 아직 삼키지 않은 탭들. 리플레이를 건 탭만 담고,
+    /// 첫 commandFinished에서 하나씩 소비한다(§handleSignal — 복원이 만드는 "완료" 오탐 차단).
+    @ObservationIgnored private var replayPendingTabs: Set<TabID> = []
     /// 탭별 에이전트 재개 바인딩(훅이 넘긴 재개 명령). 훅 알림으로 등록되고 스냅샷에 실려 복원된다.
     /// 값 자체는 관측 대상이 아니라 뷰는 아래 resumeTabs로 표시 여부만 반응한다.
     @ObservationIgnored private var resumeBindings: [TabID: ResumeBinding] = [:]
@@ -749,6 +752,11 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             applyAgentSignal(.outputHeartbeat, to: tabId)
             return
         }
+        // 복원 리플레이(`clear; cat <스크롤백>`)도 셸에겐 하나의 명령이라, 끝나면 셸 통합이
+        // OSC 133 D(commandFinished)를 쏜다. 그걸 그대로 받으면 **복원 직후 모든 탭에 "완료"(초록)
+        // 배지가 켜진다** — 사용자가 아무 작업도 하지 않았는데. 우리가 주입한 명령의 완료 신호이므로
+        // 탭당 첫 1회를 삼킨다.
+        if case .commandFinished = signal, replayPendingTabs.remove(tabId) != nil { return }
         let visible = isTabVisible(tabId)
         switch signal {
         case .commandFinished(let exitCode, let duration):
@@ -1007,9 +1015,26 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     /// 실체화된 터미널의 화면+스크롤백을 읽어(정제·상한) 별도 파일에 쓴다. 저장된 경로(없으면 nil).
     /// 부작용(서피스 리드백·파일 쓰기)은 경계 타입(TermView·ScrollbackStore)에 격리, 정제는 순수 함수.
+    ///
+    /// **VT(색 포함) 우선, 실패 시 평문 폴백.** 색이 빠진 회색 평문보다는 낫지만, 없는 것보다는 평문이 낫다.
+    ///
+    /// TUI(vim·less·htop)가 떠 있으면 **캡처하지 않는다** — alt-screen 화면을 저장해봐야 그 프로세스는
+    /// 죽어 있고, 복원하면 깨진 전체화면 위에 셸 프롬프트가 겹친다. 이때는 직전 캡처를 그대로 둔다
+    /// (nil을 돌려주면 호출부가 이전 힌트를 승계한다). ghostty에 alt-screen 질의 API가 없어
+    /// "포그라운드가 셸이 아니다"로 판정한다(cmux도 같은 정책).
     private func captureScrollback(from term: TermView, tabId: TabID) -> String? {
+        guard !isRunningForegroundProgram(term) else { return nil }
+        if let vt = term.readScreenVT() {
+            return ScrollbackStore.write(ScrollbackText.sanitizeVT(vt), for: tabId)
+        }
         guard let raw = term.readScreenText() else { return nil }
         return ScrollbackStore.write(ScrollbackText.sanitize(raw), for: tabId)
+    }
+
+    /// 셸이 아닌 프로그램이 포그라운드를 잡고 있는가(= TUI일 수 있다).
+    private func isRunningForegroundProgram(_ term: TermView) -> Bool {
+        guard let fg = term.foregroundPid, let shell = term.shellPid else { return false }
+        return fg != shell
     }
 
     /// 저장 시점에 이 터미널에서 claude가 돌고 있으면 세션 인덱스로 자동 재개 바인딩을 만든다(제로설정, cmux식).
@@ -1112,7 +1137,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                     if let cwd = t.cwd { pendingCwd[tid] = cwd } // 새 셸을 저장된 작업 디렉터리에서 띄우게 힌트.
                     if let resume = t.resume { registerResumeBinding(resume, for: tid) } // 재개 바인딩 복구(+배너 표시). 실행은 게이트가.
                     // 신뢰 재개(claude 자동)는 곧 claude가 화면을 덮으므로 죽은 스크롤백 리플레이를 건너뛴다(잔상·중복 방지).
-                    if let sf = t.scrollbackFile, t.resume?.trusted != true { restoredScrollbackFile[tid] = sf } // 새 셸에 스크롤백 파일 env 주입 힌트(④).
+                    if let sf = t.scrollbackFile, t.resume?.trusted != true {
+                        restoredScrollbackFile[tid] = sf // 새 셸에 스크롤백 파일 주입 힌트(④).
+                        replayPendingTabs.insert(tid) // 이 탭의 첫 commandFinished(=리플레이 명령)는 삼킨다.
+                    }
                     newTab = tid
                 }
                 guard let tid = newTab else { continue }

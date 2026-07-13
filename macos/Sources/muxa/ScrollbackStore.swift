@@ -14,6 +14,74 @@ enum ScrollbackText {
         capBytes(capLines(strip(raw), maxLines: maxLines), maxBytes: maxBytes)
     }
 
+    // MARK: VT 경로 — 색을 살린 채 저장한다
+
+    /// VT 덤프(`write_screen_file:copy,vt`) 위생 처리. 평문 경로(`sanitize`)와 달리 **SGR·OSC 8을 보존**한다.
+    ///
+    /// 걷어내는 것은 **캡처 당시 테마가 구워진 색상 정의**(OSC 4/5/10~19/104/105/110~119)뿐이다.
+    /// 이걸 그대로 재주입하면 라이트→다크로 테마를 바꾼 뒤 복원할 때 배경과 글자가 같은 색이 된다
+    /// (cmux 이슈 #5165). 앞뒤를 reset으로 감싸 잔여 속성이 새 프롬프트로 새지 않게 한다.
+    static func sanitizeVT(_ raw: String, maxLines: Int = maxLines, maxBytes: Int = maxBytes) -> String {
+        let stripped = stripThemeOSC(raw)
+        let capped = capBytesVT(capLines(stripped, maxLines: maxLines), maxBytes: maxBytes)
+        let body = capped.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return "" }
+        return "\u{1B}[0m" + capped + "\u{1B}[0m"
+    }
+
+    /// 색상 정의 OSC만 제거한다. SGR(`ESC[…m`)·OSC 8(하이퍼링크)·본문은 그대로 통과시킨다.
+    static func stripThemeOSC(_ s: String) -> String {
+        let scalars = Array(s.unicodeScalars)
+        var out = String.UnicodeScalarView()
+        out.reserveCapacity(scalars.count)
+        var i = 0
+        let n = scalars.count
+        while i < n {
+            // ESC ] <숫자> … (BEL | ST) 형태만 들여다본다.
+            guard scalars[i].value == 0x1B, i + 1 < n, scalars[i + 1].value == 0x5D else {
+                out.append(scalars[i]); i += 1; continue
+            }
+            // OSC 코드(숫자) 파싱
+            var j = i + 2
+            var code = 0
+            var hasDigit = false
+            while j < n, let d = scalars[j].properties.numericValue, scalars[j].value < 0x80 {
+                code = code * 10 + Int(d); hasDigit = true; j += 1
+            }
+            // 종결자(BEL 또는 ESC \)까지의 끝을 찾는다.
+            var end = j
+            while end < n {
+                if scalars[end].value == 0x07 { end += 1; break }
+                if scalars[end].value == 0x1B, end + 1 < n, scalars[end + 1].value == 0x5C { end += 2; break }
+                end += 1
+            }
+            if hasDigit, isThemeOSC(code) {
+                i = end // 색상 정의 — 통째로 버린다
+            } else {
+                out.append(contentsOf: scalars[i..<end]) // OSC 8 등은 원형 보존
+                i = end
+            }
+        }
+        return String(out)
+    }
+
+    /// 테마를 굽는 OSC 코드인가 — 팔레트·전경/배경·커서색 정의와 그 리셋들.
+    private static func isThemeOSC(_ code: Int) -> Bool {
+        code == 4 || code == 5
+            || (code >= 10 && code <= 19)
+            || code == 104 || code == 105
+            || (code >= 110 && code <= 119)
+    }
+
+    /// 바이트 상한(꼬리 보존) — 자르고 나서 **깨진 첫 줄을 통째로 버린다**.
+    /// 문자 단위로 자르면 이스케이프 시퀀스 중간이 끊겨 "31m" 같은 잔해가 본문으로 출력된다.
+    static func capBytesVT(_ s: String, maxBytes: Int) -> String {
+        guard s.utf8.count > maxBytes else { return s }
+        let tail = capBytes(s, maxBytes: maxBytes)
+        guard let nl = tail.firstIndex(of: "\n") else { return "" } // 한 줄뿐이면 통째로 버린다
+        return String(tail[tail.index(after: nl)...])
+    }
+
     /// ESC 기반 시퀀스(CSI·OSC·기타 Fe)와 C0 제어문자를 제거. 개행(\n)·탭(\t)만 보존, \r는 버린다.
     static func strip(_ s: String) -> String {
         let scalars = Array(s.unicodeScalars)

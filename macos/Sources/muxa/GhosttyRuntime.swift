@@ -127,8 +127,12 @@ final class GhosttyRuntime {
             guard let content, len > 0 else { return }
             // 첫 콘텐츠(text/plain)만 사용
             if let text = content.pointee.data {
+                let s = String(cString: text)
+                // 스크롤백 VT 덤프 중이면 이 write는 파일 경로다 — 가로채고 클립보드는 건드리지 않는다.
+                // (안 그러면 저장할 때마다 사용자가 복사해 둔 내용이 사라진다.)
+                if MainActor.assumeIsolated({ ClipboardCapture.consume(s) }) { return }
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(String(cString: text), forType: .string)
+                NSPasteboard.general.setString(s, forType: .string)
             }
         }
         runtime.close_surface_cb = { userdata, _ in

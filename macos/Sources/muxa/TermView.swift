@@ -111,6 +111,11 @@ final class TermView: NSView, NSTextInputClient {
         }
         for p in envStorage { free(p) }
 
+        // 서피스가 생기자마자 display ID를 심는다. 이 뷰는 아직 창에 붙기 전(SwiftUI makeNSView)이라
+        // window?.screen이 없지만, syncDisplayID가 주 화면으로 폴백해 **무조건 하나는** 설정한다.
+        // 늦게 심으면 ghostty가 vsync를 "도는 중"으로 오인한 채 프레임을 안 내보내 흰 화면으로 굳는다.
+        syncDisplayID()
+
         // 검색어를 ghostty로 밀어넣는 브리지 — 전용 API가 없어 binding-action 문자열로만 가능(cmux 동일).
         search.applyNeedle = { [weak self] needle in
             self?.performBindingAction("search:\(needle)")
@@ -244,7 +249,14 @@ final class TermView: NSView, NSTextInputClient {
         }
         // 첫 유효 크기·모니터 이동 시 리드로우. 일반 레이아웃 경로에서 매번 부르면 오실레이션 위험이라
         // 크기가 실제로 바뀐 경우로 제한한다(firstValidSize는 서피스당 1회).
-        if force || firstValidSize { ghostty_surface_refresh(surface) }
+        //
+        // 리드로우 **직전에 display ID를 다시 심는다** — 서피스가 창 없이 만들어졌거나 분할·탭 전환으로
+        // 뷰가 옮겨다니면 ghostty가 "vsync는 도는데 프레임은 안 오는" 상태로 굳는다. 그 상태에서는
+        // refresh만으로는 회복되지 않아(클릭해도 흰 화면 그대로) display ID 재설정이 반드시 함께 가야 한다.
+        if force || firstValidSize {
+            syncDisplayID()
+            ghostty_surface_refresh(surface)
+        }
     }
 
     /// 라이트↔다크 전환을 서피스에 알린다 — 터미널이 OSC 색 질의에 정확히 답하고, 설정의
@@ -256,10 +268,19 @@ final class TermView: NSView, NSTextInputClient {
         ghostty_surface_set_color_scheme(surface, dark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
     }
 
-    /// 창이 속한 화면의 디스플레이 ID를 libghostty에 알린다(모니터별 색·리프레시 특성).
+    /// 창이 속한 화면의 디스플레이 ID를 libghostty에 알린다.
+    ///
+    /// **이게 빠지면 서피스가 흰 화면으로 굳는다.** ghostty는 이 ID로 CVDisplayLink(vsync)를 건다.
+    /// 없으면 렌더러는 "vsync가 돌고 있다"고 믿으면서 프레임을 한 장도 내보내지 않는다 — 포커스나
+    /// 가시성 전이가 동기 draw를 강제할 때까지 빈 화면으로 남는다(cmux가 같은 증상으로 배운 것).
+    ///
+    /// `window?.screen`은 뷰가 창에 막 붙는 동안 일시적으로 nil일 수 있다. 그때 그냥 포기하면
+    /// 서피스는 display ID 없이 시작해 영영 안 그려지므로, **주 화면으로라도 폴백해 반드시 하나는 심는다**
+    /// (정확한 화면은 부착·화면 이동 시 다시 맞춰진다).
     private func syncDisplayID() {
         guard let surface,
-              let num = window?.screen?.deviceDescription[.init("NSScreenNumber")] as? NSNumber
+              let screen = window?.screen ?? NSScreen.main,
+              let num = screen.deviceDescription[.init("NSScreenNumber")] as? NSNumber
         else { return }
         ghostty_surface_set_display_id(surface, num.uint32Value)
     }
@@ -491,6 +512,23 @@ final class TermView: NSView, NSTextInputClient {
     // libghostty read_text: SCREEN 태그의 top-left~bottom-right 선택으로 화면 전체(스크롤백 포함)를
     // 클립보드 형식 평문(SGR 없음)으로 읽는다. 반환 버퍼는 반드시 free_text로 해제한다.
     // 정제·상한은 순수 로직(ScrollbackText.sanitize)이 호출부에서 담당한다.
+
+    /// 화면+스크롤백 전체를 **VT 시퀀스째**(색·속성 포함) 읽는다. 실패하면 nil(호출부가 평문으로 폴백).
+    ///
+    /// read_text는 평문만 주므로 색을 살릴 수 없다. ghostty의 `write_screen_file:copy,vt` 바인딩 액션은
+    /// 화면을 VT 포함 임시파일로 export하고 **그 경로를 클립보드에 써서** 돌려준다 — 경로는 가로채고
+    /// (ClipboardCapture) 클립보드는 건드리지 않는다. 파일은 읽은 즉시 지운다.
+    func readScreenVT() -> String? {
+        guard surface != nil else { return nil }
+        var ok = false
+        let path = ClipboardCapture.intercepting {
+            ok = performBindingAction("write_screen_file:copy,vt")
+        }
+        guard ok, let path, !path.isEmpty else { return nil }
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8), !text.isEmpty else { return nil }
+        return text
+    }
 
     /// 화면+스크롤백 전체를 평문으로 읽는다. 서피스가 없거나 비었으면 nil.
     func readScreenText() -> String? {
