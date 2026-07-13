@@ -46,6 +46,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     // MARK: L3 — tmux 세션(프로세스 연속성)
 
+    /// 지속 세션 탭의 아이콘 — 일반 터미널(`terminal`)과 **눈으로 구별되어야 한다**.
+    /// 어느 탭이 tmux 안에 있는지 모르면 "닫아도 되나"를 판단할 수 없다.
+    static let persistentTabIcon = "infinity"
+
     /// 지속 세션 터미널 버튼 — 탭바의 `+` 옆에 선다. tmux가 있을 때만 노출한다.
     static let persistentTerminalKind = "persistentTerminal"
     static let persistentTerminalButton = BonsplitConfiguration.SplitActionButton(
@@ -85,6 +89,15 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         let tab = TabID(uuid: uuid)
         return terms[tab] != nil ? tab : nil
     }
+
+    /// 그 칸의 선택 탭이 지속 세션인가 — 분할·새 탭이 물려받을 값.
+    private func inheritedPersistence(inPane pane: PaneID?) -> Bool {
+        guard let pane, let tab = controller.selectedTab(inPane: pane) else { return false }
+        return persistentIntent[tab.id] == true
+    }
+
+    /// 이 탭이 지속 세션(tmux)인가 — 탭 아이콘·닫기 판정이 읽는다.
+    func isPersistent(_ tabId: TabID) -> Bool { persistentIntent[tabId] == true }
 
     /// 이 탭이 쓸 tmux 세션명 — 복원분이 있으면 그것, 없으면 새로 발급. L3가 꺼져 있으면 nil.
     ///
@@ -266,8 +279,16 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     /// 탭바 `+` 버튼 → 새 터미널.
     func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {
-        // 지속 세션 버튼은 설정 기본값과 **반대가 아니라 명시적 true**다 — 눌렀으면 그걸 원한 것이다.
-        newTerminal(inPane: pane, persistent: kind == Self.persistentTerminalKind ? true : nil)
+        newTerminal(inPane: pane)
+    }
+
+    /// 탭바의 커스텀 액션 버튼 — 지금은 `∞`(지속 세션 터미널) 하나뿐.
+    ///
+    /// **`.custom`은 `didRequestNewTab`으로 오지 않는다**(Bonsplit은 `requestCustomAction`으로 따로 보낸다).
+    /// 이걸 구현하지 않아 버튼을 눌러도 아무 일이 없었다.
+    func splitTabBar(_ controller: BonsplitController, didRequestCustomAction identifier: String, inPane pane: PaneID) {
+        guard identifier == Self.persistentTerminalKind else { return }
+        newTerminal(inPane: pane, persistent: true)
     }
 
     /// 탭이 닫히면 그 터미널(PTY·서피스)·뷰어 상태를 해제한다.
@@ -992,7 +1013,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 안에서 돌던 프로세스와 화면이 그대로 돌아온다.
     @discardableResult
     func reattach(_ detached: DetachedSession, inPane pane: PaneID? = nil) -> TabID? {
-        guard let id = controller.createTab(title: "터미널", icon: "terminal", inPane: pane) else { return nil }
+        guard let id = controller.createTab(title: "터미널", icon: Self.persistentTabIcon,
+                                            inPane: pane) else { return nil }
         tmuxSessions[id] = detached.session // 새 세션을 만들지 않고 이 이름에 붙는다
         persistentIntent[id] = true
         pendingCwd[id] = detached.cwd
@@ -1004,17 +1026,23 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     /// 새 터미널 탭 생성(분할 후 빈 패인 채우기·⌘T 등).
     /// `inheritingFrom`은 작업 디렉터리를 물려받을 원본 칸(분할이면 분할된 칸). 없으면 탭이 생길 칸에서 상속한다.
-    /// - Parameter persistent: 이 탭을 tmux 지속 세션(∞)으로 열지. nil이면 일반 터미널.
+    /// - Parameter persistent: 이 탭을 tmux 지속 세션(∞)으로 열지.
+    ///   **nil이면 원본 칸에서 물려받는다** — 분할 버튼은 하나뿐이므로, 지속 세션 옆에서 나눈 칸은
+    ///   지속 세션이고 일반 터미널 옆에서 나눈 칸은 일반이어야 자연스럽다(cwd를 물려받는 것과 같다).
     @discardableResult
     func newTerminal(inPane pane: PaneID? = nil, inheritingFrom source: PaneID? = nil,
                      persistent: Bool? = nil) -> TabID? {
-        // createTab이 새 탭을 즉시 선택하므로, 원본 칸의 pwd는 생성 전에 읽는다.
-        let start = startCwd(inPane: source ?? pane ?? controller.focusedPaneId)
-        let id = controller.createTab(title: "터미널", icon: "terminal", inPane: pane)
+        // createTab이 새 탭을 즉시 선택하므로, 원본 칸의 pwd·지속 여부는 생성 전에 읽는다.
+        let origin = source ?? pane ?? controller.focusedPaneId
+        let start = startCwd(inPane: origin)
+        let wantsPersistent = persistent ?? inheritedPersistence(inPane: origin)
+        let id = controller.createTab(title: "터미널",
+                                      icon: wantsPersistent ? Self.persistentTabIcon : "terminal",
+                                      inPane: pane)
         if let id {
             pendingCwd[id] = start
             // 의도는 서피스가 만들어지기 전에 정해져야 한다 — term(for:)가 이걸 보고 tmux로 띄울지 정한다.
-            if let persistent { persistentIntent[id] = persistent }
+            persistentIntent[id] = wantsPersistent
             regroup(id, inPane: pane ?? controller.focusedPaneId)
         }
         syncHasTabs() // 빈 상태에서 새 터미널을 열면 BonsplitView로 복귀(관측 갱신)
@@ -1291,7 +1319,12 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                 var newTab: TabID?
                 if let raw = t.group, let kind = TabGroupKind(raw: raw) {
                     newTab = realizeGroup(kind, items: t.items, selectedItem: t.selectedItem, inPane: pane)
-                } else if let tid = controller.createTab(title: "터미널", icon: "terminal", inPane: pane) {
+                } else if let tid = controller.createTab(
+                    title: "터미널",
+                    // 지속 세션이었던 탭은 복원 후에도 그렇게 보여야 한다 — 아이콘이 유일한 구분이다.
+                    icon: t.tmuxSession != nil ? Self.persistentTabIcon : "terminal",
+                    inPane: pane
+                ) {
                     if let cwd = t.cwd { pendingCwd[tid] = cwd } // 새 셸을 저장된 작업 디렉터리에서 띄우게 힌트.
                     if let resume = t.resume { registerResumeBinding(resume, for: tid) } // 재개 바인딩 복구(+배너 표시). 실행은 게이트가.
                     // 신뢰 재개(claude 자동)는 곧 claude가 화면을 덮으므로 죽은 스크롤백 리플레이를 건너뛴다(잔상·중복 방지).
