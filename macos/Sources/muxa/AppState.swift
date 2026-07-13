@@ -60,6 +60,21 @@ final class AppState {
     /// 지금은 로그가 1차 표면이고 이 배열은 UI 노출용 예비 — 관측 가능하게 값으로만 둔다(세션 영속 대상 아님).
     var keymapDiagnostics: [KeymapDiagnostic] = []
 
+    /// Claude 훅 설치 상태(파일 기준). 시작 시·설치 직후 갱신한다.
+    private(set) var hookInstall: HookInstallState = .notInstalled
+    /// 훅 신호를 이 세션에서 한 번이라도 받았는가 — "설치됨"을 "동작 중"으로 승격시키는 유일한 근거.
+    /// settings.json에 썼다는 것과 훅이 실제로 발화한다는 것은 다르다(경로·권한·버전).
+    private(set) var hookSignalSeen = false
+
+    /// UI에 보여줄 훅 상태 — 파일 상태 + 실제 신호 수신을 합친 최종 값.
+    ///
+    /// **신호가 실제로 오면 그게 진실이다**(파일이 뭐라 하든). 훅 command 형식이 우리가 쓰는 것과 달라도
+    /// (손으로 넣었거나 옛 버전이 심었거나) 신호가 도착한다면 그건 동작하는 것이다 — "미설치"라고 말하면 거짓말이다.
+    var hookStatus: HookInstallState {
+        if hookSignalSeen { return .verified }
+        return hookInstall
+    }
+
     @ObservationIgnored private let app: ghostty_app_t
     /// muxa 설정(`~/.config/muxa/config`) — 시작 시 로드해 주입하고, 파일 저장 시 ConfigWatcher가
     /// `applyConfig`로 라이브 갱신한다(재시작 불필요). 기본 사이드바 모드·완료 배지 임계 등. (DESIGN 4.6)
@@ -98,7 +113,50 @@ final class AppState {
         notifyServer.onMessage = { [weak self] msg in
             MainActor.assumeIsolated { self?.routeNotify(msg) }
         }
+        notifyServer.onHook = { [weak self] msg in
+            MainActor.assumeIsolated { self?.routeHook(msg) }
+        }
         notifyServer.start()
+        refreshHookInstallState()
+    }
+
+    /// 파일 기준 훅 설치 상태를 다시 읽는다(시작 시·설치/제거 직후).
+    func refreshHookInstallState() {
+        hookInstall = ClaudeHookInstaller.installState()
+    }
+
+    /// 사용자 동작으로 훅을 설치한다 — `~/.claude/settings.json`을 고치는 일이라 **자동 실행하지 않는다**.
+    /// 실패는 상태로 표면화한다(조용히 삼키면 "왜 알림이 안 오지"의 원인을 영영 모른다).
+    func installClaudeHooks() {
+        do {
+            try ClaudeHookInstaller.install()
+            hookInstall = .installed
+        } catch {
+            hookInstall = .failed(error.localizedDescription)
+            attention.recordSystem(title: "Claude 훅 설치 실패 — \(error.localizedDescription)")
+        }
+    }
+
+    /// muxa 훅만 제거한다(사용자 훅은 남는다).
+    func uninstallClaudeHooks() {
+        do {
+            try ClaudeHookInstaller.uninstall()
+            hookInstall = .notInstalled
+            hookSignalSeen = false
+        } catch {
+            hookInstall = .failed(error.localizedDescription)
+        }
+    }
+
+    /// 훅 원본 payload를 tabId 소유 store로 라우팅한다(routeNotify와 같은 순회 규칙).
+    /// 해석·배달은 소유 store가 한다 — AppState는 배관일 뿐이다.
+    private func routeHook(_ msg: HookMessage) {
+        guard let uuid = UUID(uuidString: msg.tabId) else { return }
+        let tabId = TabID(uuid: uuid)
+        hookSignalSeen = true // 훅이 실제로 도착했다 — 설치가 "검증됨"으로 승격된다
+        for store in stores.values {
+            if store.deliverHook(tabId: tabId, event: msg.event, payload: msg.payload) { break }
+        }
     }
 
     /// 훅 메시지를 tabId 소유 store로 라우팅한다. 어느 store가 그 탭을 가졌는지는 순회로 찾는다

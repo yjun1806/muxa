@@ -29,6 +29,14 @@ struct ClaudeHookPayload: Equatable {
     /// `background_tasks[].status == "running"` 또는 `session_crons`가 비어있지 않으면 true.
     let hasPendingBackgroundWork: Bool
 
+    /// 필드가 하나도 없는 payload — JSON이 비었거나 깨졌을 때의 폴백.
+    /// 이벤트 이름만으로도 상태 전이(Stop→done 등)는 유효하므로 신호를 통째로 버리지 않는다.
+    static let empty = ClaudeHookPayload(
+        toolName: nil, toolInput: [:], transcriptPath: nil, lastAssistantMessage: nil,
+        sessionId: nil, notificationType: nil, message: nil,
+        isInterrupt: false, hasPendingBackgroundWork: false
+    )
+
     /// 훅 JSON(Data)을 파싱한다. 최상위가 객체가 아니면 nil.
     /// 필드가 하나도 없어도 빈 payload로 성공시킨다 — 이벤트 이름만으로도 상태 전이는 유효하다.
     static func parse(_ data: Data) -> ClaudeHookPayload? {

@@ -55,7 +55,8 @@ final class ClaudeHookSettingsTests: XCTestCase {
         let new = ClaudeHookSettings.merged(into: old, executable: exe)
         let stop = commands(new, event: .stop)
         XCTAssertEqual(stop.count, 1)
-        XCTAssertTrue(stop[0].hasPrefix(exe))
+        XCTAssertEqual(stop[0], ClaudeHookSettings.command(for: .stop, executable: exe))
+        XCTAssertFalse(stop[0].contains("/old/"), "옛 경로 훅이 남았다")
     }
 
     func testRemoveKeepsUserHooksAndDropsMuxa() {
@@ -79,6 +80,66 @@ final class ClaudeHookSettingsTests: XCTestCase {
         hooks.removeValue(forKey: ClaudeHookEvent.stop.rawValue)
         merged["hooks"] = hooks
         XCTAssertFalse(ClaudeHookSettings.isInstalled(in: merged, executable: exe))
+    }
+
+    /// 예전 방식(install-integration.sh가 심던 `muxa-notify --state done`)이 남아 있으면 Stop 한 번에
+    /// 알림이 두 번 울린다. 형식이 달라도 muxa-notify를 부르는 훅은 전부 새 형식으로 갈아끼워야 한다.
+    func testMergeReplacesLegacyStateStyleHooks() {
+        let legacy: [String: Any] = ["hooks": [
+            "Stop": [["hooks": [["type": "command", "command": "muxa-notify --state done --category turn-complete"]]]],
+            "Notification": [["hooks": [["type": "command", "command": "muxa-notify --state waiting"]]]],
+        ]]
+        let merged = ClaudeHookSettings.merged(into: legacy, executable: exe)
+        let stop = commands(merged, event: .stop)
+        XCTAssertEqual(stop.count, 1, "레거시 훅이 남아 이중 발화한다")
+        XCTAssertFalse(stop[0].contains("--state"), "레거시 형식이 남았다")
+        XCTAssertEqual(commands(merged, event: .notification).filter { $0.contains("--state") }.count, 0)
+    }
+
+    /// Claude Code는 command를 `/bin/sh -c`로 실행한다. 안정 경로에는 공백이 있으므로
+    /// (`~/Library/Application Support/…`) 따옴표가 없으면 sh가 경로를 잘라 읽고 훅이 통째로 죽는다.
+    /// 그리고 muxa를 지웠을 때 모든 claude 세션이 sh 에러를 뱉지 않도록 존재 가드로 감싼다.
+    func testCommandQuotesPathAndGuardsExistence() {
+        let command = ClaudeHookSettings.command(for: .stop, executable: exe)
+        XCTAssertEqual(command, "if [ -x '\(exe)' ]; then '\(exe)' hook --event Stop; fi")
+        XCTAssertFalse(command.contains("\(exe) hook"), "인용되지 않은 경로가 남았다")
+    }
+
+    /// 생성한 command가 실제 POSIX 셸에서 문법 오류 없이 파싱되는가(이 버그의 본질은 셸 문법이었다).
+    func testCommandIsValidShellSyntax() throws {
+        for event in ClaudeHookEvent.allCases {
+            let command = ClaudeHookSettings.command(for: event, executable: "/tmp/muxa test/muxa-notify")
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-n", "-c", command] // -n = 문법 검사만(실행 안 함)
+            try process.run()
+            process.waitUntilExit()
+            XCTAssertEqual(process.terminationStatus, 0, "셸 문법 오류: \(command)")
+        }
+    }
+
+    /// 경로에 작은따옴표가 있어도 셸 문법이 깨지지 않는다.
+    func testCommandEscapesSingleQuoteInPath() {
+        let quoted = ClaudeHookSettings.shellQuoted("/Users/o'brien/bin/muxa-notify")
+        XCTAssertEqual(quoted, "'/Users/o'\\''brien/bin/muxa-notify'")
+    }
+
+    /// 인용된 command도 설치 감지에 잡혀야 한다(멱등 재설치가 깨지지 않게).
+    func testQuotedCommandIsDetectedAsInstalled() {
+        let merged = ClaudeHookSettings.merged(into: [:], executable: exe)
+        XCTAssertTrue(ClaudeHookSettings.isInstalled(in: merged, executable: exe))
+    }
+
+    /// 따옴표 없이 깨져 설치됐던 훅(이 버그의 산물)도 재설치가 멱등하게 교체한다.
+    func testMergeReplacesUnquotedBrokenHooks() {
+        let broken: [String: Any] = ["hooks": [
+            "Stop": [["hooks": [["type": "command", "command": "\(exe) hook --event Stop"]]]],
+        ]]
+        let merged = ClaudeHookSettings.merged(into: broken, executable: exe)
+        let stop = commands(merged, event: .stop)
+        XCTAssertEqual(stop.count, 1, "깨진 훅이 남아 중복됐다")
+        XCTAssertEqual(stop[0], ClaudeHookSettings.command(for: .stop, executable: exe),
+                       "인용·가드가 붙은 새 형식으로 교체되지 않았다")
     }
 
     func testPreToolUseGetsWildcardMatcher() {

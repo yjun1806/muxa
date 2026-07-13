@@ -124,36 +124,28 @@ info "2) Claude Code 훅 등록 (~/.claude/settings.json)"
 
 SETTINGS="$HOME/.claude/settings.json"
 
-# 프리셋(정적 문자열 — 사용자 입력 없음).
-#   Notification(권한/알림) → waiting/needs-permission
-#   Stop(턴 완료)            → done/turn-complete
-# 훅은 PATH 의 `muxa-notify` 를 호출한다(설치한 심링크 이름). muxa-notify 는
-# 소켓 실패해도 exit 0 이라 에이전트 흐름을 막지 않는다.
+# 프리셋 — 훅이 stdin JSON(payload)을 **해석하지 않고 그대로** 앱에 넘긴다(`hook --event <E>`).
+# 분류·게이팅은 전부 앱이 한다: 훅 명령줄은 사용자의 settings.json 에 박혀 있어서, 여기에 로직을
+# 넣으면 앱 업데이트로 못 고친다. 덕분에 런타임 jq 의존도 사라졌다(세션 ID·배경작업 판정 모두 앱이 한다).
+#
+# 앱 안에서 벨(알림 인박스) → "설치" 버튼으로도 같은 일을 할 수 있다(권장 — 절대경로를 쓰므로 PATH 불필요).
+# 예전 형식(`muxa-notify --state …`)이 남아 있으면 앱 설치기가 새 형식으로 갈아끼운다(이중 발화 방지).
 read -r -d '' PRESETS_JSON <<'JSON' || true
 {
-  "Notification": {
-    "matcher": "",
-    "hooks": [ { "type": "command", "command": "muxa-notify --state waiting --category needs-permission" } ]
-  },
-  "Stop": {
-    "hooks": [ { "type": "command", "command": "muxa-notify --state done --category turn-complete" } ]
-  }
+  "SessionStart":     { "hooks": [ { "type": "command", "command": "muxa-notify hook --event SessionStart" } ] },
+  "UserPromptSubmit": { "hooks": [ { "type": "command", "command": "muxa-notify hook --event UserPromptSubmit" } ] },
+  "PreToolUse":       { "matcher": "*", "hooks": [ { "type": "command", "command": "muxa-notify hook --event PreToolUse" } ] },
+  "PostToolUse":      { "matcher": "*", "hooks": [ { "type": "command", "command": "muxa-notify hook --event PostToolUse" } ] },
+  "Notification":     { "hooks": [ { "type": "command", "command": "muxa-notify hook --event Notification" } ] },
+  "Stop":             { "hooks": [ { "type": "command", "command": "muxa-notify hook --event Stop" } ] },
+  "SubagentStart":    { "hooks": [ { "type": "command", "command": "muxa-notify hook --event SubagentStart" } ] },
+  "SubagentStop":     { "hooks": [ { "type": "command", "command": "muxa-notify hook --event SubagentStop" } ] }
 }
 JSON
 
-# (선택) 재개 등록: SessionStart(resume) 에서 세션 ID 를 stdin JSON 으로 받아 바인딩.
-# ⚠ 실제 스키마 검증됨(2026-07, code.claude.com/docs/en/hooks):
-#   - CLAUDE_SESSION_ID 는 env 로 노출되지 않는다. session_id 는 stdin JSON 으로만 온다.
-#     → jq 로 .session_id 를 뽑아 --resume-command 에 넣는다(런타임에 jq 필요).
-#   - SessionStart 는 matcher 로 소스(startup/resume/clear/compact)를 거른다 → "resume" 만.
-RESUME_CMD='SID=$(jq -r ".session_id // empty"); [ -n "$SID" ] && muxa-notify --resume-command "claude --resume $SID" --agent claude'
-
 if command -v jq >/dev/null 2>&1; then
   if $WANT_RESUME; then
-    PRESETS_JSON="$(jq -n --argjson base "$PRESETS_JSON" --arg rc "$RESUME_CMD" '
-      $base + { "SessionStart": { "matcher": "resume",
-        "hooks": [ { "type": "command", "command": $rc } ] } }')"
-    ok "재개(SessionStart/resume) 훅 포함"
+    skip "--resume 은 이제 불필요 — SessionStart 훅이 기본 포함이고, 세션 ID 는 앱이 payload 에서 읽는다"
   fi
 
   # 현재 settings(없으면 빈 객체)를 읽어, 각 이벤트에 이미 muxa-notify 훅이
@@ -196,13 +188,9 @@ if command -v jq >/dev/null 2>&1; then
     printf '%s' "$MERGED" | jq '.hooks'
   fi
 else
-  warn "jq 가 없어 자동 병합을 건너뛴다. 수동으로 아래를 ~/.claude/settings.json 의"
-  echo "      \"hooks\" 에 병합하라(설치: brew install jq):"
+  warn "jq 가 없어 자동 병합을 건너뛴다. muxa 앱의 알림 벨 → \"설치\" 버튼을 쓰면 jq 없이 등록된다."
+  echo "      직접 병합하려면 아래를 ~/.claude/settings.json 의 \"hooks\" 에 넣어라:"
   printf '%s\n' "$PRESETS_JSON" | sed 's/^/        /'
-  if $WANT_RESUME; then
-    echo "      + SessionStart(resume) 재개 훅 command:"
-    echo "        $RESUME_CMD"
-  fi
 fi
 printf '\n'
 

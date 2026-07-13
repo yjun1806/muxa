@@ -51,6 +51,21 @@ func sanitize(_ s: String) -> String {
 var args = Array(CommandLine.arguments.dropFirst())
 if args.first == "notify" { args.removeFirst() }
 
+// hook 모드 — Claude Code 훅이 stdin으로 주는 JSON을 **해석하지 않고 그대로** 앱에 넘긴다.
+// 분류·게이팅은 전부 앱이 한다: 훅 명령줄은 사용자의 settings.json에 박혀 있어서, 여기에 로직을 넣으면
+// 그 로직을 앱 업데이트로 못 고친다. CLI는 배관일 뿐이다.
+var hookEvent: String?
+if args.first == "hook" {
+    args.removeFirst()
+    var j = 0
+    while j < args.count {
+        if args[j] == "--event", j + 1 < args.count { hookEvent = args[j + 1] }
+        j += 1
+    }
+    guard let event = hookEvent, !event.isEmpty else { bail("hook: --event 누락") }
+    hookEvent = event
+}
+
 var state = "waiting"
 var stateExplicit = false
 var category = ""
@@ -72,19 +87,29 @@ while i < args.count {
     i += 1
 }
 
+// muxa 밖에서 돌면(일반 터미널·IDE의 claude 세션) 보낼 곳이 없다. 이건 **에러가 아니라 정상**이다 —
+// 훅은 전역 settings.json에 등록되므로 muxa 밖 세션에서도 매 도구 호출마다 불린다.
+// stderr에 한 줄이라도 쓰면 Claude Code가 그걸 "hook error"로 표시해 매 턴 시끄러워진다. 조용히 빠진다.
 let env = ProcessInfo.processInfo.environment
-guard let sock = env["MUXA_SOCK"], !sock.isEmpty else {
-    bail("MUXA_SOCK 미설정 — muxa 안에서 실행해야 한다")
-}
-guard let tabId = env["MUXA_TAB_ID"], !tabId.isEmpty else {
-    bail("MUXA_TAB_ID 미설정 — muxa 안에서 실행해야 한다")
+guard let sock = env["MUXA_SOCK"], !sock.isEmpty,
+      let tabId = env["MUXA_TAB_ID"], !tabId.isEmpty else {
+    exit(0)
 }
 
-// --resume-command 단독(명시적 --state 없음)이면 상태 필드를 비운다 — 바인딩만 등록하고 상태 신호는 안 보낸다.
-// (resume-command가 없으면 종전대로 기본 waiting이 실린다 — 하위호환.)
-let stateField = (!resumeCommand.isEmpty && !stateExplicit) ? "" : state
-// 필드 순서 고정: category(5)·resumeCommand(6)·agentLabel(7). 빈 문자열이면 서버가 nil로 파싱 — 하위호환.
-let line = "\(tabId)\t\(stateField)\t\(sanitize(title))\t\(sanitize(body))\t\(sanitize(category))\t\(sanitize(resumeCommand))\t\(sanitize(agent))\n"
+/// 소켓에 실을 바이트. hook 모드면 `hook\t<tabId>\t<event>\n<원본 JSON>`, 아니면 기존 줄 프로토콜.
+/// hook 프레임은 payload를 손대지 않는다(개행·탭이 들어 있어도 첫 개행 하나만 경계로 쓴다).
+let line: String = {
+    guard let event = hookEvent else {
+        // --resume-command 단독(명시적 --state 없음)이면 상태 필드를 비운다 — 바인딩만 등록하고 상태 신호는 안 보낸다.
+        // (resume-command가 없으면 종전대로 기본 waiting이 실린다 — 하위호환.)
+        let stateField = (!resumeCommand.isEmpty && !stateExplicit) ? "" : state
+        // 필드 순서 고정: category(5)·resumeCommand(6)·agentLabel(7). 빈 문자열이면 서버가 nil로 파싱 — 하위호환.
+        return "\(tabId)\t\(stateField)\t\(sanitize(title))\t\(sanitize(body))\t\(sanitize(category))\t\(sanitize(resumeCommand))\t\(sanitize(agent))\n"
+    }
+    // stdin이 비어도(훅이 payload를 안 줘도) 이벤트 이름만으로 상태 전이는 유효하다 — 프레임은 보낸다.
+    let payload = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
+    return "hook\t\(tabId)\t\(sanitize(event))\n\(payload)"
+}()
 
 let fd = socket(AF_UNIX, SOCK_STREAM, 0)
 guard fd >= 0 else { bail("socket() 실패 errno=\(errno)") }

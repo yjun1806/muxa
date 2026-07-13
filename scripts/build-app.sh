@@ -26,6 +26,10 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/muxa" "$APP/Contents/MacOS/muxa"
 cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
+# 훅 CLI — 앱이 실행 파일 옆에서 찾아 Application Support로 복사한다(ClaudeHookInstaller).
+# 번들에 없으면 인앱 훅 설치가 "muxa-notify를 찾을 수 없다"로 실패한다.
+cp "$BIN/muxa-notify" "$APP/Contents/MacOS/muxa-notify"
+
 # SPM 리소스 번들(muxa_muxa·Bonsplit_Bonsplit) — Bundle.module이 Contents/Resources에서 찾는다.
 for b in "$BIN"/*.bundle; do
   [ -e "$b" ] && cp -R "$b" "$APP/Contents/Resources/"

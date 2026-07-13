@@ -76,6 +76,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 탭별 추정 에이전트 활동 상태(작업중/대기/완료/idle) — BonsplitWorkspaceView가 관측해 상시 상태 테두리를 그린다.
     /// idle은 담지 않는다(없음=idle) — 상태가 바뀔 때만 immutable 교체해 SwiftUI 갱신을 최소화한다.
     private(set) var agentActivity: [TabID: AgentActivity] = [:]
+    /// 탭별 진행 표시("편집 중: TermView.swift") — 훅의 도구 이벤트에서 파생한다(관측 대상, 푸터가 읽는다).
+    /// 알림이 아니라 "지금 뭘 하고 있나"의 표면이다. 턴이 끝나면(Stop·새 프롬프트) 지운다.
+    private(set) var agentDetail: [TabID: String] = [:]
     /// 배지가 하나라도 생기면 상위(AppState)에 알린다 — 프로젝트 탭 ● 표시용.
     @ObservationIgnored var onProjectActivity: (() -> Void)?
     /// 데스크톱 알림을 띄워야 할 때 상위(AppState)에 위임한다 — 라우팅 컨텍스트(프로젝트·워크스페이스)는
@@ -212,6 +215,13 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         flashingTabs.remove(tabId) // 활동 테두리 상태 해제
         flashSeq[tabId] = nil
         clearAgentActivity(tabId) // 에이전트 추정 상태·추정기 해제(+ idle 타이머 재동기화)
+        hookSessions[tabId] = nil // 훅 세션 상태(배경작업·서브에이전트 로스터) 해제 — 맵 누수 방지
+        hookedTabs.remove(tabId)
+        if agentDetail[tabId] != nil { // 진행 표시 해제(관측 맵은 immutable 교체)
+            var map = agentDetail
+            map[tabId] = nil
+            agentDetail = map
+        }
         lastBellAt[tabId] = nil // 벨 디바운스 상태 해제
         resetCoalescers(for: tabId) // 배지·알림 병합 이력 해제(맵 누수 방지)
         manualTitles[tabId] = nil // 수동 지정 제목 해제
@@ -424,6 +434,77 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         }
         return true
     }
+
+    // MARK: 훅(Claude Code) 경로 — 원본 payload → 순수 해석 → 배달
+    //
+    // 추정(RENDER heartbeat + idle 타이머)과 달리 이 경로는 ground truth다. 훅이 붙은 탭은
+    // 추정에 기대지 않고, 에이전트가 직접 말해주는 사실(도구 호출·배경 작업·서브에이전트)로 판단한다.
+
+    /// 탭별 훅 세션 상태(순수 값) — 배경 작업·서브에이전트 로스터를 이벤트 사이에 유지한다.
+    @ObservationIgnored private var hookSessions: [TabID: HookSessionState] = [:]
+    /// 훅 신호를 한 번이라도 받은 탭 — 이 탭의 raw OSC 9/777 알림은 버린다(이중 발화 방지).
+    /// Claude는 자체 OSC 알림도 쏘기 때문에, 훅 알림과 겹치면 같은 사건으로 두 번 울린다.
+    @ObservationIgnored private var hookedTabs: Set<TabID> = []
+
+    /// 훅 원본 payload를 해석해 이 스토어가 소유한 탭에 반영한다. 소유하면 true(라우팅 종료).
+    ///
+    /// 해석은 순수 함수(ClaudeHookInterpreter)가 하고, 여기서는 부작용만 실행한다:
+    /// 상태 전이 고정(pin) · 진행 표시 갱신 · 재개 바인딩 등록 · 알림 발사.
+    @discardableResult
+    func deliverHook(tabId: TabID, event: ClaudeHookEvent, payload: ClaudeHookPayload) -> Bool {
+        guard terms[tabId] != nil else { return false }
+        hookedTabs.insert(tabId)
+
+        let (outcome, next) = ClaudeHookInterpreter.interpret(
+            event: event, payload: payload, state: hookSessions[tabId] ?? HookSessionState()
+        )
+        hookSessions[tabId] = next
+
+        if let resume = outcome.resume { setResumeBinding(resume, for: tabId) }
+        updateAgentDetail(tabId, outcome: outcome)
+
+        if let state = outcome.state {
+            // 훅은 ground truth — 추정기에 고정(pin)해 노이즈 RENDER가 상태를 되돌리지 못하게 한다.
+            applyAgentSignal(.explicit(state), to: tabId)
+            if state == .working { clearTabBadge(tabId) } // 작업 재개 = 주의 해소
+        }
+        guard let category = outcome.category else { return true } // 상태만 갱신(알림 없음)
+
+        // 본문이 비면 transcript 꼬리에서 "Claude가 마지막으로 한 말"을 길어 온다.
+        // 파일 IO + flush 레이스 재시도(sleep)가 있어 반드시 백그라운드에서 읽는다.
+        guard let path = outcome.transcriptPath else {
+            fireNotification(tabId, title: outcome.title, body: outcome.body, category: category, kind: .notify)
+            return true
+        }
+        Task.detached(priority: .utility) { [weak self] in
+            let message = TranscriptTail.lastAssistantMessage(atPath: path).map(ClaudeHookInterpreter.clamp)
+            await MainActor.run {
+                guard let self else { return }
+                self.fireNotification(tabId, title: outcome.title,
+                                      body: message ?? Self.turnCompleteFallbackBody,
+                                      category: category, kind: .notify)
+            }
+        }
+        return true
+    }
+
+    /// 진행 표시 갱신 — "지우기"(턴 종료)와 "변화 없음"(알림성 이벤트)을 구분해야 표시가 안 얼어붙는다.
+    private func updateAgentDetail(_ tabId: TabID, outcome: HookOutcome) {
+        let next: String?
+        if outcome.clearsDetail { next = nil }
+        else if let detail = outcome.detail { next = detail }
+        else { return } // 변화 없음 — 관측 갱신도 하지 않는다
+        guard agentDetail[tabId] != next else { return }
+        var map = agentDetail
+        map[tabId] = next
+        agentDetail = map
+    }
+
+    /// 탭의 현재 진행 표시(없으면 nil) — 푸터가 활성 탭의 값을 읽는다.
+    func agentDetail(for tabId: TabID) -> String? { agentDetail[tabId] }
+
+    /// transcript에서 마지막 메시지를 못 건졌을 때의 완료 본문(빈 본문보다 낫다).
+    private static let turnCompleteFallbackBody = "턴이 끝났다"
 
     /// 바인딩을 맵 + 관측 집합에 함께 넣는다(항상 동기). 훅 등록·복원 realize가 공유하는 단일 경로.
     private func registerResumeBinding(_ binding: ResumeBinding, for tabId: TabID) {
@@ -683,6 +764,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             lastBellAt[tabId] = now
             fireActivity(tabId, kind: .bell, title: tabTitle(tabId), visible: visible)
         case .desktopNotification(let title, let body):
+            // 훅이 붙은 탭이면 버린다 — Claude는 자체 OSC 알림도 쏘기 때문에, 훅 알림과 겹쳐 같은 사건으로
+            // 두 번 울린다. 훅 payload가 더 정확하고 본문도 풍부하니 구조화된 쪽을 남긴다.
+            guard !hookedTabs.contains(tabId) else { return }
             // OSC 9/777 자동 신호 — category nil로 게이트에 태운다(보이면 플래시, 안 보이면 배지+알림: 기존 동작).
             fireNotification(tabId, title: title, body: body, category: nil, kind: .notify)
         case .processExited:
@@ -749,6 +833,14 @@ final class TerminalStore: NSObject, BonsplitDelegate {
               let tab = controller.selectedTab(inPane: pane) else { return nil }
         if let content = tabContent[tab.id], case .group = content { return nil } // 문서·diff 탭엔 pwd가 없다
         return pwds[tab.id] ?? pendingCwd[tab.id]
+    }
+
+    /// 지금 포커스된 칸의 에이전트 진행 표시("편집 중: TermView.swift") — 푸터가 읽는다.
+    /// 훅(PreToolUse/PostToolUse)이 붙은 탭에서만 값이 있다. 추정 경로는 "지금 뭘 하는지"를 알 수 없다.
+    var focusedAgentDetail: String? {
+        guard let pane = controller.focusedPaneId,
+              let tab = controller.selectedTab(inPane: pane) else { return nil }
+        return agentDetail[tab.id]
     }
 
     /// 새 터미널 탭 생성(분할 후 빈 패인 채우기·⌘T 등).

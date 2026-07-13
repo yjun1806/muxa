@@ -34,6 +34,29 @@ swift test                  # 순수 로직 단위 테스트 (92개, GhosttyKit 
 - **뷰어 라이브 리로드** ✅ — 열린 코드/md가 디스크에서 바뀌면 자동 재로드
 - **세션 복원 정합성** ✅ — 트리는 터미널만(`layoutSnapshot`), 문서/diff는 `SavedViewer`로 별도 복원
 
+## 최근 완료 (2026-07-13) — 알림 파이프라인 개편: 훅이 1차 소스
+
+orca(stablyai)·cmux 구현을 대조해 **추정 1차 → 훅 1차**로 뒤집었다. 설계 근거는 [DESIGN 4.5](DESIGN.md) 참조.
+신규 순수 로직 + 테스트 76개(전체 168개 green). **GUI 동작은 실기기 육안 검증 미수행(★).**
+
+- **훅 원본 payload 경로** — `muxa-notify hook --event <E>`가 stdin JSON을 **해석 없이** 소켓에 전달
+  (`hook\t<tabId>\t<event>\n<원본 JSON>`). 파싱·분류는 앱이 한다(훅에 로직을 넣으면 앱 업데이트로 못 고침).
+  신규: `ClaudeHookPayload`·`ClaudeHookInterpreter`(순수)·`HookSessionState`.
+- **가짜 완료 차단** — `background_tasks`/`session_crons`(cmux `pending`) + 서브에이전트 로스터가 남으면 Stop이어도 done이 아니다.
+  `idle_prompt` payload엔 `background_tasks`가 없어 **Stop 시점 캐시**가 유일한 근거.
+- **알림 본문 = Claude가 마지막으로 한 말** — `last_assistant_message`, 없으면 `transcript_path` 꼬리 역방향 파싱(`TranscriptTail`, 재시도 5×50ms).
+- **진행 표시** — `PostToolUse` → "편집 중: TermView.swift"(`ToolActivity`, LLM 없음). 푸터에 표시(`focusedAgentDetail`).
+- **인앱 훅 설치** — 알림 벨 → "설치" 버튼. 백업 + 원자적 교체, 사용자 훅 보존, 멱등(`ClaudeHookSettings`/`ClaudeHookInstaller`).
+  **레거시 `muxa-notify --state` 훅도 흡수**해 교체한다(안 그러면 Stop에서 이중 발화). `scripts/install-integration.sh`도 새 형식으로 갱신(jq 의존 제거).
+- **정직한 상태 표시** — 설치됨 ≠ 동작 중. 첫 훅 신호가 와야 "동작 중"으로 승격(`HookInstallState`).
+- **이중 발화 억제** — 훅이 붙은 탭의 raw OSC 9/777은 폐기.
+
+### 실기기 검증 필요 (★ 이 기능)
+1. 벨 → "설치" 누르고 `~/.claude/settings.json` 확인(기존 훅 보존·백업 생성).
+2. 앱 안에서 claude 실행 → 푸터에 "편집 중: …" 뜨는지, 벨 상태가 "훅 동작 중"으로 바뀌는지.
+3. 턴 완료 시 알림 본문에 **Claude의 마지막 말**이 뜨는지(다른 앱에 포커스 둔 채로).
+4. 백그라운드 작업(`&`)이 도는 채로 턴이 끝나면 완료 알림이 **안 뜨는지**.
+
 ## 최근 완료 (ultracode 워크플로 + 적대적 리뷰 수정)
 
 - **서브탭·활성 칸 완전 복원** ✅ — `PaneSnapshot.leaf.focused`(커스텀 Codable 하위호환), 복원 후 활성 칸+선택탭 복구

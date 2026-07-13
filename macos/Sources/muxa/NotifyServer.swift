@@ -32,6 +32,18 @@ struct NotifyMessage {
     let resume: ResumeBinding?
 }
 
+/// 훅이 payload를 **해석하지 않고 그대로** 넘긴 원본 신호(`muxa-notify hook --event <E>`).
+///
+/// 와이어: 첫 줄 `hook\t<tabId>\t<event>` + 개행 이후 EOF까지 전부 원본 JSON.
+/// 줄 단위 프로토콜(NotifyMessage)과 달리 body에 개행·탭이 들어가도 안전하다(길이로 자르지 않고
+/// 첫 개행 하나만 경계로 쓴다). 파싱·분류는 앱이 한다 — 훅 스크립트에 로직을 넣으면 사용자 디스크에
+/// 박혀서 앱 업데이트로 못 고친다.
+struct HookMessage {
+    let tabId: String
+    let event: ClaudeHookEvent
+    let payload: ClaudeHookPayload
+}
+
 /// Unix 도메인 소켓 리스너 — `muxa notify` CLI가 보낸 한 줄을 받아 콜백으로 넘긴다.
 ///
 /// 부작용(소켓·fd·DispatchSource)을 이 경계 타입에 격리한다(순수 라우팅은 AppState). 소켓
@@ -57,6 +69,9 @@ final class NotifyServer {
 
     /// 메시지 수신 콜백 — 메인 큐에서 호출된다. 라우팅·UI 갱신은 상위(AppState)가 한다.
     var onMessage: ((NotifyMessage) -> Void)?
+
+    /// 훅 원본 payload 수신 콜백 — 메인 큐. 해석(ClaudeHookInterpreter)은 소유 store가 한다.
+    var onHook: ((HookMessage) -> Void)?
 
     /// 리스너 시작(백그라운드). 이미 있던 소켓 파일은 unlink 후 재바인드한다.
     func start() {
@@ -134,12 +149,34 @@ final class NotifyServer {
             if data.count > Self.maxMessageBytes { break }
         }
         guard let text = String(data: data, encoding: .utf8) else { return }
+        // 훅 프레임(첫 줄이 hook 헤더)은 나머지 전체가 원본 JSON이라 줄 분해를 하면 안 된다.
+        if let hook = Self.parseHook(text) {
+            let callback = onHook
+            DispatchQueue.main.async { callback?(hook) }
+            return
+        }
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
             guard let msg = Self.parse(String(line)) else { continue }
             let callback = onMessage
             DispatchQueue.main.async { callback?(msg) }
         }
     }
+
+    /// `hook\t<tabId>\t<event>\n<원본 JSON…>` 프레임 파싱. 헤더가 아니면 nil(줄 단위 경로로 폴백).
+    /// payload가 없거나 깨졌으면 빈 payload로 통과시킨다 — 이벤트 이름만으로도 상태 전이는 유효하다.
+    static func parseHook(_ text: String) -> HookMessage? {
+        guard text.hasPrefix(hookFramePrefix) else { return nil }
+        let split = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+        let header = split[0].components(separatedBy: "\t")
+        guard header.count >= 3, !header[1].isEmpty,
+              let event = ClaudeHookEvent(rawValue: header[2]) else { return nil }
+        let json = split.count > 1 ? Data(split[1].utf8) : Data()
+        let payload = ClaudeHookPayload.parse(json) ?? ClaudeHookPayload.empty
+        return HookMessage(tabId: header[1], event: event, payload: payload)
+    }
+
+    /// 훅 프레임 식별 접두 — CLI(muxa-notify)와 공유하는 와이어 상수.
+    static let hookFramePrefix = "hook\t"
 
     /// `<tabId>\t<state>\t<title>\t<body>\t<category>\t<resumeCommand>\t<agentLabel>` 파싱. 부족한
     /// 필드는 관대하게 채운다(title/body는 빈 문자열, category는 미지정·미인식이면 nil → deliverNotify가

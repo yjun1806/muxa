@@ -8,8 +8,12 @@ import Foundation
 /// - **모르는 키는 그대로 보존한다.** hooks 밖의 필드(permissions·model·env…)는 손대지 않는다.
 /// - 파일 IO는 여기 없다 — `ClaudeHookInstaller`가 맡는다(원자적 쓰기·백업).
 enum ClaudeHookSettings {
-    /// muxa가 심은 훅을 식별하는 표식. 이 문자열이 command에 있으면 muxa 소유로 본다.
-    static let hookMarker = "muxa-notify hook"
+    /// muxa가 심은 훅을 식별하는 표식. 이 문자열이 command에 있으면 muxa 소유로 보고 제거·교체한다.
+    ///
+    /// `muxa-notify hook`이 아니라 `muxa-notify`로 넓게 잡는 이유: 예전 방식(`scripts/install-integration.sh`가
+    /// 심던 `muxa-notify --state done …`)이 남아 있으면 Stop 한 번에 레거시 알림과 훅 알림이 **두 번** 울린다.
+    /// muxa-notify를 부르는 훅은 어느 형식이든 muxa 소유로 보고 새 형식으로 갈아끼운다.
+    static let hookMarker = "muxa-notify"
 
     /// 이벤트별 matcher — PreToolUse/PostToolUse만 도구 matcher가 의미가 있다(전체 = "*").
     /// 나머지 이벤트는 matcher 없이 등록한다.
@@ -92,10 +96,23 @@ enum ClaudeHookSettings {
         return entry
     }
 
-    /// 훅 명령줄. **셸 스니펫이 아니라 바이너리 직접 실행**이다 — 일부 에이전트 런타임이 command를
-    /// 셸 없이 exec해서 인라인 스니펫이 "No such file or directory"로 깨진다(cmux가 codex에서 겪었다).
-    /// 경로는 앱 번들 안이 아니라 Application Support의 안정 경로다(앱을 옮겨도 안 깨진다).
+    /// 훅 명령줄. 경로는 앱 번들 안이 아니라 Application Support의 안정 경로다(앱을 옮겨도 안 깨진다).
+    ///
+    /// 두 가지를 반드시 지킨다 — 둘 다 실제로 깨져 본 것들이다:
+    /// - **경로 인용.** Claude Code는 command를 `/bin/sh -c <command>`로 돌리는데 안정 경로엔 공백이 있다
+    ///   (`~/Library/Application Support/…`). 인용이 없으면 sh가 `/Users/…/Library/Application`까지만
+    ///   실행 파일로 읽고 "No such file or directory"로 죽는다.
+    /// - **존재 가드.** 사용자가 muxa를 지우면 이 훅은 settings.json에 남는다. 가드가 없으면 **모든 claude
+    ///   세션이** 매 도구 호출마다 sh 에러를 뱉는다. `if [ -x … ]`로 감싸 없으면 조용히 통과시킨다(exit 0).
+    ///   (orca도 자기 훅을 같은 방식으로 감싼다.)
     static func command(for event: ClaudeHookEvent, executable: String) -> String {
-        "\(executable) hook --event \(event.rawValue)"
+        let quoted = shellQuoted(executable)
+        return "if [ -x \(quoted) ]; then \(quoted) hook --event \(event.rawValue); fi"
+    }
+
+    /// POSIX 셸용 인용 — 작은따옴표로 감싸고, 경로에 작은따옴표가 있으면 `'\''`로 탈출시킨다.
+    /// 작은따옴표 안에서는 공백·$·백틱이 전부 리터럴이라 가장 안전하다.
+    static func shellQuoted(_ path: String) -> String {
+        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

@@ -32,6 +32,13 @@ struct StatusBar: View {
         return state.store(for: project, in: ws).focusedPwd
     }
 
+    /// 포커스된 칸의 에이전트가 지금 뭘 하고 있나("편집 중: TermView.swift") — 훅의 도구 이벤트에서 온다.
+    /// 훅이 없으면 nil이다. 추정(출력 idle)으로는 "작업 중"까지만 알지 "무엇을"은 알 수 없다.
+    private var agentDetail: String? {
+        guard let ws = state.activeWorkspace, let project = ws.activeProject else { return nil }
+        return state.store(for: project, in: ws).focusedAgentDetail
+    }
+
     var body: some View {
         // 아이콘·텍스트·막대가 섞이는 줄이라 정렬을 명시한다. 아이콘 글꼴을 옆 텍스트와 같은 스케일로
         // 맞춰야(둘 다 .label) 시각 중심이 어긋나지 않는다 — 크기가 다르면 center 정렬도 삐뚤어 보인다.
@@ -57,6 +64,17 @@ struct StatusBar: View {
                 .foregroundStyle(Color.pMuted)
                 .fixedSize() // 경로가 길어도 브랜치는 안 잘린다(잘려야 할 건 경로 쪽)
                 .help("현재 브랜치")
+            }
+            // 에이전트가 지금 하는 일 — 있을 때만 뜨고, 턴이 끝나면 사라진다.
+            // 경로·브랜치("어디서")와 성격이 이어지는 정보라("무엇을") 같은 왼쪽 묶음에 둔다.
+            if let agentDetail {
+                HStack(alignment: .center, spacing: Space.xs) {
+                    Image(systemName: "bolt.fill").font(.muxa(.label))
+                    Text(agentDetail).font(.muxa(.label)).lineLimit(1)
+                }
+                .foregroundStyle(Color(nsColor: Palette.brand))
+                .fixedSize()
+                .help("에이전트 진행 상황(Claude 훅)")
             }
             Spacer(minLength: Space.md)
             usageView
