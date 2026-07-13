@@ -164,10 +164,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func setupMainMenu() {
         let mainMenu = NSMenu()
+        // 메뉴바 좌측의 볼드 앱 이름 = **첫 메뉴 항목의 title**. 비워 두면 macOS가 프로세스명으로 대신 채운다
+        // (그래서 dev 실행도 "muxa"로 보였다). 여기에 이름을 박아야 "muxa (dev)"로 뜬다(AppInfo).
         let appItem = NSMenuItem()
+        appItem.title = AppInfo.name
         mainMenu.addItem(appItem)
-        // 메뉴 항목에 앱 이름을 박는다 — 개발 빌드면 "muxa (dev)"라 설치된 앱과 구분된다(AppInfo).
-        // (메뉴바 좌측의 볼드 앱 이름은 프로세스명/CFBundleName에서 오므로 여기서 못 바꾼다.)
         let appMenu = NSMenu(title: AppInfo.name)
         appMenu.addItem(withTitle: "\(AppInfo.name) 가리기", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(.separator())

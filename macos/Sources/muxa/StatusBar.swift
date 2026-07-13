@@ -13,6 +13,7 @@ struct StatusBar: View {
 
     @State private var branch: String?
     @State private var showUsage = false
+    @State private var usageHovered = false
     /// 리셋 카운트다운("3h 38m")이 굳지 않도록 1분마다 흐르는 현재 시각.
     @State private var now = Date()
 
@@ -72,8 +73,12 @@ struct StatusBar: View {
         }
     }
 
-    /// claude 사용량 — 한도별 "5h ▬▬ 9% 3h 38m". 통째로 버튼이라 클릭하면 상세 팝오버가 열린다.
-    /// 실패해도 조용히("—") 표시만 바꾼다.
+    /// claude 사용량 — [✳ | 5h ▬▬ 9% | wk ▬▬ 54% | 3h 38m]. 클릭하면 상세 팝오버가 열린다.
+    ///
+    /// **하나의 칩(알약)으로 묶는다.** 로고·막대·숫자·시계가 맨바닥에 흩어져 있으면 (1) 어디까지가
+    /// 한 덩어리인지 안 읽히고 (2) 누를 수 있는 것처럼 보이지 않는다. 칩 배경 + hover/열림 상태로
+    /// "여기가 버튼"임을 드러낸다(상단바 토글 버튼과 같은 규칙 — 배경·반경을 공유한다).
+    /// 항목 사이는 여백이 아니라 얇은 세로선으로 가른다 — 여백만으로는 "5h 9%"와 "wk 54%"가 붙어 읽힌다.
     @ViewBuilder
     private var usageView: some View {
         Button { showUsage.toggle() } label: {
@@ -85,35 +90,50 @@ struct StatusBar: View {
                         .foregroundStyle(Color.pMuted.opacity(0.7))
                 } else {
                     ForEach(shown) { limit in
+                        VDivider(height: 12)
                         limitView(limit)
                     }
                     if let reset = sessionReset {
                         // 리셋은 세션 것 하나만 — 주간·모델 리셋까지 늘어놓으면 상태바가 숫자밭이 된다.
-                        HStack(alignment: .center, spacing: Space.xs) {
-                            Image(systemName: "clock").font(.muxa(.label))
-                            Text(reset).font(.muxaMono(.label))
+                        VDivider(height: 12)
+                        HStack(alignment: .center, spacing: Space.tight) {
+                            // 시계 아이콘이 없으면 "3h 38m"이 또 하나의 사용량 수치처럼 읽힌다 — 남은 시간임을 표시.
+                            Image(systemName: "clock").font(.muxa(.micro))
+                            Text(reset).font(.muxaMono(.caption))
                         }
                         .foregroundStyle(Color.pMuted)
                         .help("5시간 세션 한도가 리셋되기까지")
                     }
                     if usage.failed {
                         // 값은 있지만 마지막 갱신이 실패 — 지금 보이는 건 이전 조회 결과다.
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.muxa(.label))
-                            .foregroundStyle(Color(nsColor: Palette.gitModified))
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.muxa(.micro))
+                            .foregroundStyle(UsageColor.stale)
+                            .help("갱신 실패 — 이전 값입니다")
                     }
                 }
                 if usage.loading {
                     ProgressView().controlSize(.small).scaleEffect(0.5).frame(width: 12, height: 12)
                 }
             }
-            .contentShape(Rectangle())
+            .padding(.horizontal, Space.sm)
+            .frame(height: RowHeight.tight)
+            .background(usageChipColor, in: RoundedRectangle(cornerRadius: Radius.md))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.md))
         }
         .buttonStyle(.plain)
+        .onHover { usageHovered = $0 }
+        .animation(Motion.fast, value: usageHovered)
         .help("claude 사용량 — 클릭해 상세 보기(모델별 한도 포함)")
         .popover(isPresented: $showUsage, arrowEdge: .top) {
             UsagePopover()
         }
+    }
+
+    /// 칩 배경 — 팝오버가 열려 있으면 계속 눌린 상태로 둔다(어디서 나온 창인지 보이게).
+    private var usageChipColor: Color {
+        if showUsage { return Color.pBtnActive }
+        return usageHovered ? Color.pBtnHover : Color.pBtnHover.opacity(0.5)
     }
 
     /// 상태바에 띄울 한도 — 모델 전용(Fable 등)은 뺀다. 상세는 팝오버에서 본다.
@@ -136,16 +156,21 @@ struct StatusBar: View {
     }
 
     /// 한도 하나 — [라벨][막대][%]. 리셋 시각은 세션 것만 따로 한 번 띄운다(위).
+    ///
+    /// 읽는 순서를 만든다: **숫자가 주인공**(굵은 고정폭 + 상태색), 라벨은 그 숫자가 무엇인지 알려주는
+    /// 보조라 한 단 작고 흐리게. 셋이 같은 크기·굵기면 눈이 어디부터 봐야 할지 정하지 못한다.
     private func limitView(_ limit: UsageLimit) -> some View {
         HStack(alignment: .center, spacing: Space.xs) {
             Text(limit.label)
-                .font(.muxa(.label))
+                .font(.muxa(.caption))
                 .foregroundStyle(Color.pMuted)
-            Meter(value: Double(limit.percent) / 100, color: UsageColor.meter(limit), width: 26, height: 5)
+            Meter(value: Double(limit.percent) / 100, color: UsageColor.meter(limit), width: 28, height: 4)
             Text("\(limit.percent)%")
                 .font(.muxaMono(.label, weight: .semibold))
                 .foregroundStyle(UsageColor.text(limit))
-                .frame(width: 32, alignment: .trailing) // 자릿수가 늘어도 뒤가 안 밀리게
+                // 폭은 고정해 자릿수가 늘어도 뒤가 안 밀리게 하되, **왼쪽 정렬**로 막대에 붙인다.
+                // 오른쪽 정렬이면 "9%"처럼 짧을 때 막대와 숫자 사이가 벌어져 둘이 남남처럼 보인다.
+                .frame(width: 30, alignment: .leading)
         }
         .help(detail(limit))
     }

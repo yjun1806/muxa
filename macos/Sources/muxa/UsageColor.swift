@@ -15,4 +15,7 @@ enum UsageColor {
 
     /// 숫자 — 평시엔 읽기 쉬운 전경색, 경고일 때만 물든다(평소에 시끄럽지 않게).
     static func text(_ limit: UsageLimit) -> Color { warn(limit) ?? Color.pFg }
+
+    /// 값은 있는데 마지막 갱신이 실패했을 때(= 지금 보이는 건 예전 값) 쓰는 색.
+    static let stale = Color(nsColor: Palette.gitModified)
 }
