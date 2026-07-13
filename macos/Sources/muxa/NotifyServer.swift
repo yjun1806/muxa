@@ -60,10 +60,15 @@ final class NotifyServer {
 
     /// sockaddr_un.sun_path 용량(macOS).
     private static let sunPathCapacity = 104
-    /// 한 연결에서 받아들일 최대 바이트(악의/폭주 방지).
-    private static let maxMessageBytes = 64 * 1024
+    /// 한 연결에서 받아들일 최대 바이트(악의/폭주 방지). PostToolUse payload(tool_response 포함)가
+    /// 커질 수 있어 넉넉히 둔다 — 넘으면 자르지 않고 폐기한다.
+    private static let maxMessageBytes = 1024 * 1024
+    /// 연결 하나의 읽기 상한(초) — 죽은 클라이언트가 리스너 자원을 붙잡지 못하게.
+    private static let readTimeoutSeconds = 2
 
     private let queue = DispatchQueue(label: "com.muxa.notify-server")
+    /// 연결 읽기 전용 동시 큐 — accept 루프와 분리해 느린 연결이 배달을 막지 않게 한다.
+    private let readQueue = DispatchQueue(label: "com.muxa.notify-read", attributes: .concurrent)
     private var listenFD: Int32 = -1
     private var source: DispatchSourceRead?
 
@@ -134,21 +139,33 @@ final class NotifyServer {
     private func acceptConnection() {
         let client = accept(listenFD, nil, nil)
         guard client >= 0 else { return }
-        handleConnection(client)
+        // 연결을 읽는 동안 accept 큐를 막지 않는다 — 직렬 큐에서 블로킹 read를 돌면 연결 하나만
+        // 붙잡고 안 닫아도(`nc -U`) 모든 탭의 훅 배달이 영구 정지한다.
+        readQueue.async { [weak self] in self?.handleConnection(client) }
     }
 
     /// 연결 하나에서 EOF까지 읽어 줄 단위로 파싱한다. CLI는 한 줄 쓰고 닫으므로 짧다.
     private func handleConnection(_ clientFD: Int32) {
         defer { close(clientFD) }
+        // 죽은/느린 클라이언트가 이 연결을 영원히 잡고 있지 못하게 상한을 건다.
+        var timeout = timeval(tv_sec: Self.readTimeoutSeconds, tv_usec: 0)
+        _ = setsockopt(clientFD, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+
         var data = Data()
         var buf = [UInt8](repeating: 0, count: 4096)
         while true {
             let n = read(clientFD, &buf, buf.count)
             if n <= 0 { break }
             data.append(contentsOf: buf[0..<n])
-            if data.count > Self.maxMessageBytes { break }
+            // 상한을 넘으면 **잘라서 쓰지 않고 통째로 버린다** — 반쪽 JSON은 필드가 사라진 payload가 되어
+            // "배경 작업 없음"으로 오독되고, 그게 곧 가짜 완료 알림이다. 없는 게 틀린 것보다 낫다.
+            if data.count > Self.maxMessageBytes {
+                NSLog("muxa NotifyServer: 메시지가 상한(\(Self.maxMessageBytes)B)을 넘어 폐기")
+                return
+            }
         }
-        guard let text = String(data: data, encoding: .utf8) else { return }
+        // 손실 허용 디코딩 — UTF-8 경계에서 잘려도 nil로 프레임 전체를 잃지 않는다(그러면 Stop이 증발한다).
+        let text = String(decoding: data, as: UTF8.self)
         // 훅 프레임(첫 줄이 hook 헤더)은 나머지 전체가 원본 JSON이라 줄 분해를 하면 안 된다.
         if let hook = Self.parseHook(text) {
             let callback = onHook

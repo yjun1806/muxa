@@ -26,7 +26,7 @@ final class ClaudeHookInterpreterTests: XCTestCase {
         XCTAssertEqual(r.outcome.category, .turnComplete)
         XCTAssertEqual(r.outcome.body, "다 고쳤다")
         XCTAssertTrue(r.outcome.clearsDetail)
-        XCTAssertFalse(r.state.deferredDone)
+        XCTAssertNil(r.state.deferred)
     }
 
     /// 배경 작업이 도는 동안의 Stop은 완료가 아니다 — 알림도 없다.
@@ -35,8 +35,28 @@ final class ClaudeHookInterpreterTests: XCTestCase {
         let r = interpret(.stop, json)
         XCTAssertEqual(r.outcome.state, .working)
         XCTAssertNil(r.outcome.category, "배경 작업 중엔 완료 알림이 나가면 안 된다")
-        XCTAssertTrue(r.state.deferredDone)
+        XCTAssertNotNil(r.state.deferred)
+        XCTAssertTrue(r.outcome.deferredDone, "경계가 만료 타이머를 걸 수 있어야 한다")
         XCTAssertTrue(r.state.pendingBackgroundWork)
+    }
+
+    /// **보류는 반드시 언젠가 풀려야 한다.** 배경 작업이 끝났다고 Stop이 다시 오지는 않는다 —
+    /// 만료 백스톱이 없으면 완료 알림이 영구 소실된다(무음은 오탐보다 나쁘다).
+    func testDeferredDoneEventuallyExpiresIntoDone() {
+        let stopped = interpret(.stop, #"{"background_tasks":[{"status":"running"}],"last_assistant_message":"끝났다"}"#)
+        guard let expired = ClaudeHookInterpreter.expireDeferred(state: stopped.state) else {
+            return XCTFail("보류가 만료되지 않는다 — 완료 알림이 영영 안 나간다")
+        }
+        XCTAssertEqual(expired.outcome.state, .done)
+        XCTAssertEqual(expired.outcome.category, .turnComplete)
+        XCTAssertEqual(expired.outcome.body, "끝났다", "리드가 Stop할 때의 본문이 보존돼야 한다")
+        XCTAssertNil(expired.state.deferred)
+        XCTAssertFalse(expired.state.pendingBackgroundWork, "만료 후엔 로스터도 비워야 다음 Stop이 또 걸리지 않는다")
+    }
+
+    /// 보류가 없으면 만료는 무동작이다(가짜 완료를 만들지 않는다).
+    func testExpireWithoutDeferredIsNoop() {
+        XCTAssertNil(ClaudeHookInterpreter.expireDeferred(state: HookSessionState()))
     }
 
     func testStopWithFinishedBackgroundTaskIsDone() {
@@ -45,10 +65,12 @@ final class ClaudeHookInterpreterTests: XCTestCase {
         XCTAssertFalse(r.state.pendingBackgroundWork)
     }
 
-    func testStopWithSessionCronIsNotDone() {
+    /// 등록된 cron은 "지금 도는 작업"이 아니다. 이걸 pending으로 치면 cron을 하나라도 걸어둔 사용자는
+    /// 매 턴 완료가 보류되고, cron 종료를 알리는 훅이 없으니 완료 알림이 세션 내내 0건이 된다.
+    func testSessionCronIsNotTreatedAsPendingWork() {
         let r = interpret(.stop, #"{"session_crons": [{"id": "x"}]}"#)
-        XCTAssertNil(r.outcome.category)
-        XCTAssertTrue(r.state.pendingBackgroundWork)
+        XCTAssertEqual(r.outcome.state, .done, "cron 등록만으로 완료가 막히면 안 된다")
+        XCTAssertFalse(r.state.pendingBackgroundWork)
     }
 
     /// 리드가 Stop해도 서브에이전트가 살아있으면 완료가 아니고, 마지막 하나가 끝날 때 완료가 된다.
@@ -58,19 +80,23 @@ final class ClaudeHookInterpreterTests: XCTestCase {
         state = interpret(.subagentStart, state: state).state
         XCTAssertEqual(state.liveSubagents, 2)
 
-        let stopped = interpret(.stop, state: state)
+        let stopped = interpret(.stop, #"{"last_assistant_message": "리드가 한 말"}"#, state: state)
         XCTAssertNil(stopped.outcome.category, "서브에이전트가 도는데 완료 알림이 나갔다")
-        XCTAssertTrue(stopped.state.deferredDone)
+        XCTAssertNotNil(stopped.state.deferred)
         state = stopped.state
 
         let first = interpret(.subagentStop, state: state)
         XCTAssertNil(first.outcome.category, "아직 하나 남았다")
         state = first.state
 
-        let last = interpret(.subagentStop, #"{"last_assistant_message": "끝"}"#, state: state)
+        // 보류가 풀리는 순간의 payload는 **서브에이전트의 것**이다. 그걸 쓰면 알림 본문이 서브에이전트의
+        // 마지막 말이 되고, 서브에이전트의 중단 여부가 리드의 완료 라벨을 덮어쓴다.
+        let last = interpret(.subagentStop, #"{"last_assistant_message": "서브가 한 말", "is_interrupt": true}"#,
+                             state: state)
         XCTAssertEqual(last.outcome.state, .done, "마지막 서브에이전트가 끝나면 그때가 완료다")
-        XCTAssertEqual(last.outcome.category, .turnComplete)
-        XCTAssertFalse(last.state.deferredDone)
+        XCTAssertEqual(last.outcome.body, "리드가 한 말", "서브에이전트의 말이 리드의 완료 본문을 덮었다")
+        XCTAssertEqual(last.outcome.title, "완료", "서브에이전트의 중단이 리드의 완료 라벨을 덮었다")
+        XCTAssertNil(last.state.deferred)
     }
 
     /// 보류가 없었으면 서브에이전트 종료가 완료 알림을 만들지 않는다.
@@ -134,7 +160,7 @@ final class ClaudeHookInterpreterTests: XCTestCase {
     }
 
     func testOtherToolsAreWorkingWithDetail() {
-        let r = interpret(.postToolUse, #"{"tool_name": "Edit", "tool_input": {"file_path": "/a/b/TermView.swift"}}"#)
+        let r = interpret(.preToolUse, #"{"tool_name": "Edit", "tool_input": {"file_path": "/a/b/TermView.swift"}}"#)
         XCTAssertEqual(r.outcome.state, .working)
         XCTAssertNil(r.outcome.category, "도구 진행은 알림이 아니다")
         XCTAssertEqual(r.outcome.detail, "편집 중: TermView.swift")
@@ -143,7 +169,8 @@ final class ClaudeHookInterpreterTests: XCTestCase {
     // MARK: 세션 경계
 
     func testUserPromptSubmitResetsStaleState() {
-        let stale = HookSessionState(pendingBackgroundWork: true, liveSubagents: 3, deferredDone: true)
+        let stale = HookSessionState(pendingBackgroundWork: true, liveSubagents: 3,
+                                     deferred: DeferredDone(title: "완료", body: "옛 턴", transcriptPath: nil))
         let r = interpret(.userPromptSubmit, state: stale)
         XCTAssertEqual(r.state, HookSessionState(), "새 턴은 이전 턴 잔여를 전부 지운다")
         XCTAssertEqual(r.outcome.state, .working)

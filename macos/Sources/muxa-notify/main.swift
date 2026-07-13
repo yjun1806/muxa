@@ -34,6 +34,8 @@ let sunPathCapacity = 104
 
 /// connect 대기 상한(ms). 앱 미실행·소켓 지연이어도 에이전트 흐름을 막지 않게 짧게 끊는다.
 let connectTimeoutMillis: Int32 = 200
+/// 전송 상한(초). 앱이 느려도 훅이 에이전트를 오래 막지 않게 한다.
+let writeTimeoutSeconds = 2
 
 /// 훅으로 쓰이므로 어떤 실패도 에이전트 흐름을 막지 않는다 — 진단은 stderr 한 줄, 종료코드는 항상 0.
 /// (에이전트 stdout 오염 금지. exit 0 = fire-and-forget.)
@@ -146,7 +148,27 @@ if rc != 0 {
     guard got == 0, soErr == 0 else { bail("connect 실패 errno=\(soErr) — muxa가 실행 중인지 확인") }
 }
 
-// fire-and-forget: 한 줄 쓰고 종료. 쓰기 실패해도 exit 0.
+// connect가 끝났으니 블로킹으로 되돌린다 — 논블로킹인 채로 쓰면 커널 송신 버퍼(macOS 기본 8KB)를
+// 넘는 순간 부분 전송되고 나머지가 조용히 사라진다. PostToolUse payload는 tool_response를 포함해
+// 8KB를 우습게 넘으므로, 이 한 줄이 없으면 프레임이 잘려 앱에서 JSON 파싱이 실패한다.
+if flags >= 0 { _ = fcntl(fd, F_SETFL, flags) }
+// 앱이 먼저 소켓을 닫으면 write가 SIGPIPE를 쏘고 프로세스가 즉사한다 — exit 0 보장이 깨져
+// Claude가 "hook error"를 띄운다. 시그널 대신 EPIPE로 받게 한다(fire-and-forget 유지).
+var noSigPipe: Int32 = 1
+_ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+// 앱이 느리면(연결 폭주 등) 여기서 무한정 막힐 수 있다 — 훅은 에이전트 흐름을 막지 않아야 하므로 상한을 건다.
+var sendTimeout = timeval(tv_sec: writeTimeoutSeconds, tv_usec: 0)
+_ = setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &sendTimeout, socklen_t(MemoryLayout<timeval>.size))
+
+// fire-and-forget: 전량 쓰고 종료. 부분 쓰기를 오프셋으로 밀어가며 끝까지 보낸다(쓰기 실패해도 exit 0).
 let payload = Array(line.utf8)
-_ = payload.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
+payload.withUnsafeBytes { buffer in
+    var sent = 0
+    while sent < buffer.count {
+        let n = write(fd, buffer.baseAddress!.advanced(by: sent), buffer.count - sent)
+        if n > 0 { sent += n; continue }
+        if n < 0 && errno == EINTR { continue } // 시그널로 끊겼을 뿐 — 재시도
+        break // EPIPE·타임아웃 등: 조용히 포기한다(에이전트를 막지 않는 게 우선)
+    }
+}
 exit(0)

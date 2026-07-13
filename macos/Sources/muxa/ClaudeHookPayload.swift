@@ -25,8 +25,8 @@ struct ClaudeHookPayload: Equatable {
     let message: String?
     /// 사용자가 ESC로 끊었는가(Stop) — "완료"와 "중단"을 가른다.
     let isInterrupt: Bool
-    /// 백그라운드 작업이 아직 도는가 — 턴이 끝나도 done이 아니다(cmux `pending`).
-    /// `background_tasks[].status == "running"` 또는 `session_crons`가 비어있지 않으면 true.
+    /// 백그라운드 작업이 **지금 돌고 있는가** — 턴이 끝나도 done이 아니다(cmux `pending`).
+    /// 근거는 `background_tasks[].status == "running"` 하나다.
     let hasPendingBackgroundWork: Bool
 
     /// 필드가 하나도 없는 payload — JSON이 비었거나 깨졌을 때의 폴백.
@@ -56,12 +56,13 @@ struct ClaudeHookPayload: Equatable {
 
     /// 배경 작업 판정 — 스키마가 사라지면 **false로 폴백**한다(pending을 못 읽었다고 완료 알림을
     /// 영구히 막으면 알림이 통째로 죽는다. 오탐 한 번이 무음보다 낫다).
+    ///
+    /// **`session_crons`는 근거로 쓰지 않는다.** cmux는 그것도 보지만, 그건 "등록된 cron"이지
+    /// "지금 도는 작업"이 아니다. cron을 하나라도 걸어둔 사용자는 **매 턴 완료가 보류**되고,
+    /// cron 종료를 알리는 훅이 없으니 그 보류는 풀리지 않는다 — 세션 내내 완료 알림이 0건이 된다.
     private static func pendingBackgroundWork(_ root: [String: Any]) -> Bool {
-        if let crons = root["session_crons"] as? [Any], !crons.isEmpty { return true }
-        if let tasks = root["background_tasks"] as? [[String: Any]] {
-            return tasks.contains { ($0["status"] as? String) == "running" }
-        }
-        return false
+        guard let tasks = root["background_tasks"] as? [[String: Any]] else { return false }
+        return tasks.contains { ($0["status"] as? String) == "running" }
     }
 
     /// 도구 입력에서 문자열 값만 걷어낸다(중첩 객체·배열은 버린다 — 표시에 안 쓴다).
@@ -80,11 +81,16 @@ struct ClaudeHookPayload: Equatable {
 
 /// muxa가 구독하는 Claude Code 훅 이벤트 — 와이어에 실리는 이름은 Claude 쪽 이벤트명 그대로다.
 /// 모르는 이벤트는 파싱 단계에서 nil이 되어 조용히 버려진다(스키마가 늘어도 안 깨진다).
+/// 훅은 **전역** `~/.claude/settings.json`에 등록된다 — muxa 밖의 모든 claude 세션에서도 매번 프로세스가
+/// 스폰된다. 그래서 꼭 필요한 이벤트만 구독한다.
+///
+/// `PostToolUse`는 일부러 뺐다. 진행 표시(무슨 도구를 쓰는가)는 `PreToolUse`만으로 충분하고 — 오히려
+/// 도구가 **시작될 때** 떠야 맞다 — 둘 다 구독하면 도구 호출당 프로세스가 두 번 뜬다. 게다가
+/// PostToolUse payload에는 `tool_response`(도구 출력 전문)가 실려 소켓 송신 버퍼를 훌쩍 넘긴다.
 enum ClaudeHookEvent: String, Equatable, CaseIterable {
     case sessionStart = "SessionStart"
     case userPromptSubmit = "UserPromptSubmit"
     case preToolUse = "PreToolUse"
-    case postToolUse = "PostToolUse"
     case notification = "Notification"
     case stop = "Stop"
     case subagentStart = "SubagentStart"

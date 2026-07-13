@@ -445,6 +445,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 훅 신호를 한 번이라도 받은 탭 — 이 탭의 raw OSC 9/777 알림은 버린다(이중 발화 방지).
     /// Claude는 자체 OSC 알림도 쏘기 때문에, 훅 알림과 겹치면 같은 사건으로 두 번 울린다.
     @ObservationIgnored private var hookedTabs: Set<TabID> = []
+    /// 보류 만료 타이머의 세대값 — 새 보류가 걸리면 이전 타이머를 무효화한다(중복 완료 방지).
+    @ObservationIgnored private var deferredSeq: [TabID: Int] = [:]
 
     /// 훅 원본 payload를 해석해 이 스토어가 소유한 탭에 반영한다. 소유하면 true(라우팅 종료).
     ///
@@ -460,32 +462,59 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         )
         hookSessions[tabId] = next
 
+        apply(outcome, to: tabId)
+        return true
+    }
+
+    /// 해석 결과(순수)를 부작용으로 옮긴다 — 훅 배달과 보류 만료가 공유하는 단일 경로.
+    private func apply(_ outcome: HookOutcome, to tabId: TabID) {
         if let resume = outcome.resume { setResumeBinding(resume, for: tabId) }
         updateAgentDetail(tabId, outcome: outcome)
 
         if let state = outcome.state {
             // 훅은 ground truth — 추정기에 고정(pin)해 노이즈 RENDER가 상태를 되돌리지 못하게 한다.
+            //
+            // **배지는 건드리지 않는다.** working은 도구 호출마다 오는 기계 이벤트지 "사용자가 봤다"가
+            // 아니다. 여기서 clearTabBadge를 부르면 (1) 사용자가 못 본 완료 배지를 배경 작업이 지워버리고
+            // (2) 알림 병합 이력까지 리셋돼 폭주 방지가 무력화된다. 배지는 사용자가 탭을 볼 때만 지운다.
             applyAgentSignal(.explicit(state), to: tabId)
-            if state == .working { clearTabBadge(tabId) } // 작업 재개 = 주의 해소
         }
-        guard let category = outcome.category else { return true } // 상태만 갱신(알림 없음)
+        if outcome.deferredDone { scheduleDeferredExpiry(for: tabId) }
+        guard let category = outcome.category else { return } // 상태만 갱신(알림 없음)
 
         // 본문이 비면 transcript 꼬리에서 "Claude가 마지막으로 한 말"을 길어 온다.
-        // 파일 IO + flush 레이스 재시도(sleep)가 있어 반드시 백그라운드에서 읽는다.
+        // 파일 IO + flush 레이스 재시도가 있어 반드시 백그라운드에서 읽는다.
         guard let path = outcome.transcriptPath else {
             fireNotification(tabId, title: outcome.title, body: outcome.body, category: category, kind: .notify)
-            return true
+            return
         }
         Task.detached(priority: .utility) { [weak self] in
-            let message = TranscriptTail.lastAssistantMessage(atPath: path).map(ClaudeHookInterpreter.clamp)
+            let message = await TranscriptTail.lastAssistantMessage(atPath: path).map(ClaudeHookInterpreter.clamp)
             await MainActor.run {
-                guard let self else { return }
+                // 읽는 사이 탭이 닫혔을 수 있다 — 재확인하지 않으면 didCloseTab이 청소한 맵에
+                // 배지·인박스 항목을 다시 심는다(죽은 탭의 알림 = 클릭해도 무동작).
+                guard let self, self.terms[tabId] != nil else { return }
                 self.fireNotification(tabId, title: outcome.title,
                                       body: message ?? Self.turnCompleteFallbackBody,
                                       category: category, kind: .notify)
             }
         }
-        return true
+    }
+
+    /// 보류된 완료의 만료 타이머 — 푸는 신호(SubagentStop·새 프롬프트)가 안 오면 강제로 완료를 낸다.
+    /// 세대값으로 최신 보류만 유효하게 한다(새 Stop이 오면 이전 타이머는 무효).
+    private func scheduleDeferredExpiry(for tabId: TabID) {
+        let generation = (deferredSeq[tabId] ?? 0) + 1
+        deferredSeq[tabId] = generation
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(ClaudeHookInterpreter.deferredTimeout * 1_000_000_000))
+            guard let self, self.deferredSeq[tabId] == generation, self.terms[tabId] != nil,
+                  let state = self.hookSessions[tabId],
+                  let resolved = ClaudeHookInterpreter.expireDeferred(state: state) else { return }
+            self.hookSessions[tabId] = resolved.state
+            self.deferredSeq[tabId] = nil
+            self.apply(resolved.outcome, to: tabId)
+        }
     }
 
     /// 진행 표시 갱신 — "지우기"(턴 종료)와 "변화 없음"(알림성 이벤트)을 구분해야 표시가 안 얼어붙는다.
