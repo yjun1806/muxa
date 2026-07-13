@@ -329,8 +329,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                     await TmuxService.kill(session: session)
                     return
                 }
-                // 표시용 이름 — 셸이 아닌 첫 프로세스가 "무엇을 되찾는지"다.
-                let label = foreground.first { !$0.hasSuffix("zsh") && !$0.hasSuffix("bash") } ?? "작업"
+                // 표시용 이름 — 셸이 아닌 첫 프로세스가 "무엇을 되찾는지"다(래퍼 셸에 속지 않는다).
+                let label = TerminalSession.workLabel(foreground: foreground) ?? "작업"
                 await MainActor.run {
                     self?.onDetachSession?(DetachedSession(session: session, command: label, cwd: cwd))
                 }

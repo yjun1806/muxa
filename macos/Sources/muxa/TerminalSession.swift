@@ -84,11 +84,26 @@ enum TerminalSession {
         foreground.contains { !isShell($0) }
     }
 
-    private static func isShell(_ raw: String) -> Bool {
+    /// 되찾을 작업의 이름 — **셸이 아닌 첫 프로세스**. 목록에서 "무엇을 되찾는지"를 말해준다.
+    ///
+    /// 셸 판정을 재사용해야 한다. 단순히 "zsh로 끝나지 않는 것"을 고르면 래퍼(`zsh (kiro-cli-term)`)가
+    /// 먼저 잡혀 **정작 돌고 있는 빌드 대신 셸 이름이 뜬다**(실측).
+    static func workLabel(foreground: [String]) -> String? {
+        guard let raw = foreground.first(where: { !isShell($0) }) else { return nil }
+        return normalized(raw)
+    }
+
+    /// `/usr/bin/sleep` → `sleep`, `-zsh` → `zsh`, `zsh (wrapper)` → `zsh`
+    private static func normalized(_ raw: String) -> String {
         var name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if name.hasPrefix("-") { name.removeFirst() } // 로그인 셸(-zsh)
-        name = (name as NSString).lastPathComponent // /bin/zsh → zsh
-        if let paren = name.firstIndex(of: " ") { name = String(name[..<paren]) } // "zsh (wrapper)"
+        if name.hasPrefix("-") { name.removeFirst() }
+        name = (name as NSString).lastPathComponent
+        if let space = name.firstIndex(of: " ") { name = String(name[..<space]) }
+        return name
+    }
+
+    private static func isShell(_ raw: String) -> Bool {
+        let name = normalized(raw)
         return name.isEmpty || shellNames.contains(name)
     }
 

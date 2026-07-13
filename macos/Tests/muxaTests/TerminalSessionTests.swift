@@ -182,4 +182,19 @@ struct TerminalSessionTests {
         #expect(!TerminalSession.shouldDetach(foreground: []))
         #expect(!TerminalSession.shouldDetach(foreground: ["", "  "]))
     }
+
+    // MARK: 목록에 뜰 이름 — "무엇을 되찾는지"
+
+    /// **래퍼 셸이 아니라 진짜 작업 이름이 떠야 한다.** "zsh로 끝나지 않는 것"으로 고르면
+    /// `zsh (kiro-cli-term)`이 먼저 잡혀 정작 돌고 있는 빌드 대신 셸 이름이 뜬다(실측으로 걸렸다).
+    @Test func 목록에는_진짜_작업이_뜬다() {
+        #expect(TerminalSession.workLabel(foreground: ["zsh (kiro-cli-term)", "/bin/zsh", "sleep"]) == "sleep")
+        #expect(TerminalSession.workLabel(foreground: ["zsh", "/usr/local/bin/pnpm"]) == "pnpm")
+        #expect(TerminalSession.workLabel(foreground: ["-zsh", "claude"]) == "claude")
+    }
+
+    @Test func 셸뿐이면_이름이_없다() {
+        #expect(TerminalSession.workLabel(foreground: ["zsh (kiro-cli-term)", "/bin/zsh"]) == nil)
+        #expect(TerminalSession.workLabel(foreground: []) == nil)
+    }
 }
