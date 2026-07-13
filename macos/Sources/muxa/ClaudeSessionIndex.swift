@@ -44,6 +44,15 @@ enum ClaudeSessionIndex {
         return id
     }
 
+    /// cwd의 최신 세션 transcript(JSONL) 경로. 백그라운드 claude 세션의 미리보기를
+    /// **화면이 아니라 대화 기록**에서 뽑는 데 쓴다 — claude는 TUI라 화면 마지막 줄은 입력 상자(HUD)뿐이다.
+    static func latestTranscriptPath(forCwd cwd: String, projectsRoot: URL = defaultProjectsRoot) -> String? {
+        guard let id = latestSessionId(forCwd: cwd, projectsRoot: projectsRoot) else { return nil }
+        return projectsRoot
+            .appendingPathComponent(encodeProjectDir(cwd), isDirectory: true)
+            .appendingPathComponent("\(id).jsonl").path
+    }
+
     /// cwd에 Claude 세션이 있으면 **추측** 재개 바인딩(.scan)을 만든다. 없으면 nil.
     /// 훅 바인딩이 없을 때의 폴백이다 — 배너로 사용자 확인을 받은 뒤에만 실행된다.
     static func resumeBinding(forCwd cwd: String, projectsRoot: URL = defaultProjectsRoot) -> ResumeBinding? {

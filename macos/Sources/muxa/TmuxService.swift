@@ -211,15 +211,12 @@ enum TmuxService {
     /// 그 세션의 마지막 화면 몇 줄 — **"어느 세션이었지"를 열기 전에 알려준다**.
     /// 명령 이름("claude")만으로는 여러 탭에서 같은 걸 돌렸을 때 구별이 안 된다. tmux가 화면을
     /// 통째로 갖고 있으므로 그걸 읽어 미리보기로 쓴다(저장하지 않는다 — 열 때마다 최신을 읽는다).
-    static func tail(session: String, lines: Int = 6) async -> String {
-        let out = await run(["capture-pane", "-p", "-t", "=\(session):", "-S", "-\(lines)"])
+    static func tail(session: String, cwd: String? = nil, lines: Int = 3) async -> String {
+        // **넉넉히 뜬 뒤 걸러낸다.** 딱 3줄만 뜨면 화면 맨 아래(= TUI 테두리·프롬프트)만 잡혀서
+        // 알맹이가 한 줄도 안 남는다. 간추리기는 `ScreenPreview`(순수 함수)가 한다.
+        let out = await run(["capture-pane", "-p", "-t", "=\(session):", "-S", "-60"])
         guard out.exitCode == 0 else { return "" }
-        // 빈 줄을 걷어내고 마지막 몇 줄만 — 화면 하단이 "지금 무슨 일이 벌어지는지"다.
-        let kept = out.stdout
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        return kept.suffix(lines).joined(separator: "\n")
+        return ScreenPreview.summarize(out.stdout, cwd: cwd, home: SystemPaths.home, limit: lines)
     }
 
     /// 그 세션 pane의 TTY에서 **포그라운드로 도는 프로세스 이름들**. 탭을 닫을 때 "안에서 뭐가

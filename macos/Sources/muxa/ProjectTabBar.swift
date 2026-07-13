@@ -69,7 +69,7 @@ struct ProjectTabBar: View {
         }
         // 우클릭 → 프로젝트 메뉴(이름·터미널·경로·닫기). 좌클릭 전환은 그대로.
         .onRightClick { point in
-            MuxaMenuWindow.shared.show(
+            MuxaMenuWindow.show(
                 ProjectMenu.items(for: project, in: workspace, state: state), at: point)
         }
         .animation(Motion.fast, value: hovered)

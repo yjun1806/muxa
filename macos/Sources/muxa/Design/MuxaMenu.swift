@@ -47,12 +47,8 @@ struct MuxaMenuView: View {
         }
         .padding(.vertical, Space.sm)
         .frame(width: Self.width)
-        .background(Color.pPanel)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
-        .overlay(RoundedRectangle(cornerRadius: Radius.lg).stroke(Color.pBorder, lineWidth: 1))
-        .shadow(color: .black.opacity(0.28), radius: 16, y: 6)
-        // 그림자가 잘리지 않게 창 안쪽에 여백을 둔다(패널은 이 여백만큼 크게 잡힌다).
-        .padding(Space.lg)
+        // 표면(배경·모서리·테두리·그림자·바깥 여백)은 `floatingPanel()`이 — 푸터 팝오버와 같은 것을 쓴다.
+        // 여기서 직접 그리지 않는다(그러면 둘이 갈라진다).
     }
 
     private func row(_ item: MuxaMenuItem) -> some View {

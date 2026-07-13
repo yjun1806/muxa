@@ -30,7 +30,7 @@ struct DetachedPopover: View {
         }
         .task(id: sessions.map(\.session).joined()) {
             for session in sessions where previews[session.session] == nil {
-                previews[session.session] = await TmuxService.tail(session: session.session)
+                previews[session.session] = await TmuxService.tail(session: session.session, cwd: session.cwd)
             }
         }
     }

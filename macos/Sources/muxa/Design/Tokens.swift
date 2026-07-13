@@ -66,6 +66,24 @@ enum PopoverWidth {
     static let footer: CGFloat = 300
 }
 
+/// 떠 있는 판(커스텀 메뉴·푸터 팝오버)의 고도(elevation) — 그림자와 그 그림자가 살 자리.
+/// **메뉴와 팝오버가 같은 값을 쓴다** — 같은 푸터에서 열리는 판들이 제각각으로 보이면 안 된다.
+enum Elevation {
+    /// 키 그림자 — 넓고 옅게, 아래로. "떠 있다"를 만든다.
+    static let keyOpacity: Double = 0.22
+    static let keyRadius: CGFloat = 10
+    static let keyOffsetY: CGFloat = 4
+    /// 앰비언트 그림자 — 좁고 짙게. 판의 윤곽을 배경에서 떼어낸다.
+    static let ambientOpacity: Double = 0.10
+    static let ambientRadius: CGFloat = 2
+    static let ambientOffsetY: CGFloat = 1
+    /// 콘텐츠 바깥 여백 = 그림자가 흩어져 사라질 자리. **키 반경 + 오프셋보다 넉넉해야** 한다 —
+    /// 좁으면 그림자가 창 경계에서 직각으로 잘려 네모난 회색 테로 보인다.
+    static let margin: CGFloat = 20
+    /// 앵커(칩·버튼)와 판 사이 간격.
+    static let anchorGap: CGFloat = Space.sm
+}
+
 /// 색 위에 얹는 옅은 배경 틴트의 불투명도 — 전경색 하나만 정하면 배경이 따라오게 한다(배지 `Pill`과 같은 규칙).
 enum Tint {
     static let subtle: Double = 0.14

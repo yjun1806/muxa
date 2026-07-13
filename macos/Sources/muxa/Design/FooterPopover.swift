@@ -57,7 +57,7 @@ struct FooterPopover<Mark: View, Accessory: View, Content: View>: View {
             .padding(.vertical, Space.md)
         }
         .frame(width: PopoverWidth.footer, alignment: .leading)
-        .background(Color.pPanel)
+        // 표면(배경·모서리·테두리·그림자)은 띄우는 쪽(`floatingPanel()`)이 입힌다 — 커스텀 메뉴와 같은 것.
     }
 
     /// 제목은 무엇을 보고 있는지, 보조는 그 상태(갱신 시각·개수)를 말한다 — 위계를 크기·색으로 굳힌다.

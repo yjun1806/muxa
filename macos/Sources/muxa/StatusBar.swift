@@ -146,7 +146,7 @@ struct StatusBar: View {
                 }
             }
         }
-        .popover(isPresented: $showUsage, arrowEdge: .top) {
+        .muxaPopover(isPresented: $showUsage) {
             UsagePopover()
         }
     }

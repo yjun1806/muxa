@@ -49,7 +49,7 @@ struct BonsplitWorkspaceView: View {
                 // 칸 포커스는 TermView.rightMouseDown이 이미 옮긴다(onFocus → focusPane) — 여기선 메뉴만 띄운다.
                 term.onContextMenu = { [weak store] point in
                     guard let store else { return }
-                    MuxaMenuWindow.shared.show(
+                    MuxaMenuWindow.show(
                         TerminalPaneMenu.items(store: store, tabId: tabId, paneId: paneId), at: point)
                 }
             }

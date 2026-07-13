@@ -58,7 +58,7 @@ struct TabGroupView: View {
             let menu = SubTabMenu.items(item, dir: dir, siblings: group.items.count,
                                         onClose: { onCloseItem(item.id) },
                                         onCloseOthers: { onCloseOtherItems(item.id) })
-            MuxaMenuWindow.shared.show(menu, at: point)
+            MuxaMenuWindow.show(menu, at: point)
         }
     }
 

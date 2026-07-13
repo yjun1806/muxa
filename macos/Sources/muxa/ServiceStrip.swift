@@ -29,7 +29,7 @@ struct ServiceStrip: View {
         FooterChip(isOpen: $showPopover, help: helpText) {
             label
         }
-        .popover(isPresented: $showPopover, arrowEdge: .top) {
+        .muxaPopover(isPresented: $showPopover) {
             ServicePopover(state: state, project: project, cwd: cwd) { serviceId in
                 showPopover = false
                 state.openServiceDock(serviceId: serviceId)

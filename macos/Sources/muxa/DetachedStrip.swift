@@ -28,7 +28,7 @@ struct DetachedStrip: View {
                         .foregroundStyle(Color.pMuted)
                 }
             }
-            .popover(isPresented: $showPopover, arrowEdge: .top) {
+            .muxaPopover(isPresented: $showPopover) {
                 DetachedPopover(state: state, project: project) { showPopover = false }
             }
         }

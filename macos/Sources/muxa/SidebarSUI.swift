@@ -113,7 +113,7 @@ struct SidebarSUI: View {
         // 우클릭 → 커스텀 메뉴(이름·경로·복제·닫기). 좌클릭은 그대로 버튼(전환)으로 흐른다.
         .onRightClick { point in
             menuOpenId = ws.id
-            MuxaMenuWindow.shared.show(WorkspaceMenu.items(for: ws, state: state), at: point) {
+            MuxaMenuWindow.show(WorkspaceMenu.items(for: ws, state: state), at: point) {
                 menuOpenId = nil
             }
         }
