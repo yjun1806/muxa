@@ -28,6 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var keymap = KeymapResolver.default
     /// 설정 파일 감시자 — 저장 시 자동 재적용(재시작 불필요). 부작용은 이 경계 타입에 격리. (DESIGN 4.6)
     private var configWatcher: ConfigWatcher?
+    /// 시스템 외관(라이트↔다크) 감시 — 바뀌면 터미널 팔레트를 다시 굽는다(GhosttyRuntime.applyAppearance).
+    private var appearanceObserver: NSKeyValueObservation?
     /// ⌘Q 시트에서 이미 "종료"를 확인받았는지 — applicationShouldTerminate가 다시 묻지 않게 한다.
     private var quitConfirmed = false
 
@@ -60,6 +62,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         rebuildKeymap(config)
         // 휠 마우스로도 탭바를 좌우로 굴릴 수 있게 — 가로 전용 스크롤뷰에만 적용된다.
         wheelMonitor = WheelScrollBridge.install()
+        // 라이트↔다크가 바뀌면 터미널 팔레트를 다시 굽는다(색 폴백이 설정에 구워져 있어 재적용이 필요).
+        appearanceObserver = NSApp.observe(\.effectiveAppearance) { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.runtime?.applyAppearance() }
+        }
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1000, height: 680),

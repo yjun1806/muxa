@@ -9,20 +9,7 @@ final class GhosttyRuntime {
     private(set) var app: ghostty_app_t?
 
     init?() {
-        // 사용자 ghostty 설정(폰트·테마)이 있으면 그대로 재사용한다 (DESIGN.md D12 보너스)
-        guard let config = ghostty_config_new() else { return nil }
-        // 시스템 외관에 맞춘 배경/전경 폴백을 먼저 깐다 — 사용자 config가 theme를 지정하면 아래
-        // load_default_files가 덮는다(사용자 우선). 설정이 없으면 ghostty 기본 테마가 다크라, 라이트
-        // 시스템에서도 터미널만 다크로 어긋나므로 muxa 팔레트에 맞춰 폴백한다(Palette.bg/fg 대응).
-        // ANSI 16색 팔레트 + 배경/전경 폴백. ghostty 기본 팔레트는 다크 배경 기준이라 라이트에 얹으면
-        // 물빠져 보인다 — cmux 기본(Apple System Colors)과 동일 팔레트를 심어 색을 맞춘다.
-        // 배경/전경은 muxa 크롬(Palette.bg/fg)에 맞추고, 나머지 16색은 cmux 테마 그대로다.
-        let dark = Self.systemIsDark
-        let fallback = dark ? Self.darkPalette : Self.lightPalette
-        fallback.withCString { ghostty_config_load_string(config, $0, UInt(strlen($0)), "muxa-fallback") }
-        ghostty_config_load_default_files(config)
-        ghostty_config_load_recursive_files(config)
-        ghostty_config_finalize(config)
+        guard let config = Self.makeConfig(dark: Self.systemIsDark) else { return nil }
         defer { ghostty_config_free(config) }
 
         var runtime = ghostty_runtime_config_s()
@@ -104,6 +91,16 @@ final class GhosttyRuntime {
                 let title = action.action.set_tab_title.title.flatMap { String(cString: $0) } ?? ""
                 DispatchQueue.main.async { view.onSetTitle(title) }
                 return true
+            // 커서 모양(텍스트 위 I-beam·링크 위 손가락·resize) — 안 받으면 커서가 영원히 화살표로 남는다.
+            case GHOSTTY_ACTION_MOUSE_SHAPE:
+                let shape = action.action.mouse_shape
+                DispatchQueue.main.async { view.setMouseShape(shape) }
+                return true
+            // 타이핑 중 커서 숨김(마우스를 움직이면 다시 나타난다).
+            case GHOSTTY_ACTION_MOUSE_VISIBILITY:
+                let visible = action.action.mouse_visibility == GHOSTTY_MOUSE_VISIBLE
+                DispatchQueue.main.async { view.setMouseVisibility(visible) }
+                return true
             default:
                 return false
             }
@@ -147,6 +144,36 @@ final class GhosttyRuntime {
         self.app = app
         ghostty_app_set_focus(app, true)
         // 현재 시스템 외관을 ghostty에 알린다(theme = light:,dark: 설정 시 자동 전환에 사용).
+        ghostty_app_set_color_scheme(app, Self.systemIsDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
+    }
+
+    /// ghostty 설정 하나를 만든다 — 시작 시와 외관 전환 시가 같은 코드를 쓴다(색의 단일 출처).
+    ///
+    /// 시스템 외관에 맞춘 배경/전경 폴백을 먼저 깔고, 사용자 config(`~/.config/ghostty/config`)가
+    /// theme를 지정하면 load_default_files가 덮는다(사용자 우선). 설정이 없으면 ghostty 기본 테마가
+    /// 다크라, 라이트 시스템에서도 터미널만 다크로 어긋나므로 muxa 팔레트에 맞춰 폴백한다.
+    private static func makeConfig(dark: Bool) -> ghostty_config_t? {
+        guard let config = ghostty_config_new() else { return nil }
+        let fallback = dark ? darkPalette : lightPalette
+        fallback.withCString { ghostty_config_load_string(config, $0, UInt(strlen($0)), "muxa-fallback") }
+        ghostty_config_load_default_files(config)
+        ghostty_config_load_recursive_files(config)
+        ghostty_config_finalize(config)
+        return config
+    }
+
+    /// 시스템 외관(라이트↔다크)이 바뀌었을 때 터미널 색을 다시 맞춘다.
+    ///
+    /// `set_color_scheme`만으로는 부족하다 — 배경/전경 폴백은 **설정에 구운 값**이라 설정을 다시
+    /// 만들어 넣어야(`app_update_config`) 살아 있는 터미널의 색이 바뀐다. 사용자 ghostty config가
+    /// 색을 지정했다면 그 값이 여전히 우선한다(makeConfig의 로드 순서).
+    func applyAppearance() {
+        guard let app else { return }
+        let dark = Self.systemIsDark
+        if let config = Self.makeConfig(dark: dark) {
+            ghostty_app_update_config(app, config)
+            ghostty_config_free(config)
+        }
         ghostty_app_set_color_scheme(app, dark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
     }
 

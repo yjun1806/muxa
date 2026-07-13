@@ -47,7 +47,16 @@ struct BonsplitWorkspaceView: View {
                 }
                 SearchOverlay(term: term) // active일 때만 우상단에 뜬다
             }
-            // 칸 본문 우클릭은 터미널(ghostty)에 그대로 넘긴다 — TUI 앱의 마우스 리포팅을 뺏지 않는다.
+            // 칸 우클릭 메뉴 — TermView가 "터미널이 마우스를 캡처했는가"를 코어에 물어 이 콜백을 부를지 정한다.
+            // 캡처 중(vim·tmux 등)이면 우클릭은 그 앱으로 가고 여기 오지 않는다.
+            .onAppear {
+                term.onContextMenu = { [weak store] point in
+                    guard let store else { return }
+                    store.controller.focusPane(paneId) // 메뉴의 분할·새 탭은 포커스 칸 기준이라 먼저 옮긴다
+                    MuxaMenuWindow.shared.show(
+                        TerminalPaneMenu.items(store: store, tabId: tabId, paneId: paneId), at: point)
+                }
+            }
         case .group:
             if let state = store.group(for: tabId) {
                 TabGroupView(

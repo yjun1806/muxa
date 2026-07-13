@@ -247,6 +247,15 @@ final class TermView: NSView, NSTextInputClient {
         if force || firstValidSize { ghostty_surface_refresh(surface) }
     }
 
+    /// 라이트↔다크 전환을 서피스에 알린다 — 터미널이 OSC 색 질의에 정확히 답하고, 설정의
+    /// `theme = light:...,dark:...`가 이 값으로 갈린다. 앱 전역 팔레트 재적용은 GhosttyRuntime이 맡는다.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        guard let surface else { return }
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        ghostty_surface_set_color_scheme(surface, dark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
+    }
+
     /// 창이 속한 화면의 디스플레이 ID를 libghostty에 알린다(모니터별 색·리프레시 특성).
     private func syncDisplayID() {
         guard let surface,
@@ -324,131 +333,26 @@ final class TermView: NSView, NSTextInputClient {
         return super.resignFirstResponder()
     }
 
-    // MARK: 마우스 버튼 — ghostty_surface_mouse_button 전달
-    //
-    // 위치(mouse_pos)만 넘기고 버튼을 안 넘기면 ghostty는 "눌렸다"는 걸 모른다 —
-    // 드래그 텍스트 선택·클릭 위치 지정·마우스 리포팅을 켠 TUI 앱(vim·claude code)의 클릭이 전부 죽는다.
-    // 버튼은 항상 최신 위치 위에서 해석되므로 위치를 먼저 동기화한 뒤 보낸다.
+    // MARK: 마우스·커서 상태 (동작은 TermView+Mouse.swift — extension은 저장 프로퍼티를 못 가져 선언만 여기 둔다)
 
-    override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
-        onFocus?()
-        sendMouseButton(.press, .left, event)
-    }
+    /// 마우스 위치 추적 영역. 커서가 뷰 위에 있는 동안 위치를 계속 ghostty에 동기화하기 위해 필요하다.
+    var trackingArea: NSTrackingArea?
 
-    override func mouseUp(with event: NSEvent) { sendMouseButton(.release, .left, event) }
+    /// 좌클릭 press를 ghostty에 **전달했는지**. 전달한 press에만 release를 짝지어 보낸다 —
+    /// 포커스 이전 클릭처럼 press를 삼킨 경우에 release만 새어 나가면 코어의 버튼 상태가 꼬인다(cmux).
+    var pendingLeftRelease = false
 
-    override func rightMouseDown(with event: NSEvent) { sendMouseButton(.press, .right, event) }
-    override func rightMouseUp(with event: NSEvent) { sendMouseButton(.release, .right, event) }
-
-    override func otherMouseDown(with event: NSEvent) { sendMouseButton(.press, .middle, event) }
-    override func otherMouseUp(with event: NSEvent) { sendMouseButton(.release, .middle, event) }
-
-    private func sendMouseButton(_ state: MouseState, _ button: MouseButton, _ event: NSEvent) {
-        guard let surface else { return }
-        syncMousePos(with: event) // 버튼은 "지금 커서가 있는 칸"에 적용된다 — 위치가 먼저다
-        _ = ghostty_surface_mouse_button(surface, state.raw, button.raw, ghosttyMods(event.modifierFlags))
-    }
-
-    /// ghostty 마우스 상태·버튼 열거를 Swift 쪽 이름으로 감싼다(C 상수를 호출부에 흩뿌리지 않는다).
-    private enum MouseState {
-        case press, release
-        var raw: ghostty_input_mouse_state_e {
-            self == .press ? GHOSTTY_MOUSE_PRESS : GHOSTTY_MOUSE_RELEASE
+    /// 엔진(MOUSE_SHAPE 액션)이 요청한 커서 모양. 바뀌면 커서 렉트를 무효화해 즉시 반영한다.
+    var mouseShape: NSCursor = .iBeam {
+        didSet {
+            guard mouseShape != oldValue else { return }
+            window?.invalidateCursorRects(for: self)
         }
     }
 
-    private enum MouseButton {
-        case left, right, middle
-        var raw: ghostty_input_mouse_button_e {
-            switch self {
-            case .left: return GHOSTTY_MOUSE_LEFT
-            case .right: return GHOSTTY_MOUSE_RIGHT
-            case .middle: return GHOSTTY_MOUSE_MIDDLE
-            }
-        }
-    }
-
-    // MARK: 마우스 위치 — ghostty_surface_mouse_pos 동기화 (cmux 이식)
-    //
-    // libghostty는 마우스 리포팅을 켠 앱(claude code 등, DECSET 1000/1002)에는 스크롤을
-    // "현재 커서 위치의 버튼 4/5 이벤트"로 변환해 보낸다. 위치를 한 번도 안 알려주면 embedded
-    // cursor_pos가 초기값 (-1,-1)에 머물러 뷰포트 밖 판정으로 리포트가 통째로 버려지고
-    // 뷰포트 스크롤도 건너뛴다 — claude code 안에서 스크롤이 죽던 근인. 그래서 커서가 뷰 위에
-    // 있는 동안 위치를 계속 동기화한다. NSTrackingArea의 .mouseMoved가 window 설정 없이
-    // mouseMoved 이벤트 수신을 보장한다.
-
-    private var trackingArea: NSTrackingArea?
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        trackingArea = area
-    }
-
-    /// 이벤트 좌표를 ghostty 좌표계(좌상단 원점)로 변환해 서피스에 알린다.
-    private func syncMousePos(with event: NSEvent) {
-        guard let surface else { return }
-        let point = convert(event.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, ghosttyMods(event.modifierFlags))
-    }
-
-    override func mouseMoved(with event: NSEvent) { syncMousePos(with: event) }
-    override func mouseEntered(with event: NSEvent) { syncMousePos(with: event) }
-    override func mouseDragged(with event: NSEvent) { syncMousePos(with: event) }
-    override func rightMouseDragged(with event: NSEvent) { syncMousePos(with: event) }
-    override func otherMouseDragged(with event: NSEvent) { syncMousePos(with: event) }
-
-    override func mouseExited(with event: NSEvent) {
-        guard let surface else { return }
-        // 드래그 중 이탈은 위치를 유지한다 — 선택 오토스크롤이 "뷰포트 밖 포인터"를 관측해야 한다(cmux).
-        if NSEvent.pressedMouseButtons != 0 { return }
-        ghostty_surface_mouse_pos(surface, -1, -1, ghosttyMods(event.modifierFlags))
-    }
-
-    // MARK: 스크롤 — NSEvent 스크롤을 ghostty로 전달 (Ghostty 업스트림 scrollWheel 이식)
-    //
-    // TermView는 ghostty가 직접 그리는 뷰라 스크롤도 우리가 서피스에 넘겨야 한다. 안 넘기면 스크롤백을
-    // 못 올린다. 정밀 델타(트랙패드)는 precision 비트(0x1)로, 모멘텀 페이즈는 상위 비트로 인코딩한다.
-
-    override func scrollWheel(with event: NSEvent) {
-        guard let surface else { return }
-        // 트래킹 이벤트를 아직 못 받았어도(부착 직후 커서가 이미 뷰 안 등) 스크롤 이벤트 자신의
-        // 좌표로 위치를 확정한다 — 마우스 리포팅 앱으로의 스크롤 변환이 위치에 의존하기 때문.
-        syncMousePos(with: event)
-        var x = event.scrollingDeltaX
-        var y = event.scrollingDeltaY
-
-        var mods: ghostty_input_scroll_mods_t = 0
-        if event.hasPreciseScrollingDeltas {
-            mods = 1 // precision(픽셀 단위 트랙패드)
-            // 체감 속도 보정 — 업스트림과 동일한 2배.
-            x *= 2
-            y *= 2
-        }
-
-        // 모멘텀 페이즈를 상위 비트로 싣는다(관성 스크롤 정확도).
-        var momentum = GHOSTTY_MOUSE_MOMENTUM_NONE
-        switch event.momentumPhase {
-        case .began: momentum = GHOSTTY_MOUSE_MOMENTUM_BEGAN
-        case .stationary: momentum = GHOSTTY_MOUSE_MOMENTUM_STATIONARY
-        case .changed: momentum = GHOSTTY_MOUSE_MOMENTUM_CHANGED
-        case .ended: momentum = GHOSTTY_MOUSE_MOMENTUM_ENDED
-        case .cancelled: momentum = GHOSTTY_MOUSE_MOMENTUM_CANCELLED
-        case .mayBegin: momentum = GHOSTTY_MOUSE_MOMENTUM_MAY_BEGIN
-        default: break
-        }
-        mods |= ghostty_input_scroll_mods_t(momentum.rawValue) << 1
-
-        ghostty_surface_mouse_scroll(surface, x, y, mods)
-    }
+    /// 칸 본문 우클릭 — 터미널이 마우스를 캡처하지 않았을 때만 불린다(캡처 중이면 이벤트가 터미널로 간다).
+    /// 스크린 좌표를 넘기며, 메뉴 구성·표시는 상위(TerminalStore 배선)가 맡는다.
+    var onContextMenu: ((NSPoint) -> Void)?
 
     // MARK: 스크롤백 검색 — ghostty binding-action 문자열로 구동 (cmux 이식)
 
@@ -705,6 +609,53 @@ final class TermView: NSView, NSTextInputClient {
         _ = keyAction(GHOSTTY_ACTION_RELEASE, event: event)
     }
 
+    /// 모디파이어 단독 press/release — 이게 없으면 코어가 "Ctrl을 누르고 있다"를 모른다.
+    /// Kitty 키보드 프로토콜(모디파이어 리포팅)·CSI-u·좌우 Shift 구분에 의존하는 TUI가 이걸로 산다.
+    ///
+    /// 문자 이벤트가 아니므로 keyDown 경로(interpretKeyEvents·번역)를 태우지 않고 키 이벤트를 직접 만든다 —
+    /// 모디파이어 전용 이벤트에 AppKit 문자 API를 태우면 안 된다(cmux도 여기만 의도적 예외).
+    /// press/release는 "그 키의 플래그가 지금 켜져 있는가"로 판정한다(AppKit은 둘을 같은 이벤트로 보낸다).
+    override func flagsChanged(with event: NSEvent) {
+        guard let surface, let flag = TermView.modifierFlag(forKeyCode: Int(event.keyCode)) else {
+            return super.flagsChanged(with: event)
+        }
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = event.modifierFlags.contains(flag) ? GHOSTTY_ACTION_PRESS : GHOSTTY_ACTION_RELEASE
+        keyEvent.keycode = UInt32(event.keyCode)
+        keyEvent.mods = ghosttyMods(event.modifierFlags)
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.unshifted_codepoint = 0
+        keyEvent.composing = false
+        keyEvent.text = nil
+        _ = ghostty_surface_key(surface, keyEvent)
+    }
+
+    /// 모디파이어 키코드 → 그 키가 세우는 플래그. 모디파이어 키가 아니면 nil.
+    private static func modifierFlag(forKeyCode keyCode: Int) -> NSEvent.ModifierFlags? {
+        switch keyCode {
+        case kVK_Shift, kVK_RightShift: return .shift
+        case kVK_Control, kVK_RightControl: return .control
+        case kVK_Option, kVK_RightOption: return .option
+        case kVK_Command, kVK_RightCommand: return .command
+        case kVK_CapsLock: return .capsLock
+        default: return nil
+        }
+    }
+
+    /// ⌘·⌃ 조합은 AppKit이 keyDown 대신 이 경로로 먼저 보낸다 — 여기서 안 받으면 **ghostty 키바인드
+    /// 중 커맨드 계열이 터미널에 영영 도달하지 못한다**. 코어에 "이게 네 바인딩이냐"고 묻고(`key_is_binding`),
+    /// 맞을 때만 우리가 먹어 정상 keyDown 경로로 흘린다. 아니면 false를 돌려 메뉴·다음 응답자에게 넘긴다.
+    ///
+    /// muxa 자체 단축키(⌘T·⌘D 등)는 로컬 키 모니터가 이보다 먼저 이벤트를 소비하므로 여기 오지 않는다.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard let surface, event.type == .keyDown, window?.firstResponder === self else { return false }
+        let keyEvent = ghosttyKeyEvent(event, action: GHOSTTY_ACTION_PRESS)
+        var flags = ghostty_binding_flags_e(0) // 바인딩 속성(consumed/global 등) — 지금은 유무만 본다
+        guard ghostty_surface_key_is_binding(surface, keyEvent, &flags) else { return false }
+        keyDown(with: event)
+        return true
+    }
+
     /// 물리 키의 ASCII 문자(입력 소스 무관). 한글/중국어 IME가 활성이어도 Ctrl+C의 'c'를 얻는다 —
     /// NSEvent의 characters류는 현재 IME 레이아웃을 타 자모('ㅊ')를 돌려줘 제어 인코딩이 깨지기 때문이다.
     /// ASCII 호환 키보드 레이아웃으로 keyCode를 modifier 없이 직접 번역한다(cmux physicalControlKey 대응).
@@ -729,8 +680,18 @@ final class TermView: NSView, NSTextInputClient {
         return scalar
     }
 
-    /// 비프음 방지 + AppKit 셀렉터 디스패치 흡수 (인코딩은 keyAction이 담당)
-    override func doCommand(by selector: Selector) {}
+    /// AppKit 셀렉터 디스패치 흡수(비프음 방지) — 키 인코딩은 keyAction이 담당한다.
+    /// 문서 이동(⌘↑/⌘↓)만 스크롤백 이동으로 옮긴다. 터미널에는 "문서 처음/끝" = 스크롤백 위/아래다.
+    override func doCommand(by selector: Selector) {
+        switch selector {
+        case #selector(NSResponder.moveToBeginningOfDocument(_:)):
+            performBindingAction("scroll_to_top")
+        case #selector(NSResponder.moveToEndOfDocument(_:)):
+            performBindingAction("scroll_to_bottom")
+        default:
+            break
+        }
+    }
 
     private func keyAction(
         _ action: ghostty_input_action_e,
