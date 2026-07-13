@@ -228,6 +228,54 @@ install_snippet "$HOME/.bashrc"
 printf '\n'
 
 # ═══════════════════════════════════════════════════════════════════════════
+# 4) tmux OSC 통합 (persistent_sessions = true 일 때 필요)
+# ═══════════════════════════════════════════════════════════════════════════
+info "4) tmux OSC 통합 rc 스니펫 (~/.zshrc)"
+
+# **왜 필요한가**: persistent_sessions를 켜면 터미널이 tmux 세션 안에서 돈다. 그런데 tmux는 안쪽
+# OSC 시퀀스를 자체 소비해 바깥으로 흘리지 않는다 — muxa가 못 받으면 cwd 추적(OSC 7)과
+# 완료 배지·알림(OSC 133)이 통째로 죽는다(실측 확인).
+#
+# 게다가 ghostty의 셸 통합은 tmux가 띄운 셸에서 **자동 실행되지 않는다**(업스트림 주석에 명시).
+# 그래서 tmux 안에서는 muxa가 직접 OSC를 쏘되, tmux passthrough(`\ePtmux;…\e\\`)로 감싼다.
+# tmux 쪽 `allow-passthrough on`은 muxa가 세션을 만들 때 켠다(TerminalSession.startCommand).
+TMUX_MARK="muxa tmux integration"
+read -r -d '' TMUX_SNIPPET <<'SNIP' || true
+
+# >>> muxa tmux integration >>>
+# tmux 안에서만 동작한다. OSC를 passthrough로 감싸 muxa까지 내보낸다(감싸지 않으면 tmux가 삼킨다).
+if [ -n "${TMUX:-}" ] && [ -n "${MUXA_TAB_ID:-}" ] && [ -n "${ZSH_VERSION:-}" ]; then
+  _muxa_osc() { printf '\ePtmux;\e\e]%s\a\e\\' "$1"; }
+  _muxa_cwd()    { _muxa_osc "7;file://${HOST:-localhost}${PWD}"; }
+  _muxa_precmd() { local _e=$?; _muxa_osc "133;D;${_e}"; _muxa_osc "133;A"; _muxa_cwd; }
+  _muxa_preexec(){ _muxa_osc "133;C"; }
+  autoload -Uz add-zsh-hook 2>/dev/null && {
+    add-zsh-hook precmd  _muxa_precmd
+    add-zsh-hook preexec _muxa_preexec
+  }
+  _muxa_cwd
+fi
+# <<< muxa tmux integration <<<
+SNIP
+
+install_tmux_snippet() {
+  local rc="$1"
+  if [[ -f "$rc" ]] && grep -q "$TMUX_MARK" "$rc"; then
+    skip "이미 있음: $rc"
+    return 0
+  fi
+  if $APPLY; then
+    backup "$rc"
+    printf '%s\n' "$TMUX_SNIPPET" >> "$rc"
+    ok "tmux OSC 스니펫 추가: $rc"
+  else
+    plan "tmux OSC 스니펫 추가할 것: $rc"
+  fi
+}
+install_tmux_snippet "$HOME/.zshrc"
+printf '\n'
+
+# ═══════════════════════════════════════════════════════════════════════════
 info "완료."
 if $APPLY; then
   ok "통합이 적용됐다. 새 셸/새 muxa 세션부터 반영된다."

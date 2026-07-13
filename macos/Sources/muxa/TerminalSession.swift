@@ -50,6 +50,10 @@ enum TerminalSession {
             "\(t) new-session -d -s \(q) -c '\(cwd)' 2>/dev/null",
             "\(t) set-option -t \(q) remain-on-exit off 2>/dev/null",
             "\(t) set-option -g allow-passthrough on 2>/dev/null",
+            // 탭 이름 — tmux는 기본으로 자기 제목(= `tmux … attach …` 명령줄)을 내보내, 탭 이름이
+            // 그 문자열로 굳는다(실측). 안쪽 셸이 있는 폴더를 대신 전파해 자동 명명을 되살린다.
+            "\(t) set-option -g set-titles on 2>/dev/null",
+            "\(t) set-option -g set-titles-string '#{b:pane_current_path}' 2>/dev/null",
             "\(t) attach -t '=\(session)'",
         ].joined(separator: "; ")
     }

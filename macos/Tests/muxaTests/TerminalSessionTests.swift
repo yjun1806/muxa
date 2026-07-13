@@ -109,4 +109,12 @@ struct TerminalSessionTests {
     @Test func exec로_태우지_않는다() {
         #expect(!startCmd().contains("exec "))
     }
+
+    /// tmux는 기본으로 자기 제목(= attach 명령줄)을 내보내 탭 이름이 그걸로 굳는다(실측).
+    /// 안쪽 셸의 폴더명을 대신 전파해 자동 명명을 되살린다.
+    @Test func 탭_제목을_폴더명으로_되돌린다() {
+        let cmd = startCmd()
+        #expect(cmd.contains("set-titles on"))
+        #expect(cmd.contains("set-titles-string '#{b:pane_current_path}'"))
+    }
 }
