@@ -38,9 +38,6 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 두 경로가 채운다 — 세션 복원(저장된 OSC 7 pwd)과 새 탭·분할(원본 칸의 현재 pwd 상속).
     /// TermView가 아직 안 만들어진 탭도 다음 저장 때 cwd를 잃지 않도록 convert의 폴백으로도 쓴다.
     @ObservationIgnored private var pendingCwd: [TabID: String] = [:]
-    /// 이 워크스페이스에서 셸이 마지막으로 이동한 디렉터리(OSC 7). 원본 칸에 터미널이 없을 때(문서·diff 탭에
-    /// 포커스가 있는 상태에서 분할 등) 새 셸의 시작 폴더 폴백으로 쓴다.
-    @ObservationIgnored private var lastPwd: String?
     /// 복원된 탭의 스크롤백 파일 경로 힌트 — term(for:)가 새 셸에 env로 주입한다(④). pendingCwd와 같은 수명.
     @ObservationIgnored private var restoredScrollbackFile: [TabID: String] = [:]
 
@@ -510,10 +507,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             MainActor.assumeIsolated { self?.applyEngineTitle(title, for: tabId) }
         }
         t.onPwd = { [weak self] pwd in
-            MainActor.assumeIsolated {
-                self?.lastPwd = pwd
-                self?.pwds[tabId] = pwd
-            }
+            MainActor.assumeIsolated { self?.pwds[tabId] = pwd }
         }
         terms[tabId] = t
         return t
@@ -981,12 +975,14 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         }
     }
 
-    /// 새 셸이 시작할 작업 디렉터리 — 원본 칸의 현재 pwd(OSC 7) > 워크스페이스 마지막 pwd > 프로젝트 기본 cwd.
-    /// 원본 칸이 문서·diff 탭이거나 셸이 아직 OSC 7을 보내지 않았으면 자연스럽게 다음 순위로 떨어진다.
-    private func startCwd(inPane pane: PaneID?) -> String? {
-        if let pane, let tab = controller.selectedTab(inPane: pane),
-           let pwd = terms[tab.id]?.pwd { return pwd }
-        return lastPwd ?? cwd
+    /// **분할할 때** 새 셸이 물려받을 작업 디렉터리 — 원본 칸의 현재 pwd(OSC 7). 없으면 nil.
+    ///
+    /// 새 터미널(⌘T·`+`)은 이걸 쓰지 않는다. 어디서 열든 **프로젝트 기본 경로에서 시작**한다 —
+    /// "직전에 어디 있었는지"를 물려받으면 새 탭이 예측 불가능한 곳에서 열린다(`cd`로 잠깐 다른
+    /// 디렉터리에 갔던 것뿐인데 다음 탭이 거기서 뜬다). 분할은 "옆에서 이어서 한다"는 뜻이라 다르다.
+    private func inheritedCwd(inPane pane: PaneID?) -> String? {
+        guard let pane, let tab = controller.selectedTab(inPane: pane) else { return nil }
+        return terms[tab.id]?.pwd
     }
 
     /// 지금 포커스된 칸의 선택 탭이 있는 디렉터리 — 상태바 표시용.
@@ -1033,8 +1029,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     func newTerminal(inPane pane: PaneID? = nil, inheritingFrom source: PaneID? = nil,
                      persistent: Bool? = nil) -> TabID? {
         // createTab이 새 탭을 즉시 선택하므로, 원본 칸의 pwd·지속 여부는 생성 전에 읽는다.
+        // cwd는 **분할일 때만**(source가 있을 때) 물려받는다 — 새 탭은 프로젝트 기본 경로에서 연다.
         let origin = source ?? pane ?? controller.focusedPaneId
-        let start = startCwd(inPane: origin)
+        let start = source.flatMap { inheritedCwd(inPane: $0) } ?? cwd
         let wantsPersistent = persistent ?? inheritedPersistence(inPane: origin)
         let id = controller.createTab(title: "터미널",
                                       icon: wantsPersistent ? Self.persistentTabIcon : "terminal",
