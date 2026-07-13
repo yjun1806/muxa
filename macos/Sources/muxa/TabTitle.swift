@@ -9,9 +9,11 @@ enum TabTitle {
     static func shorten(_ raw: String) -> String {
         let title = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // "user@host:path" 형태인지 — 콜론 앞에 @가 있어야 셸 기본 제목으로 본다.
-        guard let colon = title.firstIndex(of: ":"),
-              title[title.startIndex..<colon].contains("@") else { return title }
+        // "user@host:path" 형태인지 — 콜론 앞이 공백 없는 `user@host` 한 덩어리여야 셸 기본 제목으로 본다.
+        // (@만 보면 "vim user@host:config" 같은 명령 제목까지 잘라내 버린다.)
+        guard let colon = title.firstIndex(of: ":") else { return title }
+        let prefix = title[title.startIndex..<colon]
+        guard prefix.contains("@"), !prefix.contains(" ") else { return title }
 
         let path = title[title.index(after: colon)...].trimmingCharacters(in: .whitespaces)
         guard !path.isEmpty else { return title }

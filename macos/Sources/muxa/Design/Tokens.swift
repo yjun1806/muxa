@@ -43,8 +43,11 @@ enum RowHeight {
     static let toolbar: CGFloat = 28
     /// 보조 바(리뷰 코멘트 바 등).
     static let bar: CGFloat = 30
-    /// 패널 헤더.
+    /// 패널 헤더 = 칸 탭바(Bonsplit `tabBarHeight`)와 같은 높이. 두 줄이 한 선에 이어진다.
     static let header: CGFloat = 34
+    /// 도구 패널(탐색기·git) 헤더의 **콘텐츠** 높이 — 아래 구분선(1pt)까지 합쳐야 `header`가 된다.
+    /// 탭바엔 구분선이 없으므로, 구분선을 그리는 쪽이 그만큼 콘텐츠를 줄여야 아래 경계가 맞는다.
+    static let panelHeader: CGFloat = header - hairline
     /// 창 상단바 — 프로젝트 탭이 카드로 앉는 줄.
     /// 표준 타이틀바(28pt)보다 높으므로 **신호등을 이 높이의 중앙으로 내려야** 한다
     /// (`TrafficLights.align` — 안 하면 신호등만 위로 붙는다).

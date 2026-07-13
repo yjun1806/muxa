@@ -36,8 +36,7 @@ struct GitPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            // 헤더 아래 구분선 없음 — 옆 칸 탭바(Bonsplit)와 아래 경계를 같은 높이로 맞추기 위해서다
-            // (탐색기 패널과 같은 이유).
+            HDivider() // 헤더 높이(panelHeader)가 이 선까지 계산돼 있어 옆 칸 탭바와 아래 경계가 맞는다
             reviewBar
             if let syncError {
                 Text(syncError)
@@ -95,7 +94,7 @@ struct GitPanel: View {
             }
             IconButton(icon: "arrow.clockwise", help: "새로고침") { Task { await refresh(); await refreshGH() } }
         }
-        .panelBar(height: RowHeight.header)
+        .panelBar(height: RowHeight.panelHeader)
     }
 
     /// 리뷰 코멘트 제출 바 — 미제출 코멘트가 있으면 개수 + "N개 보내기"(포커스 터미널에 붙여넣기).

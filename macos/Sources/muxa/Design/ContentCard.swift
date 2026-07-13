@@ -28,10 +28,27 @@ extension EnvironmentValues {
     }
 }
 
+/// 카드 크기를 레이아웃 패스에서 위로 올려보내는 통로.
+/// (`GeometryReader` 안에서 `@State`를 직접 쓰면 렌더 도중 상태를 바꾸는 셈이라 경고·갱신 루프가 난다.)
+private struct ContentCardSizePreference: PreferenceKey {
+    static let defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
+}
+
 extension View {
     /// 이 뷰를 콘텐츠 카드로 삼는다 — 아래 칸들이 자기 위치·카드 크기를 알 수 있게 된다.
-    func contentCardSpace(size: CGSize) -> some View {
+    /// 크기는 `onCardSize`로 돌려주므로 호출자가 상태에 담아 다시 `size`로 넣어준다.
+    func contentCardSpace(size: CGSize, onCardSize: @escaping (CGSize) -> Void) -> some View {
         coordinateSpace(name: ContentCard.space)
             .environment(\.contentCardSize, size)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(key: ContentCardSizePreference.self, value: geo.size)
+                }
+            )
+            .onPreferenceChange(ContentCardSizePreference.self, perform: onCardSize)
     }
 }

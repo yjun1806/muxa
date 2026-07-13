@@ -19,6 +19,9 @@ final class TabTitleTests: XCTestCase {
         XCTAssertEqual(TabTitle.shorten("claude"), "claude")
         XCTAssertEqual(TabTitle.shorten("vim README.md"), "vim README.md")
         XCTAssertEqual(TabTitle.shorten("build: 3 warnings"), "build: 3 warnings") // 콜론은 있지만 @가 없다
+        // @와 콜론이 다 있어도 명령 제목이면 건드리지 않는다 — 콜론 앞이 공백 없는 한 덩어리여야 한다.
+        XCTAssertEqual(TabTitle.shorten("vim user@host:config"), "vim user@host:config")
+        XCTAssertEqual(TabTitle.shorten("ssh me@box: connecting"), "ssh me@box: connecting")
     }
 
     func testTrimsWhitespace() {

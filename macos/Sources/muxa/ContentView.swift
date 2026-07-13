@@ -37,18 +37,13 @@ struct ContentView: View {
     /// 콘텐츠 카드 — 터미널·패널이 사는 판. 크롬 배경 위에 얹혀 층이 드러난다.
     ///
     /// 콘텐츠는 카드 모서리로 정확히 클리핑한다(여백으로 밀어내지 않는다 — 터미널 주위에 흰 띠가
-    /// 생기면 화면만 좁아진다). 활성 칸의 강조 테두리가 이 모서리에 잘리는 문제는 테두리 쪽에서
-    /// 푼다: 칸 경계에 걸터앉히지 않고 안쪽으로 넣으면 애초에 잘릴 일이 없다(`PaneBorder`).
+    /// 생기면 화면만 좁아진다). 그러면 칸의 강조 테두리가 모서리에서 잘릴 텐데, 그건 테두리 쪽에서
+    /// 푼다: `PaneBorder`가 카드 좌표계에서 자기 위치를 재어 **카드 모서리에 닿는 코너만** 카드와
+    /// 같은 반경으로 둥글린다(곡선이 겹치므로 깎이지 않는다).
     private var contentCard: some View {
         workspaceColumn
             // 칸들이 "내가 카드의 어느 모서리에 닿았나"를 재려면 카드의 좌표계·크기를 알아야 한다.
-            .contentCardSpace(size: cardSize)
-            .background(
-                GeometryReader { geo in
-                    Color.clear.onAppear { cardSize = geo.size }
-                        .onChange(of: geo.size) { _, new in cardSize = new }
-                }
-            )
+            .contentCardSpace(size: cardSize) { cardSize = $0 }
             .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
             .overlay(
                 RoundedRectangle(cornerRadius: Radius.lg)
