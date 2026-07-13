@@ -77,13 +77,13 @@ struct StatusBar: View {
                 .help("에이전트 진행 상황(Claude 훅)")
             }
             Spacer(minLength: Space.md)
-            // 서비스 칩 — 도크가 접혀 있을 때 상태를 말해주는 유일한 상시 신호라 항상 자리를 지킨다.
-            // 사용량 칩 왼쪽에 둔다(성격이 "지금 무엇이 돌고 있나"라 왼쪽 묶음에 가깝지만, 개수가 늘면
-            // 경로를 밀어내므로 오른쪽 끝 사용량 앞에 붙여 경로가 먼저 잘리게 한다).
-            if let ws = state.activeWorkspace, let project = ws.activeProject {
-                ServiceStrip(state: state, project: project, cwd: project.path ?? ws.path)
-            }
             usageView
+            // 서비스 칩 — 도크가 접혀 있을 때의 유일한 상시 신호라 항상 자리를 지킨다.
+            // 사용량 칩과 같은 문법(칩 + 상세 팝오버)이라 나란히 두고, 폭이 고정된 요약이므로
+            // 오른쪽 끝에 붙여도 경로·브랜치를 밀어내지 않는다.
+            if let ws = state.activeWorkspace, let project = ws.activeProject {
+                ServiceStrip(state: state, project: project)
+            }
         }
         .panelBar(height: RowHeight.toolbar) // 내용이 세로 중앙에 오도록 여유를 준다(24는 빡빡해 아래로 붙어 보인다)
         .background(Color.pPanel)

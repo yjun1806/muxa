@@ -605,25 +605,22 @@ final class AppState {
     /// serviceId → attach 터미널. 도크가 열려 있는 동안만 산다.
     @ObservationIgnored private var dockTerms: [String: TermView] = [:]
 
-    /// 선택된 서비스의 터미널(없으면 만든다).
-    ///
-    /// **살아 있으면 attach, 죽었으면 로그를 뿌린다.** 죽은 pane에 attach하면 tmux가 클라이언트
-    /// 크기로 리사이즈하면서 화면 내용이 날아가고 `Pane is dead`만 남는다 — 정작 왜 죽었는지를 못 본다.
-    /// capture-pane은 그 내용을 온전히 갖고 있다.
+    /// 재시작 횟수 — 세션이 갈아엎어졌음을 로그 뷰에 알리는 토큰(다시 읽게 한다).
+    private(set) var serviceRestartSeq = 0
+
+    /// **살아있는** 서비스의 attach 터미널(없으면 만든다). 죽은 서비스는 터미널이 아니라
+    /// 읽기 전용 로그를 보여준다(ServiceLogView) — 죽는 순간 터미널을 갈아끼우면 새 ghostty 서피스가
+    /// 빈 화면으로 뜨는 레이스를 밟고, 정작 사인(死因)을 봐야 할 때 아무것도 안 보인다.
     ///
     /// **접을 때 버려도 안전한 이유**: 이 서피스에서 도는 건 `tmux attach` 클라이언트일 뿐이고,
     /// dev 서버는 tmux 서버(ppid=1) 쪽에 있다. 서피스를 해제해도 프로세스는 살아 있으므로
     /// 상태를 유지하려고 숨은 서피스를 붙들 필요가 없다 — 재부착 빈 화면 레이스를 아예 안 밟는다.
-    ///
-    /// 캐시 키에 생사를 넣어, 죽는 순간 attach 화면이 로그 화면으로 갈아 끼워지게 한다.
-    func dockTerm(serviceId: String, projectId: String, cwd: String?, isDead: Bool) -> TermView {
-        let key = "\(serviceId)|\(isDead)"
-        if let existing = dockTerms[key] { return existing }
-        let command = isDead
-            ? TmuxService.logCommand(projectId: projectId, serviceId: serviceId)
-            : TmuxService.attachCommand(projectId: projectId, serviceId: serviceId)
-        let term = TermView(app: app, cwd: cwd, initialCommand: command)
-        dockTerms[key] = term
+    func dockTerm(serviceId: String, projectId: String, cwd: String?) -> TermView {
+        if let existing = dockTerms[serviceId] { return existing }
+        let term = TermView(app: app, cwd: cwd,
+                            initialCommand: TmuxService.attachCommand(projectId: projectId,
+                                                                      serviceId: serviceId))
+        dockTerms[serviceId] = term
         return term
     }
 
@@ -633,16 +630,26 @@ final class AppState {
         dockTerms.removeAll()
     }
 
-    /// 도크를 열고 서비스를 고른다(푸터 칩·알림에서 호출).
+    /// 도크를 열고 서비스를 고른다(푸터 칩·팝오버·알림에서 호출).
     func openServiceDock(serviceId: String?) {
         selectedServiceId = serviceId ?? selectedServiceId
         showServiceDock = true
     }
 
+    /// 도크를 열면서 곧바로 추가 시트를 띄운다 — 팝오버의 "서비스 추가"가 두 번 클릭이 되지 않게.
+    /// 도크가 소비하고 내린다(원샷 요청).
+    var serviceAddRequested = false
+
+    func requestAddService() {
+        showServiceDock = true
+        serviceAddRequested = true
+    }
+
     /// 재시작·제거로 세션이 갈아엎어지면 그 서비스의 터미널을 버린다(옛 세션에 붙은 채 남지 않게).
-    /// 캐시 키가 생사별로 둘이라(serviceId|true / |false) 양쪽 다 지운다.
+    /// 로그 뷰도 다시 읽도록 시퀀스를 올린다.
     private func dropDockTerm(_ serviceId: String) {
-        dockTerms = dockTerms.filter { !$0.key.hasPrefix("\(serviceId)|") }
+        dockTerms[serviceId] = nil
+        serviceRestartSeq += 1
     }
 
     /// 좀비 청소 — 등록이 사라졌는데 살아남은 서비스 세션을 죽인다. 앱 시작 시 1회.

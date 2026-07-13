@@ -44,6 +44,12 @@ struct ServiceDock: View {
                 state.addService(name: name, command: command, to: project.id, cwd: cwd)
             }
         }
+        // 팝오버에서 "서비스 추가"로 들어왔으면 시트를 바로 띄운다(두 번 클릭 방지). 요청은 원샷.
+        .onChange(of: state.serviceAddRequested, initial: true) { _, requested in
+            guard requested else { return }
+            state.serviceAddRequested = false
+            showAdd = true
+        }
     }
 
     // MARK: 좌 — 서비스 목록
@@ -117,15 +123,19 @@ struct ServiceDock: View {
         } else if let service = selected {
             VStack(spacing: 0) {
                 header(service)
-                // 진짜 터미널이다 — Ctrl+C로 죽이고, 스크롤하고, 그 자리에서 디버깅한다.
-                // 죽은 서비스면 attach 대신 보존된 로그를 뿌린다(AppState.dockTerm 주석).
-                TerminalRepresentable(
-                    term: state.dockTerm(serviceId: service.id, projectId: project.id,
-                                         cwd: cwd, isDead: isDead(service)),
-                    onFocus: {}
-                )
-                // 서비스를 바꾸거나 생사가 뒤집히면 그에 맞는 터미널로 갈아 끼운다.
-                .id("\(service.id)|\(isDead(service))")
+                if isDead(service) {
+                    // 죽었으면 읽기 전용 로그 — 터미널을 붙이지 않는다(ServiceLogView 주석).
+                    ServiceLogView(projectId: project.id, serviceId: service.id,
+                                   reloadToken: "\(service.id)|\(state.serviceRestartSeq)")
+                } else {
+                    // 살아있으면 **진짜 터미널**(tmux attach) — Ctrl+C로 죽이고, 스크롤하고,
+                    // 그 자리에서 디버깅한다.
+                    TerminalRepresentable(
+                        term: state.dockTerm(serviceId: service.id, projectId: project.id, cwd: cwd),
+                        onFocus: {}
+                    )
+                    .id(service.id) // 서비스를 바꾸면 그 서비스의 터미널로 갈아 끼운다
+                }
             }
         } else {
             emptyState
@@ -191,19 +201,10 @@ struct ServiceDock: View {
         return false
     }
 
-    private func dotColor(_ status: ServiceState) -> Color {
-        switch status {
-        case .running: return .pServiceRunning
-        case .exited(let code): return code == 0 ? .pMuted : .pServiceExited
-        case .missing: return .pMuted
-        }
-    }
+    // 색·글리프·꼬리표 규칙은 ServiceStatusStyle 한 곳에 있다(칩·팝오버와 같은 규칙을 쓰려고).
+    private func dotColor(_ status: ServiceState) -> Color { ServiceStatusStyle.color(status) }
 
     private func tail(_ service: Service, _ status: ServiceState) -> String? {
-        switch status {
-        case .running: return state.serviceMonitor.ports[service.id].map { ":\($0)" }
-        case .exited(let code): return code == 0 ? "종료" : "exit \(code)"
-        case .missing: return nil
-        }
+        ServiceStatusStyle.tail(status, port: state.serviceMonitor.ports[service.id])
     }
 }

@@ -1,119 +1,103 @@
 import SwiftUI
 
-/// 푸터의 서비스 칩 — **접혀 있어도 보이는 유일한 상시 신호**.
+/// 푸터의 서비스 칩 — **접혀 있을 때의 유일한 상시 신호**.
 ///
-/// 이 기능의 요구는 "접을 수 있어야 하지만 숨어서 못 알아채면 안 된다"였다. 도크는 접히므로,
-/// 접힌 상태에서 상태를 말해주는 건 이 칩뿐이다. 그래서 점 하나가 아니라 **이름·상태·포트·exit code**까지
-/// 싣는다 — 점만 있으면 "뭔가 빨간데 뭐가 왜 죽었지"를 모른다.
+/// 여기는 "문제가 있나 없나"만 말한다(간략). 무엇이 왜 그런지는 hover 팝오버(ServicePopover)가,
+/// 실제 로그는 클릭해서 여는 도크(ServiceDock)가 맡는다 — 사용량 칩과 같은 문법이다.
+///
+/// 서비스마다 칩을 늘어놓으면 푸터가 금세 넘친다(경로·브랜치·사용량과 폭을 다툰다). 그래서
+/// **하나로 요약**하고, 죽은 게 하나라도 있으면 그게 요약이 된다(초록 다수에 묻히면 안 된다).
 struct ServiceStrip: View {
     let state: AppState
     let project: Project
-    let cwd: String?
+
+    @State private var hovered = false
+    @State private var showPopover = false
 
     private var services: [Service] { state.services(of: project.id) }
 
+    private var statuses: [ServiceState] {
+        services.map { state.serviceMonitor.states[$0.id] ?? .missing }
+    }
+
     var body: some View {
-        HStack(alignment: .center, spacing: Space.sm) {
-            if TmuxService.isAvailable {
-                ForEach(services) { service in
-                    chip(service)
-                }
-                addButton
-            } else {
-                // tmux가 없어도 **완전히 숨기지는 않는다.** 숨기면 사용자는 이 기능이 있는지조차 모른다.
-                // 조용한 진입점 하나만 남기고, 왜 못 쓰는지와 설치 방법은 도크가 설명한다.
-                setupHint
+        Button {
+            showPopover = false
+            state.openServiceDock(serviceId: nil)
+        } label: {
+            label
+                .padding(.horizontal, Space.sm)
+                .frame(height: RowHeight.tight)
+                .background(chipColor, in: RoundedRectangle(cornerRadius: Radius.md))
+                .contentShape(RoundedRectangle(cornerRadius: Radius.md))
+        }
+        .buttonStyle(.plain)
+        .onHover { inside in
+            hovered = inside
+            // hover로 상세를 연다(사용량은 클릭이지만, 서비스는 클릭이 "로그 열기"라 hover에 배정).
+            if inside { showPopover = true }
+        }
+        .animation(Motion.fast, value: hovered)
+        .help(helpText)
+        .popover(isPresented: $showPopover, arrowEdge: .top) {
+            ServicePopover(state: state, project: project) { serviceId in
+                showPopover = false
+                state.openServiceDock(serviceId: serviceId)
+            } onAdd: {
+                showPopover = false
+                state.requestAddService()
             }
         }
     }
 
-    /// tmux 미설치 상태의 진입점 — 눈에 거슬리지 않게 흐리게 두되, 누르면 설치 안내가 열린다.
-    private var setupHint: some View {
-        Button { state.openServiceDock(serviceId: nil) } label: {
+    @ViewBuilder
+    private var label: some View {
+        if !TmuxService.isAvailable {
+            // tmux가 없어도 **숨기지 않는다** — 숨기면 이 기능이 있는지조차 모른다.
             HStack(alignment: .center, spacing: Space.xs) {
-                Image(systemName: "shippingbox").font(.muxa(.micro))
+                Image(systemName: "square.stack.3d.up").font(.muxa(.micro))
                 Text("서비스").font(.muxa(.label))
             }
             .foregroundStyle(Color.pMuted.opacity(0.6))
-            .padding(.horizontal, Space.sm)
-            .frame(height: RowHeight.tight)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("dev 서버 같은 장수 프로세스를 등록합니다 — tmux 설치가 필요합니다")
-    }
-
-    /// 서비스 칩 — [● 이름 :포트] / [⛔ 이름 exit 1]. 클릭하면 도크가 그 서비스로 열린다.
-    private func chip(_ service: Service) -> some View {
-        let status = state.serviceMonitor.states[service.id] ?? .missing
-        return Button { state.openServiceDock(serviceId: service.id) } label: {
+        } else if services.isEmpty {
             HStack(alignment: .center, spacing: Space.xs) {
-                // 색만으로 구분하지 않는다(색맹 안전) — 죽으면 글리프 자체가 바뀐다.
-                Image(systemName: glyph(status))
+                Image(systemName: "square.stack.3d.up").font(.muxa(.micro))
+                Text("서비스").font(.muxa(.label))
+            }
+            .foregroundStyle(Color.pMuted)
+        } else {
+            let summary = ServiceStatusStyle.summarize(statuses)
+            HStack(alignment: .center, spacing: Space.xs) {
+                Image(systemName: ServiceStatusStyle.glyph(summary))
                     .font(.muxa(.micro))
-                    .foregroundStyle(color(status))
-                Text(service.name)
-                    .font(.muxa(.label))
+                    .foregroundStyle(ServiceStatusStyle.color(summary))
+                // 개수만 — 이름·포트는 팝오버에서 본다(푸터는 좁다).
+                Text("\(services.count)")
+                    .font(.muxaMono(.label, weight: .semibold))
                     .foregroundStyle(Color.pMuted)
-                if let detail = detail(service, status) {
-                    Text(detail)
-                        .font(.muxaMono(.caption))
-                        .foregroundStyle(color(status))
+                if deadCount > 0 {
+                    // 죽은 게 있으면 몇 개인지까지는 칩에서 말한다 — 열지 않고도 심각도를 안다.
+                    Text("· \(deadCount) 종료됨")
+                        .font(.muxa(.caption))
+                        .foregroundStyle(Color.pServiceExited)
                 }
             }
-            .padding(.horizontal, Space.sm)
-            .frame(height: RowHeight.tight)
-            .background(Color.pBtnHover.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.md))
-            .contentShape(RoundedRectangle(cornerRadius: Radius.md))
-        }
-        .buttonStyle(.plain)
-        .help(helpText(service, status))
-    }
-
-    private var addButton: some View {
-        Button { state.openServiceDock(serviceId: nil) } label: {
-            Image(systemName: "plus")
-                .font(.muxa(.micro))
-                .foregroundStyle(Color.pMuted)
-                .frame(width: 18, height: RowHeight.tight)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("서비스 추가 — dev 서버처럼 오래 도는 명령")
-    }
-
-    private func glyph(_ status: ServiceState) -> String {
-        switch status {
-        case .running: return "circle.fill"
-        case .exited(let code): return code == 0 ? "stop.circle" : "exclamationmark.triangle.fill"
-        case .missing: return "circle.dotted"
         }
     }
 
-    private func color(_ status: ServiceState) -> Color {
-        switch status {
-        case .running: return .pServiceRunning
-        case .exited(let code): return code == 0 ? .pMuted : .pServiceExited
-        case .missing: return .pMuted
-        }
+    private var deadCount: Int {
+        statuses.filter { if case .exited(let c) = $0 { return c != 0 } else { return false } }.count
     }
 
-    /// 칩의 꼬리표 — 포트(있으면)나 exit code. 포트를 못 뽑았으면 아무것도 붙이지 않는다(지어내지 않는다).
-    private func detail(_ service: Service, _ status: ServiceState) -> String? {
-        switch status {
-        case .running: return state.serviceMonitor.ports[service.id].map { ":\($0)" }
-        case .exited(let code): return code == 0 ? nil : "exit \(code)"
-        case .missing: return nil
-        }
+    private var chipColor: Color {
+        if showPopover { return Color.pBtnActive }
+        return hovered ? Color.pBtnHover : Color.pBtnHover.opacity(0.5)
     }
 
-    private func helpText(_ service: Service, _ status: ServiceState) -> String {
-        switch status {
-        case .running: return "\(service.name) 실행 중 — \(service.command)"
-        case .exited(let code):
-            return code == 0 ? "\(service.name) 종료됨 — 클릭해 로그 보기"
-                             : "\(service.name)이 exit \(code)로 죽었습니다 — 클릭해 로그 보기"
-        case .missing: return "\(service.name) — 아직 시작되지 않음"
-        }
+    private var helpText: String {
+        if !TmuxService.isAvailable { return "서비스 — tmux 설치가 필요합니다" }
+        if services.isEmpty { return "서비스 추가 — dev 서버처럼 오래 도는 명령" }
+        if deadCount > 0 { return "서비스 \(services.count)개 중 \(deadCount)개가 종료됨 — 클릭해 로그 보기" }
+        return "서비스 \(services.count)개 실행 중 — 클릭해 로그 보기 (⌘J)"
     }
 }

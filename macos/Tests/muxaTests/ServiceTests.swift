@@ -177,6 +177,36 @@ final class ServiceTests: XCTestCase {
         XCTAssertTrue(collectLiveServiceIds(in: [ws]).isEmpty)
     }
 
+    // MARK: 죽은 서비스의 로그 정리 — tmux는 pane 화면 그대로를 준다(빈 줄 밭 포함)
+
+    /// 로그 두 줄과 사인(Pane is dead) 사이에 빈 줄 스무 개가 끼면, 정작 봐야 할 것이 화면 밖으로 나간다.
+    func testTidyCollapsesBlankRunsBetweenLogAndCause() {
+        let raw = """
+        ➜ Local: http://localhost:4321/
+        ready in 320 ms
+
+
+        \n\n
+        Pane is dead (status 0)
+
+        """
+        XCTAssertEqual(ServiceLogView.tidy(raw), """
+        ➜ Local: http://localhost:4321/
+        ready in 320 ms
+
+        Pane is dead (status 0)
+        """)
+    }
+
+    func testTidyStripsTrailingSpacesOnEachLine() {
+        XCTAssertEqual(ServiceLogView.tidy("Error: EADDRINUSE   \n  at Server   "),
+                       "Error: EADDRINUSE\n  at Server")
+    }
+
+    func testTidyEmpty() {
+        XCTAssertEqual(ServiceLogView.tidy("\n\n   \n"), "")
+    }
+
     // MARK: 영속 — 서비스는 Project에 실려 Persisted에 자동 편승한다
 
     func testProjectServicesRoundTrip() throws {
