@@ -68,6 +68,10 @@ enum Palette {
 
     // GitHub PR 배지색 — gh 배지 전용. open=gitAdded(초록)·closed=gitDeleted(빨강) 재사용, merged만 신규(보라).
     static let prMerged = NSColor.dynamic(light: 0x8250DF, dark: 0xA371F7)
+
+    /// 에러·파괴적 동작(빨강). git 삭제색과 같은 값이지만 의미가 달라 별칭으로 둔다 —
+    /// 에러 메시지에 `.red`(시스템색)를 직접 쓰면 팔레트 밖으로 새서 라이트/다크 대비가 어긋난다.
+    static let danger = gitDeleted
 }
 
 extension NSColor {
@@ -107,4 +111,5 @@ extension Color {
     static let pFg = Color(nsColor: Palette.fg)
     static let pBtnHover = Color(nsColor: Palette.btnHover)
     static let pBtnActive = Color(nsColor: Palette.btnActive)
+    static let pDanger = Color(nsColor: Palette.danger)
 }

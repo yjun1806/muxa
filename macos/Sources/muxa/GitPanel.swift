@@ -36,22 +36,22 @@ struct GitPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Rectangle().fill(Color.pBorder).frame(height: 1)
+            HDivider()
             reviewBar
             if let syncError {
                 Text(syncError)
-                    .font(.system(size: 10)).foregroundStyle(.red).lineLimit(2)
-                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .font(.muxa(.caption)).foregroundStyle(Color.pDanger).lineLimit(2)
+                    .padding(.horizontal, Space.panelInset).padding(.vertical, Space.xs)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Rectangle().fill(Color.pBorder).frame(height: 1)
+                HDivider()
             }
             if dir != nil, loaded, status == nil {
-                label("git 저장소 아님")
+                PanelLabel("git 저장소 아님")
             } else if dir == nil {
-                label("프로젝트 경로 없음")
+                PanelLabel("프로젝트 경로 없음")
             } else {
                 picker
-                Rectangle().fill(Color.pBorder).frame(height: 1)
+                HDivider()
                 switch mode {
                 case .changes: changesView
                 case .session: sessionView
@@ -75,27 +75,26 @@ struct GitPanel: View {
     }
 
     private var header: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "arrow.triangle.branch").font(.system(size: 12)).foregroundStyle(Color.pMuted)
+        HStack(spacing: Space.sm) {
+            Image(systemName: "arrow.triangle.branch").font(.muxa(.body)).foregroundStyle(Color.pMuted)
             branchLabel
             if let status {
                 if status.ahead > 0 { counter("arrow.up", status.ahead) }
                 if status.behind > 0 { counter("arrow.down", status.behind) }
             }
             if let gh { prBadge(gh) }
-            Spacer(minLength: 4)
+            Spacer(minLength: Space.xs)
             if status != nil {
                 if syncBusy {
                     ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 16)
                 } else {
-                    iconButton("arrow.down.to.line", help: "Pull") { runSync { await GitService.pull(in: $0) } }
-                    iconButton("arrow.up.to.line", help: "Push") { runSync { await GitService.push(in: $0) } }
+                    IconButton(icon: "arrow.down.to.line", help: "Pull") { runSync { await GitService.pull(in: $0) } }
+                    IconButton(icon: "arrow.up.to.line", help: "Push") { runSync { await GitService.push(in: $0) } }
                 }
             }
-            iconButton("arrow.clockwise", help: "새로고침") { Task { await refresh(); await refreshGH() } }
+            IconButton(icon: "arrow.clockwise", help: "새로고침") { Task { await refresh(); await refreshGH() } }
         }
-        .padding(.horizontal, 10)
-        .frame(height: 34)
+        .panelBar(height: RowHeight.header)
     }
 
     /// 리뷰 코멘트 제출 바 — 미제출 코멘트가 있으면 개수 + "N개 보내기"(포커스 터미널에 붙여넣기).
@@ -105,25 +104,25 @@ struct GitPanel: View {
         if let root = reviewRoot {
             let pending = ReviewCommentStore.shared.comments(inRepo: root)
             if !pending.isEmpty {
-                HStack(spacing: 6) {
-                    Image(systemName: "text.bubble").font(.system(size: 11)).foregroundStyle(Color.pMuted)
-                    Text("리뷰 코멘트 \(pending.count)개").font(.system(size: 11)).foregroundStyle(Color.pFg)
+                HStack(spacing: Space.sm) {
+                    Image(systemName: "text.bubble").font(.muxa(.label)).foregroundStyle(Color.pMuted)
+                    Text("리뷰 코멘트 \(pending.count)개").font(.muxa(.label)).foregroundStyle(Color.pFg)
                     Spacer(minLength: 0)
                     Button {
                         let text = ReviewCommentFormat.instruction(pending)
                         if onSendReview(text) { _ = ReviewCommentStore.shared.consumeAll(inRepo: root) }
                     } label: {
-                        HStack(spacing: 3) {
-                            Image(systemName: "paperplane").font(.system(size: 10))
-                            Text("\(pending.count)개 보내기").font(.system(size: 11, weight: .medium))
+                        HStack(spacing: Space.tight + 1) {
+                            Image(systemName: "paperplane").font(.muxa(.caption))
+                            Text("\(pending.count)개 보내기").font(.muxa(.label, weight: .medium))
                         }
                     }
                     .buttonStyle(.plain).foregroundStyle(Color(nsColor: Palette.gitAdded))
                     .help("코멘트를 포커스 터미널에 붙여 다음 턴 지시로 보냄")
                 }
-                .padding(.horizontal, 10).frame(height: 30)
+                .panelBar(height: RowHeight.bar)
                 .background(Color.pPanel)
-                Rectangle().fill(Color.pBorder).frame(height: 1)
+                HDivider()
             }
         }
     }
@@ -143,7 +142,7 @@ struct GitPanel: View {
                 }
             } label: {
                 Text(status.branch)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.muxa(.body, weight: .semibold))
                     .foregroundStyle(Color.pFg)
                     .lineLimit(1)
             }
@@ -153,7 +152,7 @@ struct GitPanel: View {
             .disabled(syncBusy)
         } else {
             Text(status?.branch ?? "Git")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.muxa(.body, weight: .semibold))
                 .foregroundStyle(Color.pFg)
                 .lineLimit(1)
         }
@@ -165,19 +164,14 @@ struct GitPanel: View {
         return Button {
             if let dir { Task { await GitService.ghOpenPR(in: dir) } }
         } label: {
-            HStack(spacing: 3) {
-                Image(systemName: "arrow.triangle.pull").font(.system(size: 9))
-                Text("#\(gh.prNumber)").font(.system(size: 10, weight: .semibold, design: .monospaced))
+            Pill(color: stateColor) {
+                Image(systemName: "arrow.triangle.pull").font(.muxa(.micro))
+                Text("#\(gh.prNumber)").font(.muxaMono(.caption, weight: .semibold))
                 if let rollup = gh.rollup {
-                    Image(systemName: checkIcon(rollup)).font(.system(size: 9, weight: .bold))
+                    Image(systemName: checkIcon(rollup)).font(.muxa(.micro, weight: .bold))
                         .foregroundStyle(checkColor(rollup))
                 }
             }
-            .foregroundStyle(stateColor)
-            .padding(.horizontal, 5)
-            .frame(height: 16)
-            .background(stateColor.opacity(0.14), in: Capsule())
-            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .help(prHelp(gh))
@@ -222,24 +216,14 @@ struct GitPanel: View {
         return s
     }
 
-    /// 헤더용 아이콘 버튼.
-    private func iconButton(_ icon: String, help: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon).font(.system(size: 11))
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(Color.pMuted)
-        .help(help)
-    }
-
     private var picker: some View {
         Picker("", selection: $mode) {
             ForEach(Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
         }
         .pickerStyle(.segmented)
         .labelsHidden()
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, Space.md)
+        .padding(.vertical, Space.sm)
     }
 
     // MARK: 변경사항
@@ -250,41 +234,41 @@ struct GitPanel: View {
             VStack(alignment: .leading, spacing: 0) {
                 GitCommitBox(message: $commitMessage, stagedCount: status.staged.count,
                              error: commitError, onCommit: { Task { await commit() } })
-                Rectangle().fill(Color.pBorder).frame(height: 1)
+                HDivider()
                 if status.isClean {
-                    label("변경 없음")
+                    PanelLabel("변경 없음")
                 } else {
                     wholeDiffToolbar
-                    Rectangle().fill(Color.pBorder).frame(height: 1)
+                    HDivider()
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
                             section("스테이지됨", status.staged, staged: true)
                             section("변경", status.unstaged, staged: false)
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, Space.xs)
                     }
                 }
             }
         } else {
-            label("불러오는 중…")
+            PanelLabel("불러오는 중…")
         }
     }
 
     /// 변경사항 도구줄 — 워크트리 전체를 한 번에 훑는 통합 diff 서브탭을 연다.
     private var wholeDiffToolbar: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Space.sm) {
             wholeDiffButton("전체 변경 diff", base: nil)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 10).frame(height: 28)
+        .panelBar()
     }
 
     /// 통합 diff 열기 버튼 — base=nil이면 미커밋 전체, base 지정이면 세션 기준선 이후 전체.
     private func wholeDiffButton(_ title: String, base: String?) -> some View {
         Button { onOpenDiff(.all(base: base)) } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "rectangle.stack").font(.system(size: 10, weight: .bold))
-                Text(title).font(.system(size: 11))
+            HStack(spacing: Space.xs) {
+                Image(systemName: "rectangle.stack").font(.muxa(.caption, weight: .bold))
+                Text(title).font(.muxa(.label))
             }
             .foregroundStyle(Color.pFg)
         }
@@ -296,53 +280,45 @@ struct GitPanel: View {
     @ViewBuilder
     private func section(_ title: String, _ changes: [GitFileChange], staged: Bool) -> some View {
         if !changes.isEmpty, let dir {
-            HStack(spacing: 6) {
-                Text(title).font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.pMuted)
-                Text("\(changes.count)").font(.system(size: 10, design: .monospaced)).foregroundStyle(Color.pMuted.opacity(0.7))
+            HStack(spacing: Space.sm) {
+                SectionLabel(title: title, count: changes.count)
                 Spacer(minLength: 0)
-                Button {
+                IconButton(icon: staged ? "minus" : "plus", scale: .caption, weight: .bold,
+                           help: staged ? "전부 언스테이지" : "전부 스테이지") {
                     Task {
                         _ = staged ? await GitService.unstageAll(in: dir) : await GitService.stageAll(in: dir)
                         await refresh()
                     }
-                } label: {
-                    Image(systemName: staged ? "minus" : "plus").font(.system(size: 10, weight: .bold))
                 }
-                .buttonStyle(.plain).foregroundStyle(Color.pMuted)
-                .help(staged ? "전부 언스테이지" : "전부 스테이지")
             }
-            .padding(.horizontal, 10).frame(height: 22)
+            .panelBar(height: RowHeight.tight)
             ForEach(changes) { fileRow($0, staged: staged, dir: dir) }
         }
     }
 
-    /// 파일 행 — [스테이지/언스테이지 버튼][상태문자][파일명 → diff 열기].
+    /// 파일 행 — [스테이지/언스테이지 버튼][상태문자][파일명 → diff 열기][버리기].
     private func fileRow(_ change: GitFileChange, staged: Bool, dir: String) -> some View {
         let badge = staged ? change.index : change.worktree
-        return HStack(spacing: 6) {
-            Button {
+        return HStack(spacing: Space.sm) {
+            IconButton(icon: staged ? "minus" : "plus", scale: .caption, weight: .bold,
+                       help: staged ? "언스테이지" : "스테이지") {
                 Task {
                     _ = staged ? await GitService.unstage(change.opPath, in: dir)
                                : await GitService.stage(change.opPath, in: dir)
                     await refresh()
                 }
-            } label: {
-                Image(systemName: staged ? "minus" : "plus").font(.system(size: 10, weight: .bold))
-                    .frame(width: 14)
             }
-            .buttonStyle(.plain).foregroundStyle(Color.pMuted)
-            .help(staged ? "언스테이지" : "스테이지")
 
             Button { onOpenDiff(.file(change)) } label: {
-                HStack(spacing: 8) {
+                HStack(spacing: Space.md) {
                     Text(String(badge))
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .font(.muxaMono(.label, weight: .bold))
                         .foregroundStyle(badgeColor(badge))
                         .frame(width: 12)
                     Text(basename(change.opPath))
-                        .font(.system(size: 12)).foregroundStyle(Color.pFg).lineLimit(1)
+                        .font(.muxa(.body)).foregroundStyle(Color.pFg).lineLimit(1)
                     Text(parentDir(change.opPath))
-                        .font(.system(size: 10)).foregroundStyle(Color.pMuted.opacity(0.8)).lineLimit(1)
+                        .font(.muxa(.caption)).foregroundStyle(Color.pMuted.opacity(0.8)).lineLimit(1)
                     Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
@@ -350,14 +326,9 @@ struct GitPanel: View {
             .buttonStyle(.plain)
             .help(change.path)
 
-            Button { discard(change, in: dir) } label: {
-                Image(systemName: "trash").font(.system(size: 10)).frame(width: 14)
-            }
-            .buttonStyle(.plain).foregroundStyle(Color.pMuted)
-            .help("변경 버리기")
+            IconButton(icon: "trash", scale: .caption, help: "변경 버리기") { discard(change, in: dir) }
         }
-        .padding(.horizontal, 10)
-        .frame(height: 24)
+        .panelRow()
         .contextMenu {
             Button("변경 버리기", role: .destructive) { discard(change, in: dir) }
         }
@@ -377,13 +348,13 @@ struct GitPanel: View {
     @ViewBuilder
     private var historyView: some View {
         if commits.isEmpty {
-            label(loaded ? "커밋 없음" : "불러오는 중…")
+            PanelLabel(loaded ? "커밋 없음" : "불러오는 중…")
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(commits) { commitRow($0) }
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, Space.xs)
             }
         }
     }
@@ -394,17 +365,17 @@ struct GitPanel: View {
     private var sessionView: some View {
         VStack(alignment: .leading, spacing: 0) {
             sessionToolbar
-            Rectangle().fill(Color.pBorder).frame(height: 1)
+            HDivider()
             if sessionBase == nil {
-                label("기준선 기록 중…")
+                PanelLabel("기준선 기록 중…")
             } else if sessionCommits.isEmpty {
-                label(loaded ? "이번 세션 새 커밋 없음" : "불러오는 중…")
+                PanelLabel(loaded ? "이번 세션 새 커밋 없음" : "불러오는 중…")
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(sessionCommits) { commitRow($0) }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, Space.xs)
                 }
             }
         }
@@ -412,74 +383,66 @@ struct GitPanel: View {
 
     /// 세션 도구줄 — 커밋 수 + 세션 전체 diff + "여기까지 봤음"(기준선을 현재 HEAD로 리셋).
     private var sessionToolbar: some View {
-        HStack(spacing: 6) {
-            Text("이번 세션 커밋").font(.system(size: 10, weight: .semibold)).foregroundStyle(Color.pMuted)
-            Text("\(sessionCommits.count)").font(.system(size: 10, design: .monospaced)).foregroundStyle(Color.pMuted.opacity(0.7))
+        HStack(spacing: Space.sm) {
+            SectionLabel(title: "이번 세션 커밋", count: sessionCommits.count)
             Spacer(minLength: 0)
             if let base = sessionBase {
                 wholeDiffButton("세션 전체", base: base) // base..worktree = 이번 세션 전체(커밋+미커밋)
             }
             Button(action: onResetBaseline) {
-                HStack(spacing: 3) {
-                    Image(systemName: "checkmark.circle").font(.system(size: 10))
-                    Text("여기까지 봤음").font(.system(size: 10))
+                HStack(spacing: Space.tight + 1) {
+                    Image(systemName: "checkmark.circle").font(.muxa(.caption))
+                    Text("여기까지 봤음").font(.muxa(.caption))
                 }
             }
             .buttonStyle(.plain).foregroundStyle(Color.pMuted)
             .help("기준선을 현재 HEAD로 리셋 — 이후 커밋만 '이번 세션'에 표시")
             .disabled(sessionBase == nil)
         }
-        .padding(.horizontal, 10).frame(height: 26)
+        .panelBar()
     }
 
     private func commitRow(_ commit: GitCommit) -> some View {
         Button { onOpenDiff(.commit(hash: commit.hash, subject: commit.subject)) } label: {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Space.tight) {
                 Text(commit.subject)
-                    .font(.system(size: 12))
+                    .font(.muxa(.body))
                     .foregroundStyle(Color.pFg)
                     .lineLimit(1)
-                HStack(spacing: 6) {
+                HStack(spacing: Space.sm) {
                     Text(commit.shortHash)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.muxaMono(.caption))
                         .foregroundStyle(Color.pMuted)
-                    Text(commit.author).font(.system(size: 10)).foregroundStyle(Color.pMuted).lineLimit(1)
+                    Text(commit.author).font(.muxa(.caption)).foregroundStyle(Color.pMuted).lineLimit(1)
                     Text("·").foregroundStyle(Color.pMuted)
-                    Text(commit.date).font(.system(size: 10)).foregroundStyle(Color.pMuted).lineLimit(1)
+                    Text(commit.date).font(.muxa(.caption)).foregroundStyle(Color.pMuted).lineLimit(1)
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.vertical, Space.sm)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .panelRow(height: nil) // 2줄이라 내용 높이를 따른다
     }
 
     // MARK: 공용
 
     private func counter(_ icon: String, _ n: Int) -> some View {
-        HStack(spacing: 1) {
-            Image(systemName: icon).font(.system(size: 9))
-            Text("\(n)").font(.system(size: 11, design: .monospaced))
+        HStack(spacing: Space.tight - 1) {
+            Image(systemName: icon).font(.muxa(.micro))
+            Text("\(n)").font(.muxaMono(.label))
         }
         .foregroundStyle(Color.pMuted)
     }
 
-    private func label(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 11))
-            .foregroundStyle(Color.pMuted)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-    }
-
+    /// git 상태 문자 → 색. 팔레트의 git 상태색을 쓴다(시스템색 `.green`류를 직접 쓰면 라이트/다크 대비가 어긋난다).
     private func badgeColor(_ c: Character) -> Color {
         switch c {
-        case "A", "?": return .green
-        case "M": return .orange
-        case "D": return .red
-        case "R", "C": return .blue
+        case "A", "?": return Color(nsColor: Palette.gitAdded)
+        case "M": return Color(nsColor: Palette.gitModified)
+        case "D": return Color(nsColor: Palette.gitDeleted)
+        case "R", "C": return Color(nsColor: Palette.gitRenamed)
+        case "U": return Color(nsColor: Palette.gitConflict)
         default: return Color.pMuted
         }
     }
