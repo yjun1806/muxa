@@ -79,10 +79,16 @@ fable 3렌즈 검토로 도출한 백로그를 순차 파이프라인(각 단계
 
 신규 파일: `NotifyServer` · `MuxaConfig` · `KeymapResolver` · `QuickSwitcher`/`QuickSwitchItem` · `FuzzyMatch` · `TerminalSignal` · `DiscardConfirm` · `WorktreeMergeConfirm`.
 
-## 서비스(장수 프로세스) — 완료 · 육안 검증됨 (2026-07-13)
+## 서비스(장수 프로세스) — 기능 완성, **코드 리뷰 미반영** (2026-07-13)
 
 dev 서버를 **탭 트리 밖 "서비스"**로 두고 실행을 muxa 전용 tmux 서버에 위임. 설계 근거는
 [ARCHITECTURE D19 · 4.7](ARCHITECTURE.md). **238개 통과** + 실기기 육안 확인 완료.
+
+> ⚠️ **리뷰에서 Critical 3 + Required 12 발견 — 미수정.** 목록·수정안·진행 체크는
+> **[SERVICE-REVIEW.md](SERVICE-REVIEW.md)**. 특히 C1(`remain-on-exit`를 new-session *뒤에* 걸어
+> 첫 서비스가 즉사하면 exit code·로그·알림이 통째로 소실 — 아래 "생존/감지" 주장이 이 경우엔 거짓)과
+> C3(중복 serviceId → 부팅 크래시)은 데이터 소실·크래시라 다음 세션 최우선. 육안 검증은 서버가
+> 살아있는 동안만 이뤄져 이들을 놓쳤다.
 
 - **생존** — tmux 서버는 ppid=1(launchd). muxa를 꺼도 dev 서버가 산다(실측). 재실행 시 세션 생성
   시각 불변 = 중복 기동 없음(`start` 멱등).
