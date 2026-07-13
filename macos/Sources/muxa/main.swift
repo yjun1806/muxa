@@ -8,7 +8,7 @@ import SwiftUI
 /// 키바인딩 재정의 경고 로그 채널. 사용자가 표면(콘솔·Console.app)에서 "왜 안 먹지"를 추적할 수 있게 한다.
 private let keymapLog = Logger(subsystem: "com.muxa.app", category: "keybind")
 
-// muxa — SwiftUI 크롬 + AppKit(GhosttyKit) 터미널 하이브리드 (DESIGN.md D16).
+// muxa — SwiftUI 크롬 + AppKit(GhosttyKit) 터미널 하이브리드 (ARCHITECTURE.md D16).
 // AppKit이 NSWindow·activation을 제어(raw 실행에도 창이 확실히 뜬다)하고,
 // NSHostingView로 SwiftUI UI를 그 안에 임베드한다. Ghostty와 같은 구조.
 
@@ -35,7 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var wheelMonitor: Any?
     /// 단축키 판정 테이블 — 설정 로드 후 재정의를 얹어 교체한다(그전까진 기본 테이블). 라이브 리로드로 다시 교체된다.
     private var keymap = KeymapResolver.default
-    /// 설정 파일 감시자 — 저장 시 자동 재적용(재시작 불필요). 부작용은 이 경계 타입에 격리. (DESIGN 4.6)
+    /// 설정 파일 감시자 — 저장 시 자동 재적용(재시작 불필요). 부작용은 이 경계 타입에 격리. (ARCHITECTURE 4.6)
     private var configWatcher: ConfigWatcher?
     /// 시스템 외관(라이트↔다크) 감시 — 바뀌면 터미널 팔레트를 다시 굽는다(GhosttyRuntime.applyAppearance).
     private var appearanceObserver: NSKeyValueObservation?
@@ -58,8 +58,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NotificationService.shared.requestAuthorizationIfPossible() // 데스크톱 알림 권한(번들일 때만)
         setupMainMenu() // ⌘Q(종료)·⌘H(가리기) — 메뉴가 없으면 ⌘Q가 안 묶인다
 
-        // muxa 설정(~/.config/muxa/config) 로드 — 없으면 전부 기본값. 폰트·테마는 ghostty config 재사용(GhosttyRuntime). (DESIGN 4.6)
+        // muxa 설정(~/.config/muxa/config) 로드 — 없으면 전부 기본값. 폰트·테마는 ghostty config 재사용(GhosttyRuntime). (ARCHITECTURE 4.6)
         let config = MuxaConfigLoader.load()
+
+        // 개발빌드는 워크트리마다 저장소가 갈린다(AppInfo.devKey) — 이 저장소의 출처를 찍어두고,
+        // 주인(워크트리)이 사라진 유령 저장소를 청소한다. 릴리스에선 둘 다 무동작.
+        MuxaSupportDir.stampOrigin()
+        MuxaSupportDir.collectGarbage()
 
         // 저장된 세션 복원(없으면 설정의 기본 경로/현재 디렉토리로 초기 워크스페이스 생성)
         let state = AppState(app: app, config: config)
@@ -78,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             state?.revealActivity(projectId: ctx.projectId, tabId: ctx.tabId)
         }
         self.state = state
-        // 단축키 테이블 — 설정의 keybinding 재정의를 기본 위에 얹고(없으면 기본 그대로) 진단을 로그·노출한다. (DESIGN 7)
+        // 단축키 테이블 — 설정의 keybinding 재정의를 기본 위에 얹고(없으면 기본 그대로) 진단을 로그·노출한다. (ARCHITECTURE 7)
         rebuildKeymap(config)
         // 휠 마우스로도 탭바를 좌우로 굴릴 수 있게 — 가로 전용 스크롤뷰에만 적용된다.
         wheelMonitor = WheelScrollBridge.install()
@@ -168,7 +173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     /// 로컬 키 모니터의 착지점 — 판정은 KeymapResolver(순수)에 위임하고, 매치되면 실행 후 소비(true),
-    /// 미매치면 통과(false → 포커스된 터미널이 먹는다). 우리 창 이벤트만 대상. (DESIGN 7 라우팅 규칙)
+    /// 미매치면 통과(false → 포커스된 터미널이 먹는다). 우리 창 이벤트만 대상. (ARCHITECTURE 7 라우팅 규칙)
     private func handleShortcut(_ event: NSEvent) -> Bool {
         guard event.window === window, let state else { return false }
         guard let action = keymap.resolve(keyCode: Int(event.keyCode),
@@ -270,7 +275,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
-    /// 종료 확인 — 실행 중인 터미널 세션이 다 닫히므로 실수 종료를 막는다. 설정 confirm_quit=false면 건너뛴다. (DESIGN 4.6)
+    /// 종료 확인 — 실행 중인 터미널 세션이 다 닫히므로 실수 종료를 막는다. 설정 confirm_quit=false면 건너뛴다. (ARCHITECTURE 4.6)
     ///
     /// **여기까지 오는 건 창을 거치지 않는 종료뿐이다** — Dock 우클릭 종료, 시스템 로그아웃·재시동.
     /// ⌘Q는 `requestQuit`, 창 닫기는 `windowShouldClose`가 각각 **시트**로 먼저 묻고 오므로

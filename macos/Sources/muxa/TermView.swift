@@ -28,7 +28,7 @@ final class TermView: NSView, NSTextInputClient {
 
     /// 이 뷰가 담긴 Bonsplit 탭 — 배지 라우팅용(A). TerminalStore.term(for:)에서 주입.
     var tabId: TabID?
-    /// 셸의 현재 작업 디렉터리(OSC 7). 세션 저장 시 store가 읽어 이 경로에서 새 셸을 복원한다(DESIGN 4.2).
+    /// 셸의 현재 작업 디렉터리(OSC 7). 세션 저장 시 store가 읽어 이 경로에서 새 셸을 복원한다(ARCHITECTURE 4.2).
     var pwd: String?
     /// 백그라운드 주의 신호(완료·벨·알림)를 store로 넘긴다 — 억제 판정·배지·알림은 store가 결정.
     var onSignal: ((TerminalSignal) -> Void)?
@@ -87,7 +87,7 @@ final class TermView: NSView, NSTextInputClient {
         }
         // 세션 복원: 새 셸이 시작하면 저장된 이전 화면을 재출력해 프롬프트 위에 복원한다(rc 훅 불필요).
         // initial_input은 셸 stdin으로 들어가 "정상 출력 경로"를 타므로 엔진 렌더와 충돌하지 않는다(process_output
-        // 직접 주입은 이 ghostty 포크에서 흰 화면을 냈다). DESIGN 123 "새 셸에서 재출력"의 구현.
+        // 직접 주입은 이 ghostty 포크에서 흰 화면을 냈다). ARCHITECTURE 123 "새 셸에서 재출력"의 구현.
         // 앞에 `clear`를 둬 echo된 명령 줄·login 배너를 화면에서 지우고 순수 내용만 남긴다 — 다음 저장 캡처가
         // 깨끗해져 재출력 아티팩트(cat/배너)가 매 복원마다 쌓이는 중첩도 준다. (rm은 하지 않는다 — 저장
         // 레이아웃이 이 파일을 가리키므로 지우면 다음 복원에서 빈 파일이 돼 복원이 실패한다. 정리는 GC가 담당.)
@@ -454,7 +454,7 @@ final class TermView: NSView, NSTextInputClient {
         onSignal?(.bell)
     }
 
-    // MARK: 출력 heartbeat — RENDER 액션 다운샘플 (에이전트 상태 추정, DESIGN 4.5)
+    // MARK: 출력 heartbeat — RENDER 액션 다운샘플 (에이전트 상태 추정, ARCHITECTURE 4.5)
     //
     // GHOSTTY_ACTION_RENDER는 프레임마다(고빈도) 온다 → 반드시 스로틀. 게이트(shouldEmitRenderHeartbeat)만
     // 콜백 스레드에서 저비용으로 통과시키고, 실제 신호는 메인에서 emitOutputHeartbeat가 넘긴다.

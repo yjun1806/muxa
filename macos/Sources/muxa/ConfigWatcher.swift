@@ -1,6 +1,6 @@
 import Foundation
 
-/// muxa 설정 파일(`~/.config/muxa/config`) 하나를 감시하는 경계 타입 — 저장 시 자동 재적용을 위한 트리거. (DESIGN 4.6)
+/// muxa 설정 파일(`~/.config/muxa/config`) 하나를 감시하는 경계 타입 — 저장 시 자동 재적용을 위한 트리거. (ARCHITECTURE 4.6)
 ///
 /// 순수하지 않은 파일 I/O·FS 이벤트를 여기에만 격리한다. 파싱은 MuxaConfig.parse(순수)가, 재적용은
 /// 소비 측(AppDelegate)이 맡는다 — 이 타입은 "바뀌었다"만 알린다(onChange).

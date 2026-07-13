@@ -1,6 +1,6 @@
 import AppKit
 
-/// 한 탭(터미널)에서 도는 에이전트의 추정 활동 상태 (DESIGN 4.5 "출력 idle + 프로세스 상태로 추정").
+/// 한 탭(터미널)에서 도는 에이전트의 추정 활동 상태 (ARCHITECTURE 4.5 "출력 idle + 프로세스 상태로 추정").
 ///
 /// 순수 값이다 — 색·라벨만 알고, 전이 로직은 `AgentActivityEstimator`, 표현은 뷰가 맡는다.
 /// idle=신호 없음/미실행, working=출력이 흐름, waiting=출력이 멎었고 입력 대기 추정, done=완료·종료.
@@ -33,7 +33,7 @@ enum AgentActivity: String, Equatable {
 
 /// 에이전트 상태 추정기 — 신호를 받아 상태를 전이하는 순수 값 타입(테스트 가능, 부작용 없음).
 ///
-/// 설계 원칙(DESIGN 4.5, 보수적 버전):
+/// 설계 원칙(ARCHITECTURE 4.5, 보수적 버전):
 /// - **명시 신호(muxa notify) 우선.** 훅이 보낸 waiting/done은 ground truth라 추정을 덮고 고정(pin)한다.
 ///   고정 중엔 출력 heartbeat(RENDER)를 무시한다 — 커서 깜빡임 같은 노이즈 RENDER가 상태를 되돌리지 못하게.
 ///   훅의 명시 working(작업 재개)만 고정을 푼다.

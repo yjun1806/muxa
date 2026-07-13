@@ -1,6 +1,6 @@
 import Foundation
 
-/// muxa 고유 설정(값 타입) — `~/.config/muxa/config`에서 로드. (DESIGN 4.6)
+/// muxa 고유 설정(값 타입) — `~/.config/muxa/config`에서 로드. (ARCHITECTURE 4.6)
 ///
 /// 폰트·테마 등 터미널 코어 설정은 ghostty config(`~/.config/ghostty/config`)를 그대로
 /// 재사용한다(GhosttyRuntime). 이 타입은 그와 별개로 muxa 크롬·동작에만 관여하는 설정 표면이다.
@@ -17,7 +17,7 @@ struct MuxaConfig: Equatable {
     /// 첫 실행 시 초기 워크스페이스로 열 경로(없으면 현재 디렉토리/홈).
     var defaultWorkspacePath: String?
     /// 단축키 재정의: 동작 이름 → 조합 문자열(예: `new_terminal → "cmd+t"`). 비면 기본 테이블 그대로.
-    /// KeymapResolver가 기본 테이블 위에 얹는다 — 파싱 실패한 항목은 조용히 무시. (DESIGN 7)
+    /// KeymapResolver가 기본 테이블 위에 얹는다 — 파싱 실패한 항목은 조용히 무시. (ARCHITECTURE 7)
     var keybindings: [String: String]
     /// 복원된 에이전트 세션 재개의 승인 게이트(off/manual/auto). 기본 manual — 임의 셸 명령을
     /// 자동 실행하지 않고 사용자 확인을 강제한다(신뢰 경계). (D2)

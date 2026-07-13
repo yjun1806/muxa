@@ -27,6 +27,33 @@ func collectKnownProjectIds(in workspaces: [Workspace]) -> Set<String> {
     Set(workspaces.flatMap(\.projects).map(\.id))
 }
 
+/// 서비스 하나 + **어디에 속하는가**(워크스페이스·프로젝트).
+///
+/// 서비스는 프로젝트 소속이지만, 사용자가 알아야 하는 건 "지금 이 프로젝트"가 아니라
+/// **창 전체에서 뭐가 도는가**다. 다른 워크스페이스의 dev 서버가 죽었는데 거기 들어가야만
+/// 알 수 있다면 알림으로서 실패다.
+struct LocatedService: Identifiable {
+    var id: String { service.id }
+    let service: Service
+    let workspaceId: String
+    let workspaceName: String
+    let projectId: String
+    let projectName: String
+}
+
+/// 모든 워크스페이스·프로젝트의 서비스를 소속과 함께 한 목록으로 편다(선언 순서 유지).
+func collectAllServices(in workspaces: [Workspace]) -> [LocatedService] {
+    workspaces.flatMap { ws in
+        ws.projects.flatMap { project in
+            (project.services ?? []).map {
+                LocatedService(service: $0,
+                               workspaceId: ws.id, workspaceName: ws.name,
+                               projectId: project.id, projectName: project.name)
+            }
+        }
+    }
+}
+
 /// 서비스의 현재 상태. 진실 원천은 muxa가 아니라 tmux다 — 접혀 있어도 읽힌다.
 enum ServiceState: Equatable {
     case running

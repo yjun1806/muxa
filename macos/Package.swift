@@ -1,5 +1,5 @@
 // swift-tools-version: 5.9
-// muxa M0 PoC — GhosttyKit 임베딩 + 한글 IME 게이트 (DESIGN.md v2 M0)
+// muxa M0 PoC — GhosttyKit 임베딩 + 한글 IME 게이트 (ARCHITECTURE.md v2 M0)
 import PackageDescription
 
 let package = Package(

@@ -84,7 +84,7 @@ struct StatusBar: View {
                 // 닫았지만 살아 있는 터미널 세션 — 있을 때만 나타난다(없으면 자리도 안 차지한다).
                 // 안 보여주면 "뭔가 돌고 있는데 어디 있는지 모르는" 유령이 된다.
                 DetachedStrip(state: state, project: project)
-                ServiceStrip(state: state, project: project, cwd: project.path ?? ws.path)
+                ServiceStrip(state: state, project: project)
             }
         }
         .panelBar(height: RowHeight.toolbar) // 내용이 세로 중앙에 오도록 여유를 준다(24는 빡빡해 아래로 붙어 보인다)

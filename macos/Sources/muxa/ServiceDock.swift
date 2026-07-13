@@ -39,7 +39,8 @@ struct ServiceDock: View {
         }
         .transition(.move(edge: .bottom))
         .sheet(isPresented: $showAdd) {
-            ServiceAddSheet { name, command in
+            // cwd를 넘겨 package.json 스크립트를 찾게 한다(직접 입력도 그대로 가능).
+            ServiceAddSheet(cwd: cwd) { name, command in
                 guard let cwd else { return }
                 state.addService(name: name, command: command, to: project.id, cwd: cwd)
             }

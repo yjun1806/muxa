@@ -1,6 +1,6 @@
 import AppKit
 
-/// 워크트리 마무리(merge 후 정리) 동선의 파괴적 확인·오류 다이얼로그. (DESIGN 4.4 #5)
+/// 워크트리 마무리(merge 후 정리) 동선의 파괴적 확인·오류 다이얼로그. (ARCHITECTURE 4.4 #5)
 /// 메인 스레드(runModal)에서 호출 — SwiftUI 버튼 액션·MainActor Task 컨텍스트가 이에 해당.
 enum WorktreeMergeConfirm {
     /// 병합+정리 확인. 확인 시 true. 파괴적(브랜치·워크트리 삭제)이라 되돌릴 수 없음을 명시한다.

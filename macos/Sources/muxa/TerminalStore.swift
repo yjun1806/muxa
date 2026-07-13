@@ -546,7 +546,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         guard let tabId = resolveTab(incoming) else { return false }
         if let resume { setResumeBinding(resume, for: tabId) }
         if let state {
-            // 명시 신호는 상태 추정의 ground truth — 배지 경로와 별개로 추정기에 항상 고정 반영한다(DESIGN 4.5).
+            // 명시 신호는 상태 추정의 ground truth — 배지 경로와 별개로 추정기에 항상 고정 반영한다(ARCHITECTURE 4.5).
             applyAgentSignal(.explicit(state), to: tabId)
             switch state {
             case .waiting, .done:
@@ -781,7 +781,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     /// 정상 종료(코드 0/미보고)면서 이 시간(ns)보다 짧게 끝난 명령은 배지를 억제한다.
     /// 짧은 `ls`·`cd` 완료로 배지가 쌓이는 오탐 방지. 기본 8초 — muxa 설정
-    /// `command_finished_threshold_sec`로 덮인다(AppState가 init에 주입). (DESIGN 4.6)
+    /// `command_finished_threshold_sec`로 덮인다(AppState가 init에 주입). (ARCHITECTURE 4.6)
     /// 설정 라이브 리로드로 갱신될 수 있어 var — AppState가 `updateCommandFinishedThreshold`로 전파한다.
     @ObservationIgnored private var commandFinishedThresholdNs: UInt64
     /// 마지막 벨로부터 이 시간(초) 안쪽 벨은 무시 — 벨 연타 오탐 억제.
@@ -814,7 +814,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 재-트리거 시 이전 해제 타이머를 무효화하려는 탭별 세대값 — 연속 활동이면 페이드가 리셋된다.
     @ObservationIgnored private var flashSeq: [TabID: Int] = [:]
 
-    // MARK: 에이전트 상태 추정 (DESIGN 4.5) — 순수 추정기 + 신호 배선
+    // MARK: 에이전트 상태 추정 (ARCHITECTURE 4.5) — 순수 추정기 + 신호 배선
     //
     // 탭별 AgentActivityEstimator(순수 값)에 신호(heartbeat·완료·명시 notify·tick)를 넣어 상태를 굴린다.
     // 명시 신호(muxa notify)가 ground truth로 우선하고, 없으면 출력 idle 타이머로 추정한다(보수적).

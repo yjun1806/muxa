@@ -1,118 +1,149 @@
 import SwiftUI
 
-/// 서비스 상세 팝오버 — 푸터 칩을 **클릭하면** 열린다(사용량·백그라운드 팝오버와 같은 문법).
+/// 서비스 상세 팝오버 — 푸터 칩에 hover하면 열린다(사용량 팝오버와 같은 문법).
 ///
-/// 푸터 칩은 "문제가 있나 없나"만 말한다. **무엇이 왜 그런지는 여기서 말한다** —
-/// 서비스별 상태·포트·exit code. 행을 클릭하면 그 서비스의 로그(도크)로 바로 가고,
-/// 재시작·제거는 도크까지 안 가도 여기서 끝낸다(도크 헤더와 같은 액션 세트).
+/// **창 전체의 서비스를 보여준다.** 서비스는 프로젝트 소속이지만, 사용자가 알아야 하는 건
+/// "지금 이 프로젝트"가 아니라 **어디서 뭐가 도는가**다. 다른 워크스페이스의 dev 서버가 죽었는데
+/// 거기 들어가야만 알 수 있다면 알림으로서 실패다.
+///
+/// 지금 프로젝트를 맨 위에 두고 나머지는 프로젝트별로 묶는다. 어느 행이든 클릭하면 그리로 데려간다.
 struct ServicePopover: View {
     let state: AppState
-    let project: Project
-    /// 서비스가 도는 디렉터리 — 재시작에 필요하다. 모르면 재시작 버튼을 띄우지 않는다(엉뚱한 곳에서 띄우지 않게).
-    let cwd: String?
-    /// 행 클릭 → 도크를 그 서비스로 연다.
-    let onOpen: (String?) -> Void
+    /// 지금 보고 있는 프로젝트 — 맨 위로 올리고 "현재" 표시를 단다.
+    let currentProjectId: String
+    /// 행 클릭 → 그 서비스가 있는 곳으로 이동 + 로그 열기.
+    let onReveal: (LocatedService) -> Void
     /// "서비스 추가" → 도크를 열면서 추가 시트까지 바로 띄운다.
     let onAdd: () -> Void
 
-    private var services: [Service] { state.services(of: project.id) }
+    private let width: CGFloat = 300
+
+    /// 프로젝트별로 묶고, 현재 프로젝트를 맨 앞에. (프로젝트 안에서는 선언 순서 유지.)
+    private var groups: [(projectId: String, title: String, services: [LocatedService])] {
+        var order: [String] = []
+        var byProject: [String: [LocatedService]] = [:]
+        for item in state.allLocatedServices {
+            if byProject[item.projectId] == nil { order.append(item.projectId) }
+            byProject[item.projectId, default: []].append(item)
+        }
+        return order
+            .sorted { a, _ in a == currentProjectId } // 현재 프로젝트를 맨 앞으로
+            .compactMap { pid in
+                guard let items = byProject[pid], let first = items.first else { return nil }
+                // 워크스페이스가 여럿이면 어느 워크스페이스인지도 밝힌다("front › 웹").
+                let title = state.workspaces.count > 1
+                    ? "\(first.workspaceName) › \(first.projectName)"
+                    : first.projectName
+                return (pid, title, items)
+            }
+    }
 
     var body: some View {
-        FooterPopover(title: "서비스", subtitle: subtitle) {
-            FooterMark(icon: "square.stack.3d.up")
-        } accessory: {
-            if TmuxService.isAvailable, !services.isEmpty {
-                FooterAction(icon: "plus", help: "서비스 추가", action: onAdd)
-                FooterAction(icon: "rectangle.bottomthird.inset.filled",
-                             help: "로그 도크 열기 (⌘J)") { onOpen(nil) }
-            }
-        } content: {
+        VStack(alignment: .leading, spacing: Space.md) {
+            header
+            HDivider()
             if !TmuxService.isAvailable {
-                // tmux가 없으면 목록이 있을 리 없다 — 왜 못 쓰는지 말하고 안내(도크)로 보낸다.
-                FooterHint(title: "tmux가 필요합니다",
-                           detail: "dev 서버를 muxa 바깥에서 살려두는 일을 tmux가 맡습니다.") {
-                    Button("설치 안내 보기") { onOpen(nil) }
-                        .font(.muxa(.label))
-                }
-            } else if services.isEmpty {
-                // 아무것도 없으면 **추가만** 보여준다 — 빈 목록·빈 상태 문구를 늘어놓지 않는다.
-                FooterHint(title: "등록된 서비스가 없습니다",
-                           detail: "dev 서버처럼 오래 도는 명령을 등록하면\nmuxa를 꺼도 계속 돕니다.") {
-                    Button("서비스 추가", action: onAdd)
-                        .font(.muxa(.label))
-                }
+                hint("tmux가 필요합니다", detail: "dev 서버를 muxa 바깥에서 살려두는 일을 tmux가 맡습니다.")
+                Button("설치 안내 보기", action: onAdd)
+                    .font(.muxa(.label))
+            } else if groups.isEmpty {
+                // 아무것도 없으면 **추가만** 보여준다 — 빈 목록을 늘어놓지 않는다.
+                hint("등록된 서비스가 없습니다",
+                     detail: "dev 서버처럼 오래 도는 명령을 등록하면\nmuxa를 꺼도 계속 돕니다.")
+                Button("서비스 추가", action: onAdd)
+                    .font(.muxa(.label))
             } else {
-                ForEach(services) { service in
-                    row(service)
+                ForEach(groups, id: \.projectId) { group in
+                    section(group)
                 }
+            }
+        }
+        .padding(Space.lg)
+        .frame(width: width, alignment: .leading)
+        .background(Color.pPanel)
+    }
+
+    private var header: some View {
+        HStack(spacing: Space.sm) {
+            Image(systemName: "square.stack.3d.up")
+                .font(.muxa(.label))
+                .foregroundStyle(Color.pMuted)
+            Text("서비스")
+                .font(.muxa(.label, weight: .semibold))
+                .foregroundStyle(Color.pFg)
+            Spacer(minLength: Space.sm)
+            if TmuxService.isAvailable, !groups.isEmpty {
+                IconButton(icon: "plus", help: "서비스 추가", action: onAdd)
             }
         }
     }
 
-    /// 헤더 보조 — 목록을 다 읽지 않아도 심각도가 먼저 보인다.
-    private var subtitle: String? {
-        guard TmuxService.isAvailable, !services.isEmpty else { return nil }
-        let dead = services.filter { isDead($0) }.count
-        return dead > 0 ? "\(services.count)개 중 \(dead)개 종료됨" : "\(services.count)개 실행 중"
+    /// 프로젝트 한 묶음 — 어느 프로젝트 것인지 밝히고 그 아래 서비스를 편다.
+    private func section(_ group: (projectId: String, title: String, services: [LocatedService])) -> some View {
+        VStack(alignment: .leading, spacing: Space.tight) {
+            HStack(spacing: Space.xs) {
+                Text(group.title)
+                    .font(.muxa(.caption, weight: .semibold))
+                    .foregroundStyle(Color.pMuted)
+                    .lineLimit(1)
+                if group.projectId == currentProjectId {
+                    Text("현재")
+                        .font(.muxa(.nano))
+                        .foregroundStyle(Color.pMuted.opacity(0.7))
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Space.sm)
+
+            ForEach(group.services) { item in
+                row(item)
+            }
+        }
     }
 
-    /// 서비스 한 줄 — [● 이름 :3000 / 명령] + [재시작] [제거].
-    ///
-    /// 위계: **이름이 제목**(굵게), 명령은 그게 뭔지 알려주는 보조(고정폭·흐리게).
-    /// 꼬리표(:3000 / exit 1)는 이름 옆에 붙여 상태와 정체성을 한 눈에 묶는다.
-    /// 긴 명령은 가운데를 접어 잘라내고(앞뒤가 다 보이게), 전문은 툴팁으로 돌려준다.
-    private func row(_ service: Service) -> some View {
-        let status = state.serviceMonitor.states[service.id] ?? .missing
-        let tail = ServiceStatusStyle.tail(status, port: state.serviceMonitor.ports[service.id])
-        return HStack(spacing: Space.xs) {
-            Button { onOpen(service.id) } label: {
-                HStack(spacing: Space.sm) {
-                    Image(systemName: ServiceStatusStyle.glyph(status))
-                        .font(.muxa(.micro))
+    /// 서비스 한 줄 — [● 이름 · 명령 ··· :3000 / exit 1]. 클릭하면 **그 프로젝트로 데려가서** 로그를 연다.
+    private func row(_ item: LocatedService) -> some View {
+        let status = state.serviceMonitor.states[item.service.id] ?? .missing
+        return Button { onReveal(item) } label: {
+            HStack(spacing: Space.sm) {
+                Image(systemName: ServiceStatusStyle.glyph(status))
+                    .font(.muxa(.micro))
+                    .foregroundStyle(ServiceStatusStyle.color(status))
+                    .frame(width: 12)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(item.service.name)
+                        .font(.muxa(.label))
+                        .foregroundStyle(Color.pFg)
+                    Text(item.service.command)
+                        .font(.muxaMono(.caption))
+                        .foregroundStyle(Color.pMuted.opacity(0.8))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: Space.sm)
+                if let tail = ServiceStatusStyle.tail(status, port: state.serviceMonitor.ports[item.service.id]) {
+                    Text(tail)
+                        .font(.muxaMono(.caption))
                         .foregroundStyle(ServiceStatusStyle.color(status))
-                        .frame(width: 12)
-                    VStack(alignment: .leading, spacing: Space.tight) {
-                        HStack(spacing: Space.xs) {
-                            Text(service.name)
-                                .font(.muxa(.label, weight: .semibold))
-                                .foregroundStyle(Color.pFg)
-                                .lineLimit(1)
-                            if let tail {
-                                Text(tail)
-                                    .font(.muxaMono(.caption))
-                                    .foregroundStyle(ServiceStatusStyle.color(status))
-                                    .fixedSize()
-                            }
-                        }
-                        Text(service.command)
-                            .font(.muxaMono(.caption))
-                            .foregroundStyle(Color.pMuted)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Spacer(minLength: Space.xs)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("클릭하면 로그를 엽니다 — \(service.command)")
-
-            if let cwd {
-                FooterAction(icon: "arrow.clockwise", help: "재시작") {
-                    state.restartService(service.id, in: project.id, cwd: cwd)
                 }
             }
-            FooterAction(icon: "trash", help: "서비스 제거 — 등록을 지우고 프로세스도 종료합니다",
-                         destructive: true) {
-                state.removeService(service.id, from: project.id)
-            }
+            .padding(.horizontal, Space.sm)
+            .padding(.vertical, Space.xs)
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, Space.xs)
-        .panelRow(height: nil) // hover 배경이 좌우 끝까지 — "이 줄 전체가 버튼"이 보인다
+        .buttonStyle(.plain)
+        .help(item.projectId == currentProjectId
+              ? "클릭하면 로그를 엽니다"
+              : "클릭하면 \(item.projectName)(으)로 이동해 로그를 엽니다")
     }
 
-    private func isDead(_ service: Service) -> Bool {
-        if case .exited(let code) = state.serviceMonitor.states[service.id] ?? .missing { return code != 0 }
-        return false
+    private func hint(_ title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            Text(title).font(.muxa(.label)).foregroundStyle(Color.pFg)
+            Text(detail)
+                .font(.muxa(.caption))
+                .foregroundStyle(Color.pMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }

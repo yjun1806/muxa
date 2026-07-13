@@ -78,6 +78,12 @@ struct ScreenPreviewTests {
         #expect(ScreenPreview.summarize(raw) == "grep foo | wc -l")
     }
 
+    @Test func 대화_기록에서_온_말은_앞쪽_세_줄을_남긴다() {
+        // 화면 덤프와 반대다 — 말은 첫머리가 요지고, 뒤는 부연이다.
+        let text = "테스트를 고쳤습니다.\n\n1. A\n2. B\n3. C"
+        #expect(ScreenPreview.message(text) == "테스트를 고쳤습니다.\n1. A\n2. B")
+    }
+
     @Test func 남는_게_없으면_빈_문자열() {
         #expect(ScreenPreview.summarize("╭────╮\n│    │\n╰────╯") == "")
     }

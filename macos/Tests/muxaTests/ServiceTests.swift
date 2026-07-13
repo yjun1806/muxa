@@ -177,6 +177,35 @@ final class ServiceTests: XCTestCase {
         XCTAssertTrue(collectLiveServiceIds(in: [ws]).isEmpty)
     }
 
+    // MARK: 전역 목록 — "어디에 뭐가 떠 있나"를 프로젝트를 옮겨 다니지 않고 한눈에
+
+    /// 서비스는 프로젝트에 속하지만, 사용자는 **창 전체에서 뭐가 도는지**를 알아야 한다.
+    /// 각 서비스에 소속(워크스페이스·프로젝트)을 붙여 한 목록으로 편다.
+    func testCollectAllServicesCarriesLocation() {
+        let p1 = Project(id: "P1", name: "웹", path: nil,
+                         services: [Service(id: "S1", name: "web", command: "pnpm dev")])
+        let p2 = Project(id: "P2", name: "API", path: nil,
+                         services: [Service(id: "S2", name: "api", command: "go run ."),
+                                    Service(id: "S3", name: "db", command: "docker compose up")])
+        let ws1 = Workspace(id: "W1", path: nil, name: "front", projects: [p1], activeProjectId: "P1")
+        let ws2 = Workspace(id: "W2", path: nil, name: "back", projects: [p2], activeProjectId: "P2")
+
+        let all = collectAllServices(in: [ws1, ws2])
+        XCTAssertEqual(all.map(\.service.name), ["web", "api", "db"])
+
+        let api = all.first { $0.service.id == "S2" }
+        XCTAssertEqual(api?.workspaceId, "W2")
+        XCTAssertEqual(api?.workspaceName, "back")
+        XCTAssertEqual(api?.projectId, "P2")
+        XCTAssertEqual(api?.projectName, "API")
+    }
+
+    func testCollectAllServicesEmpty() {
+        let p = Project(id: "P", name: "a", path: nil)
+        let ws = Workspace(id: "W", path: nil, name: "w", projects: [p], activeProjectId: "P")
+        XCTAssertTrue(collectAllServices(in: [ws]).isEmpty)
+    }
+
     // MARK: 죽은 서비스의 로그 정리 — tmux는 pane 화면 그대로를 준다(빈 줄 밭 포함)
 
     /// 로그 두 줄과 사인(Pane is dead) 사이에 빈 줄 스무 개가 끼면, 정작 봐야 할 것이 화면 밖으로 나간다.

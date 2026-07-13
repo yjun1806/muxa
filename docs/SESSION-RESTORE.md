@@ -1,6 +1,10 @@
 # 세션 복원 설계 (Session Restore)
 
+<<<<<<< HEAD
 muxa의 세션 복원 전체 설계. [DESIGN.md](DESIGN.md) §4.2의 "세션 지속성"을 대체·확장한다.
+=======
+muxa의 세션 복원 전체 설계. [ARCHITECTURE.md](ARCHITECTURE.md) §4.2의 "세션 지속성"을 대체·확장한다.
+>>>>>>> main
 현재 상태·진행은 [STATUS.md](STATUS.md).
 
 ---
@@ -142,12 +146,35 @@ cmux·Orca 둘 다 훅이 넘겨준 `session_id`를 **서피스/패인에 바인
 이를 위해 `MUXA_SURFACE_ID` env를 **실제로 배선**한다(현재 슬롯만 있고 라우팅 미배선,
 STATUS.md:89). 훅 스크립트가 이 값을 그대로 되돌려주면 cwd 추측이 불필요해진다.
 
+<<<<<<< HEAD
 **에이전트 다변화 — argv 테이블은 만들지 않는다.** 훅이 `--resume-command`로 **명령 문자열을 통째로**
 넘기므로 muxa가 에이전트별 argv를 조립할 일이 없다. codex든 gemini든 자기 훅에서 자기 명령을
 보내면 그대로 저장·복원된다. 우리가 아는 것은 "이 탭에서 이 명령을 다시 실행하면 된다"뿐이면 충분하다.
 (스캔 폴백만 claude 전용으로 남는다 — `~/.claude/projects` 인덱스가 claude 고유이므로.)
 
 세션 ID 검증은 유지(`isSafeSessionId` — 파일명·셸 주입 방어).
+=======
+**에이전트 다변화**: `commNames: ["claude"]`, `~/.claude/projects` 하드코딩을 테이블로 뺀다.
+
+```swift
+struct AgentSpec {
+    let id: String              // "claude" | "codex" | "gemini" | ...
+    let commNames: [String]     // 프로세스 감지용
+    let resumeArgv: (String) -> [String]   // sessionId -> argv
+}
+// claude → ["claude", "--resume", id]      codex → ["codex", "resume", id]
+// gemini → ["gemini", "--resume", id]      opencode → ["opencode", "--session", id]
+```
+
+세션 ID 검증은 유지·강화(길이 상한, `-` 시작 금지, 제어문자 금지 — argv 인젝션 방어).
+
+**cwd 네임스페이싱**: `claude --resume`은 프로젝트 디렉터리 기준으로 트랜스크립트를 찾으므로,
+재개 명령 앞에 `cd`를 붙여야 한다. cmux가 fish 호환까지 고려해 쓰는 형태를 따른다:
+
+```
+cd -- '<cwd>' 2>/dev/null || [ ! -d '<cwd>' ] && <resume-cmd>
+```
+>>>>>>> main
 
 ### 3.5 재개 실행 타이밍 (D-R5)
 
@@ -271,6 +298,7 @@ Orca는 데몬 프로세스 안에서 **headless xterm**을 돌리고 `Serialize
 앱을 껐다 켜면 살아있는 PTY에 다시 붙는다(warm reattach). 이게 진짜 해답이다.
 
 하지만 **우리는 이 구조를 복제할 수 없다.** libghostty는 서피스가 PTY·VT 파서·그리드를 전부
+<<<<<<< HEAD
 소유한다(DESIGN.md 불변식 1). PTY를 데몬으로 빼면 서피스는 껍데기가 되고, VT 파싱·리플로우·
 스크롤백을 우리가 다시 구현해야 한다 — v1에서 Rust 코어를 버리고 libghostty로 간 이유를
 정면으로 되돌리는 일이다.
@@ -405,6 +433,34 @@ passthrough 래핑을 하지 않는다. 그래서 tmux 세션용 OSC 통합은 m
 | G | 터미널 세션 고아 GC | `ServiceSession.parse`가 3파트만 인정해 터미널 세션(`muxa__<pid>__term__<tabId>`, 4파트)은 서비스 GC에서 자동 제외된다(우연히 안전). 전용 GC를 따로 붙인다 |
 
 미검증으로 남는 것: ⌘F 검색, 마우스 리포팅, 대량 출력 성능. 구현 중 확인한다(폐기 사유는 아니다).
+=======
+소유한다(ARCHITECTURE.md 불변식 1). PTY를 데몬으로 빼면 서피스는 껍데기가 되고, VT 파싱·리플로우·
+스크롤백을 우리가 다시 구현해야 한다 — v1에서 Rust 코어를 버리고 libghostty로 간 이유를 정면으로 되돌리는 일이다.
+
+**결정: 셸 대신 `tmux`를 띄운다.** 같은 효과를 아키텍처를 건드리지 않고 얻는다.
+
+```swift
+// 탭 spawn 시 (persistentSessions = true 일 때)
+command = "tmux new-session -A -s muxa-\(tabId) -c \(cwd)"
+```
+
+- `-A` = 있으면 attach, 없으면 create. **앱을 껐다 켜도 같은 명령이 그대로 재부착된다**
+- tmux가 PTY·프로세스·스크롤백·alt-screen·모드를 전부 보존한다 — 우리가 만들 필요가 없다
+- 돌던 빌드도, `claude`도, `tail -f`도 **그대로 이어진다.** 재개 명령도 스크롤백 리플레이도 불필요
+- 재부팅하면 tmux 서버도 죽는다 → 자동으로 L2로 강등(스크롤백 리플레이)
+
+### 5.2 대가 (정직하게)
+
+| 문제 | 대응 |
+|---|---|
+| tmux 미설치 | 실행 시 `which tmux` 확인, 없으면 조용히 L2로 폴백 |
+| prefix 키(`C-b`) 충돌 | muxa 전용 `-f` 설정 파일 제공: prefix 해제, status bar off, mouse on |
+| 스크롤백 이중 관리 | tmux 세션에서는 muxa 스크롤백 캡처를 **끈다**(tmux가 소유) |
+| ⌘F 검색 | ghostty 네이티브 검색은 뷰포트/스크롤백 기준 — tmux copy-mode와 별개로 그대로 동작 |
+| OSC 7 cwd 추적 | tmux가 OSC 7을 통과시킨다(`set -g allow-passthrough`), 검증 필요 ★ |
+| 고아 세션 누적 | 앱 시작 시 `tmux ls`로 `muxa-*` 스캔 → 스냅샷에 없는 세션은 kill (GC) |
+| 성능 | tmux가 VT를 한 번 더 파싱 → 대량 출력 시 오버헤드. 실측 필요 ★ |
+>>>>>>> main
 
 ### 5.3 왜 opt-in인가
 
@@ -460,6 +516,7 @@ struct ResumeBinding: Codable {
 
 | 단계 | 내용 | 검증 기준 |
 |---|---|---|
+<<<<<<< HEAD
 | **R1** ✅ | 창 프레임 복원 · state 백업/부분 폴백 · manualTitle 스키마 (§3.1–3.3) | 완료. 손상된 state로도 백업에서 터미널 3개 복원(대조군 1개). 화면 밖 프레임은 가운데로 되돌림 |
 | **R2** ✅ | VT 스크롤백 (§4.1–4.5) — 캡처·클립보드 가로채기·테마 위생·TUI 가드 | 완료. 색은 인덱스 색까지 보존된다(ghostty가 팔레트를 RGB로 풀어 뱉는다). 클립보드도 안전. 앞서 "인덱스 색 누락"이라 한 것은 오진 — §8 |
 | **R3** ✅ | 에이전트 재개 신뢰 경계 뒤집기 (§3.4) | 완료. 훅(사실) 우선, 스캔(추측)은 배너 확인 |
@@ -478,6 +535,15 @@ struct ResumeBinding: Codable {
 - ~~저장 경로 분리~~ — 실측 결과 비용이 없어 폐기(§4.6).
 - OSC 133 프롬프트 대기(0.8초 마법 상수 제거) — `TerminalSignal`에 프롬프트 시작 신호가 없어
   인프라 추가가 선행돼야 한다. auto 모드에서만 쓰이는 값이라 급하지 않다.
+=======
+| **R1** | 창 프레임 복원 · state 백업/부분 폴백 · manualTitle 스키마 (§3.1–3.3) | 창을 옮기고 재시작 → 같은 위치. state.json을 손상시켜도 워크스페이스는 남고 경고가 뜬다 |
+| **R2** | VT 스크롤백 (§4.1–4.5) — 캡처·클립보드 가로채기·rc 훅 재주입·테마 위생·alt-screen 가드 | `git diff` 출력 후 재시작 → 초록/빨강이 그대로. 다크↔라이트 전환 후 복원해도 안 깨짐. 캡처 전후로 **클립보드 내용이 그대로다** |
+| **R3** | 에이전트 재개 신뢰도 (§3.4–3.5) — 훅 바인딩 1순위, AgentSpec 테이블, OSC 133 대기 | 두 프로젝트에서 claude 동시 실행 → 각 탭이 **자기** 세션으로 재개. 훅 없는 codex는 배너로 확인받음 |
+| **R4** | tmux 백엔드 (§5) — opt-in | `persistent = true` + `sleep 300` 실행 → 앱 재시작 → sleep이 **계속 돌고 있다** |
+
+R1은 하루 안쪽, R2는 1~2일, R3은 이틀, R4는 실측(★)에 따라 달라진다.
+(당초 "저장 경로 분리"를 R3으로 뒀으나 실측 결과 폐기 — §4.6)
+>>>>>>> main
 
 ---
 
@@ -504,6 +570,7 @@ struct ResumeBinding: Codable {
    "복원 기능이 평상시 사용성을 갉아먹는" 최악의 형태다. opt-in인 이유이자, 기본값을
    절대 바꾸지 말아야 하는 이유다.
 5. **VT 덤프가 평문보다 훨씬 크다.** SGR·OSC가 들어가면 같은 화면도 2~5배 부푼다. 400KB
+<<<<<<< HEAD
    상한은 유지하되, 꼬리 자르기가 이스케이프 시퀀스 중간을 끊지 않도록 보정한다(§4.1, 구현됨).
 
 6. ~~인덱스 색이 덤프에서 누락된다~~ — **오진이었다. 색은 온전히 보존된다.**
@@ -521,10 +588,18 @@ struct ResumeBinding: Codable {
    흰 배경에 흰 글자가 된다. 셀 색은 이미 RGB로 해석돼 있어 영향받지 않는다.
 
    **R2는 인덱스 색까지 완전히 동작한다.**
+=======
+   상한은 유지하되, **꼬리 자르기가 이스케이프 시퀀스 중간을 끊지 않도록** 하는 보정(§4.1)이
+   없으면 복원 화면이 깨진다. 지금 `capBytes`는 바이트 단위로 무작정 자른다.
+>>>>>>> main
 
 **정리 대상 (조사 중 발견)**
 
 - `~/Library/Application Support/muxa/`에 `state.v1/v2/v3.json` 잔재가 남아 있다. v5 도입 시 정리.
+<<<<<<< HEAD
 - `docs/DESIGN.md:98`이 아직 `state.v3.json`이라고 적혀 있다(실제 v4).
+=======
+- `docs/ARCHITECTURE.md:98`이 아직 `state.v3.json`이라고 적혀 있다(실제 v4).
+>>>>>>> main
 - `scripts/install-integration.sh:202`가 심는 rc 스니펫은 현재 no-op이다(env 미주입).
   R2에서 되살아나지만, 스니펫 안의 `rm -f`는 제거해야 한다 (§4.2).

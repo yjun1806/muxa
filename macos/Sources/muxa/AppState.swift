@@ -88,7 +88,7 @@ final class AppState {
 
     @ObservationIgnored private let app: ghostty_app_t
     /// muxa 설정(`~/.config/muxa/config`) — 시작 시 로드해 주입하고, 파일 저장 시 ConfigWatcher가
-    /// `applyConfig`로 라이브 갱신한다(재시작 불필요). 기본 사이드바 모드·완료 배지 임계 등. (DESIGN 4.6)
+    /// `applyConfig`로 라이브 갱신한다(재시작 불필요). 기본 사이드바 모드·완료 배지 임계 등. (ARCHITECTURE 4.6)
     @ObservationIgnored private(set) var config: MuxaConfig
     /// 프로젝트 id → TerminalStore. 프로젝트가 독립 분할 레이아웃 하나를 소유한다.
     @ObservationIgnored private var stores: [String: TerminalStore] = [:]
@@ -105,7 +105,7 @@ final class AppState {
         self.sidebarMode = config.sidebarMode
     }
 
-    /// 설정 파일 저장이 감지됐을 때 새 설정을 반영한다(ConfigWatcher → AppDelegate가 호출). (DESIGN 4.6)
+    /// 설정 파일 저장이 감지됐을 때 새 설정을 반영한다(ConfigWatcher → AppDelegate가 호출). (ARCHITECTURE 4.6)
     /// 라이브 반영 대상은 "런타임 동작값"뿐 — 완료 배지 임계는 이미 생성된 스토어에도 전파한다.
     /// confirm_quit은 종료 시점에 config를 읽으므로 값 교체만으로 즉시 유효하다.
     /// sidebar_mode·default_workspace_path는 "초기 기본값" 성격이라 라이브 반영 제외 —
@@ -293,7 +293,7 @@ final class AppState {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    // MARK: 크롬 동작 실행 (키맵·팔레트 공유 단일 진실 원천 — DESIGN 7 라우팅)
+    // MARK: 크롬 동작 실행 (키맵·팔레트 공유 단일 진실 원천 — ARCHITECTURE 7 라우팅)
 
     /// KeymapAction 하나를 실행한다 — main.swift 로컬 키 모니터와 ⌘K 팔레트가 공유하는 실행 경로.
     /// 실행됐으면(=소비) true. 활성 스토어가 필요한 동작(⌘T/⌘D/⌘W/⌘F 등)은 스토어가 없으면 무동작(false).
@@ -461,12 +461,12 @@ final class AppState {
         // 탭/뷰어가 바뀔 때마다 즉시 저장 — ⌘Q 없이(pkill·크래시) 종료돼도 다음 실행에 복원.
         s.onStateChange = { [weak self] in MainActor.assumeIsolated { self?.save() } }
         stores[project.id] = s
-        // 첫 store 생성(=첫 터미널이 이 경로에서 시작) 시점에 세션 기준선을 1회 기록(DESIGN 4.4 #2).
+        // 첫 store 생성(=첫 터미널이 이 경로에서 시작) 시점에 세션 기준선을 1회 기록(ARCHITECTURE 4.4 #2).
         recordSessionBaseline(projectId: project.id, cwd: cwd)
         return s
     }
 
-    // MARK: 세션 기준선 (DESIGN 4.4 #2 — "이번 세션에 에이전트가 한 일"의 기준점)
+    // MARK: 세션 기준선 (ARCHITECTURE 4.4 #2 — "이번 세션에 에이전트가 한 일"의 기준점)
 
     /// 프로젝트의 세션 기준선을 최초 1회 기록한다 — 이미 값이 있으면 유지(세션 지속). git 저장소가 아니면 무시.
     private func recordSessionBaseline(projectId: String, cwd: String?) {
@@ -606,6 +606,24 @@ final class AppState {
         serviceMonitor.sync(services: allServices)
     }
 
+    /// 프로젝트가 사라질 때(프로젝트 닫기·워크스페이스 제거) 그 서비스 프로세스도 함께 죽인다.
+    ///
+    /// **등록만 지우면 좀비가 된다.** tmux 세션은 muxa와 무관하게 살아남아 포트를 계속 문다 —
+    /// 다음 앱 시작의 청소(collectServiceGarbage)까지 남아 있고, 그 사이 `:3000`이 잡혀 있으면
+    /// 사용자는 "왜 dev 서버가 안 뜨지"로 시간을 버린다. 사라지는 순간 함께 죽인다.
+    /// (호출자는 **정말 제거될 때만** 부른다 — 마지막 하나라 안 닫히는데 서비스만 죽으면 더 나쁘다.)
+    private func killServices(of project: Project) {
+        let services = project.services ?? []
+        guard !services.isEmpty, TmuxService.isAvailable else { return }
+        for service in services {
+            dropDockTerm(service.id)
+            if selectedServiceId == service.id { selectedServiceId = nil }
+            Task { await TmuxService.kill(projectId: project.id, serviceId: service.id) }
+        }
+        // 폴링 대상 갱신은 workspaces가 실제로 줄어든 뒤에 유효하다 — 다음 런루프에 맞춘다.
+        Task { @MainActor in syncServiceMonitor() }
+    }
+
     /// 앱 시작 시 1회 — 알림 배선 + 저장된 서비스 재기동 + 폴링 시작.
     ///
     /// **재기동은 "복원"이지 "자동 실행"이 아니다.** tmux 세션이 살아 있으면 start가 멱등이라 아무 일도
@@ -676,6 +694,21 @@ final class AppState {
     func openServiceDock(serviceId: String?) {
         selectedServiceId = serviceId ?? selectedServiceId
         showServiceDock = true
+    }
+
+    /// **창 전체**의 서비스 — 소속(워크스페이스·프로젝트)을 달고 온다.
+    /// 푸터 칩·팝오버가 이걸 본다: 다른 워크스페이스의 dev 서버가 죽었는데 거기 들어가야만
+    /// 알 수 있다면 알림으로서 실패다.
+    var allLocatedServices: [LocatedService] {
+        collectAllServices(in: workspaces)
+    }
+
+    /// 어느 워크스페이스·프로젝트의 서비스든 **그리로 데려가서** 로그를 연다.
+    /// (팝오버에서 다른 프로젝트의 서비스를 클릭했을 때 — 사용자가 직접 찾아 들어가지 않게.)
+    func revealService(_ located: LocatedService) {
+        if activeId != located.workspaceId { setActiveId(located.workspaceId) }
+        if activeProject?.id != located.projectId { setActiveProject(located.projectId) }
+        openServiceDock(serviceId: located.service.id)
     }
 
     /// 도크를 열면서 곧바로 추가 시트를 띄운다 — 팝오버의 "서비스 추가"가 두 번 클릭이 되지 않게.
@@ -845,10 +878,12 @@ final class AppState {
         return copy
     }
 
-    /// 워크스페이스 제거(마지막 하나는 남긴다). 소속 프로젝트의 스토어·저장 레이아웃·배지를 함께 정리한다.
+    /// 워크스페이스 제거(마지막 하나는 남긴다). 소속 프로젝트의 스토어·저장 레이아웃·배지·**서비스**를
+    /// 함께 정리한다.
     func removeWorkspace(_ id: String) {
         guard workspaces.count > 1, let idx = workspaces.firstIndex(where: { $0.id == id }) else { return }
         for project in workspaces[idx].projects {
+            killServices(of: project) // 등록만 지우면 dev 서버가 포트를 문 채 살아남는다
             stores[project.id] = nil
             savedLayouts[project.id] = nil
             clearBadge(project.id)
@@ -916,7 +951,14 @@ final class AppState {
     }
 
     /// 프로젝트를 닫는다(마지막 하나는 남긴다). 활성이면 인접 프로젝트로 전환.
+    /// 닫히는 프로젝트의 **서비스 프로세스도 함께 죽인다**.
     func closeProject(_ projectId: String) {
+        // **정말 닫힐 때만** 서비스를 죽인다 — 마지막 하나는 안 닫히는데(아래 guard) 서비스만 죽으면
+        // 프로젝트는 그대로인 채 dev 서버만 사라진다.
+        if let ws = activeWorkspace, ws.projects.count > 1,
+           let project = ws.projects.first(where: { $0.id == projectId }) {
+            killServices(of: project)
+        }
         stores[projectId] = nil
         savedLayouts[projectId] = nil
         clearBadge(projectId)

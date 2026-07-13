@@ -30,9 +30,24 @@ struct DetachedPopover: View {
         }
         .task(id: sessions.map(\.session).joined()) {
             for session in sessions where previews[session.session] == nil {
-                previews[session.session] = await TmuxService.tail(session: session.session, cwd: session.cwd)
+                previews[session.session] = await preview(of: session)
             }
         }
+    }
+
+    /// 미리보기를 어디서 읽을지 — **에이전트는 화면이 아니라 대화 기록에서 읽는다.**
+    ///
+    /// claude는 TUI라 화면 마지막 줄이 입력 상자·상태 HUD(`[Resume session …]`, `ACTIVE thinking…`)뿐이다.
+    /// 화면을 아무리 잘 걸러도 "무슨 얘기를 하던 세션인지"는 거기 없다 — transcript(JSONL)의
+    /// **마지막 assistant 메시지**가 그 답이다(알림 본문이 쓰는 것과 같은 출처).
+    /// 기록을 못 찾으면(세션 없음·권한) 화면 꼬리로 물러난다 — 빈 미리보기보다는 낫다.
+    private func preview(of session: DetachedSession) async -> String {
+        if session.command == "claude", let cwd = session.cwd,
+           let path = ClaudeSessionIndex.latestTranscriptPath(forCwd: cwd),
+           let message = await TranscriptTail.lastAssistantMessage(atPath: path) {
+            return ScreenPreview.message(message)
+        }
+        return await TmuxService.tail(session: session.session, cwd: session.cwd)
     }
 
     /// 세션 한 줄 — [출처 마크] [제목 · 시각 / 경로 / 마지막 화면] + [종료].
