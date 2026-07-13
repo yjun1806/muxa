@@ -47,6 +47,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // muxa 설정(~/.config/muxa/config) 로드 — 없으면 전부 기본값. 폰트·테마는 ghostty config 재사용(GhosttyRuntime). (ARCHITECTURE 4.6)
         let config = MuxaConfigLoader.load()
 
+        // 개발빌드는 워크트리마다 저장소가 갈린다(AppInfo.devKey) — 이 저장소의 출처를 찍어두고,
+        // 주인(워크트리)이 사라진 유령 저장소를 청소한다. 릴리스에선 둘 다 무동작.
+        MuxaSupportDir.stampOrigin()
+        MuxaSupportDir.collectGarbage()
+
         // 저장된 세션 복원(없으면 설정의 기본 경로/현재 디렉토리로 초기 워크스페이스 생성)
         let state = AppState(app: app, config: config)
         state.load()

@@ -39,6 +39,19 @@ enum AppInfo {
         return "\(worktreeLabel(from: path))-\(hash)"
     }()
 
+    /// 이 개발빌드가 나온 **워크트리 루트** 경로(릴리스면 nil).
+    ///
+    /// 저장소 GC가 "이 저장소의 주인이 아직 있나"를 묻는 기준이다. **실행 파일 경로가 아니라
+    /// 워크트리 루트여야 한다** — `make clean`으로 `.build`만 지워도 워크트리는 그대로인데,
+    /// 실행 파일 경로를 기준 삼으면 멀쩡한 저장소를 유령으로 오판한다.
+    static let worktreeRoot: String? = {
+        guard isDev else { return nil }
+        let parts = Bundle.main.bundlePath.split(separator: "/").map(String.init)
+        // `…/<워크트리>/macos/.build/…` — `.build` 두 단계 위가 워크트리 루트다.
+        guard let buildIdx = parts.firstIndex(of: ".build"), buildIdx >= 2 else { return nil }
+        return "/" + parts[..<(buildIdx - 1)].joined(separator: "/")
+    }()
+
     /// 경로에서 사람이 알아볼 이름을 뽑는다 — `…/muxa-services/macos/.build/…` → `muxa-services`.
     private static func worktreeLabel(from path: String) -> String {
         let parts = path.split(separator: "/").map(String.init)
