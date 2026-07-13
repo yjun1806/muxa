@@ -49,13 +49,18 @@ struct HookMessage {
 /// 부작용(소켓·fd·DispatchSource)을 이 경계 타입에 격리한다(순수 라우팅은 AppState). 소켓
 /// 처리는 백그라운드 큐에서 돌고, 콜백(onMessage)만 메인 큐로 넘긴다 — UI 갱신은 상위가 한다.
 final class NotifyServer {
-    /// 소켓 경로 — applicationSupport/muxa/muxa.sock (AppState.fileURL과 같은 디렉토리).
+    /// **이 프로세스 전용** 소켓 경로 — `…/muxa/sockets/muxa-<pid>.sock`.
+    ///
+    /// 경로를 하나로 고정하면 안 된다. 창을 두 개 띄우면(개발 빌드 + 설치된 앱, 또는 워크트리별 빌드)
+    /// 나중에 뜬 인스턴스가 `unlink` 후 재바인드해 **소켓을 강탈**하고, 먼저 뜬 창은 살아 있지만 훅 신호를
+    /// 하나도 못 받는다. 인스턴스마다 자기 소켓을 갖고, 그 경로를 탭 env(`MUXA_SOCK`)로 심어 보내면
+    /// 훅은 **자기 창으로 정확히** 돌아온다 — 여러 창이 각각 자기 알림을 받는다.
+    ///
+    /// pid가 들어가므로 프로세스마다 다른 경로다(서버는 프로세스당 하나라 static이어도 인스턴스가 갈린다).
     /// sun_path 길이 제한(104B) 안에 드는 짧은 경로다.
     static let socketPath: String = {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dir = base.appendingPathComponent("muxa", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("muxa.sock").path
+        let dir = MuxaSupportDir.subdirectory("sockets")
+        return dir.appendingPathComponent("muxa-\(getpid()).sock").path
     }()
 
     /// sockaddr_un.sun_path 용량(macOS).
@@ -78,9 +83,28 @@ final class NotifyServer {
     /// 훅 원본 payload 수신 콜백 — 메인 큐. 해석(ClaudeHookInterpreter)은 소유 store가 한다.
     var onHook: ((HookMessage) -> Void)?
 
-    /// 리스너 시작(백그라운드). 이미 있던 소켓 파일은 unlink 후 재바인드한다.
+    /// 리스너 시작(백그라운드). 시작 전에 죽은 인스턴스가 남긴 소켓 파일을 청소한다.
     func start() {
-        queue.async { [weak self] in self?.setup() }
+        queue.async { [weak self] in
+            Self.reapStaleSockets()
+            self?.setup()
+        }
+    }
+
+    /// 죽은 인스턴스의 소켓 파일을 지운다 — 크래시·강제종료하면 `stop()`이 안 돌아 파일이 남는다.
+    /// 파일명의 pid가 살아있지 않으면(`kill(pid, 0)` → ESRCH) 그 소켓은 주인 없는 찌꺼기다.
+    private static func reapStaleSockets() {
+        let dir = MuxaSupportDir.subdirectory("sockets")
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        for name in names {
+            guard name.hasPrefix("muxa-"), name.hasSuffix(".sock"),
+                  let pid = Int32(name.dropFirst(5).dropLast(5)) else { continue }
+            guard pid != getpid() else { continue }
+            // kill(pid, 0)은 시그널을 보내지 않고 존재만 확인한다. ESRCH = 그런 프로세스 없음.
+            if kill(pid, 0) != 0, errno == ESRCH {
+                unlink(dir.appendingPathComponent(name).path)
+            }
+        }
     }
 
     /// 리스너 종료 — 소스 취소(내부에서 fd close) + 소켓 파일 제거.
