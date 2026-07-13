@@ -27,11 +27,7 @@ struct BonsplitWorkspaceView: View {
     @ViewBuilder
     private func tabContent(_ tabId: TabID, paneId: PaneID) -> some View {
         paneBody(tabId, paneId: paneId)
-            // 활성(포커스) 칸을 청록 테두리로 상시 강조하고 비활성 칸은 살짝 어둡게 — "지금 어느 칸인지" 즉시 짚는다.
-            .overlay(FocusBorder(store: store, paneId: paneId))
-            // 상시 에이전트 상태 테두리(waiting=주황·done=초록) 위에 순간 활동 플래시를 얹는다.
-            .overlay(AgentStateBorder(store: store, tabId: tabId))
-            .overlay(ActivityFlashBorder(store: store, tabId: tabId))
+            .overlay(PaneBorders(store: store, tabId: tabId, paneId: paneId))
             // 복원된 재개 바인딩이 있는 터미널 탭엔 상단에 세션 재개 배너를 얹는다(D2). 바인딩 없으면 아무것도 안 그린다.
             .overlay(alignment: .top) { ResumeOverlay(store: store, tabId: tabId) }
     }
@@ -114,89 +110,42 @@ private struct EmptyProjectView: View {
     }
 }
 
-/// 칸 강조 테두리의 공통 껍데기 — 색·굵기·애니메이션만 다르고 그리는 방식은 같다.
+/// 이 칸에 얹는 강조 테두리들 — 직접 그리지 않고 **카드 레이어로 위치·색만 올려보낸다**.
 ///
-/// **여백 없이 칸 경계에 딱 붙여 그리고, 카드 모서리에 닿는 코너만 둥글린다.**
-/// - 안쪽으로 밀면(inset) 테두리와 화면 사이에 어중간한 틈이 생긴다.
-/// - 네 코너를 모두 둥글리면, 카드 모서리에 닿지도 않는 분할 경계에서 테두리가 괜히 패인다.
+/// 칸 안에서 그리면 카드의 라운드 클립에 모서리가 깎인다. 그래서 `paneBorder`(→ `ContentCard`)가
+/// 클립 바깥에서 대신 그린다. 카드 모서리에 닿은 변은 그쪽에서 경계까지 스냅해 둥글린다.
 ///
-/// 그래서 카드 좌표계(`ContentCard.space`)에서 자기 위치를 재어 **닿은 코너에만** 카드와 같은
-/// 반경을 준다. 곡선이 정확히 겹치므로 카드가 콘텐츠를 클리핑해도 테두리가 깎이지 않는다
-/// (`strokeBorder`는 도형 안쪽으로 그린다).
-private struct PaneBorder: View {
-    let color: Color?
-    var lineWidth: CGFloat = 2
-    let animation: Animation
-
-    @Environment(\.contentCardSize) private var cardSize
-
-    var body: some View {
-        GeometryReader { geo in
-            let corners = touchingCorners(paneFrame: geo.frame(in: .named(ContentCard.space)))
-            UnevenRoundedRectangle(
-                topLeadingRadius: corners.topLeading ? Radius.lg : 0,
-                bottomLeadingRadius: corners.bottomLeading ? Radius.lg : 0,
-                bottomTrailingRadius: corners.bottomTrailing ? Radius.lg : 0,
-                topTrailingRadius: corners.topTrailing ? Radius.lg : 0
-            )
-            .strokeBorder(color ?? .clear, lineWidth: lineWidth)
-        }
-        .opacity(color == nil ? 0 : 1)
-        .animation(animation, value: color)
-        .allowsHitTesting(false)
-    }
-
-    /// 이 칸이 카드의 어느 모서리에 닿아 있는지. 카드 크기를 아직 모르면(.zero) 전부 둥글린 것으로 본다.
-    private func touchingCorners(paneFrame: CGRect) -> (topLeading: Bool, bottomLeading: Bool,
-                                                        topTrailing: Bool, bottomTrailing: Bool) {
-        guard cardSize.width > 0, cardSize.height > 0 else { return (true, true, true, true) }
-        let t = ContentCard.touchTolerance
-        let left = paneFrame.minX <= t
-        let right = paneFrame.maxX >= cardSize.width - t
-        let top = paneFrame.minY <= t
-        let bottom = paneFrame.maxY >= cardSize.height - t
-        return (left && top, left && bottom, right && top, right && bottom)
-    }
-}
-
-/// 활성(포커스) 칸 강조 — Bonsplit의 `focusedPaneId`(@Observable)를 읽어 포커스 전환 시 자동 재렌더된다.
-/// 활성 칸엔 청록 테두리만 얹어 "지금 입력이 가는 칸"을 표시한다(비활성 칸을 어둡게 하지 않는다).
-/// 상태/활동 테두리와 배타적: 활성 칸은 그 칸을 봤다는 뜻이라 에이전트 상태 테두리(waiting/done)가 해제된다.
-private struct FocusBorder: View {
+/// - focus(청록): 지금 입력이 가는 칸. Bonsplit의 `focusedPaneId`(@Observable)를 읽어 자동 재렌더.
+/// - agent(주황=나를 기다림·초록=완료): "지금 이 칸의 추정 상태"를 지속 표시. 그 칸을 보면 해제된다.
+/// - flash(주황): 활동 순간 잠깐 켰다가 페이드아웃(켤 땐 빠르게, 끌 땐 천천히).
+///
+/// Bonsplit은 `keepAllAlive`로 **안 보이는 탭의 뷰도 살려둔다** — preference는 opacity와 무관하게
+/// 수집되므로 선택된 탭만 올린다. 안 그러면 숨은 탭의 상태 테두리가 보이는 칸 위에 그려진다.
+private struct PaneBorders: View {
     let store: TerminalStore
+    let tabId: TabID
     let paneId: PaneID
 
     var body: some View {
-        let focused = store.controller.focusedPaneId == paneId
-        PaneBorder(color: focused ? Color.pBorderFocus : nil,
-                   lineWidth: 2,
-                   animation: .easeInOut(duration: 0.15))
-    }
-}
+        // 선택 탭 판정은 Bonsplit이 실제로 렌더하는 규칙과 같아야 한다 — 분할·탭 닫기 중엔
+        // selectedTabId가 잠깐 nil이 되고, 그때 Bonsplit은 첫 탭을 그린다(우리도 그래야 테두리가 안 깜빡인다).
+        let visible = store.controller.selectedTab(inPane: paneId)?.id
+            ?? store.controller.tabs(inPane: paneId).first?.id
+        if visible == tabId {
+            let focused = store.controller.focusedPaneId == paneId
+            let agent = store.agentActivity(for: tabId).borderColor.map { Color(nsColor: $0) }
+            let flashing = store.flashingTabs.contains(tabId)
 
-/// 칸 콘텐츠 위에 얹는 상시 에이전트 상태 테두리(DESIGN 4.5) — store.agentActivity를 관측해 독립 갱신한다.
-/// 순간 이벤트(플래시)와 달리 "지금 이 칸의 추정 상태"를 지속 표시한다: waiting=주황(나를 기다림)·done=초록(완료).
-/// working·idle은 borderColor가 nil이라 상시 테두리를 그리지 않는다(작업 중엔 조용히). 사용자가 그 칸을 보면 해제된다.
-private struct AgentStateBorder: View {
-    let store: TerminalStore
-    let tabId: TabID
-
-    var body: some View {
-        let color = store.agentActivity(for: tabId).borderColor.map { Color(nsColor: $0) }
-        PaneBorder(color: color, animation: .easeInOut(duration: 0.25))
-    }
-}
-
-/// 칸 콘텐츠 위에 얹는 활동 플래시 테두리 — store.flashingTabs를 관측해 독립적으로 갱신한다(콘텐츠 뷰가 keepAllAlive로
-/// 유지돼도 이 뷰만 상태 변화에 재렌더). 활동 시 잠깐 켰다가 페이드아웃. focus(청록)와 구분되는 주황(주의 환기색).
-private struct ActivityFlashBorder: View {
-    let store: TerminalStore
-    let tabId: TabID
-
-    var body: some View {
-        let active = store.flashingTabs.contains(tabId)
-        // 켤 땐 빠르게(주의 환기), 끌 땐 천천히 페이드.
-        PaneBorder(color: active ? Color.pBorderActivity : nil,
-                   animation: .easeOut(duration: active ? 0.12 : 0.5))
+            Color.clear
+                .paneBorder(id: "focus-\(paneId)",
+                            color: focused ? Color.pBorderFocus : nil,
+                            animation: .easeInOut(duration: 0.15))
+                .paneBorder(id: "agent-\(tabId)",
+                            color: agent,
+                            animation: .easeInOut(duration: 0.25))
+                .paneBorder(id: "flash-\(tabId)",
+                            color: flashing ? Color.pBorderActivity : nil,
+                            animation: .easeOut(duration: flashing ? 0.12 : 0.5))
+        }
     }
 }

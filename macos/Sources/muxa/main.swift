@@ -73,7 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "muxa"
+        window.title = AppInfo.name
         // 콘텐츠를 타이틀바까지 끌어올리고(fullSizeContentView) 신호등만 남긴다. 상단바 컨트롤은
         // SwiftUI 본문 최상단에 직접 둔다 — 타이틀바 액세서리는 렌더가 불안정해 비어 보였다.
         window.titlebarAppearsTransparent = true
@@ -166,11 +166,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let mainMenu = NSMenu()
         let appItem = NSMenuItem()
         mainMenu.addItem(appItem)
-        let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "muxa 가리기", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        // 메뉴 항목에 앱 이름을 박는다 — 개발 빌드면 "muxa (dev)"라 설치된 앱과 구분된다(AppInfo).
+        // (메뉴바 좌측의 볼드 앱 이름은 프로세스명/CFBundleName에서 오므로 여기서 못 바꾼다.)
+        let appMenu = NSMenu(title: AppInfo.name)
+        appMenu.addItem(withTitle: "\(AppInfo.name) 가리기", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(.separator())
         // ⌘Q는 곧장 terminate로 보내지 않는다 — requestQuit이 먼저 시트로 확인한다(위 주석).
-        let quitItem = NSMenuItem(title: "muxa 종료", action: #selector(requestQuit), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "\(AppInfo.name) 종료", action: #selector(requestQuit), keyEquivalent: "q")
         quitItem.target = self
         appMenu.addItem(quitItem)
         appItem.submenu = appMenu

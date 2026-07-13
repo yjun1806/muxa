@@ -6,9 +6,6 @@ struct ContentView: View {
     let state: AppState
     let home: String
 
-    /// 콘텐츠 카드의 실제 크기 — 칸 테두리가 "카드 모서리에 닿았나"를 판단하는 기준.
-    @State private var cardSize: CGSize = .zero
-
     var body: some View {
         // 크롬(상단바·사이드바·푸터)은 한 덩어리 배경이고, 그 위에 콘텐츠가 카드로 떠 있다.
         // 크롬끼리는 구분선을 넣지 않는다 — 같은 색으로 이어져야 "창 전체가 하나의 틀"로 읽힌다.
@@ -37,18 +34,12 @@ struct ContentView: View {
     /// 콘텐츠 카드 — 터미널·패널이 사는 판. 크롬 배경 위에 얹혀 층이 드러난다.
     ///
     /// 콘텐츠는 카드 모서리로 정확히 클리핑한다(여백으로 밀어내지 않는다 — 터미널 주위에 흰 띠가
-    /// 생기면 화면만 좁아진다). 그러면 칸의 강조 테두리가 모서리에서 잘릴 텐데, 그건 테두리 쪽에서
-    /// 푼다: `PaneBorder`가 카드 좌표계에서 자기 위치를 재어 **카드 모서리에 닿는 코너만** 카드와
-    /// 같은 반경으로 둥글린다(곡선이 겹치므로 깎이지 않는다).
+    /// 생기면 화면만 좁아진다). 칸의 강조 테두리는 그 클립에 깎이지 않도록 **클립 바깥**에서
+    /// 그려진다(`contentCard(radius:)` → `ContentCard`). 카드 테두리 선은 그보다 아래에 깔아,
+    /// 활성 칸의 테두리가 닿는 변에선 그 위를 덮게 한다.
     private var contentCard: some View {
         workspaceColumn
-            // 칸들이 "내가 카드의 어느 모서리에 닿았나"를 재려면 카드의 좌표계·크기를 알아야 한다.
-            .contentCardSpace(size: cardSize) { cardSize = $0 }
-            .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
-            .overlay(
-                RoundedRectangle(cornerRadius: Radius.lg)
-                    .stroke(Color.pBorder, lineWidth: 1)
-            )
+            .contentCard(radius: Radius.lg, border: Color.pBorder)
             .padding(.trailing, Space.sm)
             .padding(.bottom, Space.xs)
     }
@@ -78,13 +69,21 @@ struct ContentView: View {
     }
 
     /// 워드마크 — 창에 앱 이름을 남긴다(타이틀바를 숨겼으므로 여기가 유일한 자리).
+    /// 개발 빌드면 DEV 배지를 달아, 설치된 muxa.app과 나란히 떠 있어도 어느 창인지 바로 구분된다(AppInfo).
     private var wordmark: some View {
-        Text("Muxa")
-            .font(.muxa(.title, weight: .semibold))
-            .foregroundStyle(Color.pFg)
-            .fixedSize()
-            .padding(.horizontal, Space.xs)
-            .help("muxa")
+        HStack(spacing: Space.sm) {
+            Text("Muxa")
+                .font(.muxa(.title, weight: .semibold))
+                .foregroundStyle(Color.pFg)
+            if AppInfo.isDev {
+                Pill(color: Color.pBorderActivity) {
+                    Text("DEV").font(.muxa(.nano, weight: .bold))
+                }
+            }
+        }
+        .fixedSize()
+        .padding(.horizontal, Space.xs)
+        .help(AppInfo.name)
     }
 
     /// 파일 익스플로러 토글 버튼(상단바 우측).
