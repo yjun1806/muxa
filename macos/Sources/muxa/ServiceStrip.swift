@@ -13,15 +13,34 @@ struct ServiceStrip: View {
     private var services: [Service] { state.services(of: project.id) }
 
     var body: some View {
-        // tmux가 없으면 서비스 기능 자체가 없다 — 쓸 수 없는 UI를 띄우지 않는다(gh 배지와 같은 가드).
-        if TmuxService.isAvailable {
-            HStack(alignment: .center, spacing: Space.sm) {
+        HStack(alignment: .center, spacing: Space.sm) {
+            if TmuxService.isAvailable {
                 ForEach(services) { service in
                     chip(service)
                 }
                 addButton
+            } else {
+                // tmux가 없어도 **완전히 숨기지는 않는다.** 숨기면 사용자는 이 기능이 있는지조차 모른다.
+                // 조용한 진입점 하나만 남기고, 왜 못 쓰는지와 설치 방법은 도크가 설명한다.
+                setupHint
             }
         }
+    }
+
+    /// tmux 미설치 상태의 진입점 — 눈에 거슬리지 않게 흐리게 두되, 누르면 설치 안내가 열린다.
+    private var setupHint: some View {
+        Button { state.openServiceDock(serviceId: nil) } label: {
+            HStack(alignment: .center, spacing: Space.xs) {
+                Image(systemName: "shippingbox").font(.muxa(.micro))
+                Text("서비스").font(.muxa(.label))
+            }
+            .foregroundStyle(Color.pMuted.opacity(0.6))
+            .padding(.horizontal, Space.sm)
+            .frame(height: RowHeight.tight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("dev 서버 같은 장수 프로세스를 등록합니다 — tmux 설치가 필요합니다")
     }
 
     /// 서비스 칩 — [● 이름 :포트] / [⛔ 이름 exit 1]. 클릭하면 도크가 그 서비스로 열린다.

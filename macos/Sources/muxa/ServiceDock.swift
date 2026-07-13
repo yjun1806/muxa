@@ -53,7 +53,10 @@ struct ServiceDock: View {
             HStack(spacing: Space.sm) {
                 Text("서비스").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
                 Spacer(minLength: Space.xs)
-                IconButton(icon: "plus", help: "서비스 추가") { showAdd = true }
+                // tmux가 없으면 추가해봐야 돌지 않는다 — 등록 버튼을 감추고 우측 설치 안내로 유도한다.
+                if TmuxService.isAvailable {
+                    IconButton(icon: "plus", help: "서비스 추가") { showAdd = true }
+                }
                 // 닫기는 **여기에도** 둔다 — 우측 헤더는 선택된 서비스가 있을 때만 뜨므로,
                 // 서비스가 하나도 없으면 도크를 닫을 방법이 사라진다.
                 IconButton(icon: "xmark", help: "도크 닫기 (⌘J) — 프로세스는 계속 돕니다") {
@@ -106,7 +109,12 @@ struct ServiceDock: View {
 
     @ViewBuilder
     private var detail: some View {
-        if let service = selected {
+        if !TmuxService.isAvailable {
+            // tmux가 없으면 기능을 숨기는 대신 **왜 없는지 말하고 설치를 돕는다**.
+            ServiceSetupView(state: state) { command in
+                state.activeStore?.injectToTerminal(command) ?? false
+            }
+        } else if let service = selected {
             VStack(spacing: 0) {
                 header(service)
                 // 진짜 터미널이다 — Ctrl+C로 죽이고, 스크롤하고, 그 자리에서 디버깅한다.

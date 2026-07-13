@@ -22,19 +22,38 @@ enum TmuxService {
     /// 전부 실패해 기능이 통째로 사라진다.
     ///
     /// 그래서 (1) 사용자의 로그인 셸에게 직접 묻고, (2) 실패하면 알려진 설치 경로를 훑는다.
-    static let executable: String? = {
+    /// 설치 직후 다시 찾을 수 있어야 하므로 `let`이 아니라 갱신 가능한 캐시로 둔다(refresh 참조).
+    private(set) static var executable: String? = resolve("tmux",
+                                                          fallbacks: ["/opt/homebrew/bin/tmux",
+                                                                      "/usr/local/bin/tmux",
+                                                                      "/usr/bin/tmux"])
+
+    static var isAvailable: Bool { executable != nil }
+
+    /// tmux를 다시 찾는다 — 사용자가 방금 설치했을 수 있다. 찾았으면 true.
+    @discardableResult
+    static func refresh() -> Bool {
+        executable = resolve("tmux", fallbacks: ["/opt/homebrew/bin/tmux",
+                                                 "/usr/local/bin/tmux",
+                                                 "/usr/bin/tmux"])
+        return isAvailable
+    }
+
+    /// Homebrew 실행 경로 — 설치 안내에서 "brew가 있는가"를 판단하는 데만 쓴다.
+    static var brew: String? {
+        resolve("brew", fallbacks: ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"])
+    }
+
+    /// 명령의 절대경로를 찾는다. 로그인 셸의 PATH를 먼저 묻고(사용자의 실제 환경), 실패하면
+    /// 알려진 설치 경로를 훑는다.
+    private static func resolve(_ command: String, fallbacks: [String]) -> String? {
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-        // 1) 로그인 셸의 PATH — 사용자의 실제 환경이라 가장 정확하다(homebrew·nix·asdf 등 어디에 깔렸든).
-        if let path = capture(shell, ["-l", "-c", "command -v tmux"]),
+        if let path = capture(shell, ["-l", "-c", "command -v \(command)"]),
            !path.isEmpty, FileManager.default.isExecutableFile(atPath: path) {
             return path
         }
-        // 2) 폴백 — 로그인 셸이 없거나 rc가 깨진 경우.
-        return ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"]
-            .first { FileManager.default.isExecutableFile(atPath: $0) }
-    }()
-
-    static var isAvailable: Bool { executable != nil }
+        return fallbacks.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
 
     /// 프로세스를 실행해 stdout 첫 줄을 얻는다(경로 해석 전용 — 동기, 시작 시 1회).
     private static func capture(_ launchPath: String, _ args: [String]) -> String? {
