@@ -315,6 +315,17 @@ final class AppState {
             jumpToNextWaiting(); return true
         case .quickSwitch:
             toggleQuickSwitch(); return true
+        case .toggleServiceDock:
+            if showServiceDock { closeServiceDock() } else { openServiceDock(serviceId: nil) }
+            return true
+        case .closeTab where showServiceDock:
+            // ⌘W 오폭 방지 — 도크가 열려 있으면 ⌘W는 도크를 닫는다.
+            //
+            // 도크의 attach 터미널이 firstResponder여도 Bonsplit의 focusedPaneId는 여전히 뒤의 칸을
+            // 가리킨다. 그대로 두면 사용자는 "지금 보고 있는 것(도크)"을 닫으려 ⌘W를 눌렀는데
+            // **보이지도 않는 탭이 닫힌다.** 눈에 보이는 것이 닫히는 게 유일하게 옳은 동작이다.
+            closeServiceDock()
+            return true
         case .newTerminal, .split, .closeTab, .find, .focusPane, .cycleTab:
             guard let store = activeStore else { return false }
             return Self.perform(action, store: store)
@@ -526,6 +537,7 @@ final class AppState {
             return next
         }
         if selectedServiceId == serviceId { selectedServiceId = nil }
+        dropDockTerm(serviceId)
         Task {
             await TmuxService.kill(projectId: projectId, serviceId: serviceId)
             syncServiceMonitor()
@@ -539,6 +551,7 @@ final class AppState {
     /// 로그를 본 뒤 직접 누르게 한다.
     func restartService(_ serviceId: String, in projectId: String, cwd: String) {
         guard let service = services(of: projectId).first(where: { $0.id == serviceId }) else { return }
+        dropDockTerm(serviceId) // 옛 세션에 attach된 터미널은 버린다 — 다시 열 때 새 세션에 붙는다
         Task {
             await TmuxService.kill(projectId: projectId, serviceId: serviceId)
             await TmuxService.start(service, projectId: projectId, cwd: cwd)
@@ -585,6 +598,42 @@ final class AppState {
             }
         }
         return nil
+    }
+
+    // MARK: 서비스 도크의 터미널 — 펼칠 때 attach, 접을 때 버린다
+
+    /// serviceId → attach 터미널. 도크가 열려 있는 동안만 산다.
+    @ObservationIgnored private var dockTerms: [String: TermView] = [:]
+
+    /// 선택된 서비스의 attach 터미널(없으면 만든다).
+    ///
+    /// **접을 때 버려도 안전한 이유**: 이 서피스에서 도는 건 `tmux attach` 클라이언트일 뿐이고,
+    /// dev 서버는 tmux 서버(ppid=1) 쪽에 있다. 서피스를 해제해도 프로세스는 살아 있으므로
+    /// 상태를 유지하려고 숨은 서피스를 붙들 필요가 없다 — 재부착 빈 화면 레이스를 아예 안 밟는다.
+    func dockTerm(serviceId: String, projectId: String, cwd: String?) -> TermView {
+        if let existing = dockTerms[serviceId] { return existing }
+        let term = TermView(app: app, cwd: cwd,
+                            initialCommand: TmuxService.attachCommand(projectId: projectId,
+                                                                      serviceId: serviceId))
+        dockTerms[serviceId] = term
+        return term
+    }
+
+    /// 도크를 닫는다 — attach 터미널을 전부 버린다(프로세스는 tmux가 계속 붙잡는다).
+    func closeServiceDock() {
+        showServiceDock = false
+        dockTerms.removeAll()
+    }
+
+    /// 도크를 열고 서비스를 고른다(푸터 칩·알림에서 호출).
+    func openServiceDock(serviceId: String?) {
+        selectedServiceId = serviceId ?? selectedServiceId
+        showServiceDock = true
+    }
+
+    /// 재시작·제거로 세션이 갈아엎어지면 그 서비스의 attach 터미널도 버린다(옛 세션에 붙은 채 남지 않게).
+    private func dropDockTerm(_ serviceId: String) {
+        dockTerms[serviceId] = nil
     }
 
     /// 좀비 청소 — 등록이 사라졌는데 살아남은 서비스 세션을 죽인다. 앱 시작 시 1회.

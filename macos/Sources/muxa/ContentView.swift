@@ -39,9 +39,19 @@ struct ContentView: View {
     /// 활성 칸의 테두리가 닿는 변에선 그 위를 덮게 한다.
     private var contentCard: some View {
         workspaceColumn
+            // 서비스 도크는 카드 위에 겹친다 — 카드를 리사이즈하지 않으므로 여닫아도 ghostty 그리드가
+            // 리플로우되지 않는다(레이아웃을 차지하는 도크였다면 열 때마다 터미널이 출렁인다).
+            .overlay(alignment: .bottom) { serviceDock }
             .contentCard(radius: Radius.lg, border: Color.pBorder)
             .padding(.trailing, Space.sm)
             .padding(.bottom, Space.xs)
+    }
+
+    @ViewBuilder
+    private var serviceDock: some View {
+        if state.showServiceDock, let ws = state.activeWorkspace, let project = ws.activeProject {
+            ServiceDock(state: state, project: project, cwd: project.path ?? ws.path)
+        }
     }
 
     /// 전체 폭 상단바 — 신호등 · 워드마크 · 사이드바 컨트롤 · 프로젝트 탭 · 우측 토글.
