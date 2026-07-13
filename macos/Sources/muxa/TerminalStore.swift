@@ -1042,13 +1042,15 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                     let resume = terms[tid].flatMap { detectClaudeResume(from: $0, cwd: tabCwd) } ?? resumeBindings[tid]
                     tabs.append(TabSnapshot(group: nil, items: [], selectedItem: 0,
                                             cwd: tabCwd, resume: resume,
-                                            scrollbackFile: scrollbackFile))
+                                            scrollbackFile: scrollbackFile,
+                                            manualTitle: manualTitles[tid]))
                 case .group(let kind):
                     let state = groups[tid]
                     let items = (state?.items ?? []).map(itemSnapshot)
                     let sel = state.flatMap { s in s.items.firstIndex { $0.id == s.selectedId } } ?? 0
                     if items.isEmpty { continue } // 빈 그룹은 저장하지 않음
-                    tabs.append(TabSnapshot(group: kind.raw, items: items, selectedItem: sel))
+                    tabs.append(TabSnapshot(group: kind.raw, items: items, selectedItem: sel,
+                                            manualTitle: manualTitles[tid]))
                 }
                 _ = i
             }
@@ -1102,17 +1104,24 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         case .leaf(let tabs, let selected, let focused):
             var created: [TabID] = []
             for t in tabs {
+                // 방금 만든 탭만 잡는다(created.last는 생성 실패 시 직전 탭을 가리켜 이름이 엉뚱한 탭에 붙는다).
+                var newTab: TabID?
                 if let raw = t.group, let kind = TabGroupKind(raw: raw) {
-                    if let gid = realizeGroup(kind, items: t.items, selectedItem: t.selectedItem, inPane: pane) {
-                        created.append(gid)
-                    }
+                    newTab = realizeGroup(kind, items: t.items, selectedItem: t.selectedItem, inPane: pane)
                 } else if let tid = controller.createTab(title: "터미널", icon: "terminal", inPane: pane) {
                     if let cwd = t.cwd { pendingCwd[tid] = cwd } // 새 셸을 저장된 작업 디렉터리에서 띄우게 힌트.
                     if let resume = t.resume { registerResumeBinding(resume, for: tid) } // 재개 바인딩 복구(+배너 표시). 실행은 게이트가.
                     // 신뢰 재개(claude 자동)는 곧 claude가 화면을 덮으므로 죽은 스크롤백 리플레이를 건너뛴다(잔상·중복 방지).
                     if let sf = t.scrollbackFile, t.resume?.trusted != true { restoredScrollbackFile[tid] = sf } // 새 셸에 스크롤백 파일 env 주입 힌트(④).
-                    created.append(tid)
+                    newTab = tid
                 }
+                guard let tid = newTab else { continue }
+                // 수동 탭 이름 복구 — 터미널·그룹 공통. 엔진 제목이 나중에 덮지 않도록 manualTitles에도 되살린다.
+                if let title = t.manualTitle {
+                    manualTitles[tid] = title
+                    controller.updateTab(tid, title: title, hasCustomTitle: true)
+                }
+                created.append(tid)
             }
             let selectedTab = selected < created.count ? created[selected] : nil
             if let selectedTab { controller.selectTab(selectedTab) }

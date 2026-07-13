@@ -18,6 +18,10 @@ guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == GHOSTTY_SU
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    /// 창 프레임 저장 키(AppKit이 UserDefaults에 크기·위치를 보관한다).
+    /// 개발 빌드와 릴리스가 같은 키를 쓰면 창 위치가 서로 튀므로 앱 이름으로 갈라둔다.
+    static let windowFrameAutosaveName = "\(AppInfo.name).main"
+
     private var runtime: GhosttyRuntime?
     private var state: AppState?
     private var window: NSWindow?
@@ -83,7 +87,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true // 빈 영역 드래그로 창 이동(Tauri drag-region 대체)
         window.backgroundColor = Palette.panel // 창 배경을 상단바와 같은 회색으로
-        window.center()
+        // 창 크기·위치 복원. AppKit이 프레임을 저장/복원하고 화면 밖으로 나간 프레임도 보정해 준다.
+        // 저장분이 없을 때만(=최초 실행) 가운데 정렬 — center()를 뒤에 두면 복원한 위치를 덮어쓴다.
+        window.setFrameAutosaveName(Self.windowFrameAutosaveName)
+        if !window.setFrameUsingName(Self.windowFrameAutosaveName) { window.center() }
 
         // 크롬(상단바·사이드바) + 활성 워크스페이스(Bonsplit 탭바·분할)를 SwiftUI로 렌더.
         let hosting = NSHostingView(rootView: ContentView(state: state, home: SystemPaths.home))

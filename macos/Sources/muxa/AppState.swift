@@ -766,6 +766,14 @@ final class AppState {
         var showExplorer: Bool? // 도구 패널 열림 상태(나중에 추가된 필드라 옵셔널 하위호환).
         var showGitPanel: Bool?
 
+        /// 디코드 중 버려진 프로젝트 id(손상 스냅샷). 디스크에 쓰지 않는 부산물이라 CodingKeys에서 제외한다.
+        var droppedLayouts: [String] = []
+
+        private enum CodingKeys: String, CodingKey {
+            case version, workspaces, activeId, sidebarMode, layouts
+            case explorerWidth, gitPanelWidth, showExplorer, showGitPanel
+        }
+
         init(workspaces: [Workspace], activeId: String, sidebarMode: SidebarMode,
              layouts: [String: PaneSnapshot]?, explorerWidth: Double?, gitPanelWidth: Double?,
              showExplorer: Bool?, showGitPanel: Bool?,
@@ -776,7 +784,8 @@ final class AppState {
             self.showExplorer = showExplorer; self.showGitPanel = showGitPanel
         }
 
-        // layouts는 포맷이 바뀔 수 있어 관대하게 디코드 — 옛 포맷이면 nil로 두고 워크스페이스는 보존한다.
+        // layouts는 **프로젝트별로 격리 디코드**한다(LenientLayouts) — 스냅샷 하나가 손상돼도 나머지
+        // 프로젝트는 살린다. 이전엔 통짜 `try?`라 하나가 깨지면 전 프로젝트 레이아웃이 조용히 사라졌다.
         // version은 나중에 추가된 필드라 decodeIfPresent로 하위호환(구 데이터=0).
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -784,7 +793,9 @@ final class AppState {
             workspaces = try c.decode([Workspace].self, forKey: .workspaces)
             activeId = try c.decode(String.self, forKey: .activeId)
             sidebarMode = try c.decode(SidebarMode.self, forKey: .sidebarMode)
-            layouts = (try? c.decodeIfPresent([String: PaneSnapshot].self, forKey: .layouts)) ?? nil
+            let lenient = try? c.decodeIfPresent(LenientLayouts.self, forKey: .layouts)
+            layouts = lenient?.layouts
+            droppedLayouts = lenient?.dropped ?? []
             explorerWidth = try c.decodeIfPresent(Double.self, forKey: .explorerWidth)
             gitPanelWidth = try c.decodeIfPresent(Double.self, forKey: .gitPanelWidth)
             showExplorer = try c.decodeIfPresent(Bool.self, forKey: .showExplorer)
@@ -794,6 +805,9 @@ final class AppState {
 
     // 워크스페이스 보존, layouts만 통합 스냅샷으로 관대 디코드. muxa 베이스 경로는 단일 소유자 재사용.
     private static let fileURL = MuxaSupportDir.url.appendingPathComponent("state.v4.json")
+    /// 마지막으로 **정상 로드에 성공한** 상태의 사본. 시작 시 1회만 갱신하므로(§load) 세션 중 저장이
+    /// 손상돼도 직전 정상 세션으로 되돌아갈 수 있다. 매 save마다 복사하면 손상본이 백업까지 덮는다.
+    private static let backupURL = MuxaSupportDir.url.appendingPathComponent("state.v4-previous.json")
 
     func save() {
         // 인스턴스화된 스토어(=열린 프로젝트)의 현재 레이아웃을 통합 스냅샷으로 반영. 빈 스토어는 스킵.
@@ -808,10 +822,42 @@ final class AppState {
         try? data.write(to: Self.fileURL, options: .atomic)
     }
 
+    /// 복원 중 발생한 유실 — 시작 직후 인박스에 표면화한다(beginSession). 조용한 유실은 금지.
+    private var restoreWarnings: [String] = []
+
+    /// 세션 상태를 불러온다. 손상 시 2단 폴백: primary → backup(직전 정상 세션) → 빈 상태.
+    /// **판정은 `StateLoad`(순수)가**, 파일 읽기·쓰기만 여기서 한다.
     func load() {
-        guard let data = try? Data(contentsOf: Self.fileURL),
-              let snapshot = try? JSONDecoder().decode(Persisted.self, from: data)
-        else { return }
+        let primary = Self.read(Self.fileURL)
+        let backup = Self.read(Self.backupURL)
+        let decision = StateLoad.choose(primary: primary.state, backup: backup.state)
+
+        switch decision.source {
+        case .primary:
+            if let snapshot = primary.snapshot { apply(snapshot) }
+            // 정상 로드분을 백업으로 남긴다(세션당 1회) — 이후 저장이 깨져도 여기로 돌아온다.
+            if decision.refreshBackup, let data = primary.data {
+                try? data.write(to: Self.backupURL, options: .atomic)
+            }
+        case .backup:
+            // 백업은 **덮어쓰지 않는다** — 유일한 복구 경로다.
+            if let snapshot = backup.snapshot { apply(snapshot) }
+        case .none:
+            break
+        }
+        restoreWarnings.append(contentsOf: decision.warnings)
+    }
+
+    /// 파일 하나를 읽고 디코드까지 시도한다(경계). 결과를 순수 판정에 넘길 형태로 돌려준다.
+    private static func read(_ url: URL) -> (state: StateLoad.FileState, data: Data?, snapshot: Persisted?) {
+        guard let data = try? Data(contentsOf: url) else { return (.missing, nil, nil) }
+        guard let snapshot = try? JSONDecoder().decode(Persisted.self, from: data) else {
+            return (.corrupt, data, nil)
+        }
+        return (.valid, data, snapshot)
+    }
+
+    private func apply(_ snapshot: Persisted) {
         workspaces = snapshot.workspaces
         activeId = snapshot.activeId
         sidebarMode = snapshot.sidebarMode
@@ -821,6 +867,9 @@ final class AppState {
         if let open = snapshot.showGitPanel { showGitPanel = open }
         // 복원 직전 상한·손상 방어를 통과시킨다(순수 함수). 비대·변조된 스냅샷의 복원 폭주를 막는다.
         savedLayouts = SnapshotSanitize.clampAll(snapshot.layouts ?? [:])
+        if !snapshot.droppedLayouts.isEmpty {
+            restoreWarnings.append("레이아웃 \(snapshot.droppedLayouts.count)개를 불러오지 못했습니다(손상).")
+        }
     }
 
     // MARK: 스크롤백 파일 GC (복원 시 새 tabId 발급으로 남는 고아 파일 정리 — 디스크 누수 방지)
@@ -852,6 +901,9 @@ final class AppState {
         if lastLaunchWasDirty {
             attention.recordSystem(title: "직전에 비정상 종료됐습니다 — 세션을 복원했습니다.")
         }
+        // load()가 모은 유실을 여기서 표면화한다(인박스가 준비된 시점). 조용히 사라지게 두지 않는다.
+        for warning in restoreWarnings { attention.recordSystem(title: warning) }
+        restoreWarnings = []
     }
 
     /// 세션 정상 종료 — 마지막 레이아웃을 저장하고 크래시 마커를 지운다(disarm).
