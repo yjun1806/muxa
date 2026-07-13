@@ -33,11 +33,11 @@ struct Pill<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        HStack(spacing: Space.tight + 1) {
+        HStack(spacing: Space.xs) {
             content()
         }
         .foregroundStyle(color)
-        .padding(.horizontal, Space.xs + 1)
+        .padding(.horizontal, Space.sm)
         .frame(height: 16)
         .background(color.opacity(0.14), in: Capsule())
         .contentShape(Capsule())

@@ -36,6 +36,15 @@ enum GitService {
         }
     }
 
+    /// 현재 브랜치명만 가볍게 조회 — 상태바용. status(--porcelain 전체 스캔)보다 훨씬 싸다.
+    /// git 저장소가 아니거나 detached HEAD면 nil.
+    static func currentBranch(in dir: String) async -> String? {
+        let result = await run(["rev-parse", "--abbrev-ref", "HEAD"], in: dir)
+        guard result.exitCode == 0 else { return nil }
+        let branch = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return branch.isEmpty || branch == "HEAD" ? nil : branch
+    }
+
     /// 워크트리 상태. git 저장소가 아니면 nil.
     static func status(in dir: String) async -> GitStatus? {
         let result = await run(["status", "--porcelain=v1", "--branch"], in: dir)

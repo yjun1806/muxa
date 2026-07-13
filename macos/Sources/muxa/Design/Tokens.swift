@@ -7,6 +7,9 @@ import SwiftUI
 /// (3·5·7처럼 한 픽셀씩 어긋나던 값들만 가장 가까운 단계로 흡수 — 시각 변화는 미미하고 일관성만 생긴다.)
 
 /// 간격 — HStack/VStack spacing, padding.
+///
+/// **이 스케일 밖의 값이 필요하면 산술(`xl - xs`)로 만들지 말고 단계를 추가한다.**
+/// 뺄셈으로 만든 값은 읽는 사람이 암산해야 하고, `xl`을 바꾸면 무관한 곳이 함께 움직인다.
 enum Space {
     /// 아이콘과 라벨을 밀착시킬 때(배지 내부).
     static let tight: CGFloat = 2
@@ -16,6 +19,8 @@ enum Space {
     static let md: CGFloat = 8
     /// 패널 좌우 인셋 — 사이드바·git 패널·도구줄의 가로 여백 기준선.
     static let panelInset: CGFloat = 10
+    /// 블록 사이 여백(버튼 가로 패딩·빈 상태 요소 간격).
+    static let lg: CGFloat = 12
     static let xl: CGFloat = 16
 }
 
@@ -38,6 +43,9 @@ enum RowHeight {
     static let bar: CGFloat = 30
     /// 패널 헤더.
     static let header: CGFloat = 34
+    /// 창 상단바 — macOS 표준 타이틀바(28pt)에 맞춘 높이. 신호등이 이 선의 중앙에 오도록 정한 값이라
+    /// 함부로 키우면 신호등만 위로 뜬다.
+    static let topBar: CGFloat = 30
     /// 경계선 두께(1px 구분선).
     static let hairline: CGFloat = 1
 }

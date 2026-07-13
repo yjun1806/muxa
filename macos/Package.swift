@@ -27,6 +27,8 @@ let package = Package(
                 .copy("Resources/fileicons"),
                 // 앱 아이콘(1024) — bare 실행에서도 Dock 아이콘을 이걸로 설정한다(main.swift). 재생성 = scripts/build-appicon.
                 .copy("Resources/AppIcon.png"),
+                // Claude 심볼(공식 SVG) — 사용량 표시의 출처 마크. NSImage가 벡터로 렌더한다.
+                .copy("Resources/claude-symbol.svg"),
             ],
             linkerSettings: [
                 .linkedFramework("AppKit"),

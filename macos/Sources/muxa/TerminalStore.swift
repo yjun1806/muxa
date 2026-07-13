@@ -23,10 +23,14 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     @ObservationIgnored private let app: ghostty_app_t
     @ObservationIgnored private let cwd: String?
     @ObservationIgnored private var terms: [TabID: TermView] = [:]
-    /// 복원 시 탭별로 새 셸을 띄울 작업 디렉터리(OSC 7 스냅샷). term(for:)가 TermView 생성 시 참조.
+    /// 탭별로 새 셸을 띄울 작업 디렉터리 힌트. term(for:)가 TermView 생성 시 참조한다.
+    /// 두 경로가 채운다 — 세션 복원(저장된 OSC 7 pwd)과 새 탭·분할(원본 칸의 현재 pwd 상속).
     /// TermView가 아직 안 만들어진 탭도 다음 저장 때 cwd를 잃지 않도록 convert의 폴백으로도 쓴다.
-    @ObservationIgnored private var restoredCwd: [TabID: String] = [:]
-    /// 복원된 탭의 스크롤백 파일 경로 힌트 — term(for:)가 새 셸에 env로 주입한다(④). restoredCwd와 같은 수명.
+    @ObservationIgnored private var pendingCwd: [TabID: String] = [:]
+    /// 이 워크스페이스에서 셸이 마지막으로 이동한 디렉터리(OSC 7). 원본 칸에 터미널이 없을 때(문서·diff 탭에
+    /// 포커스가 있는 상태에서 분할 등) 새 셸의 시작 폴더 폴백으로 쓴다.
+    @ObservationIgnored private var lastPwd: String?
+    /// 복원된 탭의 스크롤백 파일 경로 힌트 — term(for:)가 새 셸에 env로 주입한다(④). pendingCwd와 같은 수명.
     @ObservationIgnored private var restoredScrollbackFile: [TabID: String] = [:]
     /// 탭별 에이전트 재개 바인딩(훅이 넘긴 재개 명령). 훅 알림으로 등록되고 스냅샷에 실려 복원된다.
     /// 값 자체는 관측 대상이 아니라 뷰는 아래 resumeTabs로 표시 여부만 반응한다.
@@ -44,6 +48,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     @ObservationIgnored private var tabContent: [TabID: TabContent] = [:]
     /// 그룹 탭(TabID) → 서브탭 상태(문서·diff 묶음). TabGroupView가 관측한다.
     @ObservationIgnored private var groups: [TabID: TabGroupState] = [:]
+
+    /// 탭별 현재 셸 작업 디렉터리(OSC 7) — 상태바가 활성 칸의 pwd를 보여준다.
+    /// TermView는 NSView라 SwiftUI가 관측하지 못해, onPwd 콜백으로 여기 미러링한다(관측 대상).
+    private(set) var pwds: [TabID: String] = [:]
 
     /// 백그라운드 활동(●)으로 배지가 붙은 탭들(A). 프로젝트 배지가 이걸 파생·관측한다.
     var badgedTabs: Set<TabID> = []
@@ -156,10 +164,11 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     // MARK: BonsplitDelegate — 분할·새탭·닫기에 터미널 생명주기를 잇는다
 
     /// 분할 즉시 새 패인에 터미널을 만든다 — 빈 패인을 거치지 않는다(muxa 원래 동작).
+    /// 새 셸은 분할 원본 칸의 현재 작업 디렉터리를 이어받는다.
     /// 복원 중엔 replay가 탭을 직접 채우므로 자동 생성을 건너뛴다.
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
         if restoring { return }
-        newTerminal(inPane: newPane)
+        newTerminal(inPane: newPane, inheritingFrom: originalPane)
     }
 
     /// 탭바 `+` 버튼 → 새 터미널.
@@ -170,7 +179,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 탭이 닫히면 그 터미널(PTY·서피스)·뷰어 상태를 해제한다.
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         terms[tabId] = nil // TermView deinit이 서피스 free
-        restoredCwd[tabId] = nil // 복원 cwd 힌트 해제
+        pendingCwd[tabId] = nil // 시작 cwd 힌트 해제
         restoredScrollbackFile[tabId] = nil // 스크롤백 파일 힌트 해제
         ScrollbackStore.delete(for: tabId) // 이 탭의 스크롤백 파일 정리(누수 방지)
         resumeBindings[tabId] = nil // 에이전트 재개 바인딩 해제
@@ -293,8 +302,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     func term(for tabId: TabID) -> TermView {
         if let t = terms[tabId] { return t }
         // tabId·소켓 경로를 셸 env로 주입(훅 알림용) — TermView.init에서 서피스 생성 전에 심는다.
-        // 복원된 탭이면 저장된 작업 디렉터리에서, 아니면 워크스페이스 기본 cwd에서 새 셸.
-        let t = TermView(app: app, cwd: restoredCwd[tabId] ?? cwd, tabId: tabId, sockPath: NotifyServer.socketPath,
+        // 복원·상속 힌트가 있으면 그 디렉터리에서, 없으면 워크스페이스 기본 cwd에서 새 셸.
+        let t = TermView(app: app, cwd: pendingCwd[tabId] ?? cwd, tabId: tabId, sockPath: NotifyServer.socketPath,
                          restoreScrollbackFile: restoredScrollbackFile[tabId])
         // 콜백은 action_cb(메인 async)·becomeFirstResponder(메인)에서만 불린다 → assumeIsolated 안전.
         t.onSignal = { [weak self] signal in MainActor.assumeIsolated { self?.handleSignal(signal, from: tabId) } }
@@ -306,6 +315,12 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         }
         t.onTitle = { [weak self] title in
             MainActor.assumeIsolated { self?.applyEngineTitle(title, for: tabId) }
+        }
+        t.onPwd = { [weak self] pwd in
+            MainActor.assumeIsolated {
+                self?.lastPwd = pwd
+                self?.pwds[tabId] = pwd
+            }
         }
         terms[tabId] = t
         return t
@@ -663,11 +678,35 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         }
     }
 
+    /// 새 셸이 시작할 작업 디렉터리 — 원본 칸의 현재 pwd(OSC 7) > 워크스페이스 마지막 pwd > 프로젝트 기본 cwd.
+    /// 원본 칸이 문서·diff 탭이거나 셸이 아직 OSC 7을 보내지 않았으면 자연스럽게 다음 순위로 떨어진다.
+    private func startCwd(inPane pane: PaneID?) -> String? {
+        if let pane, let tab = controller.selectedTab(inPane: pane),
+           let pwd = terms[tab.id]?.pwd { return pwd }
+        return lastPwd ?? cwd
+    }
+
+    /// 지금 포커스된 칸의 선택 탭이 있는 디렉터리 — 상태바 표시용.
+    /// 터미널이 아닌 탭(문서·diff)에 포커스가 있으면 nil(보여줄 pwd가 없다).
+    /// `pwds`(관측)와 `controller.focusedPaneId`(Bonsplit @Observable)를 읽으므로 포커스·cd 양쪽에 반응한다.
+    var focusedPwd: String? {
+        guard let pane = controller.focusedPaneId,
+              let tab = controller.selectedTab(inPane: pane) else { return nil }
+        if let content = tabContent[tab.id], case .group = content { return nil } // 문서·diff 탭엔 pwd가 없다
+        return pwds[tab.id] ?? pendingCwd[tab.id]
+    }
+
     /// 새 터미널 탭 생성(분할 후 빈 패인 채우기·⌘T 등).
+    /// `inheritingFrom`은 작업 디렉터리를 물려받을 원본 칸(분할이면 분할된 칸). 없으면 탭이 생길 칸에서 상속한다.
     @discardableResult
-    func newTerminal(inPane pane: PaneID? = nil) -> TabID? {
+    func newTerminal(inPane pane: PaneID? = nil, inheritingFrom source: PaneID? = nil) -> TabID? {
+        // createTab이 새 탭을 즉시 선택하므로, 원본 칸의 pwd는 생성 전에 읽는다.
+        let start = startCwd(inPane: source ?? pane ?? controller.focusedPaneId)
         let id = controller.createTab(title: "터미널", icon: "terminal", inPane: pane)
-        if let id { regroup(id, inPane: pane ?? controller.focusedPaneId) }
+        if let id {
+            pendingCwd[id] = start
+            regroup(id, inPane: pane ?? controller.focusedPaneId)
+        }
         syncHasTabs() // 빈 상태에서 새 터미널을 열면 BonsplitView로 복귀(관측 갱신)
         persist()
         return id
@@ -836,7 +875,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                 switch content(for: tid) {
                 case .terminal:
                     // 현재 셸 작업 디렉터리 기록 — TermView가 살아 있으면 그 pwd, 아직 미실체화 탭이면 복원 힌트.
-                    let tabCwd = terms[tid]?.pwd ?? restoredCwd[tid]
+                    let tabCwd = terms[tid]?.pwd ?? pendingCwd[tid]
                     // 화면+스크롤백 캡처 — 실체화된 터미널이면 서피스에서 읽어 파일에 쓰고,
                     // 아직 미실체화(복원만 되고 안 연) 탭이면 이전 힌트 경로를 그대로 이어 준다(④).
                     let scrollbackFile = terms[tid].flatMap { captureScrollback(from: $0, tabId: tid) }
@@ -911,7 +950,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                         created.append(gid)
                     }
                 } else if let tid = controller.createTab(title: "터미널", icon: "terminal", inPane: pane) {
-                    if let cwd = t.cwd { restoredCwd[tid] = cwd } // 새 셸을 저장된 작업 디렉터리에서 띄우게 힌트.
+                    if let cwd = t.cwd { pendingCwd[tid] = cwd } // 새 셸을 저장된 작업 디렉터리에서 띄우게 힌트.
                     if let resume = t.resume { registerResumeBinding(resume, for: tid) } // 재개 바인딩 복구(+배너 표시). 실행은 게이트가.
                     // 신뢰 재개(claude 자동)는 곧 claude가 화면을 덮으므로 죽은 스크롤백 리플레이를 건너뛴다(잔상·중복 방지).
                     if let sf = t.scrollbackFile, t.resume?.trusted != true { restoredScrollbackFile[tid] = sf } // 새 셸에 스크롤백 파일 env 주입 힌트(④).

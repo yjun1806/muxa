@@ -88,7 +88,7 @@ private struct EmptyProjectView: View {
             } label: {
                 Label("새 터미널", systemImage: "plus")
                     .font(.muxa(.title))
-                    .padding(.horizontal, Space.xl - Space.tight)
+                    .padding(.horizontal, Space.lg)
                     .padding(.vertical, Space.sm)
                     .background(Color.pBtnHover, in: RoundedRectangle(cornerRadius: Radius.md))
                     .foregroundStyle(Color.pFg)

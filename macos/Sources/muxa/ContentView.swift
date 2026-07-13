@@ -20,6 +20,8 @@ struct ContentView: View {
             .overlay(alignment: .topLeading) {
                 SidebarSUI(state: state)
             }
+            HDivider()
+            StatusBar(state: state, home: home)
         }
         .background(Color.pPanel)
         // ⌘K 빠른 전환기 — 크롬 전체 위에 뜨는 오버레이(닫혀 있으면 아무것도 안 그린다).
@@ -30,8 +32,9 @@ struct ContentView: View {
     /// 타이틀바와 프로젝트 헤더를 한 줄로 합친다(두 줄로 따로 놀지 않게). fullSizeContentView라
     /// 콘텐츠가 타이틀바까지 올라와 신호등이 이 줄 위에 뜬다.
     private var topBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Space.md) {
             Color.clear.frame(width: 68) // 신호등 3개 확보
+            wordmark
             TopBarControls(state: state, home: home)
             if let ws = state.activeWorkspace {
                 Rectangle().fill(Color.pBorder).frame(width: 1, height: 16)
@@ -40,19 +43,26 @@ struct ContentView: View {
                 AttentionBell(state: state)
                 explorerToggle
                 gitToggle
-                // 우측: 워크스페이스 · 활성 프로젝트 실효 경로
-                Text(displayPath(ws.activeProject?.path ?? ws.path, home: home))
-                    .font(.muxa(.label))
-                    .foregroundStyle(Color.pMuted)
-                    .lineLimit(1)
-                    .truncationMode(.head)
-                    .padding(.trailing, 12)
+                // 경로는 상단바에 두지 않는다 — 푸터가 활성 터미널의 실제 pwd(OSC 7)를 보여주므로
+                // 여기 프로젝트 경로까지 띄우면 비슷한 두 경로가 화면에 동시에 뜨고, 상단바만 좁아진다.
+                    .padding(.trailing, Space.lg)
             } else {
                 Spacer(minLength: 0)
             }
         }
-        .frame(height: 38)
+        // 신호등은 fullSizeContentView에서도 표준 타이틀바 위치(창 상단 기준 중심 ≈14pt)에 고정된다.
+        // 상단바를 그 높이에 맞춰야 신호등과 우리 컨트롤이 같은 선에 놓인다(38이면 신호등만 위로 뜬다).
+        .frame(height: RowHeight.topBar)
         .background(Color.pPanel)
+    }
+
+    /// 워드마크 — 창에 앱 이름을 남긴다(타이틀바를 숨겼으므로 여기가 유일한 자리).
+    private var wordmark: some View {
+        Text("Muxa")
+            .font(.muxa(.title, weight: .semibold))
+            .foregroundStyle(Color.pBrand)
+            .fixedSize()
+            .help("muxa")
     }
 
     /// 파일 익스플로러 토글 버튼(상단바 우측).

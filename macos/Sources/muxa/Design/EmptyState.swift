@@ -14,7 +14,7 @@ struct EmptyState<Action: View>: View {
     private var titleFont: Font { compact ? .muxa(.body) : .system(size: 15, weight: .medium) }
 
     var body: some View {
-        VStack(spacing: compact ? Space.sm : Space.xl - Space.xs) {
+        VStack(spacing: compact ? Space.sm : Space.lg) {
             Image(systemName: icon)
                 .font(.system(size: iconSize))
                 .foregroundStyle(compact ? Color.pMuted.opacity(0.6) : Color.pMuted)

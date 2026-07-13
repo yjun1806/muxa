@@ -112,7 +112,7 @@ struct GitPanel: View {
                         let text = ReviewCommentFormat.instruction(pending)
                         if onSendReview(text) { _ = ReviewCommentStore.shared.consumeAll(inRepo: root) }
                     } label: {
-                        HStack(spacing: Space.tight + 1) {
+                        HStack(spacing: Space.xs) {
                             Image(systemName: "paperplane").font(.muxa(.caption))
                             Text("\(pending.count)개 보내기").font(.muxa(.label, weight: .medium))
                         }
@@ -390,7 +390,7 @@ struct GitPanel: View {
                 wholeDiffButton("세션 전체", base: base) // base..worktree = 이번 세션 전체(커밋+미커밋)
             }
             Button(action: onResetBaseline) {
-                HStack(spacing: Space.tight + 1) {
+                HStack(spacing: Space.xs) {
                     Image(systemName: "checkmark.circle").font(.muxa(.caption))
                     Text("여기까지 봤음").font(.muxa(.caption))
                 }
@@ -428,7 +428,7 @@ struct GitPanel: View {
     // MARK: 공용
 
     private func counter(_ icon: String, _ n: Int) -> some View {
-        HStack(spacing: Space.tight - 1) {
+        HStack(spacing: Space.tight) {
             Image(systemName: icon).font(.muxa(.micro))
             Text("\(n)").font(.muxaMono(.label))
         }
