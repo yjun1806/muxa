@@ -22,13 +22,6 @@ struct MuxaConfig: Equatable {
     /// 복원된 에이전트 세션 재개의 승인 게이트(off/manual/auto). 기본 manual — 임의 셸 명령을
     /// 자동 실행하지 않고 사용자 확인을 강제한다(신뢰 경계). (D2)
     var agentResume: AgentResumeMode
-    /// 터미널 탭을 tmux 세션 안에서 띄울지(L3 — 앱을 껐다 켜도 셸·에이전트·빌드가 살아남는다).
-    ///
-    /// **기본은 off.** tmux 의존을 강제하지 않고, 터미널 안의 터미널이 되는 대가(키·마우스·색이
-    /// 한 겹 더 거친다)를 원치 않는 사용자를 존중한다. tmux가 없으면 이 값이 true여도 조용히
-    /// 무시된다(TmuxService.isAvailable 가드 → 일반 셸로 폴백).
-    var persistentSessions: Bool
-
     /// 전부 기본값(= 빈 설정 파일과 동일). 각 항목의 단일 진실 원천.
     static let defaults = MuxaConfig(
         sidebarMode: .expanded,
@@ -36,8 +29,7 @@ struct MuxaConfig: Equatable {
         commandFinishedThresholdSec: 8,
         defaultWorkspacePath: nil,
         keybindings: [:],
-        agentResume: .manual,
-        persistentSessions: false
+        agentResume: .manual
     )
 
     /// 완료 배지 임계를 나노초로 환산 — TerminalStore가 이 단위로 비교한다. 음수는 0으로 클램프.
@@ -58,8 +50,7 @@ extension MuxaConfig {
                 ?? defaults.commandFinishedThresholdSec,
             defaultWorkspacePath: pairs["default_workspace_path"] ?? defaults.defaultWorkspacePath,
             keybindings: extractKeybindings(pairs),
-            agentResume: pairs["agent_resume"].flatMap(AgentResumeMode.init(rawValue:)) ?? defaults.agentResume,
-            persistentSessions: pairs["persistent_sessions"].flatMap(parseBool) ?? defaults.persistentSessions
+            agentResume: pairs["agent_resume"].flatMap(AgentResumeMode.init(rawValue:)) ?? defaults.agentResume
         )
     }
 

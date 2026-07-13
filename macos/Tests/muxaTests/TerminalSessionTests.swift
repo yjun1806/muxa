@@ -151,4 +151,35 @@ struct TerminalSessionTests {
     @Test func tmux를_안_쓰면_되짚을_것이_없다() {
         #expect(TerminalSession.resolve(incomingTabId: "t1", sessionsByTab: [:]) == nil)
     }
+
+    // MARK: 탭 닫기 — 죽일지 남길지
+
+    /// 셸만 있는 탭은 되찾을 작업이 없다 — 남기면 유령만 쌓인다.
+    @Test func 셸만_있으면_죽인다() {
+        #expect(!TerminalSession.shouldDetach(foreground: ["zsh"]))
+        #expect(!TerminalSession.shouldDetach(foreground: ["-zsh"])) // 로그인 셸
+        #expect(!TerminalSession.shouldDetach(foreground: ["/bin/zsh", "login"]))
+        #expect(!TerminalSession.shouldDetach(foreground: ["bash", "fish"]))
+    }
+
+    /// 돌던 작업이 있으면 남긴다 — ⌘W를 잘못 눌렀다고 30분 돌던 빌드가 즉사하면 안 된다.
+    @Test func 작업이_돌고_있으면_남긴다() {
+        #expect(TerminalSession.shouldDetach(foreground: ["zsh", "claude"]))
+        #expect(TerminalSession.shouldDetach(foreground: ["node"]))
+        #expect(TerminalSession.shouldDetach(foreground: ["zsh", "zsh", "sleep"])) // 셸이 여러 겹이어도
+    }
+
+    /// **래퍼 셸에 속지 않는다.** 사용자 zsh가 `kiro-cli-term` 같은 래퍼로 감싸져 있으면
+    /// tmux의 pane_current_command는 영원히 "zsh"라 답한다 — 안에서 빌드가 돌아도.
+    /// TTY 포그라운드를 직접 보므로 진짜 작업을 놓치지 않는다(실측으로 걸린 함정).
+    @Test func 래퍼_셸에_속지_않는다() {
+        #expect(!TerminalSession.shouldDetach(foreground: ["zsh (kiro-cli-term)", "/bin/zsh"]))
+        #expect(TerminalSession.shouldDetach(foreground: ["zsh (kiro-cli-term)", "/bin/zsh", "sleep"]))
+    }
+
+    /// 아무것도 안 돌면 죽인다 — 쌓이는 쪽이 잃는 쪽보다 나쁘다(유령은 눈에 안 보인다).
+    @Test func 아무것도_없으면_죽인다() {
+        #expect(!TerminalSession.shouldDetach(foreground: []))
+        #expect(!TerminalSession.shouldDetach(foreground: ["", "  "]))
+    }
 }

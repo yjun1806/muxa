@@ -48,6 +48,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         self.runtime = runtime
 
+        // 툴팁이 바로 뜨게 — macOS 기본은 1초 넘게 기다린다. 탭바의 분할·새 터미널 버튼처럼 아이콘만
+        // 있는 컨트롤은 그때까지 뭘 하는 버튼인지 알 수 없어 설명이 있으나 마나다.
+        // (그 버튼들은 Bonsplit이 `.help()`로 그리므로 우리가 뷰를 감쌀 수 없다 — 앱 전역 지연을 줄인다.)
+        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 250])
+
         setAppIcon() // Dock 아이콘 — bare 실행(.app 번들 아님)이라 런타임에 직접 설정
         ShikiHighlighter.shared.warmUp() // 코드 하이라이터를 미리 로드 — 첫 코드 파일도 즉시 뜨게
         NotificationService.shared.requestAuthorizationIfPossible() // 데스크톱 알림 권한(번들일 때만)

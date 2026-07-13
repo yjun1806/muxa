@@ -82,6 +82,9 @@ struct StatusBar: View {
             // 사용량 칩과 같은 문법(칩 + 상세 팝오버)이라 나란히 두고, 폭이 고정된 요약이므로
             // 오른쪽 끝에 붙여도 경로·브랜치를 밀어내지 않는다.
             if let ws = state.activeWorkspace, let project = ws.activeProject {
+                // 닫았지만 살아 있는 터미널 세션 — 있을 때만 나타난다(없으면 자리도 안 차지한다).
+                // 안 보여주면 "뭔가 돌고 있는데 어디 있는지 모르는" 유령이 된다.
+                DetachedStrip(state: state, project: project)
                 ServiceStrip(state: state, project: project)
             }
         }

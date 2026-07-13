@@ -66,6 +66,35 @@ enum TerminalSession {
         ].joined(separator: "; ")
     }
 
+    /// 탭을 닫을 때 이 세션을 **죽일지, 백그라운드로 남길지**(순수).
+    ///
+    /// 그냥 죽이면 안전하지만 tmux의 값어치를 반쯤 버린다 — 30분 돌던 빌드가 있는 탭을 ⌘W로 잘못
+    /// 누르면 그 자리에서 즉사한다. 반대로 무조건 남기면 유령 세션이 쌓인다.
+    ///
+    /// 그래서 **안에서 사용자 작업이 돌고 있을 때만 남긴다**. 셸만 있는 탭(= 프롬프트에서 놀고 있던 탭)은
+    /// 남겨봐야 되찾을 것이 없으므로 조용히 죽인다.
+    ///
+    /// - Parameter foreground: 그 pane의 TTY에서 **포그라운드로 도는 프로세스 이름들**.
+    ///
+    /// tmux의 `#{pane_current_command}`를 쓰지 않는다. 그건 pane의 **맨 위 프로세스**만 보는데,
+    /// 셸이 래퍼(`kiro-cli-term` 같은)로 감싸져 있으면 그 래퍼 이름만 돌려준다 — 안에서 빌드가 돌아도
+    /// 영원히 "zsh"라고 답해 **detach 판정이 영영 안 걸린다**(실측으로 걸렸다). TTY의 포그라운드
+    /// 프로세스 그룹을 직접 봐야 진짜로 뭐가 도는지 안다.
+    static func shouldDetach(foreground: [String]) -> Bool {
+        foreground.contains { !isShell($0) }
+    }
+
+    private static func isShell(_ raw: String) -> Bool {
+        var name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.hasPrefix("-") { name.removeFirst() } // 로그인 셸(-zsh)
+        name = (name as NSString).lastPathComponent // /bin/zsh → zsh
+        if let paren = name.firstIndex(of: " ") { name = String(name[..<paren]) } // "zsh (wrapper)"
+        return name.isEmpty || shellNames.contains(name)
+    }
+
+    /// "그냥 셸" 목록 — 이것만 돌고 있으면 되찾을 작업이 없다.
+    private static let shellNames: Set<String> = ["zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh", "csh", "login"]
+
     /// 훅이 보낸 tabId를 **현재 살아있는 탭**으로 되짚는다(순수).
     ///
     /// tmux 세션 안 셸의 `MUXA_TAB_ID`는 **그 세션이 처음 만들어질 때의 tabId**다. 복원하면 tabId가

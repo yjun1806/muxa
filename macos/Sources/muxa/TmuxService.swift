@@ -208,6 +208,22 @@ enum TmuxService {
         return orphans
     }
 
+    /// 그 세션 pane의 TTY에서 **포그라운드로 도는 프로세스 이름들**. 탭을 닫을 때 "안에서 뭐가
+    /// 돌고 있나"를 묻는 데 쓴다 — 셸뿐이면 죽이고, 작업이 있으면 남긴다(판정은 순수 함수).
+    ///
+    /// tmux의 `#{pane_current_command}`를 안 쓰는 이유: 그건 pane의 **맨 위 프로세스**만 본다.
+    /// 셸이 래퍼로 감싸져 있으면(사용자 환경의 `kiro-cli-term` 등) 안에서 빌드가 돌아도 영원히
+    /// "zsh"라 답해 판정이 영영 안 걸린다(실측으로 걸린 함정).
+    static func paneForeground(session: String) async -> [String] {
+        let raw = await run(["display-message", "-p", "-t", "=\(session):", "#{pane_pid}"])
+            .stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let root = pid_t(raw) else { return [] }
+        // **프로세스 트리를 훑는다.** TTY의 포그라운드 그룹만 보면 부족하다 — 셸 래퍼(kiro-cli-term 등)가
+        // 자체 pty를 만들어 실제 셸을 그 안에서 돌리면, pane의 tty에는 래퍼만 보이고 진짜 작업은
+        // 그 아래 숨는다(실측). pane 프로세스의 모든 자손을 봐야 안에서 뭐가 도는지 알 수 있다.
+        return AgentProcessDetector.descendantNames(of: root)
+    }
+
     /// 고아 **터미널** 세션 정리(L3) — 닫힌 탭이 남긴 셸을 죽인다. 판정은 순수([[TerminalSession]]),
     /// 여기서는 죽이기만 한다. 서비스 세션과 남의 tmux 작업은 판정 단계에서 이미 걸러진다.
     @discardableResult

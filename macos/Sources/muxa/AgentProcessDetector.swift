@@ -28,6 +28,40 @@ enum AgentProcessDetector {
         return false
     }
 
+    /// `root`의 **모든 자손** 프로세스 이름(자기 자신 포함). 트리를 아래로 훑는다.
+    ///
+    /// 부모 방향 훑기(`agentRunning`)와 달리 여기서는 "이 pty 안에서 뭐가 돌고 있나"를 묻는다.
+    /// TTY의 포그라운드 그룹만 보면 부족하다 — 셸 래퍼가 자체 pty를 만들어 실제 셸을 그 안에서
+    /// 돌리면 진짜 작업이 그 아래 숨는다(실측). 전 프로세스 목록을 한 번 읽어 트리를 세운다.
+    static func descendantNames(of root: pid_t, maxDepth: Int = 8) -> [String] {
+        var buffer = [pid_t](repeating: 0, count: 4096)
+        let bytes = proc_listallpids(&buffer, Int32(buffer.count * MemoryLayout<pid_t>.size))
+        guard bytes > 0 else { return [] }
+        let count = Int(bytes) / MemoryLayout<pid_t>.size
+
+        var childrenOf: [pid_t: [pid_t]] = [:]
+        var nameOf: [pid_t: String] = [:]
+        for pid in buffer.prefix(count) where pid > 0 {
+            guard let info = bsdInfo(pid) else { continue }
+            nameOf[pid] = comm(info)
+            childrenOf[pid_t(bitPattern: info.pbi_ppid), default: []].append(pid)
+        }
+
+        var names: [String] = []
+        var frontier = [root]
+        var depth = 0
+        while !frontier.isEmpty, depth < maxDepth {
+            var next: [pid_t] = []
+            for pid in frontier {
+                if let name = nameOf[pid] { names.append(name) }
+                next.append(contentsOf: childrenOf[pid] ?? [])
+            }
+            frontier = next
+            depth += 1
+        }
+        return names
+    }
+
     /// pid의 BSD 프로세스 정보(ppid·comm 포함). 죽었거나 접근 불가면 nil.
     private static func bsdInfo(_ pid: pid_t) -> proc_bsdinfo? {
         var info = proc_bsdinfo()

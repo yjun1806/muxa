@@ -13,6 +13,21 @@ struct Project: Codable, Identifiable {
     /// 장수 프로세스(dev 서버 등). 탭 트리 밖에 살고 실행은 tmux에 위임한다(Service.swift 참조).
     /// 여기 실려 Persisted에 자동 편승한다. 옵셔널이라 하위호환(옛 저장분엔 없음).
     var services: [Service]?
+    /// 탭을 닫았지만 **안에서 작업이 돌고 있어 백그라운드로 남긴** tmux 세션들(L3).
+    ///
+    /// 여기 실려야 두 가지가 성립한다: ① 시작 시 GC가 고아로 오인해 죽이지 않는다(그러면 남긴 의미가
+    /// 없다) ② 사용자가 목록에서 되찾을 수 있다. 기록 없이 남기면 **눈에 안 보이는 유령**이 된다.
+    var detached: [DetachedSession]?
+}
+
+/// 탭이 닫혔지만 살아남은 tmux 세션 — 되찾을 수 있는 백그라운드 작업.
+struct DetachedSession: Codable, Identifiable, Equatable {
+    /// tmux 세션명이 곧 신원이다(중복 불가).
+    var id: String { session }
+    let session: String
+    /// 남길 때 그 안에서 돌고 있던 명령(표시용) — "무엇을 되찾는 건지" 사용자가 알아야 한다.
+    var command: String
+    var cwd: String?
 }
 
 /// 워크스페이스 = 메인 폴더(레포) + 프로젝트 묶음. 사이드바 최상위.

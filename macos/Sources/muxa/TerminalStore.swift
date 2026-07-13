@@ -46,12 +46,29 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     // MARK: L3 — tmux 세션(프로세스 연속성)
 
+    /// 지속 세션 터미널 버튼 — 탭바의 `+` 옆에 선다. tmux가 있을 때만 노출한다.
+    static let persistentTerminalKind = "persistentTerminal"
+    static let persistentTerminalButton = BonsplitConfiguration.SplitActionButton(
+        id: persistentTerminalKind,
+        systemImage: "infinity",
+        tooltip: "지속 세션 터미널 — 앱을 껐다 켜도 안에서 돌던 작업이 이어집니다",
+        action: .custom(persistentTerminalKind)
+    )
+
+    /// 탭이 닫혔지만 안에서 작업이 돌고 있어 백그라운드로 남겼다 — AppState가 프로젝트에 기록한다.
+    /// 기록하지 않으면 다음 시작 때 GC가 고아로 보고 죽인다(= 남긴 의미가 없다).
+    @ObservationIgnored var onDetachSession: ((DetachedSession) -> Void)?
+
     /// 이 스토어가 속한 프로젝트 id. tmux 세션 네임스페이스에 들어간다.
     @ObservationIgnored private let projectId: String
-    /// 터미널을 tmux 세션 안에서 띄우는가(설정 + tmux 설치 여부).
-    @ObservationIgnored private let persistentSessions: Bool
     /// 탭 → tmux 세션명. 복원된 탭은 **저장된 이름**을 그대로 이어받는다(tabId가 새로 발급되므로).
     @ObservationIgnored private var tmuxSessions: [TabID: String] = [:]
+    /// 이 탭을 지속 세션(tmux)으로 열었는가 — **탭바의 `∞` 버튼이 유일한 진실이다**.
+    ///
+    /// 설정(`persistent_sessions`)으로도 정할 수 있게 했다가 걷어냈다: 설정이 켜져 있으면 `+`와 `∞`가
+    /// 똑같이 동작해 버튼을 나눈 이유가 사라진다. 지속 세션은 공짜가 아니므로(터미널 안의 터미널)
+    /// **어느 탭이 그것인지 눈에 보이게 고르는 게 맞다** — 잠깐 `ls` 치는 탭까지 tmux로 감쌀 이유는 없다.
+    @ObservationIgnored private var persistentIntent: [TabID: Bool] = [:]
 
     /// 훅이 보낸 tabId를 **이 스토어의 살아있는 탭**으로 되짚는다. 아니면 nil(다른 스토어가 가져간다).
     ///
@@ -76,7 +93,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 스냅샷이 참조하지 않으니 고아로 판정돼 죽는다 — 그 안에서 돌던 빌드·에이전트가 함께 죽는다.
     /// (실측으로 확인한 실패다. 앱을 강제 종료하면 종료 훅도 안 타므로 영영 저장되지 않는다.)
     private func tmuxSessionName(for tabId: TabID) -> String? {
-        guard persistentSessions else { return nil }
+        // ∞ 버튼으로 연 탭만 tmux다. tmux가 없으면 어느 쪽이든 일반 셸(설치를 강요하지 않는다).
+        guard persistentIntent[tabId] == true, TmuxService.isAvailable else { return nil }
         if let existing = tmuxSessions[tabId] { return existing }
         let name = TerminalSession.name(projectId: projectId, tabId: tabId.uuid.uuidString)
         tmuxSessions[tabId] = name
@@ -167,8 +185,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
          commandFinishedThresholdNs: UInt64 = 8_000_000_000,
          agentResumeMode: AgentResumeMode = .manual,
          sessionWasDirty: Bool = false,
-         projectId: String = "",
-         persistentSessions: Bool = false) {
+         projectId: String = "") {
         self.app = app
         self.cwd = cwd
         self.restoreSnap = restoreSnap
@@ -176,14 +193,17 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         self.agentResumeMode = agentResumeMode
         self.sessionWasDirty = sessionWasDirty
         self.projectId = projectId
-        // tmux가 없으면 옵션이 켜져 있어도 일반 셸로 폴백한다(설치를 강요하지 않는다).
-        self.persistentSessions = persistentSessions && TmuxService.isAvailable
         // keepAllAlive — 탭 전환 시 뷰(WKWebView 뷰어·터미널)를 파괴/재생성하지 않고 유지한다.
         // 기본 .recreateOnSwitch는 전환마다 뷰어를 재로드(굼뜸·상태 손실)해서 부적합.
         var config = BonsplitConfiguration(contentViewLifecycle: .keepAllAlive)
         // 탭바 내장 액션 버튼: [새 터미널(+), 우측 분할, 하단 분할]. 브라우저는 muxa에 없어 제외.
         // .newTerminal → requestNewTab(kind:"terminal") → didRequestNewTab 델리게이트 → newTerminal().
-        config.appearance.splitButtons = [.newTerminal, .splitRight, .splitDown]
+        // 새 터미널(+), 지속 세션 터미널(∞), 우측 분할, 하단 분할.
+        // 지속 세션 버튼은 tmux가 있을 때만 — 없는데 버튼을 보여주면 눌러도 아무 일이 안 일어난다.
+        var buttons: [BonsplitConfiguration.SplitActionButton] = [.newTerminal]
+        if TmuxService.isAvailable { buttons.append(Self.persistentTerminalButton) }
+        buttons.append(contentsOf: [.splitRight, .splitDown])
+        config.appearance.splitButtons = buttons
         // 칸 탭바를 도구 패널(탐색기·git) 헤더와 같은 높이로 — 두 줄이 한 선에 이어져 보이게.
         config.appearance.tabBarHeight = RowHeight.header
         // 탭 폭 모드는 기본(.fixed)을 유지한다.
@@ -246,7 +266,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     /// 탭바 `+` 버튼 → 새 터미널.
     func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {
-        newTerminal(inPane: pane)
+        // 지속 세션 버튼은 설정 기본값과 **반대가 아니라 명시적 true**다 — 눌렀으면 그걸 원한 것이다.
+        newTerminal(inPane: pane, persistent: kind == Self.persistentTerminalKind ? true : nil)
     }
 
     /// 탭이 닫히면 그 터미널(PTY·서피스)·뷰어 상태를 해제한다.
@@ -273,10 +294,26 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         lastBellAt[tabId] = nil // 벨 디바운스 상태 해제
         resetCoalescers(for: tabId) // 배지·알림 병합 이력 해제(맵 누수 방지)
         manualTitles[tabId] = nil // 수동 지정 제목 해제
-        // 탭을 닫은 건 "이 작업은 끝났다"는 뜻이다 — tmux 세션도 함께 죽인다. 안 그러면 앱이 꺼져도
-        // 살아남는다는 성질 때문에 좀비 세션이 계속 쌓이고 포트를 문다(서비스가 같은 이유로 배운 것).
+        persistentIntent[tabId] = nil
+        // tmux 세션 처리 — **안에서 돌던 작업이 있으면 죽이지 않고 남긴다**(백그라운드로 detach).
+        //
+        // 무조건 죽이면 ⌘W를 잘못 눌렀을 때 30분 돌던 빌드가 즉사한다(tmux를 쓰는 이유를 반쯤 버린다).
+        // 무조건 남기면 눈에 안 보이는 유령이 쌓인다. 그래서 셸만 있으면 죽이고, 작업이 있으면 남긴 뒤
+        // **목록에 기록해 되찾을 수 있게** 한다(기록이 없으면 GC가 다음 시작 때 죽인다).
         if let session = tmuxSessions.removeValue(forKey: tabId) {
-            Task { await TmuxService.kill(session: session) }
+            let cwd = pwds[tabId]
+            Task { [weak self] in
+                let foreground = await TmuxService.paneForeground(session: session)
+                guard TerminalSession.shouldDetach(foreground: foreground) else {
+                    await TmuxService.kill(session: session)
+                    return
+                }
+                // 표시용 이름 — 셸이 아닌 첫 프로세스가 "무엇을 되찾는지"다.
+                let label = foreground.first { !$0.hasSuffix("zsh") && !$0.hasSuffix("bash") } ?? "작업"
+                await MainActor.run {
+                    self?.onDetachSession?(DetachedSession(session: session, command: label, cwd: cwd))
+                }
+            }
         }
         engineTitles[tabId] = nil // 엔진 제목 캐시 해제
         syncHasTabs() // 마지막 탭이 닫히면 빈 상태 뷰로 전환(관측 갱신)
@@ -421,7 +458,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         if let t = terms[tabId] { return t }
         // tabId·소켓 경로를 셸 env로 주입(훅 알림용) — TermView.init에서 서피스 생성 전에 심는다.
         // 복원·상속 힌트가 있으면 그 디렉터리에서, 없으면 워크스페이스 기본 cwd에서 새 셸.
-        // L3(persistentSessions)면 셸을 tmux 세션 안에서 띄운다 — 앱을 껐다 켜도 그 안의 프로세스가 살아남는다.
+        // 지속 세션(∞ 버튼)이면 셸을 tmux 세션 안에서 띄운다 — 앱을 껐다 켜도 그 안의 프로세스가 살아남는다.
         // 그 탭에서는 스크롤백 리플레이를 하지 않는다: tmux가 화면과 프로세스를 통째로 갖고 있으므로
         // 죽은 텍스트를 덧그리면 잔상만 생긴다.
         let tabCwd = pendingCwd[tabId] ?? cwd
@@ -949,15 +986,35 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         return agentDetail[tab.id]
     }
 
+    /// 백그라운드로 남겨둔 세션을 **새 탭으로 되찾는다**(복구 경로).
+    ///
+    /// 새 탭을 만들되 세션명을 **그대로 이어받게** 심는다 — `term(for:)`가 그 이름으로 attach하므로
+    /// 안에서 돌던 프로세스와 화면이 그대로 돌아온다.
+    @discardableResult
+    func reattach(_ detached: DetachedSession, inPane pane: PaneID? = nil) -> TabID? {
+        guard let id = controller.createTab(title: "터미널", icon: "terminal", inPane: pane) else { return nil }
+        tmuxSessions[id] = detached.session // 새 세션을 만들지 않고 이 이름에 붙는다
+        persistentIntent[id] = true
+        pendingCwd[id] = detached.cwd
+        regroup(id, inPane: pane ?? controller.focusedPaneId)
+        syncHasTabs()
+        persist()
+        return id
+    }
+
     /// 새 터미널 탭 생성(분할 후 빈 패인 채우기·⌘T 등).
     /// `inheritingFrom`은 작업 디렉터리를 물려받을 원본 칸(분할이면 분할된 칸). 없으면 탭이 생길 칸에서 상속한다.
+    /// - Parameter persistent: 이 탭을 tmux 지속 세션(∞)으로 열지. nil이면 일반 터미널.
     @discardableResult
-    func newTerminal(inPane pane: PaneID? = nil, inheritingFrom source: PaneID? = nil) -> TabID? {
+    func newTerminal(inPane pane: PaneID? = nil, inheritingFrom source: PaneID? = nil,
+                     persistent: Bool? = nil) -> TabID? {
         // createTab이 새 탭을 즉시 선택하므로, 원본 칸의 pwd는 생성 전에 읽는다.
         let start = startCwd(inPane: source ?? pane ?? controller.focusedPaneId)
         let id = controller.createTab(title: "터미널", icon: "terminal", inPane: pane)
         if let id {
             pendingCwd[id] = start
+            // 의도는 서피스가 만들어지기 전에 정해져야 한다 — term(for:)가 이걸 보고 tmux로 띄울지 정한다.
+            if let persistent { persistentIntent[id] = persistent }
             regroup(id, inPane: pane ?? controller.focusedPaneId)
         }
         syncHasTabs() // 빈 상태에서 새 터미널을 열면 BonsplitView로 복귀(관측 갱신)
@@ -1240,7 +1297,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                     // 신뢰 재개(claude 자동)는 곧 claude가 화면을 덮으므로 죽은 스크롤백 리플레이를 건너뛴다(잔상·중복 방지).
                     // tmux 세션명은 **저장된 이름 그대로** 이어받는다 — tabId는 방금 새로 발급됐으므로
                     // 재조립하면 엉뚱한 세션을 만들고, 돌던 프로세스는 고아가 된다.
-                    if persistentSessions, let session = t.tmuxSession { tmuxSessions[tid] = session }
+                    if let session = t.tmuxSession {
+                        tmuxSessions[tid] = session
+                        persistentIntent[tid] = true // 저장된 세션이 있다 = 지속 세션으로 열었던 탭이다
+                    }
                     // tmux 탭은 스크롤백 리플레이를 하지 않는다 — tmux가 화면을 통째로 갖고 있다.
                     if t.tmuxSession == nil, let sf = t.scrollbackFile, t.resume?.trusted != true {
                         restoredScrollbackFile[tid] = sf // 새 셸에 스크롤백 파일 주입 힌트(④).

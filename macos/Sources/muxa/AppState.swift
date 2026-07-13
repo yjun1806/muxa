@@ -443,10 +443,13 @@ final class AppState {
                               commandFinishedThresholdNs: config.commandFinishedThresholdNs,
                               agentResumeMode: config.agentResume,
                               sessionWasDirty: lastLaunchWasDirty,
-                              projectId: project.id,
-                              persistentSessions: config.persistentSessions)
+                              projectId: project.id)
         let pid = project.id
         s.onProjectActivity = { [weak self] in MainActor.assumeIsolated { self?.markProjectBadge(pid) } }
+        // 탭을 닫았는데 안에서 작업이 돌고 있었다 → 백그라운드로 남기고 기록한다(GC 보존 + 복구 목록).
+        s.onDetachSession = { [weak self] detached in
+            MainActor.assumeIsolated { self?.recordDetached(detached, in: pid) }
+        }
         // 데스크톱 알림에 라우팅 컨텍스트(프로젝트·워크스페이스)를 붙여 발사 — 클릭 시 원클릭 검토로 이어짐.
         s.onNotify = { [weak self] tabId, title, body in
             MainActor.assumeIsolated { self?.emitNotification(projectId: pid, tabId: tabId, title: title, body: body) }
@@ -514,6 +517,43 @@ final class AppState {
     }
 
     /// 서비스를 등록하고 곧바로 기동한다. cwd는 프로젝트 경로(없으면 워크스페이스 경로).
+    // MARK: 백그라운드로 남긴 터미널 세션 (L3 — 닫았지만 안에서 작업이 돌던 탭)
+
+    /// 남긴 세션을 프로젝트에 기록한다 — GC가 죽이지 않고, 사용자가 목록에서 되찾을 수 있게.
+    /// 인박스에도 한 줄 남긴다(**말없이 남기면 유령이다** — 사용자가 존재를 알아야 한다).
+    func recordDetached(_ detached: DetachedSession, in projectId: String) {
+        updateProject(projectId) { p in
+            var next = p
+            var list = (p.detached ?? []).filter { $0.session != detached.session }
+            list.append(detached)
+            next.detached = list
+            return next
+        }
+        attention.recordSystem(title: "터미널을 닫았지만 \(detached.command)가 돌고 있어 백그라운드에 남겼습니다.")
+    }
+
+    /// 남긴 세션 목록에서 지운다(되찾았거나 사용자가 종료했을 때).
+    func dropDetached(_ session: String, from projectId: String) {
+        updateProject(projectId) { p in
+            var next = p
+            next.detached = (p.detached ?? []).filter { $0.session != session }
+            return next
+        }
+    }
+
+    /// 남긴 세션을 **완전히 종료**한다(사용자가 목록에서 버릴 때).
+    func killDetached(_ session: String, from projectId: String) {
+        dropDetached(session, from: projectId)
+        Task { await TmuxService.kill(session: session) }
+    }
+
+    /// 남긴 세션을 새 탭으로 되찾는다 — 안에서 돌던 프로세스와 화면이 그대로 돌아온다.
+    func reattachDetached(_ detached: DetachedSession, in projectId: String) {
+        guard let store = stores[projectId] else { return }
+        store.reattach(detached)
+        dropDetached(detached.session, from: projectId)
+    }
+
     func addService(name: String, command: String, to projectId: String, cwd: String) {
         let service = Service(id: newId(), name: name, command: command)
         updateProject(projectId) { p in
@@ -673,9 +713,14 @@ final class AppState {
     /// 열린 탭만 세면 lazy 프로젝트의 셸이 고아로 몰려 죽는다 — 서비스 GC가 "활성 워크스페이스만
     /// 훑으면 안 된다"고 배운 것과 같은 함정이다.
     func collectTerminalSessionGarbage() {
-        guard TmuxService.isAvailable, config.persistentSessions else { return }
+        guard TmuxService.isAvailable else { return }
         var live: Set<String> = []
+        // ① 스냅샷이 참조하는 세션 — 열린 탭 + 아직 안 연 프로젝트의 저장분
         for snap in savedLayouts.values { live.formUnion(snap.tmuxSessions()) }
+        // ② **백그라운드로 남긴 세션** — 탭이 없다고 죽이면 남긴 의미가 없다(그 안에 빌드가 돌고 있다).
+        for ws in workspaces {
+            for p in ws.projects { live.formUnion((p.detached ?? []).map(\.session)) }
+        }
         let known = collectKnownProjectIds(in: workspaces)
         Task { await TmuxService.collectTerminalGarbage(liveSessionNames: live, knownProjectIds: known) }
     }
