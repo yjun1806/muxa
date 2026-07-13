@@ -46,12 +46,16 @@ enum TranscriptTail {
     }
 
     /// 파일 꼬리를 읽어 마지막 assistant 메시지를 찾는다(경계 — 파일 IO).
-    /// flush 레이스 때문에 최대 `retryCount`번 재시도한다. **호출자는 백그라운드 큐에서 부른다**
-    /// (재시도가 sleep을 쓴다 — 메인 큐에서 부르면 UI가 멈춘다).
-    static func lastAssistantMessage(atPath path: String) -> String? {
+    ///
+    /// Stop 훅이 JSONL flush보다 먼저 도착하는 레이스가 있어 짧게 재시도한다. 대기는 반드시
+    /// `Task.sleep`이어야 한다 — `Thread.sleep`은 코어 수만큼뿐인 Swift 협조 스레드풀을 붙잡아
+    /// (transcript가 없는 경로에선 **항상** 250ms) 다른 백그라운드 작업을 통째로 밀리게 한다.
+    static func lastAssistantMessage(atPath path: String) async -> String? {
         for attempt in 0..<retryCount {
             if let tail = readTail(path), let message = lastAssistantMessage(inTail: tail) { return message }
-            if attempt < retryCount - 1 { Thread.sleep(forTimeInterval: retryDelay) }
+            if attempt < retryCount - 1 {
+                try? await Task.sleep(nanoseconds: UInt64(retryDelay * 1_000_000_000))
+            }
         }
         return nil
     }

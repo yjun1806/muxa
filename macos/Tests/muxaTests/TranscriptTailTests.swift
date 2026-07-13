@@ -58,7 +58,7 @@ final class TranscriptTailTests: XCTestCase {
     }
 
     /// 실제 파일에서 읽는 경계 경로도 한 번은 태운다(꼬리 seek + 재시도 포함).
-    func testReadsFromFile() throws {
+    func testReadsFromFile() async throws {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("muxa-transcript-\(UUID().uuidString).jsonl")
         let content = [line(role: "assistant", text: "옛 응답"), line(role: "assistant", text: "새 응답")]
@@ -66,10 +66,12 @@ final class TranscriptTailTests: XCTestCase {
         try content.write(to: url, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        XCTAssertEqual(TranscriptTail.lastAssistantMessage(atPath: url.path), "새 응답")
+        let message = await TranscriptTail.lastAssistantMessage(atPath: url.path)
+        XCTAssertEqual(message, "새 응답")
     }
 
-    func testMissingFileReturnsNil() {
-        XCTAssertNil(TranscriptTail.lastAssistantMessage(atPath: "/nonexistent/muxa/none.jsonl"))
+    func testMissingFileReturnsNil() async {
+        let message = await TranscriptTail.lastAssistantMessage(atPath: "/nonexistent/muxa/none.jsonl")
+        XCTAssertNil(message)
     }
 }

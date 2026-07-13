@@ -58,7 +58,7 @@ enum ClaudeHookInstaller {
         MuxaSupportDir.subdirectory("bin").appendingPathComponent("muxa-notify")
     }
 
-    /// 현재 설치 상태(신호 수신 여부는 호출자가 안다 — 여기선 파일만 본다).
+    /// 현재 설치 상태(신호 수신 여부는 호출자가 안다 — 여긴 파일만 본다).
     static func installState() -> HookInstallState {
         guard let root = readSettings() else { return .notInstalled }
         return ClaudeHookSettings.isInstalled(in: root, executable: executableURL.path) ? .installed : .notInstalled
@@ -68,14 +68,21 @@ enum ClaudeHookInstaller {
     static func install() throws {
         try stageBinary()
         let root = try requireSettings()
-        let merged = ClaudeHookSettings.merged(into: root, executable: executableURL.path)
-        try write(merged)
+        do {
+            try write(ClaudeHookSettings.merged(into: root, executable: executableURL.path))
+        } catch is ClaudeHookSettings.UnexpectedShape {
+            throw InstallError.malformedSettings
+        }
     }
 
     /// muxa 훅만 제거한다(사용자 훅은 남는다).
     static func uninstall() throws {
         let root = try requireSettings()
-        try write(ClaudeHookSettings.removed(from: root))
+        do {
+            try write(ClaudeHookSettings.removed(from: root))
+        } catch is ClaudeHookSettings.UnexpectedShape {
+            throw InstallError.malformedSettings
+        }
     }
 
     // MARK: 내부 — 안전한 IO
@@ -117,15 +124,21 @@ enum ClaudeHookInstaller {
     }
 
     /// 백업 → 임시 파일 → 원자적 교체. 중간에 죽어도 반쪽 JSON이 남지 않는다.
+    ///
+    /// **심링크를 따라간다.** settings.json을 dotfiles 리포로 심링크해 쓰는 사람이 많은데,
+    /// 링크 경로에 그대로 쓰면 `replaceItemAt`이 **심링크를 일반 파일로 갈아치워** dotfiles 연결이
+    /// 조용히 끊긴다. 백업도 링크를 복사하면 원본을 가리키는 링크가 되어 롤백 수단이 되지 못한다.
     private static func write(_ root: [String: Any]) throws {
         let fm = FileManager.default
-        let target = settingsURL
+        let target = settingsURL.resolvingSymlinksInPath()
         do {
             try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if fm.fileExists(atPath: target.path) {
+            if let current = try? Data(contentsOf: target) {
+                // 백업은 **내용 복사**다(copyItem은 심링크를 심링크로 복사한다).
+                // 이미 있으면 덮지 않는다 — 두 번째 설치가 첫 백업을 "muxa 훅이 박힌 버전"으로
+                // 오염시키면 설치 이전 상태로 되돌릴 방법이 사라진다.
                 let backup = target.appendingPathExtension("muxa-backup")
-                if fm.fileExists(atPath: backup.path) { try fm.removeItem(at: backup) }
-                try fm.copyItem(at: target, to: backup)
+                if !fm.fileExists(atPath: backup.path) { try current.write(to: backup) }
             }
             let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
             let temp = target.appendingPathExtension("muxa-tmp")

@@ -21,7 +21,7 @@ final class HookFrameParseTests: XCTestCase {
     /// payload의 탭(JSON에선 `\t`로 이스케이프돼 온다)이 헤더 필드로 오인되지 않고 값으로 살아남는다.
     /// 헤더는 첫 줄만 탭으로 쪼개므로 본문은 손대지 않는다 — 줄 단위 프로토콜이라면 여기서 깨진다.
     func testPayloadWithTabsSurvives() {
-        let frame = #"hook\#tTAB-1\#tPostToolUse\#n{"tool_name":"Bash","tool_input":{"command":"a\tb"}}"#
+        let frame = #"hook\#tTAB-1\#tPreToolUse\#n{"tool_name":"Bash","tool_input":{"command":"a\tb"}}"#
         let msg = NotifyServer.parseHook(frame)
         XCTAssertEqual(msg?.payload.toolName, "Bash")
         XCTAssertEqual(msg?.payload.toolInput["command"], "a\tb", "이스케이프된 탭이 값으로 복원돼야 한다")

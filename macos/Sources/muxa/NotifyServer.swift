@@ -49,21 +49,31 @@ struct HookMessage {
 /// 부작용(소켓·fd·DispatchSource)을 이 경계 타입에 격리한다(순수 라우팅은 AppState). 소켓
 /// 처리는 백그라운드 큐에서 돌고, 콜백(onMessage)만 메인 큐로 넘긴다 — UI 갱신은 상위가 한다.
 final class NotifyServer {
-    /// 소켓 경로 — applicationSupport/muxa/muxa.sock (AppState.fileURL과 같은 디렉토리).
+    /// **이 프로세스 전용** 소켓 경로 — `…/muxa/sockets/muxa-<pid>.sock`.
+    ///
+    /// 경로를 하나로 고정하면 안 된다. 창을 두 개 띄우면(개발 빌드 + 설치된 앱, 또는 워크트리별 빌드)
+    /// 나중에 뜬 인스턴스가 `unlink` 후 재바인드해 **소켓을 강탈**하고, 먼저 뜬 창은 살아 있지만 훅 신호를
+    /// 하나도 못 받는다. 인스턴스마다 자기 소켓을 갖고, 그 경로를 탭 env(`MUXA_SOCK`)로 심어 보내면
+    /// 훅은 **자기 창으로 정확히** 돌아온다 — 여러 창이 각각 자기 알림을 받는다.
+    ///
+    /// pid가 들어가므로 프로세스마다 다른 경로다(서버는 프로세스당 하나라 static이어도 인스턴스가 갈린다).
     /// sun_path 길이 제한(104B) 안에 드는 짧은 경로다.
     static let socketPath: String = {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dir = base.appendingPathComponent("muxa", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("muxa.sock").path
+        let dir = MuxaSupportDir.subdirectory("sockets")
+        return dir.appendingPathComponent("muxa-\(getpid()).sock").path
     }()
 
     /// sockaddr_un.sun_path 용량(macOS).
     private static let sunPathCapacity = 104
-    /// 한 연결에서 받아들일 최대 바이트(악의/폭주 방지).
-    private static let maxMessageBytes = 64 * 1024
+    /// 한 연결에서 받아들일 최대 바이트(악의/폭주 방지). PostToolUse payload(tool_response 포함)가
+    /// 커질 수 있어 넉넉히 둔다 — 넘으면 자르지 않고 폐기한다.
+    private static let maxMessageBytes = 1024 * 1024
+    /// 연결 하나의 읽기 상한(초) — 죽은 클라이언트가 리스너 자원을 붙잡지 못하게.
+    private static let readTimeoutSeconds = 2
 
     private let queue = DispatchQueue(label: "com.muxa.notify-server")
+    /// 연결 읽기 전용 동시 큐 — accept 루프와 분리해 느린 연결이 배달을 막지 않게 한다.
+    private let readQueue = DispatchQueue(label: "com.muxa.notify-read", attributes: .concurrent)
     private var listenFD: Int32 = -1
     private var source: DispatchSourceRead?
 
@@ -73,9 +83,28 @@ final class NotifyServer {
     /// 훅 원본 payload 수신 콜백 — 메인 큐. 해석(ClaudeHookInterpreter)은 소유 store가 한다.
     var onHook: ((HookMessage) -> Void)?
 
-    /// 리스너 시작(백그라운드). 이미 있던 소켓 파일은 unlink 후 재바인드한다.
+    /// 리스너 시작(백그라운드). 시작 전에 죽은 인스턴스가 남긴 소켓 파일을 청소한다.
     func start() {
-        queue.async { [weak self] in self?.setup() }
+        queue.async { [weak self] in
+            Self.reapStaleSockets()
+            self?.setup()
+        }
+    }
+
+    /// 죽은 인스턴스의 소켓 파일을 지운다 — 크래시·강제종료하면 `stop()`이 안 돌아 파일이 남는다.
+    /// 파일명의 pid가 살아있지 않으면(`kill(pid, 0)` → ESRCH) 그 소켓은 주인 없는 찌꺼기다.
+    private static func reapStaleSockets() {
+        let dir = MuxaSupportDir.subdirectory("sockets")
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        for name in names {
+            guard name.hasPrefix("muxa-"), name.hasSuffix(".sock"),
+                  let pid = Int32(name.dropFirst(5).dropLast(5)) else { continue }
+            guard pid != getpid() else { continue }
+            // kill(pid, 0)은 시그널을 보내지 않고 존재만 확인한다. ESRCH = 그런 프로세스 없음.
+            if kill(pid, 0) != 0, errno == ESRCH {
+                unlink(dir.appendingPathComponent(name).path)
+            }
+        }
     }
 
     /// 리스너 종료 — 소스 취소(내부에서 fd close) + 소켓 파일 제거.
@@ -134,21 +163,33 @@ final class NotifyServer {
     private func acceptConnection() {
         let client = accept(listenFD, nil, nil)
         guard client >= 0 else { return }
-        handleConnection(client)
+        // 연결을 읽는 동안 accept 큐를 막지 않는다 — 직렬 큐에서 블로킹 read를 돌면 연결 하나만
+        // 붙잡고 안 닫아도(`nc -U`) 모든 탭의 훅 배달이 영구 정지한다.
+        readQueue.async { [weak self] in self?.handleConnection(client) }
     }
 
     /// 연결 하나에서 EOF까지 읽어 줄 단위로 파싱한다. CLI는 한 줄 쓰고 닫으므로 짧다.
     private func handleConnection(_ clientFD: Int32) {
         defer { close(clientFD) }
+        // 죽은/느린 클라이언트가 이 연결을 영원히 잡고 있지 못하게 상한을 건다.
+        var timeout = timeval(tv_sec: Self.readTimeoutSeconds, tv_usec: 0)
+        _ = setsockopt(clientFD, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+
         var data = Data()
         var buf = [UInt8](repeating: 0, count: 4096)
         while true {
             let n = read(clientFD, &buf, buf.count)
             if n <= 0 { break }
             data.append(contentsOf: buf[0..<n])
-            if data.count > Self.maxMessageBytes { break }
+            // 상한을 넘으면 **잘라서 쓰지 않고 통째로 버린다** — 반쪽 JSON은 필드가 사라진 payload가 되어
+            // "배경 작업 없음"으로 오독되고, 그게 곧 가짜 완료 알림이다. 없는 게 틀린 것보다 낫다.
+            if data.count > Self.maxMessageBytes {
+                NSLog("muxa NotifyServer: 메시지가 상한(\(Self.maxMessageBytes)B)을 넘어 폐기")
+                return
+            }
         }
-        guard let text = String(data: data, encoding: .utf8) else { return }
+        // 손실 허용 디코딩 — UTF-8 경계에서 잘려도 nil로 프레임 전체를 잃지 않는다(그러면 Stop이 증발한다).
+        let text = String(decoding: data, as: UTF8.self)
         // 훅 프레임(첫 줄이 hook 헤더)은 나머지 전체가 원본 JSON이라 줄 분해를 하면 안 된다.
         if let hook = Self.parseHook(text) {
             let callback = onHook

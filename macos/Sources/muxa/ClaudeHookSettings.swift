@@ -15,25 +15,33 @@ enum ClaudeHookSettings {
     /// muxa-notify를 부르는 훅은 어느 형식이든 muxa 소유로 보고 새 형식으로 갈아끼운다.
     static let hookMarker = "muxa-notify"
 
-    /// 이벤트별 matcher — PreToolUse/PostToolUse만 도구 matcher가 의미가 있다(전체 = "*").
+    /// 이벤트별 matcher — 도구 이벤트(PreToolUse)만 matcher가 의미가 있다(전체 = "*").
     /// 나머지 이벤트는 matcher 없이 등록한다.
     static func matcher(for event: ClaudeHookEvent) -> String? {
-        switch event {
-        case .preToolUse, .postToolUse: return "*"
-        default: return nil
-        }
+        event == .preToolUse ? "*" : nil
     }
 
     /// 훅 타임아웃(초) — fire-and-forget이라 짧게. CLI가 200ms에 connect를 끊고 exit 0 한다.
     static let timeoutSeconds = 5
 
+    /// 예상 밖 구조를 만났다 — 덮어쓰면 사용자 훅이 사라지므로 아무것도 쓰지 않는다.
+    struct UnexpectedShape: Error {}
+
     /// muxa 훅을 병합한 새 settings 딕셔너리를 돌려준다(원본 불변).
     /// 이미 muxa 훅이 있으면 먼저 제거하고 다시 넣는다 — 재설치가 멱등이다.
-    static func merged(into root: [String: Any], executable: String) -> [String: Any] {
-        var next = removed(from: root)
+    ///
+    /// **기대한 타입이 아니면 던진다.** `?? [:]`/`?? []`로 삼키면 사용자가 손으로 넣은 구조나
+    /// 우리가 모르는 새 스키마를 **통째로 덮어써 지운다** — "사용자 훅은 절대 건드리지 않는다"는
+    /// 이 파일의 계약이 거기서 깨진다. 모르면 손대지 않는 게 유일하게 안전한 선택이다.
+    static func merged(into root: [String: Any], executable: String) throws -> [String: Any] {
+        var next = try removed(from: root) // hooks가 객체가 아니면 여기서 던진다
         var hooks = next["hooks"] as? [String: Any] ?? [:]
         for event in ClaudeHookEvent.allCases {
-            var entries = hooks[event.rawValue] as? [[String: Any]] ?? []
+            var entries: [[String: Any]] = []
+            if let existing = hooks[event.rawValue] {
+                guard let typed = existing as? [[String: Any]] else { throw UnexpectedShape() }
+                entries = typed
+            }
             entries.append(entry(for: event, executable: executable))
             hooks[event.rawValue] = entries
         }
@@ -43,11 +51,13 @@ enum ClaudeHookSettings {
 
     /// muxa가 넣은 훅만 걷어낸 새 settings 딕셔너리(원본 불변). 사용자 훅은 남는다.
     /// 항목이 비면 이벤트 키를 지우고, hooks 자체가 비면 hooks 키도 지운다(찌꺼기 안 남김).
-    static func removed(from root: [String: Any]) -> [String: Any] {
+    /// hooks가 객체가 아니면 던진다(모르는 구조를 건드리지 않는다).
+    static func removed(from root: [String: Any]) throws -> [String: Any] {
         var next = root
-        guard var hooks = next["hooks"] as? [String: Any] else { return next }
-        for (event, raw) in hooks {
-            guard let entries = raw as? [[String: Any]] else { continue }
+        guard let raw = next["hooks"] else { return next }
+        guard var hooks = raw as? [String: Any] else { throw UnexpectedShape() }
+        for (event, value) in hooks {
+            guard let entries = value as? [[String: Any]] else { continue } // 모르는 구조는 그대로 보존
             let kept = entries.compactMap(strippingMuxaCommands)
             if kept.isEmpty { hooks.removeValue(forKey: event) } else { hooks[event] = kept }
         }

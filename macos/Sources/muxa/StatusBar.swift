@@ -114,7 +114,9 @@ struct StatusBar: View {
                     if let reset = sessionReset {
                         // 리셋은 세션 것 하나만 — 주간·모델 리셋까지 늘어놓으면 상태바가 숫자밭이 된다.
                         VDivider(height: 12)
-                        HStack(alignment: .center, spacing: Space.tight) {
+                        // 내부 간격은 limitView와 같은 xs — 여기만 tight(2)면 아이콘·글자가 유독 붙어
+                        // 보여서 옆 항목들과 리듬이 어긋난다.
+                        HStack(alignment: .center, spacing: Space.xs) {
                             // 시계 아이콘이 없으면 "3h 38m"이 또 하나의 사용량 수치처럼 읽힌다 — 남은 시간임을 표시.
                             Image(systemName: "clock").font(.muxa(.micro))
                             Text(reset).font(.muxaMono(.caption))
@@ -186,9 +188,10 @@ struct StatusBar: View {
             Text("\(limit.percent)%")
                 .font(.muxaMono(.label, weight: .semibold))
                 .foregroundStyle(UsageColor.text(limit))
-                // 폭은 고정해 자릿수가 늘어도 뒤가 안 밀리게 하되, **왼쪽 정렬**로 막대에 붙인다.
-                // 오른쪽 정렬이면 "9%"처럼 짧을 때 막대와 숫자 사이가 벌어져 둘이 남남처럼 보인다.
-                .frame(width: 30, alignment: .leading)
+                // 폭을 고정하지 않는다. 고정하면(width 30, leading) 짧은 값("9%")일 때 오른쪽에 남는
+                // 빈 자리가 칩 spacing에 더해져, **구분선이 항목마다 다른 거리에** 놓인다("9%" 뒤 20pt,
+                // "54%" 뒤 12pt). 고정폭이 지키려던 건 "자릿수가 늘어도 뒤가 안 밀린다"인데, 모노 글꼴이라
+                // 같은 자릿수면 어차피 폭이 같고 자릿수가 바뀌는 일은 드물다. 흔들림보다 간격이 중요하다.
         }
         .help(detail(limit))
     }
