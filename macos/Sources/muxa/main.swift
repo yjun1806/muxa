@@ -189,8 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return state.perform(action)
     }
 
-    /// 최소 메인 메뉴 — App 메뉴에 종료(⌘Q)·가리기(⌘H)만. Edit 메뉴의 ⌘C/⌘V는 터미널
-    /// 복사·붙여넣기(ghostty가 직접 처리)를 가로채므로 넣지 않는다.
+    /// 메인 메뉴 — App 메뉴(종료 ⌘Q·가리기 ⌘H) + 표준 편집 메뉴(⌘X/C/V/A).
     /// bare 실행(.app 번들 아님)에선 Info.plist 아이콘이 없어 Dock이 기본 실행 아이콘을 쓴다.
     /// 번들 리소스 AppIcon.png를 런타임에 applicationIconImage로 얹어 Dock·⌘Tab 아이콘을 muxa로. 재생성 = scripts/build-appicon.
     private func setAppIcon() {
@@ -214,6 +213,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         quitItem.target = self
         appMenu.addItem(quitItem)
         appItem.submenu = appMenu
+
+        // 표준 편집 메뉴 — WKWebView 코드/md 뷰어·로그 뷰(Text)에서 ⌘C 복사가 되게 하려면
+        // `copy:`를 responder에 꽂아줄 메뉴 키 등가물이 필요하다(WKWebView는 스스로 ⌘C를 안 먹는다).
+        // 터미널은 안전하다 — TermView가 copy:/paste: 셀렉터를 구현하지 않아 포커스 시 항목이 자동 비활성되고,
+        // ghostty가 ⌘C/⌘V를 키 이벤트로 직접 처리한다(TermView.performKeyEquivalent). autoenablesItems가
+        // responder 체인을 보고 항목을 켜고 끄므로 nil 타깃 표준 셀렉터만 건다.
+        let editItem = NSMenuItem()
+        mainMenu.addItem(editItem)
+        let editMenu = NSMenu(title: "편집")
+        editMenu.addItem(withTitle: "잘라내기", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "복사", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "붙여넣기", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "전체 선택", action: #selector(NSResponder.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = editMenu
+
         NSApp.mainMenu = mainMenu
     }
 
