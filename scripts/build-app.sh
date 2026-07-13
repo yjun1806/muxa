@@ -18,12 +18,36 @@ else
   BIN=.build/debug
 fi
 
-APP="$BIN/muxa.app"
+# ── 빌드 식별자 ───────────────────────────────────────────────────────────
+# 워크트리마다 개발빌드를 띄우면 Dock·⌘Tab에 전부 "muxa"로 떠서 어느 창이 어느 브랜치인지 알 수 없다.
+# 그래서 개발빌드는 리포(=워크트리) 이름 또는 브랜치명을 앱 이름·번들 id·파일명에 박는다.
+# 번들 id가 갈리면 알림 권한·LaunchServices 등록도 각각이라 창이 서로 섞이지 않는다.
+if [ "$CONFIG" = "release" ]; then
+  APP_NAME="muxa"
+  BUNDLE_ID="com.muxa.app"
+  APP_FILE="muxa"
+else
+  ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo "")"
+  LABEL="$(basename "${ROOT:-$PWD}")"
+  # 메인 체크아웃(디렉터리명이 그냥 muxa)이면 이름이 안 갈리므로 브랜치명을 쓴다.
+  if [ "$LABEL" = "muxa" ]; then
+    LABEL="$(git branch --show-current 2>/dev/null || echo "dev")"
+  fi
+  # 파일명·번들 id에 쓸 수 있게 영숫자·하이픈만 남긴다.
+  SLUG="$(printf '%s' "$LABEL" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//')"
+  [ -n "$SLUG" ] || SLUG="dev"
+  APP_NAME="muxa · $SLUG"     # Dock·⌘Tab·메뉴바에 이 이름이 뜬다
+  BUNDLE_ID="com.muxa.dev.$SLUG"
+  APP_FILE="muxa-$SLUG"
+fi
+
+APP="$BIN/$APP_FILE.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 # 실행파일 + 앱 아이콘(.icns)
-cp "$BIN/muxa" "$APP/Contents/MacOS/muxa"
+# 실행 파일명이 곧 Dock·⌘Tab·ps에 뜨는 이름이다(CFBundleName이 아니라). 빌드별로 갈라야 구분된다.
+cp "$BIN/muxa" "$APP/Contents/MacOS/$APP_FILE"
 cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 # 훅 CLI — 앱이 실행 파일 옆에서 찾아 Application Support로 복사한다(ClaudeHookInstaller).
@@ -35,15 +59,15 @@ for b in "$BIN"/*.bundle; do
   [ -e "$b" ] && cp -R "$b" "$APP/Contents/Resources/"
 done
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>muxa</string>
-    <key>CFBundleDisplayName</key><string>muxa</string>
-    <key>CFBundleExecutable</key><string>muxa</string>
-    <key>CFBundleIdentifier</key><string>com.muxa.app</string>
+    <key>CFBundleName</key><string>$APP_NAME</string>
+    <key>CFBundleDisplayName</key><string>$APP_NAME</string>
+    <key>CFBundleExecutable</key><string>$APP_FILE</string>
+    <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>0.1.0</string>
     <key>CFBundleVersion</key><string>1</string>
