@@ -185,6 +185,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
+    /// 창 닫기(빨간 버튼·⌘W)도 결국 앱 종료다(창이 하나뿐이라 마지막 창이 닫히면 종료로 이어진다).
+    /// 그래서 ⌘Q와 **같은 시트**로 묻고, 취소하면 창을 닫지 않는다.
+    ///
+    /// 이 가로채기가 없으면 순서가 뒤집힌다 — 창이 **먼저 닫히고**, 마지막 창이 사라져 종료가 시작되고,
+    /// 거기서 "취소"를 누르면 종료만 취소된다. 창은 이미 닫힌 뒤라 **Dock 아이콘만 남은 좀비 앱**이 된다.
+    /// 덤으로 같은 질문이 경로에 따라 시트와 모달, 두 가지 모양으로 떠서 앱이 일관돼 보이지 않았다.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if quitConfirmed { return true } // 이미 시트에서 확인받았다 — 종료 흐름이 창을 닫는 중
+        guard state?.config.confirmQuit ?? true else { return true }
+        requestQuit() // 시트로 확인 — 사용자가 확인하면 terminate가 창까지 정리한다
+        return false  // 지금은 닫지 않는다(취소했을 때 창이 남아야 한다)
+    }
+
     // MARK: NSWindowDelegate — 신호등 재정렬
     //
     // 시스템은 리사이즈·활성화·풀스크린 전환 때 타이틀바를 다시 레이아웃하며 신호등을 표준 위치로
@@ -230,8 +243,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     /// 종료 확인 — 실행 중인 터미널 세션이 다 닫히므로 실수 종료를 막는다. 설정 confirm_quit=false면 건너뛴다. (DESIGN 4.6)
     ///
-    /// ⌘Q는 `requestQuit`이 먼저 물어보고 오므로 여기선 통과시킨다. Dock 우클릭 종료·시스템 종료처럼
-    /// 그 경로를 안 거친 종료만 여기서 막는다(그 경우엔 창이 아직 살아 있어 독립 모달로 물어도 어색하지 않다).
+    /// **여기까지 오는 건 창을 거치지 않는 종료뿐이다** — Dock 우클릭 종료, 시스템 로그아웃·재시동.
+    /// ⌘Q는 `requestQuit`, 창 닫기는 `windowShouldClose`가 각각 **시트**로 먼저 묻고 오므로
+    /// (`quitConfirmed`) 여기선 통과한다. 즉 사용자가 일상적으로 보는 확인창은 시트 하나로 통일돼 있고,
+    /// 이 모달은 붙일 창이 없는 경로의 최후 방어선이다.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if quitConfirmed { return .terminateNow }
         guard state?.config.confirmQuit ?? true else { return .terminateNow }
