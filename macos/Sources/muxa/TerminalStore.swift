@@ -29,7 +29,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     // 탭 스타일을 정말 바꾸려면 Bonsplit을 포크해야 한다.
 
     @ObservationIgnored private let app: ghostty_app_t
-    @ObservationIgnored private let cwd: String?
+    /// 새 셸의 기본 시작 폴더(= 프로젝트 경로, 없으면 워크스페이스 경로 상속).
+    /// 워크스페이스 기본 경로가 바뀌면 AppState가 `updateCwd`로 갱신한다 — 이미 떠 있는 PTY는 못 옮기지만
+    /// **앞으로 여는 터미널**은 새 폴더에서 시작해야 한다.
+    @ObservationIgnored private var cwd: String?
     @ObservationIgnored private var terms: [TabID: TermView] = [:]
     /// 탭별로 새 셸을 띄울 작업 디렉터리 힌트. term(for:)가 TermView 생성 시 참조한다.
     /// 두 경로가 채운다 — 세션 복원(저장된 OSC 7 pwd)과 새 탭·분할(원본 칸의 현재 pwd 상속).
@@ -164,6 +167,12 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     /// 완료 배지 임계(ns)를 갱신한다 — 설정 라이브 리로드 시 AppState가 이미 실행 중인 스토어에도 전파한다.
     /// 다음 명령 완료 판정부터 새 값이 적용된다(진행 중 판정은 그대로).
+    /// 기본 시작 폴더를 바꾼다(워크스페이스 기본 경로 변경). 살아 있는 터미널은 그대로 두고
+    /// 앞으로 여는 탭·분할부터 새 폴더에서 시작한다 — 프로세스의 cwd는 밖에서 바꿀 수 없다.
+    func updateCwd(_ path: String?) {
+        cwd = path
+    }
+
     func updateCommandFinishedThreshold(_ ns: UInt64) {
         commandFinishedThresholdNs = ns
     }

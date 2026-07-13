@@ -649,6 +649,13 @@ final class TermView: NSView, NSTextInputClient {
     /// muxa 자체 단축키(⌘T·⌘D 등)는 로컬 키 모니터가 이보다 먼저 이벤트를 소비하므로 여기 오지 않는다.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard let surface, event.type == .keyDown, window?.firstResponder === self else { return false }
+
+        // **메인 메뉴가 먼저다.** AppKit은 키 등가물을 뷰(여기)에 먼저 물어본 뒤 메뉴로 보낸다. 그런데 ghostty
+        // 코어는 macOS에서 ⌘Q(quit)를 기본 바인딩하므로, 아래 key_is_binding이 ⌘Q에도 true를 돌려준다.
+        // 그대로 삼키면 코어의 quit는 **앱 타깃 액션**이라 GhosttyRuntime이 처리하지 않고 버려져 —
+        // ⌘Q가 조용히 죽는다. 메뉴에 같은 키 등가물이 있으면 메뉴에 양보한다.
+        if NSApp.mainMenu?.performKeyEquivalent(with: event) == true { return true }
+
         let keyEvent = ghosttyKeyEvent(event, action: GHOSTTY_ACTION_PRESS)
         var flags = ghostty_binding_flags_e(0) // 바인딩 속성(consumed/global 등) — 지금은 유무만 본다
         guard ghostty_surface_key_is_binding(surface, keyEvent, &flags) else { return false }

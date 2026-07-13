@@ -18,7 +18,9 @@ struct MuxaMenuItem: Identifiable {
     /// nil이면 구분선.
     var action: (() -> Void)?
 
-    static let separator = MuxaMenuItem(title: "", action: nil)
+    /// 구분선. **`static let`이면 안 된다** — 인스턴스가 하나뿐이라 메뉴 안 모든 구분선이 같은 `id`를 갖고,
+    /// `ForEach`가 중복 ID로 렌더를 망친다. 쓸 때마다 새 값을 만든다.
+    static var separator: MuxaMenuItem { MuxaMenuItem(title: "", action: nil) }
 
     var isSeparator: Bool { action == nil }
 }

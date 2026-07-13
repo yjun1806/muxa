@@ -39,17 +39,20 @@ enum WheelScrollBridge {
     /// 휠 한 칸이 옮길 거리(pt) — macOS 기본 줄 스크롤 감각에 맞춘 값.
     private static let lineHeight: CGFloat = 16
 
-    /// 히트한 뷰에서 위로 올라가며 "가로로만 스크롤되는" NSScrollView를 찾는다.
-    /// 세로로도 스크롤되는 뷰(파일 트리·목록)를 만나면 즉시 포기한다 — 그건 휠의 원래 주인이다.
+    /// 히트한 뷰에서 위로 올라가며 "가로 전용" NSScrollView를 찾는다.
+    ///
+    /// 판정 기준은 **뷰가 세로 스크롤을 하도록 만들어졌는가**(`hasVerticalScroller`)이지, 지금 세로로
+    /// 넘치는가가 아니다. 내용 크기로 판정하면 파일이 몇 개 없어 세로로 안 넘치는 익스플로러가
+    /// "가로 전용"으로 오인돼, 휠을 굴리면 트리가 옆으로 밀린다.
+    /// 세로 스크롤 뷰는 지금 안 넘치더라도 휠의 원래 주인이다 — 건드리지 않는다.
     private static func horizontalOnlyScrollView(from view: NSView) -> NSScrollView? {
         var node: NSView? = view
         while let current = node {
             if let scrollView = current as? NSScrollView {
-                let clip = scrollView.contentView.bounds.size
-                let content = scrollView.documentView?.frame.size ?? .zero
-                let scrollsVertically = content.height > clip.height + 1
-                let scrollsHorizontally = content.width > clip.width + 1
-                return (scrollsHorizontally && !scrollsVertically) ? scrollView : nil
+                guard !scrollView.hasVerticalScroller else { return nil }
+                let clip = scrollView.contentView.bounds.width
+                let content = scrollView.documentView?.frame.width ?? 0
+                return content > clip + 1 ? scrollView : nil // 넘치지 않으면 굴릴 것도 없다
             }
             node = current.superview
         }

@@ -516,6 +516,12 @@ final class AppState {
             }
             return next
         }
+        // 이미 열려 있는 프로젝트의 스토어도 새 시작 폴더를 알아야 한다 — 안 그러면 앞으로 여는 탭까지
+        // 옛 폴더에서 열려, 메뉴가 사용자에게 한 약속("앞으로 여는 터미널에 적용")이 거짓이 된다.
+        guard let ws = workspaces.first(where: { $0.id == id }) else { return }
+        for project in ws.projects where project.path == nil {
+            stores[project.id]?.updateCwd(path)
+        }
     }
 
     /// 워크스페이스 복제 — 경로·프로젝트 구성만 복제한다(새 id). 터미널 세션·스크롤백은 프로세스라 복제 불가라

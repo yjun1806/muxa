@@ -13,6 +13,8 @@ final class MuxaMenuWindow {
 
     private var panel: NSPanel?
     private var monitors: [Any] = []
+    /// 앱이 비활성화되면(⌘Tab 등) 메뉴를 닫는 관찰자 — 마우스 이벤트가 없는 전환 경로라 모니터로는 못 잡는다.
+    private var resignObserver: NSObjectProtocol?
     /// 메뉴를 열기 직전의 key 창 — 닫을 때 포커스를 돌려준다(터미널 입력이 죽지 않게).
     private weak var previousKey: NSWindow?
     /// 메뉴가 떠 있는 동안 유지돼야 하는 호출부 상태(예: 사이드바 hover peek) 해제 훅.
@@ -54,19 +56,29 @@ final class MuxaMenuWindow {
         guard let panel else { return }
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
+        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+        resignObserver = nil
         panel.orderOut(nil)
         self.panel = nil
-        previousKey?.makeKeyAndOrderFront(nil)
+        // 포커스 복원은 우리가 아직 활성 앱일 때만. 다른 앱을 클릭해 닫힌 경우에 orderFront를 부르면
+        // 방금 클릭한 앱 위로 muxa 창이 솟아오른다.
+        if NSApp.isActive { previousKey?.makeKeyAndOrderFront(nil) }
         previousKey = nil
         onClose?()
         onClose = nil
+        // 항목 탭 처리는 이 패널의 이벤트 디스패치 안에서 돈다 — 마지막 참조를 지금 놓으면 자기 이벤트를
+        // 처리하는 도중 창이 해제될 수 있다. 해제를 다음 런루프로 미룬다.
+        DispatchQueue.main.async { _ = panel }
     }
 
     /// 메뉴 바깥 클릭·Esc·앱 비활성화를 감시한다. 패널 안 클릭은 메뉴 자신이 처리하므로 통과시킨다.
     private func installMonitors(for panel: NSPanel) {
+        // 바깥 클릭은 메뉴를 닫는 데만 쓰고 아래로 흘리지 않는다(시스템 메뉴와 같은 동작) —
+        // 메뉴를 닫으려던 클릭이 밑의 버튼까지 누르면 안 된다.
         let mouse = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-            if event.window !== panel { MainActor.assumeIsolated { self?.dismiss() } }
-            return event
+            guard event.window !== panel else { return event }
+            MainActor.assumeIsolated { self?.dismiss() }
+            return nil
         }
         let key = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard event.keyCode == 53 else { return event } // Esc
@@ -78,6 +90,13 @@ final class MuxaMenuWindow {
             MainActor.assumeIsolated { self?.dismiss() }
         }
         monitors = [mouse, key, global].compactMap { $0 }
+
+        // ⌘Tab처럼 마우스 없이 앱을 떠나는 경로 — 패널이 .popUpMenu 레벨이라 그냥 두면 다른 앱 위에 남는다.
+        resignObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.dismiss() }
+        }
     }
 
     /// 커서 기준 오른쪽-아래로 펼치되, 화면 밖으로 나가면 반대로 접는다(macOS 메뉴 관례).
@@ -112,7 +131,8 @@ private final class FirstMouseHostingView<Content: View>: NSHostingView<Content>
 // MARK: - 우클릭 캡처
 
 extension View {
-    /// 우클릭(또는 ⌃-클릭)을 스크린 좌표로 받는다. 좌클릭은 그대로 아래 뷰(버튼)로 흘려보낸다.
+    /// 우클릭을 스크린 좌표로 받는다. 좌클릭은 그대로 아래 뷰(버튼)로 흘려보낸다.
+    /// (⌃-클릭은 AppKit이 leftMouseDown으로 보내므로 여기 오지 않는다 — 크롬 UI에선 우클릭만 지원한다.)
     func onRightClick(perform action: @escaping (NSPoint) -> Void) -> some View {
         overlay(RightClickCatcher(onRightClick: action))
     }

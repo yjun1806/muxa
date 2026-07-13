@@ -45,6 +45,10 @@ extension TermView {
 
     override func rightMouseDown(with event: NSEvent) {
         guard let surface else { return super.rightMouseDown(with: event) }
+        // 우클릭도 이 칸을 실제 포커스로 만든다. Bonsplit의 focusedPaneId(테두리)만 옮기고 first responder를
+        // 안 옮기면 "테두리가 가리키는 칸"과 "키가 꽂히는 칸"이 갈라진다 — 다른 리포의 셸에 명령이 들어간다.
+        window?.makeFirstResponder(self)
+        onFocus?()
         syncMousePos(with: event)
 
         // 터미널 안의 앱이 마우스를 쓰고 있으면 우클릭은 그 앱의 것이다.
