@@ -117,6 +117,24 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         self.controller = BonsplitController(configuration: config)
         super.init()
         controller.delegate = self
+
+        // 파일 드롭은 **반드시 Bonsplit을 통해** 받는다. Bonsplit이 패인마다 `.onDrop(of: [.tabTransfer, .fileURL])`을
+        // 깔아두므로(PaneContainerView), 파일 드래그의 목적지는 그 중첩 호스팅 뷰가 된다. 핸들러를 안 걸면
+        // Bonsplit이 드롭을 거부하고, AppKit은 거부된 목적지에서 조상 뷰로 폴백하지 않아 드롭이 통째로 죽는다.
+        controller.onFileDrop = { [weak self] urls, paneId in
+            self?.insertDroppedPaths(urls.map(\.path), inPane: paneId) ?? false
+        }
+    }
+
+    /// 드롭된 경로를 그 칸의 터미널 프롬프트에 셸-이스케이프해 삽입한다 — claude code는 삽입된 이미지 경로를
+    /// 인식해 첨부한다. 실행(Enter)은 사용자 몫이라 개행 없이 넣기만 한다. 터미널이 아닌 탭(diff 뷰어 등)은 사양한다.
+    private func insertDroppedPaths(_ paths: [String], inPane paneId: PaneID) -> Bool {
+        guard !paths.isEmpty,
+              let tab = controller.selectedTab(inPane: paneId),
+              case .terminal = content(for: tab.id) else { return false }
+        controller.focusPane(paneId)
+        term(for: tab.id).sendText(TerminalDrop.insertionText(for: paths))
+        return true
     }
 
     deinit {

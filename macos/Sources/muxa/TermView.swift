@@ -114,9 +114,6 @@ final class TermView: NSView, NSTextInputClient {
             self?.performBindingAction("search:\(needle)")
         }
 
-        // 파일·이미지를 터미널에 떨구면 경로를 프롬프트에 삽입한다(아래 NSDraggingDestination).
-        registerForDraggedTypes([.fileURL, .png, .tiff])
-
         // 셸 스폰 직후의 foreground pid(=셸)를 잡아 OS 레벨 종료 감시를 건다. pid가 아직 0이면 재시도한다.
         armProcessWatcher()
     }
@@ -560,56 +557,8 @@ final class TermView: NSView, NSTextInputClient {
         return text.isEmpty ? nil : text
     }
 
-    // MARK: 드래그&드롭 — 파일·이미지를 떨구면 셸-이스케이프한 경로를 프롬프트에 삽입
-    //
-    // libghostty는 드롭을 처리하지 않아 뷰가 직접 받는다. Finder 파일은 경로를, 브라우저/스크린샷의
-    // 이미지 데이터는 임시 PNG로 저장해 그 경로를 넣는다. claude code는 삽입된 이미지 경로를 인식해
-    // 첨부한다(cmux 동일). 실행(Enter)은 사용자 몫이라 개행 없이 삽입만 한다.
-
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        dropPaths(from: sender) != nil ? .copy : []
-    }
-
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let paths = dropPaths(from: sender), !paths.isEmpty else { return false }
-        window?.makeFirstResponder(self)
-        onFocus?()
-        sendText(paths.map(Self.shellQuote).joined(separator: " "))
-        return true
-    }
-
-    /// 드래그 페이스트보드에서 삽입할 경로들을 뽑는다 — 파일 URL 우선, 없으면 이미지 데이터를 임시 파일로.
-    private func dropPaths(from sender: NSDraggingInfo) -> [String]? {
-        let pb = sender.draggingPasteboard
-        if let urls = pb.readObjects(forClasses: [NSURL.self],
-                                     options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
-            return urls.map(\.path)
-        }
-        if let image = NSImage(pasteboard: pb), let path = Self.writeTempImage(image) {
-            return [path]
-        }
-        return nil
-    }
-
-    /// 이미지를 임시 PNG로 저장하고 경로를 돌려준다(파일이 아닌 이미지 드래그용). 실패 시 nil.
-    private static func writeTempImage(_ image: NSImage) -> String? {
-        guard let tiff = image.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff),
-              let png = rep.representation(using: .png, properties: [:]) else { return nil }
-        let path = (NSTemporaryDirectory() as NSString)
-            .appendingPathComponent("muxa-drop-\(UUID().uuidString).png")
-        do {
-            try png.write(to: URL(fileURLWithPath: path))
-            return path
-        } catch {
-            return nil
-        }
-    }
-
-    /// 셸에 안전하게 넘길 단일 인용 이스케이프 — 공백·특수문자가 있는 경로를 한 토큰으로.
-    private static func shellQuote(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
+    // 파일 드롭(→ 경로 삽입)은 이 뷰가 받지 않는다 — Bonsplit이 패인 드롭 타깃을 깔아 드래그를 가져가므로
+    // 여기에 NSDraggingDestination을 달아도 호출되지 않는다. 수신은 TerminalStore.controller.onFileDrop.
 
     // MARK: 키 입력 — Ghostty SurfaceView_AppKit.keyDown 이식
 
