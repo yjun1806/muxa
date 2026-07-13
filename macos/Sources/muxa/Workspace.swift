@@ -28,6 +28,11 @@ struct DetachedSession: Codable, Identifiable, Equatable {
     /// 남길 때 그 안에서 돌고 있던 명령(표시용) — "무엇을 되찾는 건지" 사용자가 알아야 한다.
     var command: String
     var cwd: String?
+    /// 닫을 때의 탭 이름. **"claude"만으로는 어느 세션인지 모른다** — 같은 명령을 여러 탭에서
+    /// 돌렸다면 구별할 방법이 없다. 사용자가 손으로 붙인 이름이면 그게 가장 강한 단서다.
+    var title: String?
+    /// 언제 닫았는지 — 목록이 여럿일 때 "방금 그거"를 짚는 기준. 옵셔널(구 기록엔 없음).
+    var detachedAt: Date?
 }
 
 /// 워크스페이스 = 메인 폴더(레포) + 프로젝트 묶음. 사이드바 최상위.

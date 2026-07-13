@@ -84,13 +84,25 @@ enum TerminalSession {
         foreground.contains { !isShell($0) }
     }
 
-    /// 되찾을 작업의 이름 — **셸이 아닌 첫 프로세스**. 목록에서 "무엇을 되찾는지"를 말해준다.
+    /// 되찾을 작업의 이름 — 목록에서 "무엇을 되찾는지"를 말해준다.
     ///
-    /// 셸 판정을 재사용해야 한다. 단순히 "zsh로 끝나지 않는 것"을 고르면 래퍼(`zsh (kiro-cli-term)`)가
-    /// 먼저 잡혀 **정작 돌고 있는 빌드 대신 셸 이름이 뜬다**(실측).
+    /// 두 가지를 건너뛴다(둘 다 실측으로 걸렸다):
+    ///  - **셸과 그 래퍼** — "zsh로 끝나지 않는 것"으로 고르면 `zsh (kiro-cli-term)`이 먼저 잡혀
+    ///    정작 돌고 있는 빌드 대신 셸 이름이 뜬다.
+    ///  - **버전 이름** — claude는 자기 자신을 버전 바이너리로 exec해서 트리에 `2.1.207` 같은
+    ///    프로세스가 생긴다. 그걸 집으면 목록에 "2.1.207"이 떠서 **뭐가 도는지 알 수 없다**.
     static func workLabel(foreground: [String]) -> String? {
-        guard let raw = foreground.first(where: { !isShell($0) }) else { return nil }
-        return normalized(raw)
+        for raw in foreground {
+            let name = normalized(raw)
+            guard !name.isEmpty, !shellNames.contains(name), !isVersionLike(name) else { continue }
+            return name
+        }
+        return nil
+    }
+
+    /// `2.1.207`처럼 숫자와 점뿐인 이름 — 프로그램 이름이 아니라 버전이다.
+    private static func isVersionLike(_ name: String) -> Bool {
+        name.contains(".") && name.allSatisfy { $0.isNumber || $0 == "." }
     }
 
     /// `/usr/bin/sleep` → `sleep`, `-zsh` → `zsh`, `zsh (wrapper)` → `zsh`

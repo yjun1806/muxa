@@ -1,66 +1,63 @@
 import SwiftUI
 
-/// claude 사용량 상세 팝오버 — 상태바의 사용량을 클릭하면 열린다.
+/// claude 사용량 상세 팝오버 — 상태바의 사용량 칩을 클릭하면 열린다.
 /// 한도별로 [이름 / 넓은 막대 / N% 사용 · 언제 리셋]을 보여준다(상태바는 좁아서 축약형만 보인다).
+///
+/// 셸(헤더·구분선·폭)은 `FooterPopover`가 맡는다 — 서비스·백그라운드 팝오버와 같은 틀.
 struct UsagePopover: View {
     private let usage = ClaudeUsageService.shared
 
     /// 팝오버가 떠 있는 동안 "N분 전 갱신"이 굳지 않도록 1분마다 흐르는 현재 시각.
     @State private var now = Date()
 
-    private let barWidth: CGFloat = 240
+    /// 막대 폭 = 팝오버 폭 − 좌우 인셋. 헤더·행과 같은 선에서 시작하고 끝난다.
+    private var barWidth: CGFloat { PopoverWidth.footer - Space.panelInset * 2 }
 
     var body: some View {
-        // 한도 하나가 두 줄짜리 덩어리라, 덩어리 사이(lg)를 줄 사이(xs)보다 확실히 벌려야 묶음이 읽힌다.
-        VStack(alignment: .leading, spacing: Space.lg) {
-            header
-            HDivider()
-            if usage.limits.isEmpty {
-                Text(emptyText)
-                    .font(.muxa(.label))
-                    .foregroundStyle(Color.pMuted)
-                    .frame(width: barWidth, alignment: .leading)
+        FooterPopover(title: "Claude", subtitle: updatedText) {
+            ClaudeMark(size: 16)
+        } accessory: {
+            if usage.loading {
+                ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 14, height: 14)
             } else {
-                ForEach(usage.limits) { limit in
-                    row(limit)
+                FooterAction(icon: "arrow.clockwise", help: "새로고침") {
+                    Task { await usage.refresh(); now = Date() }
                 }
             }
+        } content: {
+            if usage.limits.isEmpty {
+                FooterHint(title: emptyTitle, detail: emptyDetail)
+            } else {
+                // 한도 하나가 세 줄짜리 덩어리라, 덩어리 사이(md)를 줄 사이(xs)보다 확실히 벌려야 묶음이 읽힌다.
+                VStack(alignment: .leading, spacing: Space.md) {
+                    ForEach(usage.limits) { limit in
+                        row(limit)
+                    }
+                }
+                .footerBlock()
+            }
         }
-        .padding(Space.xl)
-        .background(Color.pPanel)
         .tick(every: 60, into: $now) // "3분 전 갱신"이 굳지 않게(팝오버가 열려 있는 동안만)
     }
 
     /// 보여줄 한도가 없을 때 — 조회 전·실패·빈 응답을 구분해 원인을 짐작할 수 있게 한다.
-    private var emptyText: String {
+    private var emptyTitle: String {
         switch usage.state {
         case .idle: return "불러오는 중…"
-        case .failed: return "사용량을 가져오지 못했습니다 (로그인 필요 또는 일시적 오류)"
+        case .failed: return "사용량을 가져오지 못했습니다"
         case .empty, .ok: return "표시할 한도가 없습니다"
         }
     }
 
-    private var header: some View {
-        HStack(spacing: Space.sm) {
-            ClaudeMark(size: 16)
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Claude").font(.muxa(.title, weight: .semibold)).foregroundStyle(Color.pFg)
-                Text(updatedText).font(.muxa(.caption)).foregroundStyle(Color.pMuted)
-            }
-            .lineLimit(1)
-            Spacer(minLength: Space.md)
-            if usage.loading {
-                ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 14, height: 14)
-            } else {
-                IconButton(icon: "arrow.clockwise", help: "새로고침") {
-                    Task { await usage.refresh(); now = Date() }
-                }
-            }
+    private var emptyDetail: String {
+        switch usage.state {
+        case .idle: return "claude CLI에 한도를 물어보는 중입니다."
+        case .failed: return "로그인이 필요하거나 일시적인 오류입니다.\n새로고침으로 다시 시도해 보세요."
+        case .empty, .ok: return "이 계정에 적용된 사용 한도가 없습니다."
         }
-        .frame(width: barWidth) // 아래 한도 행들과 같은 폭 — 새로고침 버튼이 오른쪽 끝에 정렬된다
     }
 
-    /// 한도 한 덩이 — 두 줄로 짝을 맞춘다. 한 줄에 다 넣으면 긴 리셋 문구가 어중간하게 접힌다.
+    /// 한도 한 덩이 — 세 줄로 짝을 맞춘다. 한 줄에 다 넣으면 긴 리셋 문구가 어중간하게 접힌다.
     ///
     ///   세션                     3시간 38분 후   ← 이름 / 남은 시간
     ///   ▬▬▬░░░░░░░░░░░░░░░
@@ -80,11 +77,12 @@ struct UsagePopover: View {
                         .foregroundStyle(Color.pMuted)
                 }
             }
-            Meter(value: Double(limit.percent) / 100, color: meterColor(limit), width: barWidth, height: 6)
+            Meter(value: Double(limit.percent) / 100, color: UsageColor.meter(limit),
+                  width: barWidth, height: 6)
             HStack(alignment: .firstTextBaseline, spacing: Space.md) {
                 Text("\(limit.percent)% 사용")
                     .font(.muxa(.label))
-                    .foregroundStyle(textColor(limit))
+                    .foregroundStyle(UsageColor.text(limit))
                 Spacer(minLength: Space.md)
                 if let clock = ClaudeUsage.resetClock(limit.resetsAt, now: now) {
                     Text(clock)
@@ -115,8 +113,4 @@ struct UsagePopover: View {
         let base = minutes < 1 ? "방금 갱신" : "\(minutes)분 전 갱신"
         return usage.failed ? "\(base) · 마지막 갱신 실패" : base
     }
-
-    // 색 규칙은 상태바와 같다(UsageColor — 평시 브랜드, 70%↑ 노랑, 90%↑·서버 경고 빨강).
-    private func meterColor(_ limit: UsageLimit) -> Color { UsageColor.meter(limit) }
-    private func textColor(_ limit: UsageLimit) -> Color { UsageColor.text(limit) }
 }

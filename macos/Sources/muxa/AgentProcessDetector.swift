@@ -43,7 +43,9 @@ enum AgentProcessDetector {
         var nameOf: [pid_t: String] = [:]
         for pid in buffer.prefix(count) where pid > 0 {
             guard let info = bsdInfo(pid) else { continue }
-            nameOf[pid] = comm(info)
+            // **argv[0]을 먼저 본다.** comm은 실행 바이너리 이름이라, node 스크립트인 `claude`가
+            // `node`로 잡힌다 — 목록에 "node"가 뜨면 뭐가 도는지 알 수 없다. 못 읽으면 comm으로 폴백.
+            nameOf[pid] = argv0(pid) ?? comm(info)
             childrenOf[pid_t(bitPattern: info.pbi_ppid), default: []].append(pid)
         }
 
@@ -60,6 +62,33 @@ enum AgentProcessDetector {
             depth += 1
         }
         return names
+    }
+
+    /// pid가 **스스로를 부르는 이름**(argv[0]). 실패하면 nil.
+    ///
+    /// `comm`(실행 바이너리 이름)으로는 부족하다. `claude`는 node 스크립트라 comm이 `node`로 잡히고,
+    /// 그러면 목록에 "node"가 떠서 **뭐가 도는지 알 수 없다**(실측). `ps`가 보여주는 `claude`는 argv[0]다.
+    ///
+    /// KERN_PROCARGS2 레이아웃: `[argc: Int32][exec_path\0][정렬 패딩\0…][argv0\0][argv1\0]…`
+    static func argv0(_ pid: pid_t) -> String? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return nil }
+
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return nil }
+
+        let header = MemoryLayout<Int32>.size
+        // exec_path를 건너뛰고(첫 NUL까지), 이어지는 정렬 패딩(연속 NUL)도 건너뛰면 argv[0]이 나온다.
+        var i = header
+        while i < size, buffer[i] != 0 { i += 1 }
+        while i < size, buffer[i] == 0 { i += 1 }
+        guard i < size else { return nil }
+
+        var end = i
+        while end < size, buffer[end] != 0 { end += 1 }
+        guard end > i else { return nil }
+        return String(decoding: buffer[i..<end], as: UTF8.self)
     }
 
     /// pid의 BSD 프로세스 정보(ppid·comm 포함). 죽었거나 접근 불가면 nil.

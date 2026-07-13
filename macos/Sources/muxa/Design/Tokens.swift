@@ -58,6 +58,19 @@ enum RowHeight {
     static let hairline: CGFloat = 1
 }
 
+/// 떠 있는 패널(팝오버)의 폭.
+enum PopoverWidth {
+    /// 푸터 팝오버(사용량·서비스·백그라운드) 공통 폭.
+    /// **셋이 같은 폭이어야 한 시스템으로 읽힌다** — 240/260이 섞이면 같은 줄에서 열리는 창들이 제각각으로 보인다.
+    /// 260에선 긴 명령·경로가 곧바로 잘려서, 자를 자리를 조금 벌린 값(300)으로 통일한다.
+    static let footer: CGFloat = 300
+}
+
+/// 색 위에 얹는 옅은 배경 틴트의 불투명도 — 전경색 하나만 정하면 배경이 따라오게 한다(배지 `Pill`과 같은 규칙).
+enum Tint {
+    static let subtle: Double = 0.14
+}
+
 /// 전환 — 종류를 늘리지 않는다. 크롬의 미세 전환은 전부 `fast`.
 enum Motion {
     /// hover·포커스 같은 즉각 피드백.

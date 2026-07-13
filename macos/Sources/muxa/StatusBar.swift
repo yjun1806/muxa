@@ -13,7 +13,6 @@ struct StatusBar: View {
 
     @State private var branch: String?
     @State private var showUsage = false
-    @State private var usageHovered = false
     /// 리셋 카운트다운("3h 38m")이 굳지 않도록 1분마다 흐르는 현재 시각.
     @State private var now = Date()
 
@@ -85,7 +84,7 @@ struct StatusBar: View {
                 // 닫았지만 살아 있는 터미널 세션 — 있을 때만 나타난다(없으면 자리도 안 차지한다).
                 // 안 보여주면 "뭔가 돌고 있는데 어디 있는지 모르는" 유령이 된다.
                 DetachedStrip(state: state, project: project)
-                ServiceStrip(state: state, project: project)
+                ServiceStrip(state: state, project: project, cwd: project.path ?? ws.path)
             }
         }
         .panelBar(height: RowHeight.toolbar) // 내용이 세로 중앙에 오도록 여유를 준다(24는 빡빡해 아래로 붙어 보인다)
@@ -104,11 +103,12 @@ struct StatusBar: View {
     ///
     /// **하나의 칩(알약)으로 묶는다.** 로고·막대·숫자·시계가 맨바닥에 흩어져 있으면 (1) 어디까지가
     /// 한 덩어리인지 안 읽히고 (2) 누를 수 있는 것처럼 보이지 않는다. 칩 배경 + hover/열림 상태로
-    /// "여기가 버튼"임을 드러낸다(상단바 토글 버튼과 같은 규칙 — 배경·반경을 공유한다).
+    /// "여기가 버튼"임을 드러낸다(`FooterChip` — 서비스·백그라운드 칩과 배경·높이·반경을 공유한다).
     /// 항목 사이는 여백이 아니라 얇은 세로선으로 가른다 — 여백만으로는 "5h 9%"와 "wk 54%"가 붙어 읽힌다.
     @ViewBuilder
     private var usageView: some View {
-        Button { showUsage.toggle() } label: {
+        FooterChip(isOpen: $showUsage,
+                   help: "claude 사용량 — 클릭해 상세 보기(모델별 한도 포함)") {
             HStack(alignment: .center, spacing: Space.sm) {
                 ClaudeMark(size: 13)
                 if shown.isEmpty {
@@ -145,24 +145,10 @@ struct StatusBar: View {
                     ProgressView().controlSize(.small).scaleEffect(0.5).frame(width: 12, height: 12)
                 }
             }
-            .padding(.horizontal, Space.sm)
-            .frame(height: RowHeight.tight)
-            .background(usageChipColor, in: RoundedRectangle(cornerRadius: Radius.md))
-            .contentShape(RoundedRectangle(cornerRadius: Radius.md))
         }
-        .buttonStyle(.plain)
-        .onHover { usageHovered = $0 }
-        .animation(Motion.fast, value: usageHovered)
-        .help("claude 사용량 — 클릭해 상세 보기(모델별 한도 포함)")
         .popover(isPresented: $showUsage, arrowEdge: .top) {
             UsagePopover()
         }
-    }
-
-    /// 칩 배경 — 팝오버가 열려 있으면 계속 눌린 상태로 둔다(어디서 나온 창인지 보이게).
-    private var usageChipColor: Color {
-        if showUsage { return Color.pBtnActive }
-        return usageHovered ? Color.pBtnHover : Color.pBtnHover.opacity(0.5)
     }
 
     /// 상태바에 띄울 한도 — 모델 전용(Fable 등)은 뺀다. 상세는 팝오버에서 본다.

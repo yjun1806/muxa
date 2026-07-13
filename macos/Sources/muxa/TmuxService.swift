@@ -208,6 +208,20 @@ enum TmuxService {
         return orphans
     }
 
+    /// 그 세션의 마지막 화면 몇 줄 — **"어느 세션이었지"를 열기 전에 알려준다**.
+    /// 명령 이름("claude")만으로는 여러 탭에서 같은 걸 돌렸을 때 구별이 안 된다. tmux가 화면을
+    /// 통째로 갖고 있으므로 그걸 읽어 미리보기로 쓴다(저장하지 않는다 — 열 때마다 최신을 읽는다).
+    static func tail(session: String, lines: Int = 6) async -> String {
+        let out = await run(["capture-pane", "-p", "-t", "=\(session):", "-S", "-\(lines)"])
+        guard out.exitCode == 0 else { return "" }
+        // 빈 줄을 걷어내고 마지막 몇 줄만 — 화면 하단이 "지금 무슨 일이 벌어지는지"다.
+        let kept = out.stdout
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return kept.suffix(lines).joined(separator: "\n")
+    }
+
     /// 그 세션 pane의 TTY에서 **포그라운드로 도는 프로세스 이름들**. 탭을 닫을 때 "안에서 뭐가
     /// 돌고 있나"를 묻는 데 쓴다 — 셸뿐이면 죽이고, 작업이 있으면 남긴다(판정은 순수 함수).
     ///

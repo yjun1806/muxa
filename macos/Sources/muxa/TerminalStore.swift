@@ -320,16 +320,19 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         // **목록에 기록해 되찾을 수 있게** 한다(기록이 없으면 GC가 다음 시작 때 죽인다).
         if let session = tmuxSessions.removeValue(forKey: tabId) {
             let cwd = pwds[tabId]
+            // 탭 이름은 **닫히기 전에** 읽어야 한다(맵이 이미 비워지는 중이다).
+            let title = tabTitle(tabId)
             Task { [weak self] in
                 let foreground = await TmuxService.paneForeground(session: session)
                 guard TerminalSession.shouldDetach(foreground: foreground) else {
                     await TmuxService.kill(session: session)
                     return
                 }
-                // 표시용 이름 — 셸이 아닌 첫 프로세스가 "무엇을 되찾는지"다(래퍼 셸에 속지 않는다).
+                // 표시용 이름 — 셸이 아닌 첫 프로세스가 "무엇을 되찾는지"다(래퍼 셸·버전 이름에 속지 않는다).
                 let label = TerminalSession.workLabel(foreground: foreground) ?? "작업"
                 await MainActor.run {
-                    self?.onDetachSession?(DetachedSession(session: session, command: label, cwd: cwd))
+                    self?.onDetachSession?(DetachedSession(session: session, command: label, cwd: cwd,
+                                                           title: title, detachedAt: Date()))
                 }
             }
         }

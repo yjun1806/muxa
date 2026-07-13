@@ -197,4 +197,17 @@ struct TerminalSessionTests {
         #expect(TerminalSession.workLabel(foreground: ["zsh (kiro-cli-term)", "/bin/zsh"]) == nil)
         #expect(TerminalSession.workLabel(foreground: []) == nil)
     }
+
+    /// **버전 이름을 집으면 안 된다.** claude는 자기 자신을 버전 바이너리로 exec해서 트리에
+    /// `2.1.207` 같은 프로세스가 생긴다. 그걸 집으면 목록에 "2.1.207"이 떠서 뭐가 도는지 모른다(실측).
+    @Test func 버전_이름_대신_진짜_이름을_집는다() {
+        #expect(TerminalSession.workLabel(foreground: ["zsh", "claude", "2.1.207"]) == "claude")
+        #expect(TerminalSession.workLabel(foreground: ["zsh", "2.1.207", "claude"]) == "claude")
+        #expect(TerminalSession.workLabel(foreground: ["zsh", "node", "1.2.3"]) == "node")
+    }
+
+    /// 버전만 있으면(진짜 이름을 못 찾으면) 이름이 없다 — 호출부가 "작업"으로 폴백한다.
+    @Test func 버전만_있으면_이름이_없다() {
+        #expect(TerminalSession.workLabel(foreground: ["zsh", "2.1.207"]) == nil)
+    }
 }
