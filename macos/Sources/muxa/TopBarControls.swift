@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 /// 상단바 왼쪽 클러스터 — 사이드바 모드 메뉴 + 새 워크스페이스 메뉴.
@@ -48,13 +47,7 @@ struct TopBarControls: View {
     }
 
     private func pickFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.directoryURL = URL(fileURLWithPath: home)
-        if panel.runModal() == .OK, let url = panel.url {
-            state.addWorkspace(path: url.path)
-        }
+        guard let path = FolderPrompt.pick(startingAt: home) else { return }
+        state.addWorkspace(path: path)
     }
 }

@@ -64,6 +64,7 @@ extension View {
     /// (칸 테두리가 맨 위라, 카드 모서리에 닿은 칸은 카드 테두리를 덮으며 이어진다.)
     func contentCard(radius: CGFloat, border: Color) -> some View {
         clipShape(RoundedRectangle(cornerRadius: radius))
+            .modifier(CardElevation(radius: radius)) // 뒤에 그림자판, (다크) 위에 인셋 하이라이트
             .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(border, lineWidth: 1))
             .overlayPreferenceValue(PaneBorderPreference.self) { specs in
                 GeometryReader { geo in
@@ -78,6 +79,44 @@ extension View {
                 // 색 전환은 아래 PaneBorderShape가 명시적으로 다시 켠다.
                 .transaction { $0.animation = nil }
                 .allowsHitTesting(false)
+            }
+    }
+}
+
+/// 도킹된 콘텐츠 카드의 상시 미세 고도(`Elevation.Card`) — 보더 1px만으로는 "떠 있는 판"이 아니라
+/// "선 그은 칸"이 된다. 그 부족분을 크롬 명도차가 아니라 카드 고도로 메운다.
+///
+/// **그림자를 콘텐츠가 아니라 뒤에 깐 도형이 드리운다** — 콘텐츠 안엔 ghostty 서피스(AppKit 뷰)가 있고,
+/// 거기에 `.shadow`를 직접 걸면 그 서브트리가 그림자 렌더 대상이 되어 서피스 합성 경로를 건드린다.
+/// 카드는 불투명하므로 뒤판의 그림자만 밖으로 새어 보인다(결과는 동일, 서피스는 무손상).
+///
+/// **colorScheme을 읽는 이유**: 그림자 불투명도가 라이트/다크에서 다른데(0.06 vs 0.34),
+/// `Palette.dynamic`은 hex만 받아 알파를 못 싣는다 — 동적 NSColor로는 표현할 수 없다.
+private struct CardElevation: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+    let radius: CGFloat
+
+    func body(content: Content) -> some View {
+        let dark = scheme == .dark
+        let opacity = dark ? Elevation.Card.shadowOpacity.dark : Elevation.Card.shadowOpacity.light
+        return content
+            .background(
+                RoundedRectangle(cornerRadius: radius)
+                    .fill(Color.pBg)
+                    .shadow(color: .black.opacity(opacity),
+                            radius: Elevation.Card.shadowRadius,
+                            y: Elevation.Card.shadowOffsetY)
+            )
+            // 다크 전용 상단 1px 인셋 하이라이트 — 어두운 UI에서 고도는 그림자보다 이 한 줄이 만든다.
+            .overlay {
+                if dark {
+                    RoundedRectangle(cornerRadius: radius)
+                        .strokeBorder(
+                            LinearGradient(colors: [.white.opacity(Elevation.Card.insetHighlight), .clear],
+                                           startPoint: .top, endPoint: .bottom),
+                            lineWidth: RowHeight.hairline)
+                        .allowsHitTesting(false)
+                }
             }
     }
 }

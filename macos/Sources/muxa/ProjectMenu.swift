@@ -7,13 +7,15 @@ enum ProjectMenu {
     static func items(for project: Project, in workspace: Workspace, state: AppState) -> [MuxaMenuItem] {
         // 프로젝트 경로가 없으면 워크스페이스 폴더를 상속한다(Project.path == nil의 의미).
         let path = project.path ?? workspace.path
-        let store = state.store(for: project, in: workspace)
 
         return [
             MuxaMenuItem(icon: "pencil", title: "이름 변경…") { promptRename(project, state: state) },
             MuxaMenuItem(icon: "plus.square", title: "새 터미널", shortcut: "⌘T") {
+                // 스토어 획득을 **여기 안에서** 한다 — store(for:in:)은 없으면 만든다(= PTY 기동).
+                // items를 만들 때 부르면 사이드바에서 우클릭하는 것만으로 셸이 떠 버린다.
+                state.setActiveId(workspace.id)    // 다른 워크스페이스의 프로젝트일 수 있다
                 state.setActiveProject(project.id) // 안 보고 있는 프로젝트에 터미널만 생기면 놓친다 — 함께 전환.
-                store.newTerminal()
+                state.store(for: project, in: workspace).newTerminal()
             },
             .separator,
             MuxaMenuItem(icon: "arrow.up.forward.app", title: "Finder에서 열기", enabled: path != nil) {

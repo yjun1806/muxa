@@ -16,8 +16,18 @@ final class AppState {
     private(set) var activeId: String = "" // 활성 워크스페이스
     private(set) var sidebarMode: SidebarMode = .expanded
 
-    /// 백그라운드 활동(●)이 있는 프로젝트 id들(A). ProjectTabBar가 관측해 배지를 그린다.
+    /// 사용자가 명시적으로 펼쳐 둔 워크스페이스 id(사이드바 2단 트리). **활성 워크스페이스는 여기 없어도
+    /// 항상 펼쳐진다**(파생 규칙 — `SidebarTree.isExpanded`). 그래야 전환할 때마다 집합이 오염되지 않고,
+    /// "다른 워크스페이스도 열어 둔 상태"만 사용자 의도로 남는다.
+    private(set) var expandedWorkspaces: Set<String> = []
+
+    /// 백그라운드 활동(●)이 있는 프로젝트 id들(A). 사이드바 프로젝트 행이 관측해 상태 글리프를 그린다.
     private(set) var badgedProjects: Set<String> = []
+
+    /// 워크트리 피커 요청(원샷) — 사이드바 워크스페이스 행의 `+`가 올리고, ContentView(시트 소유자)가 소비한다.
+    /// **뷰가 아니라 상태가 요청을 소유하는 이유**: `+`는 hover에서만 존재하는 버튼이라 시트를 그 행에 달면
+    /// 마우스가 떠나 행이 사라질 때 시트도 함께 죽는다(`serviceAddRequested`와 같은 패턴).
+    var worktreePickerRequested = false
 
     /// 놓친 주의 이력(알림 인박스). 배지가 붙는 순간마다 한 건씩 쌓인다 — 배지는 "지금 상태",
     /// 이건 "자리 비웠다 돌아왔을 때의 복구 동선". 상단바 벨 팝오버가 관측해 렌더한다.
@@ -400,7 +410,13 @@ final class AppState {
     /// 현재 위치 다음 배지 칸으로, 없으면 처음으로 돌아가 순환한다. 배지가 하나도 없으면 무동작.
     func jumpToNextWaiting() {
         let slots = waitingSlots()
-        guard !slots.isEmpty else { return }
+        guard !slots.isEmpty else {
+            // 탭 배지는 이미 풀렸는데 **프로젝트 배지만 남은** 경우가 있다(스토어가 없는 프로젝트 등).
+            // 사이드바 큐 헤더는 badgedProjects를 보고 떠 있으므로, 여기서 무동작하면
+            // "떠 있는데 눌러도 아무 일이 없는 줄"이 된다 — 프로젝트 단위 진실로 폴백한다.
+            if let ref = nextWaiting { revealActivity(projectId: ref.projectId) }
+            return
+        }
         let cursor = cursorRank()
         // 현재 위치보다 뒤(사전식)인 첫 슬롯, 없으면 첫 슬롯으로 순환.
         let target = slots.first { cursor.lexicographicallyPrecedes($0.rank) } ?? slots[0]
@@ -427,6 +443,56 @@ final class AppState {
     /// 활성 워크스페이스의 활성 프로젝트.
     var activeProject: Project? {
         activeWorkspace?.activeProject
+    }
+
+    // MARK: 사이드바 2단 트리 (판정은 SidebarTree(순수) — 여기선 신호만 모아 넘긴다)
+
+    /// 디스클로저 클릭 — 전환 없이 접기/펼치기. 활성 워크스페이스는 무동작(항상 펼침).
+    func toggleWorkspaceExpansion(_ id: String) {
+        let next = SidebarTree.toggled(expandedWorkspaces, wsId: id, activeId: activeId)
+        guard next != expandedWorkspaces else { return } // 무의미한 저장 방지
+        expandedWorkspaces = next
+        save()
+    }
+
+    /// 뷰 편의(파생 조회) — 규칙을 뷰가 재구현하지 않게.
+    func isExpanded(_ wsId: String) -> Bool {
+        SidebarTree.isExpanded(wsId: wsId, activeId: activeId, expanded: expandedWorkspaces)
+    }
+
+    /// 프로젝트 행의 상태 — **이미 만들어진 스토어만** 본다.
+    /// `store(for:in:)`은 없으면 만든다(= PTY 스폰)이라, 트리를 그리는 것만으로 안 보고 있는 프로젝트의
+    /// 터미널이 전부 떠 버린다. 아직 안 연 프로젝트는 "신호 없음"(유휴)으로 둔다 — 지어내지 않는다.
+    func projectStatus(_ projectId: String) -> SidebarTree.ProjectStatus {
+        let store = stores[projectId]
+        return SidebarTree.status(SidebarTree.ProjectSignal(
+            isBadged: badgedProjects.contains(projectId),
+            isWaiting: store?.hasWaitingAgent ?? false,
+            isWorking: store?.hasWorkingAgent ?? false,
+            hasDeadService: hasDeadService(projectId)
+        ))
+    }
+
+    /// 워크스페이스 롤업 — 자식 중 가장 센 신호(접힌 그룹·icon·slim 막대가 쓴다).
+    func workspaceStatus(_ workspace: Workspace) -> SidebarTree.ProjectStatus {
+        SidebarTree.rollup(workspace.projects.map { projectStatus($0.id) })
+    }
+
+    /// 프로젝트 서비스들의 현재 상태(키 없음 = .missing — ServiceDock·ServiceStrip과 같은 매핑).
+    func serviceStatuses(of projectId: String) -> [ServiceState] {
+        services(of: projectId).map { serviceMonitor.states[$0.id] ?? .missing }
+    }
+
+    private func hasDeadService(_ projectId: String) -> Bool {
+        if case .exited(let code) = ServiceStatusStyle.summarize(serviceStatuses(of: projectId)) {
+            return code != 0
+        }
+        return false
+    }
+
+    /// 주의 큐 헤더가 가리킬 대상 — nil이면 헤더를 아예 그리지 않는다.
+    var nextWaiting: SidebarTree.WaitingRef? {
+        SidebarTree.firstWaiting(workspaces: workspaces, badged: badgedProjects)
     }
 
     /// 활성 워크스페이스의 활성 프로젝트 스토어(단축키 대상 — ⌘T/⌘D/⌘W/⌘F).
@@ -913,6 +979,8 @@ final class AppState {
         var next = workspaces
         next.remove(at: idx)
         workspaces = next
+        // 사라진 워크스페이스의 펼침 기록은 함께 버린다(유령 id 누적 방지).
+        expandedWorkspaces = SidebarTree.prune(expandedWorkspaces, workspaceIds: next.map(\.id))
         if activeId == id { activeId = next[min(idx, next.count - 1)].id }
         save()
     }
@@ -975,17 +1043,20 @@ final class AppState {
     /// 프로젝트를 닫는다(마지막 하나는 남긴다). 활성이면 인접 프로젝트로 전환.
     /// 닫히는 프로젝트의 **서비스 프로세스도 함께 죽인다**.
     func closeProject(_ projectId: String) {
+        // **소속 워크스페이스를 id로 되짚는다** — 사이드바 트리는 비활성 워크스페이스의 프로젝트도
+        // 그리므로(✕·우클릭 닫기), 활성 워크스페이스만 보면 그 클릭이 조용히 씹힌다.
+        guard let owner = workspace(containing: projectId) else { return }
         // **정말 닫힐 때만** 서비스를 죽인다 — 마지막 하나는 안 닫히는데(아래 guard) 서비스만 죽으면
         // 프로젝트는 그대로인 채 dev 서버만 사라진다.
-        if let ws = activeWorkspace, ws.projects.count > 1,
-           let project = ws.projects.first(where: { $0.id == projectId }) {
+        if owner.projects.count > 1,
+           let project = owner.projects.first(where: { $0.id == projectId }) {
             killServices(of: project)
             killTerminalSessions(of: project) // 스토어·레이아웃을 버리기 전에 — 세션명을 여기서 읽는다
         }
         stores[projectId] = nil
         savedLayouts[projectId] = nil
         clearBadge(projectId)
-        updateActiveWorkspace { ws in
+        updateWorkspace(owner.id) { ws in
             guard ws.projects.count > 1,
                   let idx = ws.projects.firstIndex(where: { $0.id == projectId }) else { return ws }
             var next = ws
@@ -1024,7 +1095,9 @@ final class AppState {
 
     // MARK: 영속 (메타데이터 + 프로젝트별 분할 트리)
 
-    private struct Persisted: Codable {
+    /// **테스트가 왕복(인코딩→디코딩)을 못 박기 위해 internal** — CodingKeys 누락처럼
+    /// "인코딩은 되는데 저장이 안 되는" 버그는 타입을 감추면 못 잡는다(StateLoad를 뽑은 것과 같은 논리).
+    struct Persisted: Codable {
         /// 현재 스냅샷 스키마 버전. 향후 마이그레이션·비대화 방어의 기준점.
         /// version 필드가 없던 구 state.v4.json은 디코드 시 0으로 채워진다(pre-version).
         static let currentVersion = 1
@@ -1038,6 +1111,9 @@ final class AppState {
         var gitPanelWidth: Double?
         var showExplorer: Bool? // 도구 패널 열림 상태(나중에 추가된 필드라 옵셔널 하위호환).
         var showGitPanel: Bool?
+        /// 사이드바에서 펼쳐 둔 워크스페이스 id들(나중에 추가된 필드라 옵셔널 하위호환).
+        /// **Set이 아니라 정렬된 배열로 저장한다** — Set은 JSON 순서가 매번 달라져 파일이 무의미하게 뒤바뀐다.
+        var expandedWorkspaces: [String]?
 
         /// 디코드 중 버려진 프로젝트 id(손상 스냅샷). 디스크에 쓰지 않는 부산물이라 CodingKeys에서 제외한다.
         var droppedLayouts: [String] = []
@@ -1045,16 +1121,18 @@ final class AppState {
         private enum CodingKeys: String, CodingKey {
             case version, workspaces, activeId, sidebarMode, layouts
             case explorerWidth, gitPanelWidth, showExplorer, showGitPanel
+            case expandedWorkspaces
         }
 
         init(workspaces: [Workspace], activeId: String, sidebarMode: SidebarMode,
              layouts: [String: PaneSnapshot]?, explorerWidth: Double?, gitPanelWidth: Double?,
-             showExplorer: Bool?, showGitPanel: Bool?,
+             showExplorer: Bool?, showGitPanel: Bool?, expandedWorkspaces: [String]?,
              version: Int = currentVersion) {
             self.version = version
             self.workspaces = workspaces; self.activeId = activeId; self.sidebarMode = sidebarMode; self.layouts = layouts
             self.explorerWidth = explorerWidth; self.gitPanelWidth = gitPanelWidth
             self.showExplorer = showExplorer; self.showGitPanel = showGitPanel
+            self.expandedWorkspaces = expandedWorkspaces
         }
 
         // layouts는 **프로젝트별로 격리 디코드**한다(LenientLayouts) — 스냅샷 하나가 손상돼도 나머지
@@ -1073,6 +1151,7 @@ final class AppState {
             gitPanelWidth = try c.decodeIfPresent(Double.self, forKey: .gitPanelWidth)
             showExplorer = try c.decodeIfPresent(Bool.self, forKey: .showExplorer)
             showGitPanel = try c.decodeIfPresent(Bool.self, forKey: .showGitPanel)
+            expandedWorkspaces = try c.decodeIfPresent([String].self, forKey: .expandedWorkspaces)
         }
     }
 
@@ -1093,7 +1172,8 @@ final class AppState {
         let snapshot = Persisted(workspaces: workspaces, activeId: activeId, sidebarMode: sidebarMode,
                                  layouts: savedLayouts, explorerWidth: Double(explorerWidth),
                                  gitPanelWidth: Double(gitPanelWidth),
-                                 showExplorer: showExplorer, showGitPanel: showGitPanel)
+                                 showExplorer: showExplorer, showGitPanel: showGitPanel,
+                                 expandedWorkspaces: expandedWorkspaces.sorted())
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         try? data.write(to: Self.fileURL, options: .atomic)
     }
@@ -1137,6 +1217,10 @@ final class AppState {
         workspaces = snapshot.workspaces
         activeId = snapshot.activeId
         sidebarMode = snapshot.sidebarMode
+        // nil(구 저장분)이면 빈 집합 = 활성 워크스페이스만 펼침. 사라진 id는 여기서 걸러낸다.
+        // (workspaces 대입 **뒤에** 와야 한다 — 유효 id 목록에 의존한다.)
+        expandedWorkspaces = SidebarTree.restore(saved: snapshot.expandedWorkspaces,
+                                                 workspaceIds: snapshot.workspaces.map(\.id))
         if let w = snapshot.explorerWidth { explorerWidth = Self.clampPanelWidth(CGFloat(w)) }
         if let w = snapshot.gitPanelWidth { gitPanelWidth = Self.clampGitPanelWidth(CGFloat(w)) }
         if let open = snapshot.showExplorer { showExplorer = open }

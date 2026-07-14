@@ -181,7 +181,8 @@ struct ServiceAddSheet: View {
             .padding(.horizontal, Space.sm)
             .padding(.vertical, Space.xs)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isSelected ? Color.pBrandSubtle : Color.clear)
+            // 목록 선택은 **중립 채움**이다(브랜드 wash 금지 — Palette 주석·DESIGN.md §2).
+            .background(isSelected ? Color.pBtnActive : Color.clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

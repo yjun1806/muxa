@@ -29,6 +29,21 @@ struct ContentView: View {
         .background(Color.pPanel)
         // ⌘K 빠른 전환기 — 크롬 전체 위에 뜨는 오버레이(닫혀 있으면 아무것도 안 그린다).
         .overlay { QuickSwitcher(state: state) }
+        // 워크트리 피커 — 시트는 **여기가** 소유한다. 여는 버튼(사이드바 행의 +)은 hover에서만 존재해서,
+        // 시트를 그 행에 달면 마우스가 떠나 행이 사라지는 순간 시트도 함께 죽는다(AppState가 요청만 나른다).
+        // 대상 워크스페이스가 없으면 아예 띄우지 않는다 — 내용도 닫기 버튼도 없는 빈 시트가 뜬다.
+        .sheet(isPresented: Binding(get: { state.worktreePickerRequested && state.activeWorkspace != nil },
+                                    set: { state.worktreePickerRequested = $0 })) {
+            // 대상은 항상 **활성** 워크스페이스다 — +가 눌리는 즉시 setActiveId로 전환하기 때문.
+            if let ws = state.activeWorkspace {
+                WorktreePicker(dir: ws.path ?? SystemPaths.currentDir ?? SystemPaths.home) { name, path in
+                    state.addProject(name: name, path: path)
+                    state.worktreePickerRequested = false
+                } onCancel: {
+                    state.worktreePickerRequested = false
+                }
+            }
+        }
     }
 
     /// 콘텐츠 카드 — 터미널·패널이 사는 판. 크롬 배경 위에 얹혀 층이 드러난다.
@@ -61,7 +76,7 @@ struct ContentView: View {
         }
     }
 
-    /// 전체 폭 상단바 — 신호등 · 워드마크 · 사이드바 컨트롤 · 프로젝트 탭 · 우측 토글.
+    /// 전체 폭 상단바 — 신호등 · 워드마크 · 사이드바 컨트롤 · 브레드크럼 · 우측 토글.
     /// fullSizeContentView라 콘텐츠가 타이틀바까지 올라오고, 신호등은 `TrafficLights`가 이 줄 중앙으로 내린다.
     private var topBar: some View {
         HStack(alignment: .center, spacing: Space.md) {
@@ -70,9 +85,9 @@ struct ContentView: View {
             wordmark
             TopBarControls(state: state, home: home)
             if let ws = state.activeWorkspace {
-                // 워크스페이스 관리(사이드바 컨트롤)와 프로젝트 탭은 성격이 다른 영역이라 선으로 가른다.
+                // 좌측(앱·워크스페이스 관리)과 우측(현재 위치 + 패널 토글)은 성격이 다른 영역이라 선으로 가른다.
                 VDivider(height: 18)
-                ProjectTabBar(state: state, workspace: ws)
+                Breadcrumb(workspace: ws) // 표시 전용 — 전환은 사이드바 트리가 유일한 경로다
                 Spacer(minLength: Space.lg)
                 AttentionBell(state: state)
                 explorerToggle

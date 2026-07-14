@@ -9,7 +9,7 @@
 ./scripts/bootstrap.sh      # (새 머신 최초 1회) GhosttyKit 설치 — docs/SETUP.md
 cd macos
 swift build                 # 빌드 (SPM)
-swift test                  # 순수 로직 단위 테스트 (92개, GhosttyKit 링크 포함)
+swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 링크 포함)
 .build/debug/muxa           # bare 실행 (창 뜸, 아이콘 런타임 적용·시스템 알림은 Dock 바운스 폴백)
 # 정식 아이콘·시스템 알림: ./scripts/build-app.sh && open macos/.build/debug/muxa.app  (.app 번들 = bundleId 생김)
 # UI 변경은 재빌드+재실행. pkill로 죽이면 세션 저장(applicationWillTerminate) 안 됨 — ⌘Q로 정상 종료해야 복원됨.
@@ -34,6 +34,36 @@ swift test                  # 순수 로직 단위 테스트 (92개, GhosttyKit 
 - **익스플로러 VSCode급 2단계** ✅ — 파일 조작(새파일/폴더·이름변경·삭제[휴지통])·확장 보존 reload·FSEvents 자동 트리갱신·인덴트 가이드
 - **뷰어 라이브 리로드** ✅ — 열린 코드/md가 디스크에서 바뀌면 자동 재로드
 - **세션 복원 정합성** ✅ — 트리는 터미널만(`layoutSnapshot`), 문서/diff는 `SavedViewer`로 별도 복원
+
+## 최근 완료 (2026-07-14) — 사이드바 "런 큐" 2단 트리 + 팔레트 수술
+
+프로젝트 전환을 **헤더 탭 → 사이드바 트리**로 옮기고(D20), 브랜드 teal을 **아이콘 전용으로 격리**했다(D21).
+근거·수치는 [ARCHITECTURE 2절 D20·D21](ARCHITECTURE.md), 값·규칙은 [DESIGN.md](DESIGN.md).
+순수 로직 테스트 16개 추가(전체 94개 green). **화면은 육안 미검증(★).**
+
+- **사이드바 = 워크스페이스 › 프로젝트 2단 트리** — `SidebarTree`(순수: status/rollup/펼침/firstWaiting) +
+  `SidebarWorkspaceRow`(소섹션 머리글) · `SidebarProjectRow`(주인공) · `SidebarQueueHeader`(주의 큐 한 줄) ·
+  `SidebarIconItem`/`SidebarProjectIcon`(접힌 모드도 2단) · `SidebarRow`(공통 hover·우클릭·이름 칩).
+  **`ProjectTabBar` 삭제**, 상단바엔 표시 전용 `Breadcrumb`만.
+- **펼침 상태 영속** — `AppState.expandedWorkspaces`(+`state.v4.json`, 옵셔널 필드라 구 저장분 무손실).
+  활성 워크스페이스는 **접히지 않는다**(규칙은 `SidebarTree` 한 곳).
+- **에이전트 상태를 색이 아니라 모양으로** — 유휴 5pt 무채 / 작업중 6pt 딥틸 / 주의 6pt 호박(`ProjectStatusStyle`).
+- **팔레트** — `brand`(텍스트·CTA)와 `borderFocus`(테두리) 분리, 중립 zinc 통일, **목록 선택은 중립 채움**
+  (탐색기 행·서비스 목록의 브랜드 wash 제거), AA 미달값 수리(borderActivity 라이트 2.15:1 → 5.05:1 등),
+  카드 고도(`Elevation.Card`)로 층을 만든다.
+- **접힌 모드 회귀 방지** — icon/slim에서도 프로젝트 항목을 그리고, 워크트리 생성을 워크스페이스
+  우클릭 메뉴(`ProjectAddMenu`)에도 실었다. 안 그러면 그 모드에서 프로젝트 관리가 통째로 사라진다.
+
+### 실기기 검증 필요 (★ 이 기능)
+1. **비활성 워크스페이스의 프로젝트** 클릭·✕·우클릭 닫기·`+`가 실제로 동작하는가(새로 생긴 경로).
+2. **접힌 모드(아이콘 52 / 슬림 14)** — 프로젝트 점이 보이고 hover 시 이름 칩이 뜨는가, 우클릭 메뉴로
+   워크트리를 만들 수 있는가, 슬림 막대의 3색(주의 호박 > 작업중 딥틸 > 유휴 무채)이 14pt에서 읽히는가.
+3. **워크트리 시트** — hover 사이드바에서 `+` → "워크트리…" → 사이드바가 접혀도 시트가 살아 있는가.
+4. **상태 점 갱신 전파** — 백그라운드 프로젝트가 working → attention으로 바뀔 때 행이 다시 그려지는가.
+5. **카드 그림자·인셋 하이라이트**가 라이트/다크에서 보이는가(ghostty 서피스 리렌더 이상 없이).
+   함께: **카드 *안쪽* 헤어라인**(인덴트 가이드·패널 헤더 구분선)은 고도 보상이 닿지 않는 영역이라
+   다크에서 1.20~1.25:1까지 내려간다 — 너무 흐리면 `border`를 한 단계 올린다.
+6. 세션 복원 직후엔 스토어가 없어 **모든 프로젝트가 유휴 점**이다("안 연 프로젝트"와 구분되지 않음 — 의도된 절제).
 
 ## 최근 완료 (2026-07-13) — 알림 파이프라인 개편: 훅이 1차 소스
 

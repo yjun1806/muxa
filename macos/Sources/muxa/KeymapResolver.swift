@@ -61,6 +61,10 @@ struct KeymapResolver {
     /// 기본 바인딩만 담은 리졸버(설정 재정의 없음).
     static let `default` = KeymapResolver(overrides: [:])
 
+    /// ⌘n으로 전환할 수 있는 워크스페이스의 최대 개수. **사이드바의 ⌘n 힌트가 같은 값을 읽는다**
+    /// (여기만 늘리면 힌트가 안 따라오고, 힌트만 늘리면 눌러도 아무 일이 없는 거짓말이 된다).
+    static let workspaceShortcutLimit = 8
+
     /// 설정의 keybinding 재정의를 기본 테이블 위에 얹어 만든다. 순수 판정(Self.build)에 위임한다.
     /// 파싱 실패·예약키 침범은 무시(기본 유지)하되 진단으로 기록하고, 충돌은 last-wins 유지 + 진단만 남긴다.
     init(overrides: [String: String]) {
@@ -72,7 +76,8 @@ struct KeymapResolver {
     /// 키 입력 → 크롬 동작(없으면 nil = 터미널로 통과). 순수 함수 — 부작용 없음.
     func resolve(keyCode: Int, characters: String?, flags: NSEvent.ModifierFlags) -> KeymapAction? {
         // ⌘ + 숫자 1-8 → 워크스페이스 전환. 물리 keyCode는 자판마다 달라서, 숫자만은 characters로 읽는다(자판 무관).
-        if flags.contains(.command), let s = characters, let n = Int(s), (1 ... 8).contains(n) {
+        if flags.contains(.command), let s = characters, let n = Int(s),
+           (1 ... Self.workspaceShortcutLimit).contains(n) {
             return .switchWorkspace(n)
         }
         return table[Binding(keyCode: keyCode, mods: Mods(flags))]

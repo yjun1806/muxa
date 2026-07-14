@@ -27,4 +27,17 @@ extension Font {
     static func muxaMono(_ scale: TypeScale, weight: Font.Weight = .regular) -> Font {
         .system(size: scale.rawValue, weight: weight, design: .monospaced)
     }
+
+    /// 소섹션 라벨 — 사이드바의 워크스페이스 이름처럼 **목록을 이끄는 머리글**.
+    /// 8~13pt 사이의 1pt 계단만으로는 위계가 안 선다. 크기를 낮추는 대신
+    /// **굵기(semibold) + 자간 + 대문자**로 "이건 항목이 아니라 머리글"이라고 말한다.
+    /// (대문자 변환은 `.textCase(.uppercase)`가 호출부에서 함께 붙는다 — 한글은 변환되지 않으니
+    ///  자간·굵기만으로도 라벨로 읽혀야 한다.)
+    static let muxaLabel = Font.system(size: TypeScale.caption.rawValue, weight: .semibold)
+}
+
+/// 라벨 자간 — `Font.muxaLabel`과 짝. SwiftUI는 자간이 `Font`가 아니라 `.tracking()` 모디파이어라 값만 둔다.
+enum Tracking {
+    /// 대문자 소섹션 라벨(≈ +0.06em @ 10pt).
+    static let label: CGFloat = 0.6
 }

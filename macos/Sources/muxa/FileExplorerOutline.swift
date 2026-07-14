@@ -479,7 +479,9 @@ final class FileRowView: NSTableRowView {
 
     override func drawSelection(in dirtyRect: NSRect) {
         guard selectionHighlightStyle != .none, isSelected else { return }
-        Palette.borderFocus.withAlphaComponent(0.22).setFill()
+        // 선택은 중립 채움(macOS 규약 — 색은 상태에만). borderFocus를 옅게 깐 예전 방식은
+        // 포커스 링 색이 가라앉으면서 다크에서 배경과 1.3:1까지 붙어 어느 행인지 안 보였다.
+        Palette.btnActive.setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: 4, dy: 1), xRadius: 5, yRadius: 5).fill()
     }
 }

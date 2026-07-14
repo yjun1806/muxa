@@ -264,6 +264,13 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     var hasBadge: Bool { !badgedTabs.isEmpty }
 
+    /// 이 프로젝트에서 지금 돌고 있는 에이전트가 있는가(칸 하나라도 working) — 사이드바 상태 점.
+    var hasWorkingAgent: Bool { agentActivity.values.contains(.working) }
+
+    /// 입력 대기 중인 칸이 있는가. **보고 있는 프로젝트엔 배지가 안 붙으므로**(배지는 "안 보는 동안 쌓인 것")
+    /// 활성 프로젝트의 주의는 이 신호로만 잡힌다.
+    var hasWaitingAgent: Bool { agentActivity.values.contains(.waiting) }
+
     /// 이 스토어(프로젝트)의 시작 폴더 — diff/뷰어 탭이 참조한다.
     var workingDir: String? { cwd }
 

@@ -6,12 +6,17 @@ import AppKit
 @MainActor
 enum WorkspaceMenu {
     /// 사이드바 워크스페이스 항목의 메뉴. `canRemove`가 false면(마지막 하나) 닫기 항목이 비활성으로 남는다.
+    ///
+    /// **프로젝트 추가 항목(`ProjectAddMenu`)을 함께 싣는다** — 확장 트리의 `+` 버튼은 hover에서만
+    /// 존재하고 접힌 모드(icon·slim)엔 아예 없다. 여기에 없으면 그 모드에서 워크트리를 만들 방법이 없다.
     static func items(for workspace: Workspace, state: AppState) -> [MuxaMenuItem] {
         let path = workspace.path
         return [
             MuxaMenuItem(icon: "pencil", title: "이름 변경…") { promptRename(workspace, state: state) },
             MuxaMenuItem(icon: "folder.badge.gearshape", title: "기본 경로 변경…") { promptPath(workspace, state: state) },
             MuxaMenuItem(icon: "plus.square.on.square", title: "워크스페이스 복제") { state.duplicateWorkspace(workspace.id) },
+            .separator,
+        ] + ProjectAddMenu.items(for: workspace, state: state) + [
             .separator,
             MuxaMenuItem(icon: "arrow.up.forward.app", title: "Finder에서 열기", enabled: path != nil) {
                 guard let path else { return }
@@ -48,16 +53,13 @@ enum WorkspaceMenu {
 
     /// 기본 경로 변경 — 폴더 선택. 이미 떠 있는 터미널의 cwd는 못 바꾸므로 그 사실을 패널에 미리 알린다.
     private static func promptPath(_ workspace: Workspace, state: AppState) {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "이 폴더로 변경"
-        panel.message = "파일 익스플로러·Git 패널과 앞으로 여는 터미널에 적용됩니다. "
-            + "이미 열려 있는 터미널은 기존 폴더에 그대로 남습니다."
-        panel.directoryURL = URL(fileURLWithPath: workspace.path ?? SystemPaths.home)
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        state.setWorkspacePath(workspace.id, path: url.path)
+        let path = FolderPrompt.pick(
+            startingAt: workspace.path,
+            prompt: "이 폴더로 변경",
+            message: "파일 익스플로러·Git 패널과 앞으로 여는 터미널에 적용됩니다. "
+                + "이미 열려 있는 터미널은 기존 폴더에 그대로 남습니다.")
+        guard let path else { return }
+        state.setWorkspacePath(workspace.id, path: path)
     }
 
     private static func promptRemove(_ workspace: Workspace, state: AppState) {

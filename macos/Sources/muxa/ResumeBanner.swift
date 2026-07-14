@@ -54,8 +54,10 @@ private struct ResumeBanner: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
-                .background(Color.pBorderFocus)
-                .foregroundStyle(.white)
+                // 1급 CTA는 텍스트 등급 토큰으로 칠한다 — `borderFocus`는 비텍스트(3:1) 등급이라
+                // 흰 글자를 얹으면 다크에서 4.10:1로 AA에 미달했다. brand + onBrand는 양 모드 AA 통과.
+                .background(Color.pBrand)
+                .foregroundStyle(Color.pOnBrand)
                 .clipShape(Capsule())
             }
             .buttonStyle(.plain)
