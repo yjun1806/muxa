@@ -19,6 +19,9 @@ struct ClaudeHookPayload: Equatable {
     let lastAssistantMessage: String?
     /// 세션 id — 재개 명령(`claude --resume <id>`) 구성용.
     let sessionId: String?
+    /// 세션이 도는 작업 디렉터리 — 재개 바인딩에 실어 **그 폴더에서만** 재개하게 한다(ResumeGate).
+    /// `claude --resume <id>`는 cwd 기준으로 세션을 찾으므로, 폴더가 다르면 그 세션은 거기 없다.
+    let cwd: String?
     /// Notification 훅의 종류 — 예: "idle_prompt", "permission_request".
     let notificationType: String?
     /// Notification 훅의 사람이 읽을 메시지.
@@ -33,7 +36,7 @@ struct ClaudeHookPayload: Equatable {
     /// 이벤트 이름만으로도 상태 전이(Stop→done 등)는 유효하므로 신호를 통째로 버리지 않는다.
     static let empty = ClaudeHookPayload(
         toolName: nil, toolInput: [:], transcriptPath: nil, lastAssistantMessage: nil,
-        sessionId: nil, notificationType: nil, message: nil,
+        sessionId: nil, cwd: nil, notificationType: nil, message: nil,
         isInterrupt: false, hasPendingBackgroundWork: false
     )
 
@@ -47,6 +50,7 @@ struct ClaudeHookPayload: Equatable {
             transcriptPath: nonEmptyString(root["transcript_path"]),
             lastAssistantMessage: nonEmptyString(root["last_assistant_message"]),
             sessionId: nonEmptyString(root["session_id"]),
+            cwd: nonEmptyString(root["cwd"]),
             notificationType: nonEmptyString(root["notification_type"]),
             message: nonEmptyString(root["message"]),
             isInterrupt: root["is_interrupt"] as? Bool ?? false,

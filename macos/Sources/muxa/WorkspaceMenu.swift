@@ -15,7 +15,7 @@ enum WorkspaceMenu {
             MuxaMenuItem(icon: "pencil", title: "이름 변경…") { promptRename(workspace, state: state) },
             MuxaMenuItem(icon: "folder.badge.gearshape", title: "기본 경로 변경…") { promptPath(workspace, state: state) },
             MuxaMenuItem(icon: "plus.square.on.square", title: "워크스페이스 복제") { state.duplicateWorkspace(workspace.id) },
-            // 워크스페이스 분리 = 그 안의 전 프로젝트를 새 창으로 옮기는 것(move의 설탕 — D28).
+            // 워크스페이스 분리 = 그 안의 전 프로젝트를 새 창으로 옮기는 것(move의 설탕 — D29).
             // 이미 전부 분리돼 있으면 옮길 게 없다.
             MuxaMenuItem(icon: "macwindow", title: "새 창으로 분리",
                          enabled: workspace.projects.contains { state.owner(of: $0.id).isMain }) {

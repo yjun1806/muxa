@@ -3,7 +3,7 @@
 /// **AppKit을 임포트하지 않는다.** 실물 `NSWindow`와의 정합은 경계(WindowHost)가 맡고,
 /// 여기서는 값만 다룬다.
 ///
-/// 배치의 원자는 **프로젝트**이고, 메인 창은 **여집합**이다(ARCHITECTURE D28) —
+/// 배치의 원자는 **프로젝트**이고, 메인 창은 **여집합**이다(ARCHITECTURE D29) —
 /// 분리 창 목록만 저장하고 "어느 창에도 없는 프로젝트 = 메인 소유"로 정의한다.
 /// 그래서 `owner(of:in:)`가 총함수가 되고, 유실·dangling·중복 소유가 타입상 표현 불가능해진다.
 
@@ -28,7 +28,7 @@ struct WindowID: Hashable, Codable, RawRepresentable, Sendable {
     }
 }
 
-/// 분리 창 하나. **메인 창은 여기 없다**(여집합 — D28).
+/// 분리 창 하나. **메인 창은 여기 없다**(여집합 — D29).
 struct ProjectWindow: Codable, Equatable, Identifiable {
     let id: WindowID
     /// 순서 = 프로젝트 스트립 표시 순서. 비면 창이 사라진다(I5).

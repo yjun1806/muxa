@@ -17,10 +17,15 @@ enum ClaudeSessionIndex {
             .replacingOccurrences(of: ".", with: "-")
     }
 
-    /// 세션 id가 파일명·셸에 안전한지 — 실제 파일명(UUID)에서 왔지만 방어적으로 검증한다(경로 이스케이프·주입 차단).
+    /// 세션 id가 안전한지 — **UUID 꼴만** 통과시킨다. Claude가 실제로 쓰는 형식이고, 이 id는
+    /// `claude --resume <id>`로 조립돼 **셸에 커밋된다**(auto면 사용자 확인 없이).
+    ///
+    /// 종전엔 `[A-Za-z0-9._-]`만 걸렀는데, 그 규칙은 셸 메타문자는 막아도 **플래그 모양 문자열은 통과시킨다** —
+    /// `--dangerously-skip-permissions`에는 금지 문자가 하나도 없다. session_id는 소켓으로 들어오는 외부
+    /// 입력이라(같은 uid의 아무 프로세스나 실을 수 있다) 그걸 그대로 인자 자리에 넣으면 플래그 주입이 된다.
+    /// 형식을 아는 값은 형식으로 검증한다 — 문자 블랙리스트가 아니라 화이트리스트로.
     static func isSafeSessionId(_ id: String) -> Bool {
-        !id.isEmpty && id != "." && id != ".."
-            && id.range(of: "[^A-Za-z0-9._-]", options: .regularExpression) == nil
+        UUID(uuidString: id) != nil
     }
 
     /// 기본 Claude 세션 루트 — `~/.claude/projects`.

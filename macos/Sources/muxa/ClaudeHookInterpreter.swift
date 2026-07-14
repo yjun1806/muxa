@@ -78,8 +78,9 @@ enum ClaudeHookInterpreter {
             if let sessionId = payload.sessionId, ClaudeSessionIndex.isSafeSessionId(sessionId) {
                 // 훅이 자기 session_id를 직접 알려준 것 = **사실**(source: .hook) → 자동 재개 대상.
                 // 명령은 muxa가 고정 꼴로 조립하고, id는 위에서 검증했다(임의 셸 명령이 아니다, D2 경계).
+                // cwd도 함께 묶는다 — 재개는 **그 폴더에서만** 유효하다(ResumeGate가 실행 직전 대조).
                 out.resume = ResumeBinding(command: "claude --resume \(sessionId)",
-                                           agentLabel: "claude", source: .hook)
+                                           agentLabel: "claude", cwd: payload.cwd, source: .hook)
             }
             return (out, next)
 

@@ -4,7 +4,7 @@ import AppKit
 ///
 /// 메인 창과 분리 창은 같은 크롬(타이틀바 투명 + 신호등 중앙 정렬)을 쓰고, 다른 것은 두 가지뿐이다:
 /// 프레임 출처(메인 = UserDefaults autosave, 분리 창 = 저장된 FrameSnapshot + cascade)와
-/// 닫기 의미(메인 = 앱 종료, 분리 창 = 무손실 재합치기 — D29).
+/// 닫기 의미(메인 = 앱 종료, 분리 창 = 무손실 재합치기 — D30).
 @MainActor
 final class MuxaWindowController: NSObject, NSWindowDelegate {
     /// 이 창의 신원. 키 라우팅(`WindowHost.id(for:)`)과 소유권 스탬프가 같은 값을 쓴다.

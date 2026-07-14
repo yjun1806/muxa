@@ -12,7 +12,7 @@ final class WindowHost {
     /// 그전에는 분리 창을 만드는 진입점이 없어(모델이 늘 비어 있다) 이 경로가 실행되지 않는다.
     var makeProjectContent: ((WindowID) -> NSView)?
 
-    /// 분리 창이 닫혔다 — 무손실 재합치기(D29)의 착지점. `AppState.rejoin`이 꽂힌다.
+    /// 분리 창이 닫혔다 — 무손실 재합치기(D30)의 착지점. `AppState.rejoin`이 꽂힌다.
     var onProjectWindowClosed: ((WindowID) -> Void)?
 
     /// 분리 창이 움직였다/크기가 바뀌었다 — `AppState.recordFrame`(메모리 즉시 + 저장 디바운스)이 꽂힌다.
@@ -41,7 +41,7 @@ final class WindowHost {
         return true
     }
 
-    /// 모델 ⇄ 실물 reconcile(I4). 메인 창은 모델 밖(여집합 — D28)이라 건드리지 않는다.
+    /// 모델 ⇄ 실물 reconcile(I4). 메인 창은 모델 밖(여집합 — D29)이라 건드리지 않는다.
     func sync(_ windows: [ProjectWindow]) {
         let wanted = Set(windows.map(\.id))
         // 순회 대상을 먼저 확정한다 — close()는 willClose를 **동기로** 부르고, 그 콜백(재합치기)이

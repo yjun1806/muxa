@@ -114,7 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             view.safeAreaRegions = [] // 메인 창과 같은 이유 — 상단바가 신호등과 한 줄이 되게
             return view
         }
-        // 분리 창이 닫히면 그 프로젝트를 메인으로 되돌린다(무손실 재합치기 — D29).
+        // 분리 창이 닫히면 그 프로젝트를 메인으로 되돌린다(무손실 재합치기 — D30).
         host.onProjectWindowClosed = { [weak state] id in state?.rejoin(id) }
         // 분리 창의 위치·크기 영속 — 모델엔 즉시, 디스크엔 디바운스(AppState.recordFrame).
         host.onFrameChange = { [weak state] id, frame in state?.recordFrame(id, frame) }

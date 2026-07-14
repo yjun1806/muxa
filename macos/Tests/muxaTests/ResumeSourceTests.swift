@@ -48,8 +48,18 @@ struct ResumeSourceTests {
 
     @Test func 고정꼴_재개명령만_훅으로_신뢰한다() {
         #expect(ResumeBinding.isSafeResumeCommand("claude --resume 550e8400-e29b-41d4-a716-446655440000"))
-        #expect(ResumeBinding.isSafeResumeCommand("codex --resume abc-123"))
-        #expect(ResumeBinding.hookSource(forExternalCommand: "claude --resume abc-123") == .hook)
+        #expect(ResumeBinding.isSafeResumeCommand("codex --resume 550e8400-e29b-41d4-a716-446655440000"))
+        #expect(ResumeBinding.hookSource(
+            forExternalCommand: "claude --resume 550e8400-e29b-41d4-a716-446655440000") == .hook)
+    }
+
+    /// 세션 id는 **UUID 꼴**이어야 신뢰한다 — 셸 메타문자가 없어도 플래그 모양이면 인자 자리에 주입된다
+    /// (`claude --resume --dangerously-skip-permissions`). 형식을 아는 값은 형식으로 검증한다.
+    @Test func 플래그_모양_세션id는_강등된다() {
+        #expect(!ResumeBinding.isSafeResumeCommand("claude --resume --dangerously-skip-permissions"))
+        #expect(ResumeBinding.hookSource(
+            forExternalCommand: "claude --resume --dangerously-skip-permissions") == .scan)
+        #expect(!ResumeBinding.isSafeResumeCommand("claude --resume abc-123")) // UUID 아님
     }
 
     @Test func 임의_셸_명령은_추측으로_강등된다() {

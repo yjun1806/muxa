@@ -74,7 +74,7 @@ extension AppState {
 
     // MARK: 이동
 
-    /// 프로젝트들을 대상 창으로 옮긴다. 순서가 곧 안전 규약이다(ARCHITECTURE D27):
+    /// 프로젝트들을 대상 창으로 옮긴다. 순서가 곧 안전 규약이다(ARCHITECTURE D28):
     /// 모델 갱신 → 서피스 스탬프 → 활성 좌표 재선택 → 창 reconcile → 저장.
     /// **서피스를 옮기지 않는다** — 소유권만 새기면 뷰 계층이 스스로 재부모화한다.
     func moveProjects(_ ids: [String], to target: WindowID) {
@@ -97,13 +97,13 @@ extension AppState {
         moveProjects([projectId], to: WindowID(rawValue: UUID().uuidString))
     }
 
-    /// 워크스페이스의 전 프로젝트를 새 창으로 분리한다 — `moveProjects`의 설탕(D28).
+    /// 워크스페이스의 전 프로젝트를 새 창으로 분리한다 — `moveProjects`의 설탕(D29).
     func separateWorkspace(_ workspaceId: String) {
         guard let ws = workspaces.first(where: { $0.id == workspaceId }), !ws.projects.isEmpty else { return }
         moveProjects(ws.projects.map(\.id), to: WindowID(rawValue: UUID().uuidString))
     }
 
-    /// 분리 창의 프로젝트를 전부 메인으로 되돌린다(창 닫기 = 무손실 재합치기 — D29).
+    /// 분리 창의 프로젝트를 전부 메인으로 되돌린다(창 닫기 = 무손실 재합치기 — D30).
     /// **`closeProject`를 부르지 않는다** — 거기서 서비스·tmux 세션이 죽는다.
     func rejoin(_ windowId: WindowID) {
         guard let window = projectWindows.first(where: { $0.id == windowId }) else { return }

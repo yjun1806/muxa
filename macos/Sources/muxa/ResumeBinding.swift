@@ -22,7 +22,10 @@ struct ResumeBinding: Codable, Equatable {
     var command: String
     /// 표시용 에이전트 라벨(claude/codex 등). 옵셔널.
     var agentLabel: String?
-    /// 재개를 실행할 작업 디렉터리(옵셔널). 미지정이면 탭의 복원 cwd를 따른다.
+    /// 재개가 **유효한 유일한** 작업 디렉터리. `claude --resume <id>`는 cwd 기준으로 세션을 찾으므로,
+    /// 셸이 다른 폴더에 있으면 그 세션은 거기 없다 — 실행 직전 [[ResumeGate]]가 셸 pwd와 대조한다.
+    /// 훅 payload의 `cwd`로 채우고, 없으면 등록 시점의 탭 pwd로 보강한다(`TerminalStore.setResumeBinding`).
+    /// nil이면(구 스냅샷) 경로 검사를 건너뛴다 — 기록이 없는 것은 "틀렸다"가 아니라 "모른다"다.
     var cwd: String?
     /// 이 바인딩의 출처. 신뢰 판정의 단일 근거다.
     var source: ResumeSource

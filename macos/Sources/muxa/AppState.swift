@@ -24,7 +24,7 @@ final class AppState {
     /// 백그라운드 활동(●)이 있는 프로젝트 id들(A). 사이드바 프로젝트 행이 관측해 상태 글리프를 그린다.
     private(set) var badgedProjects: Set<String> = []
 
-    /// 분리 창 목록(SSOT). **메인 창은 여기 없다** — 어느 창에도 없는 프로젝트가 메인 소유다(D28, 여집합).
+    /// 분리 창 목록(SSOT). **메인 창은 여기 없다** — 어느 창에도 없는 프로젝트가 메인 소유다(D29, 여집합).
     /// 조회·이동·정리는 전부 `AppState+Windows`에.
     private(set) var projectWindows: [ProjectWindow] = []
 
