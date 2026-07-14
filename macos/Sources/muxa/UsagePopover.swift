@@ -15,7 +15,7 @@ struct UsagePopover: View {
 
     var body: some View {
         FooterPopover(title: "Claude", subtitle: updatedText) {
-            ClaudeMark(size: 16)
+            ClaudeMark(size: IconSize.mark)
         } accessory: {
             if usage.loading {
                 ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 14, height: 14)

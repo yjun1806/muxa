@@ -65,8 +65,8 @@ struct ContentView: View {
     /// fullSizeContentView라 콘텐츠가 타이틀바까지 올라오고, 신호등은 `TrafficLights`가 이 줄 중앙으로 내린다.
     private var topBar: some View {
         HStack(alignment: .center, spacing: Space.md) {
-            // 신호등 3개 + 왼쪽 여백(TrafficLights.leadingInset) 확보 — 워드마크가 버튼에 닿지 않게.
-            Color.clear.frame(width: 76)
+            // 신호등 3개 + 왼쪽 여백 확보 — 워드마크가 버튼에 닿지 않게. 폭은 신호등 기하와 한 출처를 쓴다.
+            Color.clear.frame(width: TrafficLights.reservedLeadingWidth)
             wordmark
             TopBarControls(state: state, home: home)
             if let ws = state.activeWorkspace {
@@ -111,7 +111,7 @@ struct ContentView: View {
                 .foregroundStyle(state.showExplorer ? Color.pFg : Color.pMuted)
         }
         .buttonStyle(.plain)
-        .frame(width: 24, height: 24)
+        .frame(width: IconSize.control, height: IconSize.control)
         .background(state.showExplorer ? Color.pBtnActive.opacity(0.6) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: Radius.md))
         .help("파일 익스플로러")
@@ -125,7 +125,7 @@ struct ContentView: View {
                 .foregroundStyle(state.showGitPanel ? Color.pFg : Color.pMuted)
         }
         .buttonStyle(.plain)
-        .frame(width: 24, height: 24)
+        .frame(width: IconSize.control, height: IconSize.control)
         .background(state.showGitPanel ? Color.pBtnActive.opacity(0.6) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: Radius.md))
         .help("Git 패널")

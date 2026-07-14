@@ -58,6 +58,17 @@ enum RowHeight {
     static let hairline: CGFloat = 1
 }
 
+/// 아이콘·마크 치수 — 같은 마크가 문맥마다 다른 숫자로 흩어지지 않게 한 출처에 모은다.
+/// (인라인과 팝오버는 크기가 다른 게 맞다 — 값을 통일하는 게 아니라 **이름을 붙여** 우발적 불일치를 막는다.)
+enum IconSize {
+    /// 텍스트와 한 줄에 나란히 앉는 인라인 마크(상단바·푸터 칩).
+    static let inlineMark: CGFloat = 13
+    /// 팝오버 헤더·메뉴 항목의 마크 슬롯.
+    static let mark: CGFloat = 16
+    /// 아이콘 버튼·토글의 히트 영역(정사각).
+    static let control: CGFloat = 24
+}
+
 /// 떠 있는 패널(팝오버)의 폭.
 enum PopoverWidth {
     /// 푸터 팝오버(사용량·서비스·백그라운드) 공통 폭.

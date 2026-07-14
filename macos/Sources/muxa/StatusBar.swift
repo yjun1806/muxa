@@ -110,7 +110,7 @@ struct StatusBar: View {
         FooterChip(isOpen: $showUsage,
                    help: "claude 사용량 — 클릭해 상세 보기(모델별 한도 포함)") {
             HStack(alignment: .center, spacing: Space.sm) {
-                ClaudeMark(size: 13)
+                ClaudeMark(size: IconSize.inlineMark)
                 if shown.isEmpty {
                     Text(placeholder)
                         .font(.muxa(.label))

@@ -31,6 +31,15 @@ struct FooterChip<Label: View>: View {
     }
 
     private var background: Color {
+        .footerChip(isOpen: isOpen, hovered: hovered)
+    }
+}
+
+extension Color {
+    /// 푸터 칩 배경 — 평시(옅음) → hover(진함) → **열림(눌린 채 유지)**. 열려 있는 동안 눌린 상태를
+    /// 유지해야 팝오버가 어느 칩에서 나왔는지 보인다. [[FooterChip]]과 2세그먼트 [[ServiceStrip]]이
+    /// 같은 규칙을 써야 한 시스템으로 읽힌다 — 색 판정을 여기 한 곳에 둔다(구조는 각자 다르다).
+    static func footerChip(isOpen: Bool, hovered: Bool) -> Color {
         if isOpen { return .pBtnActive }
         return hovered ? .pBtnHover : Color.pBtnHover.opacity(0.5)
     }
@@ -102,7 +111,7 @@ struct FooterMark: View {
         Image(systemName: icon)
             .font(.muxa(.body))
             .foregroundStyle(Color.pMuted)
-            .frame(width: 16, height: 16)
+            .frame(width: IconSize.mark, height: IconSize.mark)
     }
 }
 

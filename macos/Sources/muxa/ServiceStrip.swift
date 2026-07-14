@@ -150,10 +150,7 @@ struct ServiceStrip: View {
 
     private var globalDead: Int { deadCount(of: all.map(\.service.id)) }
 
-    private var chipColor: Color {
-        if showPopover { return Color.pBtnActive }
-        return hovered ? Color.pBtnHover : Color.pBtnHover.opacity(0.5)
-    }
+    private var chipColor: Color { .footerChip(isOpen: showPopover, hovered: hovered) }
 
     private var currentHelp: String {
         if current.isEmpty { return "이 프로젝트엔 서비스가 없습니다 — 클릭해 추가" }

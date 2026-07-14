@@ -16,6 +16,17 @@ import AppKit
 enum TrafficLights {
     /// 창 왼쪽 가장자리에서 첫 버튼까지의 여백(기본값보다 넉넉하게 — 상단바가 커진 만큼 좌우도 벌린다).
     private static let leadingInset: CGFloat = 14
+    /// 신호등 버튼 간격·너비의 표준값(실제 spacing은 런타임에 버튼에서 읽지만, 예약 폭 계산엔 표준값을 쓴다).
+    private static let nominalSpacing: CGFloat = 20
+    private static let nominalButtonWidth: CGFloat = 14
+    /// 마지막 버튼과 상단바 콘텐츠(워드마크) 사이 최소 꼬리 여백.
+    private static let trailingGap: CGFloat = 8
+
+    /// 상단바 좌측에서 신호등 3개가 차지하는 폭 — 상단바 콘텐츠(워드마크)가 이만큼 시작점을 민다.
+    /// **`leadingInset`과 같은 출처를 쓴다.** 예전엔 ContentView에 `76`이 하드코딩돼 신호등 기하와 몰래
+    /// 커플링돼 있었다(여백을 벌리면 워드마크가 버튼을 덮었다). 여기서 한 번 계산해 노출한다.
+    static let reservedLeadingWidth: CGFloat =
+        leadingInset + nominalSpacing * 2 + nominalButtonWidth + trailingGap
 
     /// 이미 감시 중인 타이틀바 뷰 — 옵저버 중복 등록 방지.
     /// **약한 참조**여야 한다: 창이 닫히면 항목이 저절로 빠진다. 주소(ObjectIdentifier)로 들고 있으면

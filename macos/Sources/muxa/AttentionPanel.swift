@@ -26,7 +26,7 @@ struct AttentionBell: View {
             }
         }
         .buttonStyle(.plain)
-        .frame(width: 24, height: 24)
+        .frame(width: IconSize.control, height: IconSize.control)
         .background(open ? Color.pBtnActive.opacity(0.6) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 5))
         .help("알림 인박스")

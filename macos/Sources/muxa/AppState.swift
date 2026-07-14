@@ -186,14 +186,14 @@ final class AppState {
     /// 스토어(프로젝트)가 요청한 데스크톱 알림에 라우팅 컨텍스트를 붙여 발사한다.
     /// 워크스페이스 id는 프로젝트 소속으로 파생(단일 진실 원천) — 스토어는 몰라도 된다.
     private func emitNotification(projectId: String, tabId: TabID, title: String, body: String) {
-        let workspaceId = workspaces.first { $0.projects.contains { $0.id == projectId } }?.id ?? ""
+        let workspaceId = workspace(containing: projectId)?.id ?? ""
         let context = NotifyContext(workspaceId: workspaceId, projectId: projectId, tabId: tabId.uuid.uuidString)
         NotificationService.shared.notify(title: title, body: body, context: context)
     }
 
     /// 배지가 붙는 순간 인박스 이력에 한 건 기록한다. 워크스페이스 id는 프로젝트 소속으로 파생(단일 진실 원천).
     private func recordAttention(projectId: String, tabId: TabID, kind: AttentionKind, title: String) {
-        let workspaceId = workspaces.first { $0.projects.contains { $0.id == projectId } }?.id ?? ""
+        let workspaceId = workspace(containing: projectId)?.id ?? ""
         attention.record(workspaceId: workspaceId, projectId: projectId,
                          tabId: tabId.uuid.uuidString, kind: kind, title: title)
     }
@@ -216,7 +216,7 @@ final class AppState {
 
     /// 인박스 항목 위치 라벨 — "워크스페이스 · 프로젝트". 소속을 못 찾으면 빈 문자열.
     func attentionLocationLabel(projectId: String) -> String {
-        guard let ws = workspaces.first(where: { $0.projects.contains { $0.id == projectId } }),
+        guard let ws = workspace(containing: projectId),
               let p = ws.projects.first(where: { $0.id == projectId }) else { return "" }
         return "\(ws.name) · \(p.name)"
     }
@@ -224,7 +224,7 @@ final class AppState {
     /// 배지·시스템 알림 클릭의 공통 착지점 — 대상 프로젝트로 이동 + Git 패널 오픈 + (있으면) 그 탭 선택 + 앱 활성화.
     /// 배지 클릭·알림 클릭이 이 한 메서드를 공유한다("원클릭 검토" 동선의 단일 구현).
     func revealActivity(projectId: String, tabId: String? = nil) {
-        guard let ws = workspaces.first(where: { $0.projects.contains { $0.id == projectId } }) else { return }
+        guard let ws = workspace(containing: projectId) else { return }
         setActiveId(ws.id)        // 대상 워크스페이스로
         setActiveProject(projectId) // 그 안의 프로젝트로 (+배지 해제)
         if let tabId, let uuid = UUID(uuidString: tabId), let store = stores[projectId] {
@@ -496,12 +496,15 @@ final class AppState {
         }
     }
 
+    /// 이 프로젝트를 품은 워크스페이스(어느 것이든). 소속 파생의 단일 진실 원천 — 워크스페이스 id·이름을
+    /// 프로젝트에서 되짚는 여러 경로(알림·인박스·라벨·점프)가 이 한 곳을 공유한다.
+    private func workspace(containing projectId: String) -> Workspace? {
+        workspaces.first { $0.projects.contains { $0.id == projectId } }
+    }
+
     /// 프로젝트 id로 프로젝트를 찾는다(어느 워크스페이스든).
     private func project(_ projectId: String) -> Project? {
-        for ws in workspaces {
-            if let p = ws.projects.first(where: { $0.id == projectId }) { return p }
-        }
-        return nil
+        workspace(containing: projectId)?.projects.first { $0.id == projectId }
     }
 
     // MARK: 서비스 (장수 프로세스 — Service.swift, 실행은 tmux 위임)

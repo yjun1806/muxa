@@ -59,7 +59,7 @@ struct MuxaMenuView: View {
                 if let icon = item.icon { Image(systemName: icon) } else { Color.clear }
             }
             .font(.muxa(.body))
-            .frame(width: 16, height: 16)
+            .frame(width: IconSize.mark, height: IconSize.mark)
 
             Text(item.title)
                 .font(.muxa(.body))

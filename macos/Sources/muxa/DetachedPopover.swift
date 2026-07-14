@@ -88,7 +88,7 @@ struct DetachedPopover: View {
     @ViewBuilder
     private func mark(_ session: DetachedSession) -> some View {
         if session.command == "claude" {
-            ClaudeMark(size: 13).padding(.top, 1)
+            ClaudeMark(size: IconSize.inlineMark).padding(.top, 1)
         } else {
             Image(systemName: "terminal")
                 .font(.muxa(.label))
