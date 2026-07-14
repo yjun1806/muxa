@@ -78,6 +78,7 @@ struct MuxaMenuView: View {
         .frame(height: RowHeight.toolbar)
         .background(hovered ? Color.pBtnHover : Color.clear)
         .contentShape(Rectangle())
+        .cursor(item.enabled ? .pointingHand : .arrow) // 비활성 항목은 눌리지 않는다 — 커서가 그걸 먼저 말한다
         .onHover { inside in
             if inside { hoveredId = item.id } else if hoveredId == item.id { hoveredId = nil }
         }

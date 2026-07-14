@@ -44,6 +44,7 @@ struct TabGroupView: View {
                 Image(systemName: "xmark").font(.muxa(.nano, weight: .bold))
             }
             .buttonStyle(.plain)
+            .clickCursor()
             .opacity(selected ? 0.8 : 0.4)
         }
         .foregroundStyle(selected ? Color.pFg : Color.pMuted)
@@ -53,6 +54,7 @@ struct TabGroupView: View {
         .overlay(RoundedRectangle(cornerRadius: 5).stroke(selected ? Color.pBorder : Color.clear, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 5))
         .contentShape(Rectangle())
+        .clickCursor()
         .onTapGesture { group.selectedId = item.id; onFocus() }
         .onRightClick { point in
             let menu = SubTabMenu.items(item, dir: dir, siblings: group.items.count,

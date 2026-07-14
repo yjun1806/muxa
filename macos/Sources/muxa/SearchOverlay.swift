@@ -58,6 +58,7 @@ struct SearchOverlay: View {
             Image(systemName: icon).font(.muxa(.label, weight: .medium))
         }
         .buttonStyle(.plain)
+        .clickCursor()
         .foregroundStyle(Color.pFg)
         .frame(width: 20, height: 20)
         .contentShape(Rectangle())

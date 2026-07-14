@@ -59,6 +59,7 @@ struct ServiceSetupView: View {
                     }
                     .font(.muxa(.caption))
                     .buttonStyle(.plain)
+                    .clickCursor()
                     .foregroundStyle(Color.pMuted)
 
                     if stillMissing {

@@ -186,6 +186,7 @@ struct ServiceAddSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .clickCursor()
     }
 
     private func sourceLabel(_ source: ScriptSource) -> String {

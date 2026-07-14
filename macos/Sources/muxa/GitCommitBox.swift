@@ -41,6 +41,7 @@ struct GitCommitBox: View {
                 .clipShape(RoundedRectangle(cornerRadius: 5))
             }
             .buttonStyle(.plain)
+            .clickCursor()
             .disabled(!canCommit)
         }
         .padding(8)

@@ -31,6 +31,7 @@ struct SidebarProjectIcon: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .clickCursor()
         .sidebarRow(id: project.id, hoveredId: $hoveredId, menuOpenId: $menuOpenId) {
             ProjectMenu.items(for: project, in: workspace, state: state)
         }

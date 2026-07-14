@@ -29,6 +29,7 @@ struct SidebarIconItem: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .clickCursor()
         .sidebarRow(id: workspace.id, hoveredId: $hoveredId, menuOpenId: $menuOpenId) {
             WorkspaceMenu.items(for: workspace, state: state)
         }

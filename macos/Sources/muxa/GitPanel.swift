@@ -174,6 +174,7 @@ struct GitPanel: View {
             }
         }
         .buttonStyle(.plain)
+        .clickCursor()
         .help(prHelp(gh))
     }
 
@@ -273,6 +274,7 @@ struct GitPanel: View {
             .foregroundStyle(Color.pFg)
         }
         .buttonStyle(.plain)
+        .clickCursor()
         .help("변경 파일 전체를 한 화면에서 훑기")
     }
 
@@ -324,6 +326,7 @@ struct GitPanel: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .clickCursor()
             .help(change.path)
 
             IconButton(icon: "trash", scale: .caption, help: "변경 버리기") { discard(change, in: dir) }
@@ -422,6 +425,7 @@ struct GitPanel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.plain)
+        .clickCursor()
         .panelRow(height: nil) // 2줄이라 내용 높이를 따른다
     }
 

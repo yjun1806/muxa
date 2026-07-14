@@ -30,6 +30,7 @@ struct SidebarQueueHeader: View {
             .background(hovered ? Color.pBtnHover : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: Radius.md))
             .contentShape(Rectangle())
+            .clickCursor()
             .onTapGesture { state.jumpToNextWaiting() }
             .onHover { hovered = $0 }
             .animation(Motion.fast, value: hovered)

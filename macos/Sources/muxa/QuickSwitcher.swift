@@ -79,6 +79,7 @@ struct QuickSwitcher: View {
                         row(item, selected: idx == clamped(selection, items.count))
                             .id(idx)
                             .contentShape(Rectangle())
+                            .clickCursor()
                             .onTapGesture { state.quickJump(item) }
                     }
                 }

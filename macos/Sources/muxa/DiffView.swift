@@ -267,6 +267,7 @@ struct DiffView: View {
                 .foregroundStyle(selected ? Color.pFg : Color.pMuted)
         }
         .buttonStyle(.plain)
+        .clickCursor()
     }
 
     private func toolbarButton(_ title: String, icon: String, destructive: Bool = false, _ action: @escaping () -> Void) -> some View {
@@ -280,6 +281,7 @@ struct DiffView: View {
             .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.pBorder, lineWidth: 1))
         }
         .buttonStyle(.plain)
+        .clickCursor()
         .foregroundStyle(destructive ? Color(nsColor: Palette.gitDeleted) : Color.pFg)
         .disabled(applying)
     }

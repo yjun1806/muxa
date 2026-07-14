@@ -89,6 +89,7 @@ struct ServiceStrip: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .clickCursor()
         .help(currentHelp)
     }
 
@@ -114,6 +115,7 @@ struct ServiceStrip: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .clickCursor()
         .help(globalHelp)
     }
 
@@ -130,6 +132,7 @@ struct ServiceStrip: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .clickCursor()
         .help(TmuxService.isAvailable
               ? "서비스 추가 — dev 서버처럼 오래 도는 명령"
               : "서비스 — tmux 설치가 필요합니다")

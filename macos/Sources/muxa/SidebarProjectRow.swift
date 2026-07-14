@@ -86,6 +86,7 @@ struct SidebarProjectRow: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .clickCursor()
         .help("프로젝트 닫기")
     }
 }

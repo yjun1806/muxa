@@ -130,6 +130,7 @@ struct ContentView: View {
                 .foregroundStyle(state.showExplorer ? Color.pFg : Color.pMuted)
         }
         .buttonStyle(.plain)
+        .clickCursor()
         .frame(width: IconSize.control, height: IconSize.control)
         .background(state.showExplorer ? Color.pBtnActive.opacity(0.6) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: Radius.md))
@@ -144,6 +145,7 @@ struct ContentView: View {
                 .foregroundStyle(state.showGitPanel ? Color.pFg : Color.pMuted)
         }
         .buttonStyle(.plain)
+        .clickCursor()
         .frame(width: IconSize.control, height: IconSize.control)
         .background(state.showGitPanel ? Color.pBtnActive.opacity(0.6) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: Radius.md))

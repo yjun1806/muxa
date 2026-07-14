@@ -84,6 +84,7 @@ struct BonsplitWorkspaceView: View {
                 .foregroundStyle(Color.pMuted)
         }
         .buttonStyle(.plain)
+        .clickCursor()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.pBg)
         .contentShape(Rectangle())
@@ -110,6 +111,7 @@ private struct EmptyProjectView: View {
                     .foregroundStyle(Color.pFg)
             }
             .buttonStyle(.plain)
+            .clickCursor()
             Text("⌘T")
                 .font(.muxa(.label))
                 .foregroundStyle(Color.pMuted)

@@ -85,6 +85,7 @@ struct WorktreePicker: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .clickCursor()
             .help(wt.path)
             // 메인이 아니고 브랜치가 있으며 기본 브랜치와 다르면 "병합 후 정리" 노출(마무리 원액션).
             if !isMain, let branch = wt.branch, let target = defaultBranch, branch != target {

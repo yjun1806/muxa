@@ -73,6 +73,7 @@ struct SidebarWorkspaceRow: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .clickCursor()
         .disabled(active)
     }
 

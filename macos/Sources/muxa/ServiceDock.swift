@@ -110,6 +110,7 @@ struct ServiceDock: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .clickCursor()
     }
 
     // MARK: 우 — 헤더 + 실제 터미널(tmux attach)

@@ -20,6 +20,7 @@ struct IconButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .clickCursor()
         .onHover { hovered = $0 }
         .animation(Motion.fast, value: hovered)
         .help(help)

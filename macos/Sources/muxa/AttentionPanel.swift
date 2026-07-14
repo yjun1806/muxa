@@ -26,6 +26,7 @@ struct AttentionBell: View {
             }
         }
         .buttonStyle(.plain)
+        .clickCursor()
         .frame(width: IconSize.control, height: IconSize.control)
         .background(open ? Color.pBtnActive.opacity(0.6) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 5))
@@ -183,6 +184,7 @@ struct AttentionInbox: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .clickCursor()
     }
 
     /// 상대 시각 — 방금 / N분 / N시간 / N일. 표시 전용(정렬은 seq).

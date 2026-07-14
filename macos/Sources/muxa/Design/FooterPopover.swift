@@ -25,6 +25,7 @@ struct FooterChip<Label: View>: View {
                 .contentShape(RoundedRectangle(cornerRadius: Radius.md))
         }
         .buttonStyle(.plain)
+        .clickCursor()
         .onHover { hovered = $0 }
         .animation(Motion.fast, value: hovered)
         .help(help)
@@ -141,6 +142,7 @@ struct FooterAction: View {
                 .contentShape(RoundedRectangle(cornerRadius: Radius.sm))
         }
         .buttonStyle(.plain)
+        .clickCursor()
         .onHover { hovered = $0 }
         .animation(Motion.fast, value: hovered)
         .help(help)

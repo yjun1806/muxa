@@ -72,6 +72,7 @@ struct DetachedPopover: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .clickCursor()
             .help(helpText(session))
 
             FooterAction(icon: "trash", help: "종료 — 안에서 돌던 프로세스까지 끝냅니다",

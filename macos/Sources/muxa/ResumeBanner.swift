@@ -61,6 +61,7 @@ private struct ResumeBanner: View {
                 .clipShape(Capsule())
             }
             .buttonStyle(.plain)
+            .clickCursor()
 
             // 실행될 명령 미리보기 — 길면 가운데를 잘라 양끝(명령·인자)을 보이게.
             Text(command)

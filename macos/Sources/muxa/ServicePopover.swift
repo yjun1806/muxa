@@ -132,6 +132,7 @@ struct ServicePopover: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .clickCursor()
         .help(item.projectId == currentProjectId
               ? "클릭하면 로그를 엽니다"
               : "클릭하면 \(item.projectName)(으)로 이동해 로그를 엽니다")

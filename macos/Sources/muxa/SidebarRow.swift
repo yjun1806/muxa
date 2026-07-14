@@ -13,7 +13,8 @@ extension View {
                     hoveredId: Binding<String?>,
                     menuOpenId: Binding<String?>,
                     menu: @escaping () -> [MuxaMenuItem]) -> some View {
-        onHover { hovering in
+        clickCursor() // 직접 그린 행이라 커서 말고는 "누를 수 있다"는 신호가 없다(§Cursor)
+        .onHover { hovering in
             if hovering {
                 hoveredId.wrappedValue = id
             } else if hoveredId.wrappedValue == id {
