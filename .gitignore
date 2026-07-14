@@ -6,6 +6,7 @@
 .env.local
 
 # 네이티브 툴체인·서드파티 소스, 리포에 안 넣음
+vendor
 vendor/
 
 # SPM 빌드 산출물
