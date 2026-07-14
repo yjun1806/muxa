@@ -327,6 +327,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         config.appearance.keepsSelectedTabVisible = true
         config.appearance.activeIndicatorHeight = BonsplitChrome.activeIndicatorHeight
         config.appearance.inactiveIndicatorHeight = BonsplitChrome.inactiveIndicatorHeight
+        config.appearance.selectedTabTitleWeight = BonsplitChrome.selectedTabTitleWeight
         self.controller = BonsplitController(configuration: config)
         super.init()
         controller.delegate = self

@@ -35,6 +35,26 @@ swift test                  # 순수 로직 단위 테스트 (92개, GhosttyKit 
 - **뷰어 라이브 리로드** ✅ — 열린 코드/md가 디스크에서 바뀌면 자동 재로드
 - **세션 복원 정합성** ✅ — 트리는 터미널만(`layoutSnapshot`), 문서/diff는 `SavedViewer`로 별도 복원
 
+## 진행 중 (2026-07-14) — Bonsplit fork를 upstream main(#180)에 따라잡히기
+
+`~/Documents/private/bonsplit`의 `muxa` 브랜치에 upstream `main`(46def98)을 머지했다 — **워킹트리에만 있고 커밋 전이다**
+(사람이 리뷰 후 커밋·push). muxa 쪽은 `BonsplitChrome.selectedTabTitleWeight`(+`TerminalStore` 1줄)만 늘었다. → [D22](ARCHITECTURE.md)
+
+- upstream이 탭 지시자·구분선을 SwiftUI → AppKit(`TabBarSelectionChromeView`)으로 옮겼다. 우리 SwiftUI 구현은 버리고
+  포커스별 색·두께·하단 배치만 그 경로에 재구현했다.
+- fork가 진짜 **가산적**이 됐다 — 선택 탭 제목 굵기가 `selectedTabTitleWeight`(기본 `.regular`)로 게이팅됐다.
+- 검증: bonsplit `swift test` 194개 green · muxa `swift build` + `swift test` 83개 green(로컬 path 의존으로 물려서).
+- **남은 일**: bonsplit push → `macos/Package.swift`의 revision을 새 SHA로 갱신(지금은 여전히 `7d8896c…`라 그 상태로는
+  새 코드가 안 들어온다) → `swift package resolve`.
+
+### ★ 실기기 육안 검증 필요 (이 머지)
+- 포커스된 칸의 선택 탭 = 하단 teal 2pt / 포커스 잃으면 회색 1pt (색·두께 **둘 다** 바뀌는지).
+- 라이트↔다크 토글 시 탭바 면·활성 탭 면·지시자 색이 즉시 따라오는지.
+- 탭을 많이 열어 스크롤 — 탭이 분할 버튼 레인 아래로 페이드되고, 지시자는 레인 아래로 새어들지 않는지.
+- 다른 칸 보고 돌아왔을 때 선택 탭이 뷰포트로 스크롤되는지(`keepsSelectedTabVisible`).
+- 선택 탭 제목이 포커스 시 semibold인지.
+- 기본 `BonsplitConfiguration()`(다른 host) 렌더가 upstream과 동일한지 — 가산성 회귀.
+
 ## 최근 완료 (2026-07-14) — 탭바 테마링 + 칸 포커스 반전 (Bonsplit fork)
 
 Bonsplit을 **우리 fork로 갈아타고**(`yjun1806/bonsplit`, → [ARCHITECTURE D21](ARCHITECTURE.md)) 탭바를 muxa 팔레트로 테마링했다.

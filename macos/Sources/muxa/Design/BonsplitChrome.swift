@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import SwiftUI
 
 /// Bonsplit 탭바에 muxa 팔레트를 입히는 어댑터.
 ///
@@ -90,4 +91,8 @@ enum BonsplitChrome {
     /// 포커스 없는 칸의 선택 탭 — 회색, 얇게. "이 칸에선 이 탭"은 말하되
     /// "여기로 입력이 간다"는 말하지 않는다. 굵기 차이는 색을 지워도 남는 신호다.
     static let inactiveIndicatorHeight: CGFloat = 1
+
+    /// 포커스된 칸의 선택 탭 제목 굵기. Bonsplit 기본은 `.regular`(upstream 동작 보존)이라
+    /// 명시하지 않으면 굵기 신호가 사라진다.
+    static let selectedTabTitleWeight: Font.Weight = .semibold
 }
