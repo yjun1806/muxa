@@ -67,7 +67,8 @@ struct ContentView: View {
             // 카드 그림자(왼쪽으로 ~3pt 번진다)가 그 불투명 면에 통째로 가려진다 — 즉 "층은 고도가 만든다"는
             // 말이 정작 **사이드바↔터미널 경계에서만 거짓**이 된다(층이 가장 필요한 자리다).
             // 4pt를 비우면 그림자가 설 자리가 생기고, 그제야 명도차(ΔL* 7.8)와 고도가 함께 그 경계를 만든다.
-            .padding(.leading, Space.xs)
+            // (사이드바도 이 틈을 세어 항목 중심을 잡는다 — 같은 값이어야 한다: `Sidebar.cardGap`.)
+            .padding(.leading, Sidebar.cardGap)
             .padding(.trailing, Space.sm)
             .padding(.bottom, Space.xs)
     }

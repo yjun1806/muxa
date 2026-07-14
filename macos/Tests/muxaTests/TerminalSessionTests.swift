@@ -85,14 +85,39 @@ struct TerminalSessionTests {
 
     @Test func 기동명령은_세션이_없으면_만들고_있으면_붙는다() {
         let cmd = startCmd()
-        #expect(cmd.contains("new-session -d -s 'muxa__p1__term__t1' -c '/repo'"))
+        #expect(cmd.contains("new-session -d -A -s 'muxa__p1__term__t1' -c '/repo'"))
         #expect(cmd.contains("attach -t '=muxa__p1__term__t1'"))
     }
 
     /// 전역은 `on`이다(서비스가 죽은 뒤 로그를 읽어야 하므로). 터미널에 그대로 두면 `exit`를 쳐도
-    /// pane이 죽은 채 남아 탭이 안 닫힌다.
+    /// pane이 죽은 채 남아 탭이 안 닫힌다. `-t`는 생략한다 — 명령 목록에서 방금 만든 세션이 현재
+    /// 세션이라 거기 걸리고(실측), 세션명을 한 번 덜 반복해 줄 길이를 아낀다(§한_줄은_1024를_넘지_않는다).
     @Test func 터미널_세션은_remain_on_exit를_끈다() {
-        #expect(startCmd().contains("set-option -t 'muxa__p1__term__t1' remain-on-exit off"))
+        let cmd = startCmd()
+        #expect(cmd.contains("';' set-option remain-on-exit off ';'"))
+        #expect(!cmd.contains("set-option -g remain-on-exit")) // 전역을 끄면 서비스 로그 보존이 깨진다
+    }
+
+    /// **한 줄이 1024바이트(tty 정규 모드의 `MAX_CANON`)를 넘으면 명령이 통째로 죽는다** —
+    /// 넘친 뒤엔 끝의 개행까지 버려져 셸이 그 줄을 영영 실행하지 않고, 화면엔 에코만 남고 멈춘다.
+    /// 실제로 그렇게 터졌다: 개발빌드 슬러그가 소켓·지원경로에 붙으면서 1150바이트가 됐다.
+    /// tmux 호출을 여섯 번에서 한 번으로 합쳐 고쳤고, 다시 늘어나지 않게 여기서 못 박는다.
+    ///
+    /// 입력은 현실적인 최악값이다 — 긴 워크트리 슬러그가 소켓·지원경로에 모두 박히고, 세션명은
+    /// UUID 두 개(76자)이며, 홈 경로도 짧지 않다.
+    @Test func 한_줄은_1024를_넘지_않는다() {
+        let uuid = "3DBD532E-0DCD-4966-9261-10B4B6BCBE0A" // 36자 — 실제 id와 같은 길이
+        let slug = "muxa-services-some-long-worktree-name-a1b2c3"
+        let session = TerminalSession.name(projectId: uuid, tabId: uuid)
+        let sock = "/Users/some-longish-name/Library/Application Support/muxa-dev-some-long-worktree-name-a1b2c3/sockets/muxa-30354.sock"
+        let cmd = TerminalSession.startCommand(
+            tmux: "/opt/homebrew/bin/tmux", socket: slug, session: session,
+            cwd: "/Users/some-longish-name/Documents/private/muxa/.claude/worktrees/some-long-worktree-name",
+            env: ["MUXA_SOCK": sock,
+                  "MUXA_SURFACE_ID": uuid,
+                  "MUXA_TAB_ID": uuid])
+        // `clear; ` 접두와 끝 개행까지 셸에 들어간다(TermView.initialCommand) — 그 몫도 남겨 둔다.
+        #expect(cmd.utf8.count + "clear; \n".utf8.count < 1024)
     }
 
     /// 이게 없으면 tmux가 안쪽 OSC를 삼켜 cwd 추적·완료 배지·알림이 통째로 죽는다(실측).

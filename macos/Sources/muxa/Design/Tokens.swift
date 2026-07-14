@@ -104,6 +104,16 @@ enum Sidebar {
     static let chipGap: CGFloat = Space.md
     /// 항목의 leading 기준, 이름 칩이 사이드바 밖으로 나가는 거리.
     static func chipOffset(width: CGFloat) -> CGFloat { width - hInset + chipGap }
+
+    /// 사이드바 오른쪽 ↔ 콘텐츠 카드 사이의 빈 자리 = **카드 그림자가 설 자리**(`ContentView`).
+    ///
+    /// 사이드바는 이 틈을 칠하지 않는다(칠하면 카드보다 위 레이어라 그림자를 덮는다). 그래서
+    /// **눈에 보이는 크롬 띠는 사이드바 폭 + 이 틈**이고, 항목을 사이드바 폭 기준으로만 가운데 두면
+    /// 그 절반(2pt)만큼 왼쪽으로 치우쳐 보인다 — 슬림(14pt)에선 한눈에 티가 난다.
+    /// 항목은 이 틈까지 포함한 띠의 중심에 놓는다(`leadingBias`).
+    static let cardGap: CGFloat = Space.xs
+    /// 위 보정 — 콘텐츠를 오른쪽으로 이만큼 밀면 띠(폭 + 틈)의 중심에 온다.
+    static let leadingBias: CGFloat = cardGap
 }
 
 /// 떠 있는 패널(팝오버)의 폭.

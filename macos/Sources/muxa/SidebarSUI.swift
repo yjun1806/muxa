@@ -39,6 +39,9 @@ struct SidebarSUI: View {
         // 좌클릭 전환도, 우클릭 메뉴도 조준이 사실상 불가능해진다(색 막대는 그 영역 밖으로 그려져 멀쩡해 보인다).
         .padding(.vertical, Space.sm)
         .padding(.horizontal, effectiveMode == .slim ? 0 : Sidebar.hInset)
+        // 눈에 보이는 크롬 띠는 사이드바 폭 + 카드 앞 틈(그림자 자리)이다 — 그 틈까지 세어 가운데를 잡는다.
+        // 안 그러면 항목이 틈의 절반만큼 왼쪽으로 치우쳐 보인다(§Sidebar.leadingBias).
+        .padding(.leading, Sidebar.leadingBias)
         .frame(width: width, alignment: .top)
         .frame(maxHeight: .infinity)
         .background(Color.pPanel)

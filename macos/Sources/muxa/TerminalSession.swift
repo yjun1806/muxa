@@ -41,6 +41,15 @@ enum TerminalSession {
     ///  4. `attach` — 붙는다. **exec를 쓰지 않는다**: detach하면 셸 프롬프트로 돌아와 탭이 살아남는다.
     ///
     /// zsh에서 `=word`는 명령 경로로 치환되는 EQUALS 확장이라 타겟은 반드시 인용한다(서비스 attach와 동일).
+    ///
+    /// **한 줄은 1024바이트(`MAX_CANON`)를 넘으면 안 된다 — 넘으면 명령이 통째로 죽는다.**
+    /// 이 문자열은 셸의 stdin으로 들어가는데(`TermView.initialCommand`), 그때 tty는 아직 정규 모드다.
+    /// 정규 모드의 한 줄 버퍼는 1024바이트이고, 넘친 뒤엔 **끝의 개행까지 버려져** 셸이 그 줄을 영영
+    /// 실행하지 않는다. 화면엔 에코된 명령만 남고 멈춘다(실측 — 개발빌드 슬러그가 소켓·지원경로 이름에
+    /// 붙으면서 1150바이트가 됐다). 그래서 tmux 호출을 **한 번으로 합치고**(실행 파일 경로 + 소켓 이름이
+    /// 여섯 번 반복되던 것을 한 번으로) 세션명 반복도 줄인다 — 지금은 ~600바이트다.
+    /// 값이 길어질 여지(홈 경로·워크트리 이름)가 있으므로 **길이는 테스트로 못 박는다**.
+    ///
     /// - Parameter session: **세션명을 그대로 받는다.** 복원된 탭은 저장된 이름을 이어받아야 하는데,
     ///   여기서 tabId로 재조립하면 새로 발급된 id로 엉뚱한 세션을 만든다(§tmuxSession).
     /// - Parameter env: 세션 안 셸에 심을 환경변수(`-e`). **비우면 훅과 셸 통합이 통째로 죽는다** —
@@ -49,22 +58,31 @@ enum TerminalSession {
     ///   rc 스니펫도 조건이 안 맞아 OSC를 안 쏜다(cwd 추적 소실). 실측으로 확인한 실패다.
     static func startCommand(tmux: String, socket: String, session: String, cwd: String,
                              env: [String: String] = [:]) -> String {
-        let t = "\(ShellQuote.single(tmux)) -L \(ShellQuote.single(socket))"
         // -e는 **세션을 새로 만들 때만** 적용된다(이미 있으면 무시). 복원된 세션의 셸에는 옛 tabId가
         // 남아 있는데, 그건 세션명으로 되짚어 현재 탭을 찾는다(§resolve).
         // 값(경로·env)은 외부 입력이므로 모두 탈출한다 — 아포스트로피 든 경로(`~/Bob's app`)나 주입 차단.
         let envArgs = env.keys.sorted().map { " -e \(ShellQuote.single("\($0)=\(env[$0]!)"))" }.joined()
         let q = ShellQuote.single(session)
-        return [
-            "\(t) new-session -d -s \(q) -c \(ShellQuote.single(cwd))\(envArgs) 2>/dev/null",
-            "\(t) set-option -t \(q) remain-on-exit off 2>/dev/null",
-            "\(t) set-option -g allow-passthrough on 2>/dev/null",
-            // 탭 이름 — tmux는 기본으로 자기 제목(= `tmux … attach …` 명령줄)을 내보내, 탭 이름이
-            // 그 문자열로 굳는다(실측). 안쪽 셸이 있는 폴더를 대신 전파해 자동 명명을 되살린다.
-            "\(t) set-option -g set-titles on 2>/dev/null",
-            "\(t) set-option -g set-titles-string '#{b:pane_current_path}' 2>/dev/null",
-            "\(t) attach -t \(ShellQuote.single("=\(session)"))",
-        ].joined(separator: "; ")
+        // tmux는 한 번의 실행에서 `;`로 여러 명령을 잇는다. `;`는 셸이 먹지 않게 인용한다.
+        // `remain-on-exit`는 **-t를 생략**한다 — 명령 목록에서 방금 만든 세션이 현재 세션이 되므로
+        // 세션명(76바이트)을 한 번 덜 반복한다(실측: 전역 `on`은 그대로 유지돼 서비스 로그 보존이 안 깨진다).
+        let cmds = [
+            // 서버 전역 — tmux는 안쪽 OSC를 자체 소비한다. 켜야 셸 통합이 감싼 OSC 7(cwd)·133(완료)이
+            // muxa까지 나온다. 없으면 경로 추적·완료 배지·알림이 통째로 죽는다(실측).
+            "set-option -g allow-passthrough on",
+            // 탭 이름 — tmux는 기본으로 자기 제목(= attach 명령줄)을 내보내 탭 이름이 그걸로 굳는다(실측).
+            // 안쪽 셸이 있는 폴더를 대신 전파해 자동 명명을 되살린다.
+            "set-option -g set-titles on",
+            "set-option -g set-titles-string '#{b:pane_current_path}'",
+            // 없으면 만들고 있으면 그대로 둔다(-A). 앱을 껐다 켜도 같은 이름이면 그 세션에 다시 붙는다.
+            "new-session -d -A -s \(q) -c \(ShellQuote.single(cwd))\(envArgs)",
+            // 서버 전역은 `on`이다(서비스가 죽은 뒤 exit code·로그를 읽어야 하므로). 터미널에 그대로 두면
+            // 사용자가 `exit`를 쳐도 pane이 죽은 채 남아 탭이 안 닫히고 세션이 쌓인다.
+            "set-option remain-on-exit off",
+            // 붙는다. **exec를 쓰지 않는다**: detach하면 셸 프롬프트로 돌아와 탭이 살아남는다.
+            "attach -t \(ShellQuote.single("=\(session)"))",
+        ].joined(separator: " ';' ")
+        return "\(ShellQuote.single(tmux)) -L \(ShellQuote.single(socket)) \(cmds)"
     }
 
     /// 이 탭이 **아직 tmux 세션에 붙어 있는가**(순수). 입력은 그 탭 pty의 포그라운드 프로세스 이름.
