@@ -58,8 +58,7 @@ struct ContentView: View {
     private var contentCard: some View {
         workspaceColumn
             .contentCard(radius: Radius.lg, border: Color.pBorder)
-            // 서비스 도크는 카드 위에 겹친다 — 카드를 리사이즈하지 않으므로 여닫아도 ghostty 그리드가
-            // 리플로우되지 않는다(레이아웃을 차지하는 도크였다면 열 때마다 터미널이 출렁인다).
+            // 서비스 도크는 카드 위에 겹친다(이유는 `ServiceDock` 주석 · ARCHITECTURE §4.7).
             //
             // **contentCard 뒤에 얹는 이유**: 카드는 칸 강조 테두리를 클립 바깥 맨 위 레이어에 그린다
             // (ContentCard 주석 참조). 카드 *안쪽* 오버레이로 두면 그 테두리가 도크를 뚫고 지나간다.

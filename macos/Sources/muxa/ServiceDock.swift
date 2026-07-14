@@ -61,7 +61,7 @@ struct ServiceDock: View {
                 Text("서비스").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
                 Spacer(minLength: Space.xs)
                 // tmux가 없으면 추가해봐야 돌지 않는다 — 등록 버튼을 감추고 우측 설치 안내로 유도한다.
-                if TmuxService.isAvailable {
+                if state.servicesAvailable {
                     IconButton(icon: "plus", help: "서비스 추가") { showAdd = true }
                 }
                 // 닫기는 **여기에도** 둔다 — 우측 헤더는 선택된 서비스가 있을 때만 뜨므로,
@@ -85,39 +85,22 @@ struct ServiceDock: View {
         .frame(width: listWidth)
     }
 
+    /// 도크 목록의 행 — **팝오버와 같은 `ServiceRow`**다(표식·색·꼬리표 규칙이 한 벌).
+    /// 목록은 좁으니 명령(subtitle)은 생략한다 — 선택하면 헤더에 그대로 뜬다.
     private func row(_ service: Service) -> some View {
-        let status = state.serviceMonitor.states[service.id] ?? .missing
-        let isSelected = selected?.id == service.id
-        return Button { state.selectedServiceId = service.id } label: {
-            HStack(spacing: Space.sm) {
-                Circle()
-                    .fill(dotColor(status))
-                    .frame(width: 6, height: 6)
-                Text(service.name)
-                    .font(.muxa(.label))
-                    .foregroundStyle(isSelected ? Color.pFg : Color.pMuted)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                if let tail = tail(service, status) {
-                    Text(tail)
-                        .font(.muxaMono(.caption))
-                        .foregroundStyle(dotColor(status))
-                }
-            }
-            .padding(.horizontal, Space.panelInset)
-            .frame(height: RowHeight.row)
-            .background(isSelected ? Color.pBtnActive.opacity(0.6) : Color.clear)
-            .contentShape(Rectangle())
+        ServiceRow(service: service,
+                   status: state.serviceMonitor.state(of: service.id),
+                   port: state.serviceMonitor.ports[service.id],
+                   selected: selected?.id == service.id) {
+            state.selectedServiceId = service.id
         }
-        .buttonStyle(.plain)
-        .clickCursor()
     }
 
     // MARK: 우 — 헤더 + 실제 터미널(tmux attach)
 
     @ViewBuilder
     private var detail: some View {
-        if !TmuxService.isAvailable {
+        if !state.servicesAvailable {
             // tmux가 없으면 기능을 숨기는 대신 **왜 없는지 말하고 설치를 돕는다**.
             ServiceSetupView(state: state) { command in
                 state.mainStore?.injectToTerminal(command) ?? false
@@ -181,32 +164,22 @@ struct ServiceDock: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: Space.sm) {
-            Text("등록된 서비스가 없습니다")
-                .font(.muxa(.label))
-                .foregroundStyle(Color.pMuted)
-            Text("dev 서버처럼 오래 도는 명령을 등록하면 여기서 로그를 봅니다.\nmuxa를 꺼도 프로세스는 계속 돕니다.")
-                .font(.muxa(.caption))
-                .foregroundStyle(Color.pMuted.opacity(0.7))
-                .multilineTextAlignment(.center)
+        EmptyState(icon: "square.stack.3d.up",
+                   title: "등록된 서비스가 없습니다",
+                   subtitle: "dev 서버처럼 오래 도는 명령을 등록하면 여기서 로그를 봅니다.\nmuxa를 꺼도 프로세스는 계속 돕니다.") {
             Button("서비스 추가") { showAdd = true }
                 .font(.muxa(.label))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.pBg)
     }
 
     /// 죽었나 — tmux가 진실 원천이다. 아직 상태를 모르면(missing) 살아있다고 보고 attach를 시도한다
     /// (폴링 첫 바퀴 전이라도 도크가 빈 화면으로 뜨지 않게).
+    ///
+    /// **`isFailure`가 아니다.** 여기서 묻는 건 "알릴 만한 죽음인가"가 아니라 "붙을 pane이 살아 있나"다 —
+    /// 정상 종료(0)한 pane에 attach하면 죽은 셸에 붙어 빈 화면이 뜬다. 그래서 exit 0도 죽음으로 본다.
     private func isDead(_ service: Service) -> Bool {
-        if case .exited = state.serviceMonitor.states[service.id] ?? .missing { return true }
+        if case .exited = state.serviceMonitor.state(of: service.id) { return true }
         return false
-    }
-
-    // 색·글리프·꼬리표 규칙은 ServiceStatusStyle 한 곳에 있다(칩·팝오버와 같은 규칙을 쓰려고).
-    private func dotColor(_ status: ServiceState) -> Color { ServiceStatusStyle.color(status) }
-
-    private func tail(_ service: Service, _ status: ServiceState) -> String? {
-        ServiceStatusStyle.tail(status, port: state.serviceMonitor.ports[service.id])
     }
 }

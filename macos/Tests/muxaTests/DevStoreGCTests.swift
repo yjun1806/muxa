@@ -1,3 +1,4 @@
+import Testing
 import XCTest
 @testable import muxa
 
@@ -69,5 +70,45 @@ final class DevStoreGCTests: XCTestCase {
                                             exists: { _ in false }, // 워크트리가 사라진 척해도
                                             currentPath: "/support/muxa-dev-mine-abc123")
         XCTAssertTrue(result.isEmpty)
+    }
+}
+
+/// **빈 `.origin`** — `String(contentsOf:)`는 0바이트 파일에서 nil이 아니라 `""`를 준다.
+/// 그걸 "출처 있음"으로 믿으면 `exists("")`=false라 **살아있는 워크트리의 저장소를 지운다**.
+/// 빈 출처 = 출처 모름 = 보존(의심되면 안 지운다).
+@Suite("개발 저장소 GC — 빈 출처")
+struct 개발저장소GC빈출처Tests {
+    private let grace: TimeInterval = 7 * 86_400
+
+    private func store(_ origin: String?, now: Date) -> MuxaSupportDir.DevStore {
+        MuxaSupportDir.DevStore(path: "/support/muxa-dev-empty-abc123", origin: origin,
+                                modified: now.addingTimeInterval(-999 * 86_400)) // 유예 한참 지남
+    }
+
+    @Test("빈 문자열 출처는 보존한다")
+    func 빈문자열_출처는_보존한다() {
+        let now = Date()
+        let result = MuxaSupportDir.orphans([store("", now: now)], now: now, graceInterval: grace,
+                                            exists: { _ in false })
+        #expect(result.isEmpty)
+    }
+
+    @Test("공백·개행뿐인 출처도 보존한다", arguments: ["   ", "\n", " \t\n "])
+    func 공백뿐인_출처도_보존한다(_ origin: String) {
+        let now = Date()
+        let result = MuxaSupportDir.orphans([store(origin, now: now)], now: now, graceInterval: grace,
+                                            exists: { _ in false })
+        #expect(result.isEmpty)
+    }
+
+    @Test("빈 출처를 보존해도 진짜 고아는 계속 지운다")
+    func 빈출처_보존이_진짜고아_삭제를_막지_않는다() {
+        let now = Date()
+        let empty = store("", now: now)
+        let gone = MuxaSupportDir.DevStore(path: "/support/muxa-dev-gone-def456", origin: "/repo/gone",
+                                           modified: now.addingTimeInterval(-10 * 86_400))
+        let result = MuxaSupportDir.orphans([empty, gone], now: now, graceInterval: grace,
+                                            exists: { _ in false })
+        #expect(result == ["/support/muxa-dev-gone-def456"])
     }
 }

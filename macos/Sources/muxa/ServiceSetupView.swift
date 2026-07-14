@@ -18,21 +18,10 @@ struct ServiceSetupView: View {
     private let installCommand = "brew install tmux"
 
     var body: some View {
-        VStack(spacing: Space.lg) {
-            Image(systemName: "shippingbox")
-                .font(.system(size: 28))
-                .foregroundStyle(Color.pMuted.opacity(0.6))
-
-            VStack(spacing: Space.xs) {
-                Text("서비스를 쓰려면 tmux가 필요합니다")
-                    .font(.muxa(.body, weight: .semibold))
-                    .foregroundStyle(Color.pFg)
-                Text("dev 서버를 muxa 바깥에서 살려두는 일을 tmux가 맡습니다.\nmuxa를 꺼도 프로세스가 계속 돌 수 있는 건 그 덕분입니다.")
-                    .font(.muxa(.caption))
-                    .foregroundStyle(Color.pMuted)
-                    .multilineTextAlignment(.center)
-            }
-
+        // 빈 상태의 아이콘·제목 크기는 `EmptyState`가 이미 정한 결정이다 — 여기서 다시 정하지 않는다.
+        EmptyState(icon: "shippingbox",
+                   title: "서비스를 쓰려면 tmux가 필요합니다",
+                   subtitle: "dev 서버를 muxa 바깥에서 살려두는 일을 tmux가 맡습니다.\nmuxa를 꺼도 프로세스가 계속 돌 수 있는 건 그 덕분입니다.") {
             if brewInstalled {
                 VStack(spacing: Space.sm) {
                     Button(injected ? "터미널에 넣었습니다 — Enter를 누르세요" : "설치 명령을 터미널에 넣기") {
@@ -49,13 +38,9 @@ struct ServiceSetupView: View {
                         .background(Color.pBtnHover.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.sm))
 
                     // 설치가 끝났는지는 앱이 알 수 없다(사용자가 터미널에서 돌린다) — 직접 확인하게 한다.
+                    // 재탐지·기동은 상태(AppState)가 한다 — 뷰는 결과만 받아 실패했을 때만 말한다.
                     Button("설치했습니다 — 다시 확인") {
-                        if TmuxService.refresh() {
-                            stillMissing = false
-                            state.startServices() // 찾았으면 저장된 서비스를 바로 띄운다
-                        } else {
-                            stillMissing = true
-                        }
+                        stillMissing = !state.retryTmuxDetection()
                     }
                     .font(.muxa(.caption))
                     .buttonStyle(.plain)
@@ -82,7 +67,6 @@ struct ServiceSetupView: View {
             }
         }
         .padding(Space.xl)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.pBg)
     }
 }

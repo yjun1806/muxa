@@ -61,7 +61,23 @@ struct ServiceAddSheet: View {
                     .font(.muxaMono(.body))
             }
 
-            Text("프로젝트 폴더에서 로그인 셸로 실행되고, muxa를 꺼도 계속 돕니다.\n죽으면 푸터 칩이 빨갛게 바뀌고 알림이 옵니다.")
+            // **추가 직전에 실제로 실행될 문자열을 그대로 보여준다.** 목록 미리보기는 한 줄로 잘리지만
+            // 여기서는 접지 않는다 — 스크립트를 클릭해 채운 명령이 무엇인지 마지막으로 확인하는 자리다.
+            if !command.trimmingCharacters(in: .whitespaces).isEmpty {
+                VStack(alignment: .leading, spacing: Space.xs) {
+                    Text("실행될 명령").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
+                    Text(command.trimmingCharacters(in: .whitespaces))
+                        .font(.muxaMono(.caption))
+                        .foregroundStyle(Color.pFg)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true) // 잘리지 않고 줄바꿈된다
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(Space.sm)
+                        .background(Color.pBg, in: RoundedRectangle(cornerRadius: Radius.sm))
+                }
+            }
+
+            Text("프로젝트 폴더에서 로그인 셸로 실행되고, muxa를 꺼도 계속 돕니다.\n죽으면 푸터 칩이 빨갛게 바뀌고 알림이 옵니다.\n명령은 평문으로 저장됩니다 — 토큰·API 키는 명령에 적지 말고 .env에 두세요.")
                 .font(.muxa(.caption))
                 .foregroundStyle(Color.pMuted.opacity(0.8))
 
@@ -132,16 +148,11 @@ struct ServiceAddSheet: View {
         }
     }
 
-    /// 스크립트가 실제로 실행할 명령. package.json만 패키지 매니저로 조립하고
-    /// (`pnpm run dev`), Makefile·셸 스크립트는 이미 완성된 명령이다(`make dev`·`./scripts/dev.sh`).
-    private func runCommand(_ script: ProjectScript) -> String {
-        script.source == .packageJSON ? effectiveManager.runCommand(script.name) : script.body
-    }
-
     /// 스크립트 한 줄 — [출처] 이름 | 설명(있으면) · 실제 명령.
     /// 클릭하면 아래 입력칸이 채워진다(바로 등록하지 않는다 — 이름을 바꾸거나 명령을 손볼 수 있게).
+    /// 명령 조립 정책은 뷰가 아니라 `ProjectScripts.command(for:manager:)`에 있다.
     private func scriptRow(_ script: ProjectScript) -> some View {
-        let filled = runCommand(script)
+        let filled = ProjectScripts.command(for: script, manager: effectiveManager)
         let isSelected = command == filled
         return Button {
             name = script.name
@@ -157,19 +168,22 @@ struct ServiceAddSheet: View {
                     .font(.muxaMono(.label, weight: .semibold))
                     .foregroundStyle(Color.pFg)
                     .frame(minWidth: 52, alignment: .leading)
-                VStack(alignment: .leading, spacing: 1) {
-                    // 설명이 있으면 그게 주인공이다 — 명령보다 사람 말이 먼저 읽혀야 한다.
+                VStack(alignment: .leading, spacing: Space.tight) {
+                    // 설명은 **리포가 준 문자열**이다 — 명령보다 진하게 그리면 명령인 척 위장할 수 있어
+                    // 위계를 뒤집었다: 실제 실행될 명령이 주인공이고, 설명은 그 아래 보조로 내린다.
+                    Text(filled)
+                        .font(.muxaMono(.label))
+                        .foregroundStyle(Color.pFg)
+                        .lineLimit(1)
+                        // **`.tail`이다(`.middle` 아님)** — 가운데를 접으면 긴 명령의 꼬리(`&& curl … | sh`)가
+                        // 사라져 악의적인 명령이 평범해 보인다. 잘릴 땐 앞부터 정직하게 보인다.
+                        .truncationMode(.tail)
                     if let note = script.note {
                         Text(note)
-                            .font(.muxa(.label))
-                            .foregroundStyle(Color.pFg)
+                            .font(.muxa(.caption))
+                            .foregroundStyle(Color.pMuted)
                             .lineLimit(1)
                     }
-                    Text(filled)
-                        .font(.muxaMono(.caption))
-                        .foregroundStyle(Color.pMuted)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
                 }
                 Spacer(minLength: 0)
                 if isSelected {
@@ -193,7 +207,6 @@ struct ServiceAddSheet: View {
         switch source {
         case .packageJSON: return "pkg"
         case .makefile: return "make"
-        case .justfile: return "just"
         case .shell: return "sh"
         }
     }

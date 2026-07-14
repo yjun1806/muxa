@@ -1,3 +1,4 @@
+import Testing
 import XCTest
 @testable import muxa
 
@@ -243,5 +244,31 @@ final class ProjectScriptsTests: XCTestCase {
         // package.json이 없는 프로젝트다 — 매니저는 nil이어야 한다(추측하지 않는다)
         XCTAssertNil(found.manager)
         XCTAssertTrue(found.scripts.filter { $0.source == .packageJSON }.isEmpty)
+    }
+}
+
+/// Makefile 타깃 판정의 경계 — **대입은 타깃이 아니고, 이중 콜론 규칙은 타깃이다.**
+/// 콜론 하나만 보고 자르면 `X ::= y`(POSIX 즉시 대입)가 타깃 목록에 섞여 들어와 목록이 거짓말을 한다.
+struct MakefileTargetTests {
+    @Test("POSIX 즉시 대입(::=)은 타깃이 아니다")
+    func 즉시대입은타깃이아니다() {
+        let make = """
+        FOO::=bar
+        BAZ ::= qux
+        dev: ## 개발 서버
+        \tgo run .
+        """
+        #expect(ProjectScripts.parseMakefile(make).map(\.name) == ["dev"])
+    }
+
+    @Test("이중 콜론 규칙(foo::)은 진짜 타깃이라 남는다")
+    func 이중콜론규칙은타깃이다() {
+        let make = """
+        clean::
+        \trm -rf bin
+        """
+        let targets = ProjectScripts.parseMakefile(make)
+        #expect(targets.map(\.name) == ["clean"])
+        #expect(targets.first?.body == "make clean")
     }
 }

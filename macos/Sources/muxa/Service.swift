@@ -54,6 +54,45 @@ func collectAllServices(in workspaces: [Workspace]) -> [LocatedService] {
     }
 }
 
+/// 이 id의 서비스를 소속과 함께 찾는다(순수). 없으면 nil.
+///
+/// **인박스 라우팅이 이걸 쓴다.** 서비스가 죽으면 `tabId`에 **서비스 id**를 담아 기록하는데,
+/// 서비스는 탭 트리 밖에 살아(D19) 그 id로는 어떤 탭도 못 찾는다. 탭으로 착각한 채 진행하면
+/// 프로젝트만 이동하고 Git 패널이 열려, **죽은 서버의 사인을 보러 가는 유일한 동선이 엉뚱한 패널을
+/// 연다.** 라우팅 전에 "이건 서비스인가"를 여기서 먼저 묻는다.
+func locateService(_ serviceId: String, in workspaces: [Workspace]) -> LocatedService? {
+    collectAllServices(in: workspaces).first { $0.id == serviceId }
+}
+
+/// 프로젝트 하나에 묶인 서비스들 — 팝오버가 프로젝트별로 나눠 보여주는 단위.
+struct ServiceGroup: Identifiable {
+    var id: String { projectId }
+    let projectId: String
+    /// 사람이 읽을 묶음 이름 — 워크스페이스가 여럿이면 어느 워크스페이스인지도 밝힌다("front › 웹").
+    let title: String
+    let services: [LocatedService]
+}
+
+/// 서비스를 프로젝트별로 묶는다 — **현재 프로젝트가 맨 앞**, 나머지는 선언 순서 그대로(순수).
+///
+/// 정렬로 앞에 세우면 안 된다. `sorted { a, _ in a == current }`는 엄격 약순서가 아니라
+/// (a<b와 b<a가 동시에 거짓/참일 수 있다) 정렬 알고리즘이 비교자를 어떻게 호출하느냐에 따라
+/// **현재 프로젝트가 맨 앞에 안 오는 배치가 나온다.** 분할(filter 두 번)은 그 자체로 결정적이다.
+func groupServices(_ items: [LocatedService], current: String, showWorkspace: Bool) -> [ServiceGroup] {
+    var order: [String] = []
+    var byProject: [String: [LocatedService]] = [:]
+    for item in items {
+        if byProject[item.projectId] == nil { order.append(item.projectId) }
+        byProject[item.projectId, default: []].append(item)
+    }
+    return (order.filter { $0 == current } + order.filter { $0 != current })
+        .compactMap { pid in
+            guard let group = byProject[pid], let first = group.first else { return nil }
+            let title = showWorkspace ? "\(first.workspaceName) › \(first.projectName)" : first.projectName
+            return ServiceGroup(projectId: pid, title: title, services: group)
+        }
+}
+
 /// 서비스의 현재 상태. 진실 원천은 muxa가 아니라 tmux다 — 접혀 있어도 읽힌다.
 enum ServiceState: Equatable {
     case running
@@ -62,6 +101,18 @@ enum ServiceState: Equatable {
     case exited(code: Int32)
     /// tmux에 세션이 없다(아직 시작 전이거나 정리됨).
     case missing
+}
+
+extension ServiceState {
+    /// **비정상 종료인가** — 사용자에게 알릴 가치가 있는 죽음.
+    ///
+    /// 이 판정("정상 종료(0)는 죽음으로 치지 않는다")은 알림·배지·요약·도크 강조가 전부 공유하는
+    /// 하나의 결정이다. 각자 `if case .exited(let c) = … { c != 0 }`를 다시 쓰면 한 곳만 고쳐졌을 때
+    /// 배지는 뜨는데 알림은 안 오는 식으로 갈라진다.
+    var isFailure: Bool {
+        if case .exited(let code) = self { return code != 0 }
+        return false
+    }
 }
 
 /// 서비스 ↔ tmux 세션 사이의 순수 로직 — 세션명 규약·출력 파싱·고아 판정·포트 추출.
@@ -73,8 +124,23 @@ enum ServiceSession {
     static let prefix = "muxa"
     static let separator = "__"
 
-    static func name(projectId: String, serviceId: String) -> String {
-        [prefix, projectId, serviceId].joined(separator: separator)
+    /// 세션명에 쓸 수 있는 id인가 — `[A-Za-z0-9-]+`(우리가 만드는 id는 UUID라 항상 통과한다).
+    ///
+    /// **id는 신뢰 경계 밖이다.** state.v4.json은 사용자·외부가 쓸 수 있고 muxa는 적대적 리포를 여는 게
+    /// 본업이다. 검증이 없으면 두 가지가 샌다:
+    ///  1. `'`가 든 id → attach 명령(유일하게 셸을 거치는 경로)에서 따옴표를 조기에 닫아 임의 명령 실행.
+    ///     인용(`ShellQuote.single`)이 1차 방어선이고, 이 화이트리스트가 2차다.
+    ///  2. `__`가 든 id → `parse`가 4토막이라 nil을 내놓는데 세션은 만들어져, 상태도 정리도 안 되는
+    ///     **조용한 좀비**가 남는다(고아 판정이 못 보므로 영원히).
+    static func isValidId(_ id: String) -> Bool {
+        !id.isEmpty && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
+    }
+
+    /// 세션명. **id가 규약을 벗어나면 이름을 만들지 않는다** — 세션을 만들지 못하는 편이,
+    /// 손댈 수 없는 좀비를 만드는 것보다 낫다(호출부가 nil을 사용자에게 알린다).
+    static func name(projectId: String, serviceId: String) -> String? {
+        guard isValidId(projectId), isValidId(serviceId) else { return nil }
+        return [prefix, projectId, serviceId].joined(separator: separator)
     }
 
     /// muxa 소유 세션명만 (projectId, serviceId)로 분해한다. 아니면 nil.
@@ -85,17 +151,22 @@ enum ServiceSession {
         return (parts[1], parts[2])
     }
 
-    /// `tmux list-panes -a -F '#{session_name}|#{pane_dead}|#{pane_dead_status}'` 출력 → 세션별 상태.
+    /// `tmux list-panes -a -F '#{session_name}|#{pane_index}|#{pane_dead}|#{pane_dead_status}'` 출력 → 세션별 상태.
     /// 형식이 어긋난 줄은 조용히 버린다(상태를 지어내지 않는다).
+    ///
+    /// **pane 0만 세션의 상태다.** 사용자가 attach해서 화면을 나누면 한 세션에 pane이 여럿 생기는데,
+    /// 전부 받아들이면 마지막으로 읽은 줄이 이겨(딕셔너리 덮어쓰기) 상태가 비결정적이 된다 —
+    /// 서비스 프로세스가 죽었는데 옆 pane의 셸이 살아 있다고 `.running`으로 보이는 식이다.
+    /// 서비스 명령은 항상 `new-session`이 만든 pane 0에서 돈다.
     static func parsePanes(_ raw: String) -> [String: ServiceState] {
         var states: [String: ServiceState] = [:]
         for line in raw.split(separator: "\n", omittingEmptySubsequences: true) {
             let fields = line.components(separatedBy: "|")
-            guard fields.count >= 3, !fields[0].isEmpty else { continue }
+            guard fields.count >= 4, !fields[0].isEmpty, fields[1] == "0" else { continue }
             let session = fields[0]
-            if fields[1] == "1" {
+            if fields[2] == "1" {
                 // 죽었다. status가 비면(신호 종료 등) 코드는 모르지만 죽었다는 사실은 확정이다.
-                states[session] = .exited(code: Int32(fields[2]) ?? -1)
+                states[session] = .exited(code: Int32(fields[3]) ?? -1)
             } else {
                 states[session] = .running
             }

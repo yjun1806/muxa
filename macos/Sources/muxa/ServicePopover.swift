@@ -2,9 +2,8 @@ import SwiftUI
 
 /// 서비스 상세 팝오버 — 푸터 칩에 hover하면 열린다(사용량 팝오버와 같은 문법).
 ///
-/// **창 전체의 서비스를 보여준다.** 서비스는 프로젝트 소속이지만, 사용자가 알아야 하는 건
-/// "지금 이 프로젝트"가 아니라 **어디서 뭐가 도는가**다. 다른 워크스페이스의 dev 서버가 죽었는데
-/// 거기 들어가야만 알 수 있다면 알림으로서 실패다.
+/// **창 전체의 서비스를 보여준다**(이유는 `LocatedService`(Service.swift) 주석 — 프로젝트 단위로
+/// 좁히면 다른 워크스페이스의 죽음을 놓친다).
 ///
 /// 지금 프로젝트를 맨 위에 두고 나머지는 프로젝트별로 묶는다. 어느 행이든 클릭하면 그리로 데려간다.
 struct ServicePopover: View {
@@ -16,33 +15,18 @@ struct ServicePopover: View {
     /// "서비스 추가" → 도크를 열면서 추가 시트까지 바로 띄운다.
     let onAdd: () -> Void
 
-    private let width: CGFloat = 300
-
-    /// 프로젝트별로 묶고, 현재 프로젝트를 맨 앞에. (프로젝트 안에서는 선언 순서 유지.)
-    private var groups: [(projectId: String, title: String, services: [LocatedService])] {
-        var order: [String] = []
-        var byProject: [String: [LocatedService]] = [:]
-        for item in state.allLocatedServices {
-            if byProject[item.projectId] == nil { order.append(item.projectId) }
-            byProject[item.projectId, default: []].append(item)
-        }
-        return order
-            .sorted { a, _ in a == currentProjectId } // 현재 프로젝트를 맨 앞으로
-            .compactMap { pid in
-                guard let items = byProject[pid], let first = items.first else { return nil }
-                // 워크스페이스가 여럿이면 어느 워크스페이스인지도 밝힌다("front › 웹").
-                let title = state.workspaces.count > 1
-                    ? "\(first.workspaceName) › \(first.projectName)"
-                    : first.projectName
-                return (pid, title, items)
-            }
+    /// 묶기·정렬은 순수 함수(`groupServices`)가 한다 — 뷰는 그리기만.
+    private var groups: [ServiceGroup] {
+        groupServices(state.allLocatedServices,
+                      current: currentProjectId,
+                      showWorkspace: state.workspaces.count > 1)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.md) {
             header
             HDivider()
-            if !TmuxService.isAvailable {
+            if !state.servicesAvailable {
                 hint("tmux가 필요합니다", detail: "dev 서버를 muxa 바깥에서 살려두는 일을 tmux가 맡습니다.")
                 Button("설치 안내 보기", action: onAdd)
                     .font(.muxa(.label))
@@ -53,13 +37,14 @@ struct ServicePopover: View {
                 Button("서비스 추가", action: onAdd)
                     .font(.muxa(.label))
             } else {
-                ForEach(groups, id: \.projectId) { group in
+                ForEach(groups) { group in
                     section(group)
                 }
             }
         }
         .padding(Space.lg)
-        .frame(width: width, alignment: .leading)
+        // 푸터에서 열리는 팝오버 셋(사용량·서비스·백그라운드)은 **같은 폭**이어야 한 시스템으로 읽힌다.
+        .frame(width: PopoverWidth.footer, alignment: .leading)
         .background(Color.pPanel)
     }
 
@@ -72,14 +57,14 @@ struct ServicePopover: View {
                 .font(.muxa(.label, weight: .semibold))
                 .foregroundStyle(Color.pFg)
             Spacer(minLength: Space.sm)
-            if TmuxService.isAvailable, !groups.isEmpty {
+            if state.servicesAvailable, !groups.isEmpty {
                 IconButton(icon: "plus", help: "서비스 추가", action: onAdd)
             }
         }
     }
 
     /// 프로젝트 한 묶음 — 어느 프로젝트 것인지 밝히고 그 아래 서비스를 편다.
-    private func section(_ group: (projectId: String, title: String, services: [LocatedService])) -> some View {
+    private func section(_ group: ServiceGroup) -> some View {
         VStack(alignment: .leading, spacing: Space.tight) {
             HStack(spacing: Space.xs) {
                 Text(group.title)
@@ -101,38 +86,14 @@ struct ServicePopover: View {
         }
     }
 
-    /// 서비스 한 줄 — [● 이름 · 명령 ··· :3000 / exit 1]. 클릭하면 **그 프로젝트로 데려가서** 로그를 연다.
+    /// 서비스 한 줄 — 도크 목록과 **같은 `ServiceRow`**. 클릭하면 그 프로젝트로 데려가서 로그를 연다.
     private func row(_ item: LocatedService) -> some View {
-        let status = state.serviceMonitor.states[item.service.id] ?? .missing
-        return Button { onReveal(item) } label: {
-            HStack(spacing: Space.sm) {
-                Image(systemName: ServiceStatusStyle.glyph(status))
-                    .font(.muxa(.micro))
-                    .foregroundStyle(ServiceStatusStyle.color(status))
-                    .frame(width: 12)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(item.service.name)
-                        .font(.muxa(.label))
-                        .foregroundStyle(Color.pFg)
-                    Text(item.service.command)
-                        .font(.muxaMono(.caption))
-                        .foregroundStyle(Color.pMuted.opacity(0.8))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                Spacer(minLength: Space.sm)
-                if let tail = ServiceStatusStyle.tail(status, port: state.serviceMonitor.ports[item.service.id]) {
-                    Text(tail)
-                        .font(.muxaMono(.caption))
-                        .foregroundStyle(ServiceStatusStyle.color(status))
-                }
-            }
-            .padding(.horizontal, Space.sm)
-            .padding(.vertical, Space.xs)
-            .contentShape(Rectangle())
+        ServiceRow(service: item.service,
+                   status: state.serviceMonitor.state(of: item.service.id),
+                   port: state.serviceMonitor.ports[item.service.id],
+                   subtitle: item.service.command) {
+            onReveal(item)
         }
-        .buttonStyle(.plain)
-        .clickCursor()
         .help(item.projectId == currentProjectId
               ? "클릭하면 로그를 엽니다"
               : "클릭하면 \(item.projectName)(으)로 이동해 로그를 엽니다")

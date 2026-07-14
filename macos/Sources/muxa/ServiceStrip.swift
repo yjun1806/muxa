@@ -28,7 +28,7 @@ struct ServiceStrip: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            if !TmuxService.isAvailable || all.isEmpty {
+            if !state.servicesAvailable || all.isEmpty {
                 // tmux가 없거나 등록이 없어도 **숨기지 않는다** — 숨기면 이 기능이 있는지조차 모른다.
                 placeholder
             } else {
@@ -128,12 +128,12 @@ struct ServiceStrip: View {
                 Image(systemName: "square.stack.3d.up").font(.muxa(.micro))
                 Text("서비스").font(.muxa(.label))
             }
-            .foregroundStyle(Color.pMuted.opacity(TmuxService.isAvailable ? 1 : 0.6))
+            .foregroundStyle(Color.pMuted.opacity(state.servicesAvailable ? 1 : 0.6))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .clickCursor()
-        .help(TmuxService.isAvailable
+        .help(state.servicesAvailable
               ? "서비스 추가 — dev 서버처럼 오래 도는 명령"
               : "서비스 — tmux 설치가 필요합니다")
     }
@@ -141,14 +141,12 @@ struct ServiceStrip: View {
     // MARK: 집계
 
     private func statuses(of ids: [String]) -> [ServiceState] {
-        ids.map { state.serviceMonitor.states[$0] ?? .missing }
+        ids.map { state.serviceMonitor.state(of: $0) }
     }
 
-    /// 비정상 종료(exit ≠ 0)만 센다 — 정상 종료(0)는 문제가 아니다.
+    /// 비정상 종료만 센다 — "무엇이 비정상인가"는 `ServiceState.isFailure`가 혼자 정한다.
     private func deadCount(of ids: [String]) -> Int {
-        statuses(of: ids).filter {
-            if case .exited(let c) = $0 { return c != 0 } else { return false }
-        }.count
+        statuses(of: ids).filter(\.isFailure).count
     }
 
     private var globalDead: Int { deadCount(of: all.map(\.service.id)) }

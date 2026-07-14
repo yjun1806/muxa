@@ -56,7 +56,9 @@ enum MuxaSupportDir {
     /// 보존(=안 지움) 조건 — 하나라도 참이면 남긴다:
     ///  1) 개발 저장소가 아님(`muxa-dev-` 접두사가 아니다) — **릴리스 데이터는 절대 건드리지 않는다**
     ///  2) 지금 이 프로세스가 쓰는 저장소
-    ///  3) 출처를 모름(`.origin` 없음) — 판단 근거가 없으면 안 지운다
+    ///  3) 출처를 모름(`.origin` 없음, **또는 비었음/공백뿐임**) — 판단 근거가 없으면 안 지운다.
+    ///     빈 `.origin`(0바이트 파일·쓰기 도중 중단)은 nil이 아니라 `""`로 읽히는데, 그대로 두면
+    ///     `exists("")`=false라 **살아있는 워크트리의 저장소를 지운다**. 빈 출처 = 출처 모름이다.
     ///  4) 출처 워크트리가 아직 있음 — 지금 쓰는 개발빌드의 세션이다
     ///  5) 유예 안쪽(최근 수정) — 방금 지운 워크트리를 되살릴 수 있다
     static func orphans(_ stores: [DevStore], now: Date, graceInterval: TimeInterval,
@@ -64,7 +66,8 @@ enum MuxaSupportDir {
         stores.filter { store in
             guard (store.path as NSString).lastPathComponent.hasPrefix("muxa-dev-") else { return false }
             if store.path == currentPath { return false }
-            guard let origin = store.origin else { return false }
+            guard let origin = store.origin,
+                  !origin.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
             if exists(origin) { return false }
             if now.timeIntervalSince(store.modified) < graceInterval { return false }
             return true
@@ -76,8 +79,14 @@ enum MuxaSupportDir {
     ///
     /// 실행 파일 경로가 아니라 워크트리 루트를 적는 이유: `make clean`으로 `.build`만 지워도
     /// 워크트리는 그대로인데, 실행 파일을 기준 삼으면 멀쩡한 저장소를 유령으로 오판한다(AppInfo).
+    ///
+    /// 워크트리 루트를 못 뽑으면(개발 `.app`을 `.build` 밖으로 복사해 실행 — 경로에 `.build`가 없다)
+    /// **번들 경로라도 적는다**. 안 적으면 저장소는 생기는데 출처가 없어 보존규칙 3에 걸려 영영 남는다
+    /// — 유령을 막으려는 GC가 유령을 만든다. 이 폴백은 `.build`가 경로에 없을 때만 쓰이므로
+    /// `make clean` 오판(위)은 성립하지 않는다.
     static func stampOrigin() {
-        guard AppInfo.devKey != nil, let root = AppInfo.worktreeRoot else { return }
+        guard AppInfo.devKey != nil else { return }
+        let root = AppInfo.worktreeRoot ?? Bundle.main.bundlePath
         let file = url.appendingPathComponent(originFileName)
         try? root.write(to: file, atomically: true, encoding: .utf8)
     }
@@ -98,11 +107,13 @@ enum MuxaSupportDir {
         let stores: [DevStore] = entries.compactMap { dir in
             guard dir.lastPathComponent.hasPrefix("muxa-dev-") else { return nil }
             let originFile = dir.appendingPathComponent(originFileName)
-            let origin = try? String(contentsOf: originFile, encoding: .utf8)
+            // 0바이트 `.origin`은 nil이 아니라 ""로 읽힌다 — 비면 nil로 접는다(= 출처 모름 = 보존).
+            let raw = try? String(contentsOf: originFile, encoding: .utf8)
+            let origin = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
             // mtime을 못 읽으면 distantFuture(=항상 유예 안쪽) — 절대 삭제 대상이 안 된다(안전).
             let modified = (try? dir.resourceValues(forKeys: [.contentModificationDateKey])
                 .contentModificationDate) ?? .distantFuture
-            return DevStore(path: dir.path, origin: origin?.trimmingCharacters(in: .whitespacesAndNewlines),
+            return DevStore(path: dir.path, origin: (origin?.isEmpty == true) ? nil : origin,
                             modified: modified)
         }
 

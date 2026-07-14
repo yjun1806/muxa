@@ -35,6 +35,33 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 - **뷰어 라이브 리로드** ✅ — 열린 코드/md가 디스크에서 바뀌면 자동 재로드
 - **세션 복원 정합성** ✅ — 트리는 터미널만(`layoutSnapshot`), 문서/diff는 `SavedViewer`로 별도 복원
 
+## 최근 완료 (2026-07-14) — 서비스 코드 리뷰 마감 (SERVICE-REVIEW)
+
+서비스(장수 프로세스) 기능 전체 리뷰의 **Critical·Required·Nit 전부와 Optional 대부분을 해결**했다.
+남은 둘(기동 지연 · state 파일 0600)과 별건(AppState 분해)만 [SERVICE-REVIEW.md](SERVICE-REVIEW.md)에 남겼다.
+
+- **설치했는데 화면이 안 살아났다** (R9) — 뷰 7곳이 `TmuxService.isAvailable`(**static = 비관측**)을 직접 읽어,
+  tmux를 깔고 재탐지에 성공해도 SwiftUI가 무효화를 못 봐 칩·도크가 "tmux 없음"으로 굳었다. 관측 가능한
+  `AppState.servicesAvailable` + `retryTmuxDetection()` 한 벌로 모으고, 뷰가 직접 하던 셸아웃(`refresh`)·
+  전역 동작(`startServices`)을 상태로 걷어올렸다.
+- **"web 종료됨"을 누르면 Git 패널이 열렸다** (R7) — 죽음 알림은 `tabId` 자리에 **서비스 id**를 담는데
+  서비스는 탭 트리 밖(D19)이라 탭을 못 찾고 프로젝트 이동 + Git 패널로 흘렀다. **죽은 서버의 사인을
+  보러 가는 유일한 동선이 엉뚱한 패널을 여는 셈.** `locateService`(순수)로 분기해 도크로 보낸다.
+  배지 해제·탭 선택을 창 분기보다 먼저 하는 기존 계약(§5.3)은 그대로.
+- **판정·조회 중복 제거** — "비정상 종료란 무엇인가"가 네 곳에 흩어져 있던 걸 `ServiceState.isFailure`로,
+  `states[id] ?? .missing`은 `ServiceMonitor.state(of:)`로 모았다(한 곳만 고쳐져 배지는 뜨는데 알림은
+  안 오는 갈라짐을 막는다). 트리 순회도 `collectAllServices` 하나로.
+- **죽은 코드**(R12) — `ScriptSource.justfile`: 파서도 discover 분기도 없는데 목록에 "just" 라벨만 렌더해
+  **"just가 지원되나 보다"라는 거짓 신호**를 줬다. 삭제(되살릴 땐 파서와 함께).
+- **Makefile `::=` 오인** — `foo::=bar`(POSIX 즉시 대입)를 타깃으로 읽었다. 이중 콜론 **규칙**(`clean::`)은
+  진짜 타깃이라 살려두고 대입만 걸러낸다. 테스트로 못 박음.
+
+### ★ 육안 검증 필요 (이 수정 + 앞선 서비스 수정들)
+- tmux 없는 상태에서 도크 → "설치했습니다 — 다시 확인" → **푸터 칩·도크가 즉시 살아나는가**(R9의 핵심).
+- 서비스를 죽여(`kill`) 인박스에 "종료됨"이 뜨면 → 클릭 시 **도크(로그)**가 열리는가(Git 패널이 아니라).
+- App Nap 폴링 감속(비활성 30초) · pane 0 타겟(attach 후 화면 분할해도 상태·로그가 서비스 pane) ·
+  도크 행 글리프(색맹 안전 — 죽으면 모양 자체가 바뀌는가).
+
 ## 최근 완료 (2026-07-14) — 상용 감사: 인프라·배포
 
 - **첫 화면이 `/`였다** — `.app`을 Finder/Dock에서 열면 cwd가 `/`라 첫 워크스페이스가 파일시스템 루트로

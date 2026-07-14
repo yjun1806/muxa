@@ -71,10 +71,7 @@ final class AppState {
     let serviceMonitor = ServiceMonitor()
 
     /// 서비스 도크(하단 오버레이) 표시 상태와 선택된 서비스.
-    ///
-    /// **오버레이인 이유**: 레이아웃을 차지하는 도크로 만들면 열고 닫을 때마다 콘텐츠 카드가 줄었다 늘고,
-    /// 그때마다 ghostty 그리드가 리플로우된다. 그러면 "슬쩍 보고 닫기"의 비용이 커져 결국 안 열게 된다.
-    /// 카드 위에 겹치면 메인 그리드 리플로우가 0이다.
+    /// 오버레이인 이유는 `ServiceDock` 주석과 ARCHITECTURE §4.7(D19)에 한 번만 적는다.
     var showServiceDock = false
     var selectedServiceId: String?
 
@@ -285,6 +282,14 @@ final class AppState {
     func revealActivity(projectId: String, tabId: String? = nil) {
         guard let ws = workspace(containing: projectId) else { return }
         clearBadge(projectId)
+        // **서비스는 탭이 아니다.** 죽음 알림은 tabId 자리에 서비스 id를 담는데(startServices의 onExit),
+        // 서비스는 탭 트리 밖이라 그 id로 찾을 탭이 없다 — 그대로 흘려보내면 프로젝트만 이동하고
+        // Git 패널이 열려 정작 봐야 할 로그(도크)는 안 뜬다. 서비스면 서비스 동선으로 보낸다.
+        if let tabId, let service = locateService(tabId, in: workspaces) {
+            revealService(service)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
         if let tabId, let uuid = UUID(uuidString: tabId), let store = stores[projectId] {
             store.revealTab(TabID(uuid: uuid))
         }
@@ -558,16 +563,13 @@ final class AppState {
         SidebarTree.rollup(workspace.projects.map { projectStatus($0.id) })
     }
 
-    /// 프로젝트 서비스들의 현재 상태(키 없음 = .missing — ServiceDock·ServiceStrip과 같은 매핑).
+    /// 프로젝트 서비스들의 현재 상태.
     func serviceStatuses(of projectId: String) -> [ServiceState] {
-        services(of: projectId).map { serviceMonitor.states[$0.id] ?? .missing }
+        services(of: projectId).map { serviceMonitor.state(of: $0.id) }
     }
 
     private func hasDeadService(_ projectId: String) -> Bool {
-        if case .exited(let code) = ServiceStatusStyle.summarize(serviceStatuses(of: projectId)) {
-            return code != 0
-        }
-        return false
+        ServiceStatusStyle.summarize(serviceStatuses(of: projectId)).isFailure
     }
 
     /// 주의 큐 헤더가 가리킬 대상 — nil이면 헤더를 아예 그리지 않는다.
@@ -667,14 +669,34 @@ final class AppState {
 
     // MARK: 서비스 (장수 프로세스 — Service.swift, 실행은 tmux 위임)
 
+    /// tmux를 쓸 수 있나 — **뷰는 이것만 본다**(`TmuxService.isAvailable`을 직접 읽지 않는다).
+    ///
+    /// static은 @Observable이 아니다. 뷰가 그걸 직접 읽으면 사용자가 tmux를 설치하고 재탐지에
+    /// 성공해도 SwiftUI가 무효화를 못 봐 **푸터 칩도 도크도 그대로 "tmux 없음"으로 남는다** —
+    /// 설치했는데 아무 일도 안 일어나는 화면이 된다. 관측 가능한 사본을 여기 한 벌 둔다.
+    private(set) var servicesAvailable = TmuxService.isAvailable
+
+    /// tmux를 다시 찾는다(사용자가 방금 설치했다). 찾았으면 UI를 살리고 저장된 서비스를 띄운다.
+    ///
+    /// 재탐지(셸아웃)와 기동(전역 동작)은 **뷰가 할 일이 아니다** — 뷰는 결과만 받는다.
+    /// - Returns: 찾았으면 true.
+    @discardableResult
+    func retryTmuxDetection() -> Bool {
+        guard TmuxService.refresh() else { return false }
+        servicesAvailable = true
+        startServices() // 찾았으니 저장된 서비스를 바로 띄운다
+        return true
+    }
+
     /// 프로젝트에 등록된 서비스 목록.
     func services(of projectId: String) -> [Service] {
         project(projectId)?.services ?? []
     }
 
-    /// 모든 워크스페이스의 서비스 — 모니터 폴링·고아 판정의 입력.
+    /// 모든 워크스페이스의 서비스 — 모니터 폴링의 입력. 트리 순회는 `collectAllServices`(순수) 하나뿐이다
+    /// (같은 순회를 손으로 다시 쓰면 "활성 워크스페이스만 훑는" 실수가 한쪽에서만 되살아난다).
     private var allServices: [Service] {
-        workspaces.flatMap(\.projects).flatMap { $0.services ?? [] }
+        allLocatedServices.map(\.service)
     }
 
     /// 서비스를 등록하고 곧바로 기동한다. cwd는 프로젝트 경로(없으면 워크스페이스 경로).
@@ -817,8 +839,9 @@ final class AppState {
     func startServices() {
         guard TmuxService.isAvailable else { return }
         serviceMonitor.onExit = { [weak self] service, code in
-            guard let self, code != 0 else { return } // 정상 종료(0)는 알리지 않는다 — 시끄럽기만 하다
-            guard let location = self.locate(serviceId: service.id) else { return }
+            // "정상 종료(0)는 알리지 않는다"는 판정은 배지·요약·칩과 **같은 한 곳**에서 온다(ServiceState.isFailure).
+            guard let self, ServiceState.exited(code: code).isFailure else { return }
+            guard let location = locateService(service.id, in: self.workspaces) else { return }
             self.attention.record(workspaceId: location.workspaceId, projectId: location.projectId,
                                   tabId: service.id, kind: .system,
                                   title: "\(service.name) 종료됨 (exit \(code))")
@@ -839,16 +862,6 @@ final class AppState {
         syncServiceMonitor()
     }
 
-    /// 서비스가 속한 워크스페이스·프로젝트를 찾는다(알림 라우팅용).
-    private func locate(serviceId: String) -> (workspaceId: String, projectId: String)? {
-        for ws in workspaces {
-            for project in ws.projects where (project.services ?? []).contains(where: { $0.id == serviceId }) {
-                return (ws.id, project.id)
-            }
-        }
-        return nil
-    }
-
     // MARK: 서비스 도크의 터미널 — 펼칠 때 attach, 접을 때 버린다
 
     /// serviceId → attach 터미널. 도크가 열려 있는 동안만 산다.
@@ -866,9 +879,14 @@ final class AppState {
     /// 상태를 유지하려고 숨은 서피스를 붙들 필요가 없다 — 재부착 빈 화면 레이스를 아예 안 밟는다.
     func dockTerm(serviceId: String, projectId: String, cwd: String?) -> TermView {
         if let existing = dockTerms[serviceId] { return existing }
-        let term = TermView(app: app, cwd: cwd,
-                            initialCommand: TmuxService.attachCommand(projectId: projectId,
-                                                                      serviceId: serviceId))
+        let attach = TmuxService.attachCommand(projectId: projectId, serviceId: serviceId)
+        // **nil을 삼키면 안 된다.** id가 세션명 규약을 벗어나면 붙일 세션이 없어 initialCommand가 비고,
+        // 그러면 도크에 **그냥 셸**이 떠서 사용자는 "왜 로그가 안 나오지"로 끝난다(시작도 같은 이유로
+        // 실패했을 것이다 — TmuxService.start). 사유를 말한다.
+        if attach == nil {
+            attention.recordSystem(title: "서비스 로그를 열 수 없습니다 — 서비스 id가 세션명 규약을 벗어납니다 (\(serviceId))")
+        }
+        let term = TermView(app: app, cwd: cwd, initialCommand: attach)
         dockTerms[serviceId] = term
         return term
     }
@@ -895,9 +913,8 @@ final class AppState {
         return (ws, project)
     }
 
-    /// **창 전체**의 서비스 — 소속(워크스페이스·프로젝트)을 달고 온다.
-    /// 푸터 칩·팝오버가 이걸 본다: 다른 워크스페이스의 dev 서버가 죽었는데 거기 들어가야만
-    /// 알 수 있다면 알림으로서 실패다.
+    /// **창 전체**의 서비스 — 소속(워크스페이스·프로젝트)을 달고 온다(푸터 칩·팝오버가 본다).
+    /// 왜 프로젝트 단위가 아니라 창 전체인가는 `LocatedService`(Service.swift) 주석에 한 번만 적는다.
     var allLocatedServices: [LocatedService] {
         collectAllServices(in: workspaces)
     }

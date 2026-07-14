@@ -296,6 +296,8 @@ zinc 원칙과도 충돌하지 않는다. `panel`을 올린 만큼 hover도 한 
 | `Meter` | 가로 막대(사용량) | 값 + 상태색 |
 | `ContentCard` | 콘텐츠 판 + 칸 강조 테두리 레이어 | 위 레이아웃 규칙 참조. 카드 고도는 `Elevation.Card`(뒤판 그림자 — ghostty 서피스에 `.shadow`를 걸지 않는다) |
 | `ProjectStatusStyle` | 프로젝트·워크스페이스 상태의 **색 + 점 크기** | `ServiceStatusStyle`와 같은 자리·같은 패턴. 트리 행·롤업 점·슬림 막대가 공유하는 단일 출처 |
+| `EmptyState` | 빈 상태 — 아이콘 · 제목 · `subtitle`(왜 비었나) · 액션 | 아이콘·제목 크기는 **여기서만** 정한다(호출부가 `.system(size:)`를 다시 쓰지 않는다). `compact`는 팝오버용 |
+| `ServiceRow` | 서비스 한 줄 — 도크 목록과 팝오버가 **같은 행**을 쓴다 | 표식은 **글리프**(`ServiceStatusStyle.glyph`) — 색만으로 상태를 말하지 않는다. 명령 미리보기는 `truncationMode(.tail)`: 가운데를 접으면 명령의 꼬리(`&& curl … \| sh`)가 숨는다 |
 | `Breadcrumb` | 상단바의 "지금 어디에 있나" | **라벨이다(버튼 아님).** 여기에 클릭을 주면 전환 경로가 둘이 되고, 어느 쪽이 진짜인지 매번 고민하게 된다 |
 | `SidebarNameChip` | 접힌 모드에서 hover한 항목의 이름 칩 | 사이드바 **바깥**에 뜬다(`Sidebar.chipOffset`). 히트테스트 끔 |
 | **칩** | 푸터의 누를 수 있는 알약(사용량·서비스) | 배경(`btnHover`) + hover/열림 상태로 "누를 수 있음"을 드러낸다. 항목 사이는 여백이 아니라 **얇은 세로선**(`VDivider`)으로 가른다 — 여백만으로는 붙어 읽힌다 |

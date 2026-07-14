@@ -185,7 +185,9 @@ enum TmuxService {
     ///   구분이 안 돼 침묵으로 사라진다. 명령이 즉사하는 쪽(exited)만 알림을 받던 비대칭을 메운다.
     @discardableResult
     static func start(_ service: Service, projectId: String, cwd: String) async -> String? {
-        let session = ServiceSession.name(projectId: projectId, serviceId: service.id)
+        guard let session = ServiceSession.name(projectId: projectId, serviceId: service.id) else {
+            return "서비스 id가 세션명 규약을 벗어납니다 (\(service.id))"
+        }
         guard await !exists(session) else { return nil }
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let result = await runResult(startArgs(session: session, cwd: cwd,
@@ -224,30 +226,25 @@ enum TmuxService {
     /// "그 명령의 경로로 치환"하는 EQUALS 확장이다. 인용하지 않으면 세션 이름을 명령어로 착각해
     /// `zsh: muxa__... not found`로 죽는다. (`=`는 tmux에게 정확 매치를 요구하는 접두사이고,
     /// 인자 배열로 직접 실행하는 다른 명령들은 셸을 안 거쳐 이 문제가 없다.)
-    /// 세션명은 우리가 만든 값(muxa__uuid__uuid)이라 작은따옴표 안에 안전하게 들어간다.
-    static func attachCommand(projectId: String, serviceId: String) -> String {
-        let tmux = ShellQuote.single(executable ?? "tmux")
-        return "\(tmux) -L \(socket) attach -t '=\(ServiceSession.name(projectId: projectId, serviceId: serviceId))'"
-    }
-
-    /// **죽은** 서비스의 로그를 화면에 뿌리는 명령.
     ///
-    /// 죽은 pane에 attach하면 tmux가 클라이언트 크기로 리사이즈하면서 화면 내용이 날아가고
-    /// `Pane is dead`만 남는다 — 정작 왜 죽었는지(마지막 에러)를 못 본다. capture-pane은 그 내용을
-    /// 온전히 갖고 있으므로, 죽은 서비스는 attach 대신 로그를 직접 출력한다.
-    /// (`=<세션>:` 타겟과 zsh 인용 이유는 capture·attachCommand 주석 참조.)
-    static func logCommand(projectId: String, serviceId: String, lines: Int = 200) -> String {
-        let session = ServiceSession.name(projectId: projectId, serviceId: serviceId)
+    /// **보간되는 값은 전부 `ShellQuote.single`로 감싼다.** 세션명은 state.v4.json의 id로 조립되는데,
+    /// 그 파일은 신뢰 경계 밖이다(사용자·외부가 쓴다). 직접 `'…'`로 감싸기만 하면 id 안의 `'`가
+    /// 따옴표를 조기에 닫아 임의 명령이 실행된다 — 도크를 펼치는 순간에. 화이트리스트
+    /// (`ServiceSession.isValidId`)가 애초에 그런 id를 막지만, 인용은 그것과 별개의 방어선이다.
+    /// - Returns: id가 규약을 벗어나면 nil(= 붙일 세션이 없다).
+    static func attachCommand(projectId: String, serviceId: String) -> String? {
+        guard let session = ServiceSession.name(projectId: projectId, serviceId: serviceId) else { return nil }
         let tmux = ShellQuote.single(executable ?? "tmux")
-        return "\(tmux) -L \(socket) capture-pane -p -t '=\(session):' -S -\(lines)"
+        return "\(tmux) -L \(ShellQuote.single(socket)) attach -t \(ShellQuote.single("=\(session)"))"
     }
 
     // MARK: 관측 — 접혀 있어도(서피스 렌더 없이) 읽는다
 
     /// 모든 서비스 세션의 상태. 서버가 없으면 빈 값(= 전부 missing).
+    /// `pane_index`를 함께 받는 이유는 `ServiceSession.parsePanes` 주석 참조(pane 0만 세션의 상태다).
     static func states() async -> [String: ServiceState] {
         let out = await run(["list-panes", "-a", "-F",
-                             "#{session_name}|#{pane_dead}|#{pane_dead_status}"])
+                             "#{session_name}|#{pane_index}|#{pane_dead}|#{pane_dead_status}"])
         guard out.exitCode == 0 else { return [:] }
         return ServiceSession.parsePanes(out.stdout)
     }
@@ -261,12 +258,14 @@ enum TmuxService {
 
     /// 로그 꼬리 — 렌더 없이 읽는다. 죽은 세션에서도 마지막 로그가 보존된다(사후 디버깅).
     ///
-    /// 타겟이 `=<세션>:`인 이유: `capture-pane`은 pane 타겟을 받으므로 세션명에 `=`만 붙이면
+    /// 타겟이 `=<세션>:.0`인 이유: `capture-pane`은 pane 타겟을 받으므로 세션명에 `=`만 붙이면
     /// (`=<세션>`) pane으로 해석하려다 실패한다. 뒤의 `:`이 "그 세션의 현재 window"를 뜻해
-    /// 정확 매치(`=`)와 pane 타겟을 동시에 만족한다.
+    /// 정확 매치(`=`)와 pane 타겟을 동시에 만족하고, `.0`이 **pane 0**을 못 박는다 —
+    /// 사용자가 attach해서 화면을 나누면 활성 pane이 옆 셸일 수 있어, 그대로 두면 로그·포트를
+    /// 엉뚱한 pane에서 읽는다. 서비스 명령은 언제나 pane 0에서 돈다(parsePanes와 같은 규약).
     static func capture(projectId: String, serviceId: String, lines: Int = 100) async -> String {
-        let session = ServiceSession.name(projectId: projectId, serviceId: serviceId)
-        return await run(["capture-pane", "-p", "-t", "=\(session):", "-S", "-\(lines)"]).stdout
+        guard let session = ServiceSession.name(projectId: projectId, serviceId: serviceId) else { return "" }
+        return await run(["capture-pane", "-p", "-t", "=\(session):.0", "-S", "-\(lines)"]).stdout
     }
 
     // MARK: 종료·정리
@@ -276,7 +275,8 @@ enum TmuxService {
     }
 
     static func kill(projectId: String, serviceId: String) async {
-        await kill(session: ServiceSession.name(projectId: projectId, serviceId: serviceId))
+        guard let session = ServiceSession.name(projectId: projectId, serviceId: serviceId) else { return }
+        await kill(session: session)
     }
 
     /// 좀비 정리 — 등록이 사라졌는데 살아남은 서비스 세션을 죽인다.

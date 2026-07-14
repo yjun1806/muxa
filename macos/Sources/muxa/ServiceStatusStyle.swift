@@ -20,6 +20,16 @@ enum ServiceStatusStyle {
         }
     }
 
+    /// 스크린리더가 읽을 상태 이름 — **색도 글리프도 VoiceOver에는 존재하지 않는다.**
+    /// 표식으로 말한 것을 말로도 한 번 더 말한다(같은 규칙, 같은 출처).
+    static func label(_ status: ServiceState) -> String {
+        switch status {
+        case .running: return "실행 중"
+        case .exited(let code): return code == 0 ? "종료됨" : "비정상 종료 (exit \(code))"
+        case .missing: return "실행 전"
+        }
+    }
+
     /// 꼬리표 — 포트(알면)나 exit code. 포트를 못 뽑았으면 아무것도 안 붙인다(지어내지 않는다).
     static func tail(_ status: ServiceState, port: Int?) -> String? {
         switch status {
@@ -32,9 +42,7 @@ enum ServiceStatusStyle {
     /// 서비스 여럿의 상태를 하나로 요약한다 — 푸터 칩은 "문제가 있나 없나"만 말한다.
     /// **문제가 최우선이다**: 하나라도 비정상 종료면 그게 요약이다(초록 다수에 묻히면 안 된다).
     static func summarize(_ statuses: [ServiceState]) -> ServiceState {
-        if let dead = statuses.first(where: { if case .exited(let c) = $0 { return c != 0 } else { return false } }) {
-            return dead
-        }
+        if let dead = statuses.first(where: \.isFailure) { return dead }
         if statuses.contains(where: { $0 == .running }) { return .running }
         return statuses.first ?? .missing
     }
