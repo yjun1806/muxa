@@ -37,7 +37,8 @@ struct BonsplitChromeTests {
         let veil = Palette.paneVeil.bonsplitHexPair
         #expect(veil.light.count == 9) // "#RRGGBBAA"
         #expect(veil.light.hasSuffix("08")) // 3% ≈ 8/255
-        #expect(veil.dark.hasSuffix("1F")) // 12% ≈ 31/255
+        #expect(veil.dark.hasSuffix("38")) // 22% ≈ 56/255 — 다크는 곱연산 손해가 커서 알파를 더 준다(ΔL*를 맞춘다)
+        #expect(!veil.dark.hasSuffix("FF")) // 불투명해지면 그 칸이 통째로 까맣게 덮인다
     }
 
     /// 탭바(크롬)와 활성 탭(콘텐츠)은 **다른 면**이어야 한다 — 같으면 활성 탭이 시각적으로 사라진다.

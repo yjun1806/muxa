@@ -9,6 +9,8 @@ import SwiftUI
 /// 펼침 상태는 뷰가 아니라 `AppState`가 소유한다(영속 — 규칙은 순수 함수 `SidebarTree`).
 struct SidebarSUI: View {
     let state: AppState
+    /// 그림자 불투명도가 라이트/다크에서 다르다(알파는 동적 NSColor로 못 싣는다 — `CardElevation`과 같은 사정).
+    @Environment(\.colorScheme) private var scheme
     @State private var peeking = false
     /// 지금 마우스가 올라간 행(워크스페이스·프로젝트가 같은 id 공간을 쓴다) — 강조 + 이름 칩 대상.
     @State private var hoveredId: String?
@@ -21,6 +23,10 @@ struct SidebarSUI: View {
     }
 
     private var width: CGFloat { effectiveMode.baseWidth }
+
+    private var shadowOpacity: Double {
+        scheme == .dark ? Elevation.Peek.shadowOpacity.dark : Elevation.Peek.shadowOpacity.light
+    }
 
     /// 이름이 보이지 않는 모드 — 호버 시 이름 칩을 띄운다.
     private var showsNameChip: Bool { effectiveMode != .expanded }
@@ -36,8 +42,13 @@ struct SidebarSUI: View {
         .frame(width: width, alignment: .top)
         .frame(maxHeight: .infinity)
         .background(Color.pPanel)
-        // peek로 펼쳐졌을 때는 얇은 경계선만으로 "위에 떠 있음"을 알린다.
-        // 그림자는 크롬끼리 같은 배경으로 이어지는 레이아웃과 충돌해 지저분해 보인다.
+        // peek로 펼쳐지면 **콘텐츠 카드 위에** 뜬다 — 카드 고도가 못 닿는 유일한 자리다(사이드바가 카드보다 위 레이어).
+        // 남는 신호가 1px 하선뿐이면(다크 border↔bg 1.62:1) 2단 트리가 터미널에 얹힌 것처럼 보인다.
+        // 그래서 여기서만 그림자를 준다 — 오른쪽으로만(`Elevation.Peek`). 도킹 상태(peeking=false)엔 0이라
+        // 크롬끼리 이어지는 자리에 그늘이 지지 않는다(예전에 그림자를 뺐던 이유가 그것이다).
+        .shadow(color: .black.opacity(peeking ? shadowOpacity : 0),
+                radius: Elevation.Peek.shadowRadius,
+                x: peeking ? Elevation.Peek.shadowOffsetX : 0)
         .overlay(alignment: .trailing) {
             if peeking { Rectangle().fill(Color.pBorder).frame(width: RowHeight.hairline) }
         }
