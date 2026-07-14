@@ -178,10 +178,18 @@ final class ClaudeHookInterpreterTests: XCTestCase {
     }
 
     func testSessionStartRegistersResumeBindingWithoutState() {
-        let r = interpret(.sessionStart, #"{"session_id": "abc-123"}"#)
+        let id = "550e8400-e29b-41d4-a716-446655440000"
+        let r = interpret(.sessionStart, #"{"session_id": "\#(id)", "cwd": "/Users/x/repo"}"#)
         XCTAssertNil(r.outcome.state, "세션이 떴을 뿐 작업 중은 아니다")
-        XCTAssertEqual(r.outcome.resume?.command, "claude --resume abc-123")
+        XCTAssertEqual(r.outcome.resume?.command, "claude --resume \(id)")
         XCTAssertEqual(r.outcome.resume?.agentLabel, "claude")
+        XCTAssertEqual(r.outcome.resume?.cwd, "/Users/x/repo", "재개는 그 폴더에서만 유효하다 — 게이트가 대조한다")
+    }
+
+    /// 세션 id가 UUID가 아니면 바인딩을 만들지 않는다 — 플래그 주입(`--dangerously-skip-permissions`) 차단.
+    func testSessionStartRejectsNonUUIDSessionId() {
+        XCTAssertNil(interpret(.sessionStart, #"{"session_id": "--dangerously-skip-permissions"}"#).outcome.resume)
+        XCTAssertNil(interpret(.sessionStart, #"{"session_id": "abc-123"}"#).outcome.resume)
     }
 
     // MARK: 스키마 방어

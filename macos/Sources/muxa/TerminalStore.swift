@@ -212,9 +212,16 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 탭별 에이전트 재개 바인딩(훅이 넘긴 재개 명령). 훅 알림으로 등록되고 스냅샷에 실려 복원된다.
     /// 값 자체는 관측 대상이 아니라 뷰는 아래 resumeTabs로 표시 여부만 반응한다.
     @ObservationIgnored private var resumeBindings: [TabID: ResumeBinding] = [:]
-    /// 재개 바인딩이 살아 있는 탭들 — 재개 배너(ResumeOverlay)가 관측해 표시/소비를 반응한다.
-    /// resumeBindings와 항상 동기(등록 시 insert, 소비·탭닫힘 시 remove) — 뷰가 값 대신 이 집합만 본다.
+    /// **배너를 띄울** 탭들 — 재개 배너(ResumeOverlay)가 관측해 표시/소비를 반응한다.
+    ///
+    /// 바인딩이 있다고 배너를 띄우지 않는다. 배너는 "이어서 할래?"라는 제안이라 **이어서 할 게 있을 때**,
+    /// 즉 세션 복원으로 되살아난 탭(빈 셸)에서만 뜬다(`restoreResumeBinding`). 훅으로 들어온 바인딩은
+    /// 에이전트가 **지금 그 탭에서 돌고 있다**는 뜻이라 배너를 띄우지 않는다 — 띄웠더니 자동 실행이
+    /// 살아 있는 claude 입력창에 `claude --resume …`를 타이핑했다(D2 회귀).
     private(set) var resumeTabs: Set<TabID> = []
+    /// 재개를 **보류한** 탭과 그 사유 — 배너가 관측해 "왜 못 보냈는지"를 사용자에게 말해 준다.
+    /// 보류 시 바인딩은 소비하지 않는다: 사용자가 조건을 맞추고(폴더 이동·TUI 종료) 다시 누르면 실행된다.
+    private(set) var resumeBlocks: [TabID: ResumeGate.Reason] = [:]
     /// 복원된 세션 재개의 승인 게이트(off/manual/auto). 기본 manual — 임의 셸 명령 자동 실행을 막는다(신뢰 경계).
     /// 설정 라이브 리로드로 갱신될 수 있어 var — AppState가 `updateAgentResumeMode`로 전파한다. (D2)
     @ObservationIgnored private(set) var agentResumeMode: AgentResumeMode
@@ -412,6 +419,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         restoredScrollbackFile[tabId] = nil // 스크롤백 파일 힌트 해제
         ScrollbackStore.delete(for: tabId) // 이 탭의 스크롤백 파일 정리(누수 방지)
         resumeBindings[tabId] = nil // 에이전트 재개 바인딩 해제
+        resumeBlocks[tabId] = nil // 재개 차단 사유도 해제
         resumeTabs.remove(tabId) // 재개 배너 표시 상태도 해제
         tabContent[tabId] = nil
         groups[tabId] = nil // 그룹 탭이면 서브탭 상태도 해제
@@ -758,15 +766,25 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// transcript에서 마지막 메시지를 못 건졌을 때의 완료 본문(빈 본문보다 낫다).
     private static let turnCompleteFallbackBody = "턴이 끝났다"
 
-    /// 바인딩을 맵 + 관측 집합에 함께 넣는다(항상 동기). 훅 등록·복원 realize가 공유하는 단일 경로.
-    private func registerResumeBinding(_ binding: ResumeBinding, for tabId: TabID) {
+    /// **복원** 경로 — 되살아난 탭(빈 셸)에 바인딩을 얹고 배너를 띄운다. 실행 여부는 게이트가 정한다.
+    private func restoreResumeBinding(_ binding: ResumeBinding, for tabId: TabID) {
         resumeBindings[tabId] = binding
         resumeTabs.insert(tabId)
     }
 
-    /// 탭의 에이전트 재개 바인딩을 등록한다(훅 알림 경로). 즉시 저장을 트리거해 영속에 반영한다.
+    /// **훅·알림** 경로 — 에이전트가 지금 이 탭에서 돌고 있다는 신고다. 바인딩만 저장하고 **배너는 띄우지 않는다**
+    /// (이어서 할 게 없다 — 이미 돌고 있다). 이 바인딩은 다음 복원 때 스냅샷에서 되살아나 그때 배너가 된다.
+    ///
+    /// 배너가 떠 있던 탭에서 사용자가 직접 claude를 켠 경우도 여기로 온다 — 그 배너는 이제 유효하지 않으므로 내린다.
+    ///
+    /// cwd가 비어 오면(구 훅·줄 프로토콜) 그 탭의 현재 셸 pwd로 채운다 — 재개를 그 폴더에 묶어 두기 위한
+    /// 단일 보강 지점이다(ResumeGate가 실행 직전 이 값과 대조한다).
     func setResumeBinding(_ binding: ResumeBinding, for tabId: TabID) {
-        registerResumeBinding(binding, for: tabId)
+        var bound = binding
+        if bound.cwd == nil { bound.cwd = pwds[tabId] }
+        resumeBindings[tabId] = bound
+        resumeTabs.remove(tabId)
+        resumeBlocks[tabId] = nil
         persist()
     }
 
@@ -795,20 +813,60 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         guard resumeBindings[tabId] != nil else { return }
         resumeBindings[tabId] = nil
         resumeTabs.remove(tabId)
+        resumeBlocks[tabId] = nil
         persist()
+    }
+
+    /// 이 탭의 재개 보류 사유(없으면 nil) — 배너가 안내 문구를 읽는 접근자.
+    func resumeBlock(for tabId: TabID) -> ResumeGate.Reason? { resumeBlocks[tabId] }
+
+    /// 포그라운드가 셸 자신인가 — **모르면 nil**(pid가 아직 안 잡혔다). 재개 게이트 전용 판정.
+    ///
+    /// 스크롤백 캡처용 `isRunningForegroundProgram`과 데이터는 같지만 **안전 기본값이 반대**라 따로 둔다:
+    /// 캡처는 모르면 해도 되지만(되돌릴 수 있다), 명령 전송은 모르면 하면 안 된다(Enter까지 커밋된다).
+    /// 그 차이를 옵셔널로 드러낸다 — 호출부가 "모른다"를 무시할 수 없다.
+    private func foregroundIsShell(_ term: TermView) -> Bool? {
+        guard let fg = term.foregroundPid, let shell = term.shellPid else { return nil }
+        return fg == shell
+    }
+
+    /// 경로 비교용 정규화 — 심링크를 해석한다(`/tmp` → `/private/tmp`, `~/dev` → 실제 볼륨).
+    /// 기대 경로(claude의 물리 경로)와 셸 pwd(논리 경로)는 표기가 갈릴 수 있어, 비교 전에 같은 지반으로 내린다.
+    /// 파일시스템을 만지므로 순수 판정(ResumeGate)이 아니라 이 경계가 맡는다.
+    private static func resolvePath(_ path: String?) -> String? {
+        guard let path else { return nil }
+        return URL(fileURLWithPath: path).resolvingSymlinksInPath().path
     }
 
     /// 복원된 에이전트 세션을 재개한다 — 재개 명령을 셸에 입력·실행하고 바인딩을 소비한다.
     ///
-    /// 신뢰 경계(D2): command는 훅이 넘긴 임의 셸 명령이다. 승인 게이트(agent_resume)가 off면 실행하지 않고,
+    /// 신뢰 경계(D27): command는 훅이 넘긴 재개 명령이다. 승인 게이트(agent_resume)가 off면 실행하지 않고,
     /// manual은 사용자가 배너 버튼으로, auto는 복원 후 자동으로 여기를 호출한다. 어느 경로든 실행은 이 한 곳뿐이고,
     /// 소비가 뒤따라 중복 실행을 막는다(auto의 지연 재호출·onAppear 재발화도 바인딩이 없으면 무동작).
-    func executeResume(for tabId: TabID) {
+    ///
+    /// **보낼 대상이 맞는지는 ResumeGate가 정한다** — 포그라운드가 셸이 아니거나(TUI에 텍스트 주입) 셸이 다른
+    /// 폴더에 있으면(그 폴더엔 이 세션이 없다) 보내지 않고 사유만 남긴다. 보류는 소비하지 않으므로,
+    /// 사용자가 조건을 맞춘 뒤 배너를 다시 누르면 그때 실행된다. 판정을 돌려주어 auto가 `.notReady`를 재시도한다.
+    @discardableResult
+    func executeResume(for tabId: TabID) -> ResumeGate.Decision {
         guard agentResumeMode != .off,
               let binding = resumeBindings[tabId],
-              let term = terms[tabId] else { return }
+              let term = terms[tabId] else { return .hold(.notReady) }
+
+        // pwd는 **관측된 값만** 쓴다 — pendingCwd(우리가 셸에게 부탁한 시작 폴더)는 힌트지 사실이 아니다.
+        // 그걸 대신 넣으면 "모르면 안 보낸다"가 "추측으로 보낸다"가 된다(rc가 느린 셸·삭제된 폴더).
+        let decision = ResumeGate.decide(expectedCwd: Self.resolvePath(binding.cwd),
+                                         pwd: Self.resolvePath(term.pwd),
+                                         foregroundIsShell: foregroundIsShell(term))
+        guard case .send = decision else {
+            if case .hold(let reason) = decision { resumeBlocks[tabId] = reason }
+            return decision
+        }
+
+        resumeBlocks[tabId] = nil
         term.sendText(binding.command + "\n") // 명령 + 실행(Return). sendText가 개행을 Enter로 커밋한다.
         consumeResumeBinding(for: tabId)
+        return .send
     }
 
     /// 알림/배지 클릭으로 이 탭을 앞으로 가져온다 — 그 칸을 선택·포커스하고 배지를 끈다.
@@ -1437,7 +1495,12 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                     inPane: pane
                 ) {
                     if let cwd = t.cwd { pendingCwd[tid] = cwd } // 새 셸을 저장된 작업 디렉터리에서 띄우게 힌트.
-                    if let resume = t.resume { registerResumeBinding(resume, for: tid) } // 재개 바인딩 복구(+배너 표시). 실행은 게이트가.
+                    // 재개 바인딩 복구(+배너 표시). 실행은 게이트가.
+                    //
+                    // **tmux(∞) 탭은 제외한다** — 이 탭은 `tmux attach`로 복원되고, 세션 안의 claude는 **죽지 않았다**.
+                    // 이어서 할 게 없는데 배너를 띄우면 살아 있는 claude 입력창에 `claude --resume …`를 꽂게 된다
+                    // (게이트도 못 막는다: 포그라운드 판정이 보는 건 pty의 tmux 클라이언트지 그 안의 claude가 아니다).
+                    if t.tmuxSession == nil, let resume = t.resume { restoreResumeBinding(resume, for: tid) }
                     // 신뢰 재개(claude 자동)는 곧 claude가 화면을 덮으므로 죽은 스크롤백 리플레이를 건너뛴다(잔상·중복 방지).
                     // tmux 세션명은 **저장된 이름 그대로** 이어받는다 — tabId는 방금 새로 발급됐으므로
                     // 재조립하면 엉뚱한 세션을 만들고, 돌던 프로세스는 고아가 된다.
