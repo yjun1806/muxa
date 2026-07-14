@@ -11,7 +11,11 @@ struct SidebarProjectRow: View {
     @Binding var hoveredId: String?
     @Binding var menuOpenId: String?
 
-    private var active: Bool { project.id == workspace.activeProjectId && workspace.id == state.activeId }
+    /// 다른 창이 그리고 있는 프로젝트 — 메인의 활성 표시(채움)를 주지 않는다(여긴 그 프로젝트가 없다).
+    private var separated: Bool { !state.owner(of: project.id).isMain }
+    private var active: Bool {
+        project.id == workspace.activeProjectId && workspace.id == state.activeId && !separated
+    }
     private var hovered: Bool { hoveredId == project.id || menuOpenId == project.id }
 
     var body: some View {
@@ -28,6 +32,13 @@ struct SidebarProjectRow: View {
                 .foregroundStyle(active || hovered ? Color.pFg : Color.pMuted)
                 .lineLimit(1)
                 .truncationMode(.tail)
+            // 분리된 프로젝트도 **트리에 그대로 남는다** — 숨기면 어디로 갔는지 알 수 없다.
+            // 이름 뒤 마이크로 글리프가 "다른 창에 있다"만 말하고, 클릭하면 그 창이 앞으로 온다.
+            if separated {
+                Image(systemName: "macwindow")
+                    .font(.muxa(.micro))
+                    .foregroundStyle(Color.pMuted)
+            }
             Spacer(minLength: Space.xs)
             // ✕는 서비스 요약과 **같은 자리**를 쓴다(hover 시 교체 → 행 폭이 흔들리지 않는다).
             if hovered {
@@ -44,6 +55,12 @@ struct SidebarProjectRow: View {
         .clipShape(RoundedRectangle(cornerRadius: Radius.md))
         .contentShape(Rectangle())
         .onTapGesture {
+            // 분리된 프로젝트는 그 창을 앞으로 부르기만 한다 — 메인의 활성 좌표는 건드리지 않는다
+            // (메인이 그 프로젝트를 그리지 않으므로 활성으로 바꾸면 플레이스홀더만 남는다).
+            if separated {
+                state.focusWindow(owning: project.id)
+                return
+            }
             // 배지(주의) 있는 프로젝트로 이동하면 Git 패널까지 함께 연다(원클릭 검토 동선).
             if state.badgedProjects.contains(project.id) {
                 state.revealActivity(projectId: project.id)
@@ -78,7 +95,7 @@ struct SidebarProjectRow: View {
     }
 
     private var closeButton: some View {
-        Button { state.closeProject(project.id) } label: {
+        Button { ProjectClose.request(project, state: state) } label: {
             Image(systemName: "xmark")
                 .font(.muxa(.micro, weight: .semibold))
                 .foregroundStyle(Color.pMuted)

@@ -17,6 +17,10 @@ enum ProjectMenu {
                 state.setActiveProject(project.id) // 안 보고 있는 프로젝트에 터미널만 생기면 놓친다 — 함께 전환.
                 state.store(for: project, in: workspace).newTerminal()
             },
+            MuxaMenuItem(icon: "macwindow", title: "새 창으로 분리",
+                         enabled: state.owner(of: project.id).isMain) {
+                state.separateProject(project.id)
+            },
             .separator,
             MuxaMenuItem(icon: "arrow.up.forward.app", title: "Finder에서 열기", enabled: path != nil) {
                 guard let path else { return }
@@ -30,7 +34,7 @@ enum ProjectMenu {
             .separator,
             MuxaMenuItem(icon: "xmark.circle", title: "프로젝트 닫기", destructive: true,
                          enabled: workspace.projects.count > 1) {
-                state.closeProject(project.id)
+                ProjectClose.request(project, state: state) // 분리 창의 프로젝트면 먼저 묻는다
             },
         ]
     }

@@ -32,6 +32,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// **앞으로 여는 터미널**은 새 폴더에서 시작해야 한다.
     @ObservationIgnored private var cwd: String?
     @ObservationIgnored private var terms: [TabID: TermView] = [:]
+    /// 이 프로젝트를 그리는 창. terms의 TermView에 스탬프되어, 뷰 계층이 소유권을 보고 재부모화한다.
+    /// **아직 만들어지지 않은 탭**의 TermView도 term(for:)에서 이 값을 물려받아야 스탬프를 놓치지 않는다.
+    @ObservationIgnored private(set) var ownerWindowId: String = WindowID.main.rawValue
     /// 탭별로 새 셸을 띄울 작업 디렉터리 힌트. term(for:)가 TermView 생성 시 참조한다.
     /// 두 경로가 채운다 — 세션 복원(저장된 OSC 7 pwd)과 새 탭·분할(원본 칸의 현재 pwd 상속).
     /// TermView가 아직 안 만들어진 탭도 다음 저장 때 cwd를 잃지 않도록 convert의 폴백으로도 쓴다.
@@ -572,6 +575,17 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         tabContent[tabId] ?? .terminal
     }
 
+    /// 이 프로젝트의 소유 창을 바꾼다 — 서피스를 옮기는 게 아니라 **소유권만 새긴다**(ARCHITECTURE D27).
+    /// 스탬프가 바뀌면 새 창의 뷰 계층이 스스로 재부모화하고, 옛 창의 죽어가는 트리는 무동작이 된다.
+    /// focusedTab의 서피스만 새 창에서 키를 받는다(원샷).
+    func setOwnerWindow(_ id: WindowID, focusedTab: TabID?) {
+        ownerWindowId = id.rawValue
+        for (tabId, term) in terms {
+            term.ownerWindowId = id.rawValue
+            term.requestFocusOnAttach = tabId == focusedTab
+        }
+    }
+
     /// tabId에 대응하는 터미널 뷰(없으면 생성). 패인 내용 렌더에서 호출한다.
     func term(for tabId: TabID) -> TermView {
         if let t = terms[tabId] { return t }
@@ -596,6 +610,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         let t = TermView(app: app, cwd: tabCwd, tabId: tabId, sockPath: NotifyServer.socketPath,
                          restoreScrollbackFile: tmuxSession == nil ? restoredScrollbackFile[tabId] : nil,
                          initialCommand: initialCommand)
+        // 나중에 만들어지는 TermView도 현재 소유 창을 물려받아야 한다 — 안 그러면 분리 창에서 새로 연
+        // 탭이 "메인 소유"로 태어나 어느 창에도 안 붙는다.
+        t.ownerWindowId = ownerWindowId
         // 콜백은 action_cb(메인 async)·becomeFirstResponder(메인)에서만 불린다 → assumeIsolated 안전.
         t.onSignal = { [weak self] signal in MainActor.assumeIsolated { self?.handleSignal(signal, from: tabId) } }
         t.onClearBadge = { [weak self] tid in MainActor.assumeIsolated { self?.clearTabBadge(tid) } }
@@ -986,10 +1003,20 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         agentActivity[tabId] ?? .idle
     }
 
-    /// 이 탭이 지금 사용자에게 보이나 — 그 뷰가 키 창에 있고, 자기 칸의 선택 탭일 때(줌이면 줌된 칸만).
-    /// firstResponder가 아니라 selectedTab 기준이라 비포커스지만 보이는 분할 칸을 오판하지 않는다.
+    /// 이 탭이 지금 사용자에게 보이나 — 그 뷰의 창이 실제로 눈에 들어와 있고, 자기 칸의 선택 탭일 때
+    /// (줌이면 줌된 칸만). firstResponder가 아니라 selectedTab 기준이라 비포커스지만 보이는 분할 칸을 오판하지 않는다.
+    ///
+    /// 창 판별을 `isKeyWindow`로 하면 **창이 둘일 때 무너진다** — 분리 창에서 빤히 보고 있는 탭이
+    /// 키가 아니라는 이유로 "안 보임"이 돼 알림이 뜬다. 그렇다고 키 여부를 빼면 앱이 백그라운드일 때
+    /// 창은 여전히 visible이라 "보임"이 되어 **알림이 전면 억제된다**(제품 가치 소멸).
+    /// 그래서 판정은 `appActive`를 포함한 순수 함수(`WindowVisibility`)가 한다.
     private func isTabVisible(_ tabId: TabID) -> Bool {
-        guard let term = terms[tabId], term.window?.isKeyWindow == true else { return false }
+        guard let term = terms[tabId], let window = term.window,
+              WindowVisibility.isVisible(appActive: NSApp.isActive,
+                                         windowVisible: window.isVisible,
+                                         miniaturized: window.isMiniaturized,
+                                         occluded: !window.occlusionState.contains(.visible))
+        else { return false }
         if let zoomed = controller.zoomedPaneId {
             return controller.selectedTab(inPane: zoomed)?.id == tabId
         }

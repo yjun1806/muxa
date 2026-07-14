@@ -23,6 +23,19 @@ final class TermView: NSView, NSTextInputClient {
     /// 이 패인이 클릭으로 포커스됐을 때 상위(WorkspaceView)에 알린다 — 논리 focusedId 갱신용.
     var onFocus: (() -> Void)?
 
+    /// 이 서피스를 그릴 자격이 있는 창(WindowID.rawValue). 서피스는 창 사이를 옮겨 다니는 공유 가변
+    /// 자원이라, 뷰 계층이 "내가 소유자인가"를 물어보고 스스로 재부모화한다(→ TermAttach).
+    /// **유일한 갱신 지점은 TerminalStore.setOwnerWindow.**
+    var ownerWindowId: String = WindowID.main.rawValue
+
+    /// 새 창에 붙는 순간 키를 받아야 하는가(원샷 — 부착 시 소비된다).
+    /// 부착 경로엔 포커스를 주는 코드가 없어, 이게 없으면 새 창에서 키가 아무 데도 안 꽂힌다.
+    var requestFocusOnAttach = false
+
+    /// 창 포커스 변화(windowDidBecomeKey/ResignKey)를 서피스에 반영한다 — isFocused didSet이
+    /// ghostty_surface_set_focus를 부른다. 두 창의 터미널이 동시에 focused로 남는 걸 막는다.
+    func setSurfaceFocus(_ on: Bool) { isFocused = on }
+
     /// 스크롤백 검색 상태(⌘F). 검색 오버레이가 관측하고, ghostty 검색 액션이 갱신한다.
     let search = SearchState()
 
@@ -338,6 +351,12 @@ final class TermView: NSView, NSTextInputClient {
                     self?.syncScaleAndSize(force: true)
                 }
             }
+        }
+
+        // 다른 창으로 옮겨진 서피스는 붙는 즉시 키를 받아야 한다(원샷 — 소비하고 끈다).
+        if let window, requestFocusOnAttach {
+            requestFocusOnAttach = false
+            window.makeFirstResponder(self)
         }
     }
 

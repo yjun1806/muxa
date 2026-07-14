@@ -5,6 +5,8 @@ import SwiftUI
 /// muxa의 수동 WorkspaceView/TabBarView/Tree를 대체한다.
 struct BonsplitWorkspaceView: View {
     let store: TerminalStore
+    /// 이 뷰 트리를 그리는 창 — 터미널 서피스가 "내 창이 소유한 것인가"를 판정하는 데 쓴다(→ TermAttach).
+    let windowId: String
 
     var body: some View {
         Group {
@@ -48,7 +50,7 @@ struct BonsplitWorkspaceView: View {
         switch store.content(for: tabId) {
         case .terminal:
             let term = store.term(for: tabId)
-            TerminalRepresentable(term: term) {
+            TerminalRepresentable(term: term, windowId: windowId) {
                 store.controller.focusPane(paneId)
             }
             // 칸 우클릭 메뉴 — TermView가 "터미널이 마우스를 캡처했는가"를 코어에 물어 이 콜백을 부를지 정한다.

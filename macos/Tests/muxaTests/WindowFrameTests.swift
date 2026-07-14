@@ -42,4 +42,27 @@ struct WindowFrameTests {
     @Test func 화면이_하나도_없으면_잡을_수_없다() {
         #expect(!WindowFrame.isReachable(NSRect(x: 0, y: 0, width: 100, height: 100), screens: []))
     }
+
+    // MARK: - 분리 창 프레임 복원(FrameSnapshot → NSRect?)
+
+    @Test func 사라진_모니터_좌표의_프레임은_복원하지_않는다() {
+        let snapshot = FrameSnapshot(x: -192, y: 2460, width: 1400, height: 820)
+        #expect(WindowFrame.restore(snapshot, screens: [screen]) == nil)
+
+        let external = NSRect(x: -361, y: 1600, width: 3360, height: 1860)
+        #expect(WindowFrame.restore(snapshot, screens: [screen, external])
+                == NSRect(x: -192, y: 2460, width: 1400, height: 820))
+    }
+
+    @Test func 폭이_0인_손상_프레임은_복원하지_않는다() {
+        #expect(WindowFrame.restore(FrameSnapshot(x: 100, y: 100, width: 0, height: 680),
+                                    screens: [screen]) == nil)
+        #expect(WindowFrame.restore(nil, screens: [screen]) == nil)
+    }
+
+    @Test func 창이_움직인_자리를_그대로_다시_띄운다() {
+        // 저장(창 프레임 → FrameSnapshot)과 복원이 왕복해야 재시작에 같은 자리에 뜬다.
+        let moved = NSRect(x: 240, y: 120, width: 900, height: 600)
+        #expect(WindowFrame.restore(FrameSnapshot(moved), screens: [screen]) == moved)
+    }
 }

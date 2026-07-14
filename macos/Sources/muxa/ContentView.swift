@@ -72,8 +72,11 @@ struct ContentView: View {
 
     @ViewBuilder
     private var serviceDock: some View {
-        if state.showServiceDock, let ws = state.activeWorkspace, let project = ws.activeProject {
-            ServiceDock(state: state, project: project, cwd: project.path ?? ws.path)
+        // 도크 스코프는 **도크를 연 프로젝트**다(state.dockTarget) — 메인의 활성 프로젝트가 아니다.
+        // 분리 창의 서비스를 클릭해도 로그는 여기(메인 전용 도크)서 열리기 때문이다.
+        if state.showServiceDock, let target = state.dockTarget {
+            ServiceDock(state: state, project: target.project,
+                        cwd: target.project.path ?? target.workspace.path)
                 // 카드의 라운드 클립 바깥이라 하단 모서리를 직접 맞춰 깎는다(카드 밖으로 삐져나오지 않게).
                 .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: Radius.lg,
                                                   bottomTrailingRadius: Radius.lg))
@@ -124,72 +127,69 @@ struct ContentView: View {
 
     /// 파일 익스플로러 토글 버튼(상단바 우측).
     private var explorerToggle: some View {
-        Button { state.toggleExplorer() } label: {
-            Image(systemName: "folder")
-                .font(.muxa(.body))
-                .foregroundStyle(state.showExplorer ? Color.pFg : Color.pMuted)
+        PanelToggle(icon: "folder", on: state.showExplorer, help: "파일 익스플로러") {
+            state.toggleExplorer()
         }
-        .buttonStyle(.plain)
-        .clickCursor()
-        .frame(width: IconSize.control, height: IconSize.control)
-        .background(state.showExplorer ? Color.pBtnActive.opacity(0.6) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.md))
-        .help("파일 익스플로러")
     }
 
     /// Git 패널 토글 버튼(상단바 우측).
     private var gitToggle: some View {
-        Button { state.toggleGitPanel() } label: {
-            Image(systemName: "arrow.triangle.branch")
-                .font(.muxa(.body))
-                .foregroundStyle(state.showGitPanel ? Color.pFg : Color.pMuted)
+        PanelToggle(icon: "arrow.triangle.branch", on: state.showGitPanel, help: "Git 패널") {
+            state.toggleGitPanel()
         }
-        .buttonStyle(.plain)
-        .clickCursor()
-        .frame(width: IconSize.control, height: IconSize.control)
-        .background(state.showGitPanel ? Color.pBtnActive.opacity(0.6) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.md))
-        .help("Git 패널")
     }
 
     /// 활성 워크스페이스 열 = 활성 프로젝트의 Bonsplit(터미널 탭·분할) + (옵션) 우측 Git 패널.
+    ///
+    /// **소유권 가드**: 그 프로젝트가 분리 창에 있으면 여기선 그리지 않는다(I3 — 한 스토어는 정확히
+    /// 한 창의 뷰 트리에서만 렌더된다). 대신 되돌릴 길을 주는 플레이스홀더를 그린다.
     @ViewBuilder
     private var workspaceColumn: some View {
         if let ws = state.activeWorkspace, let project = ws.activeProject {
-            HStack(spacing: 0) {
-                // 프로젝트별 안정 identity — 전환해도 store(터미널들)는 AppState가 유지한다.
-                BonsplitWorkspaceView(store: state.store(for: project, in: ws))
-                    .id(project.id)
-                if state.showExplorer {
-                    // 좌측 경계 드래그로 폭 조절(손 뗄 때 영속). 파일 클릭 → 뷰어 탭. 우클릭 "여기에서 터미널 열기".
-                    ResizablePanel(width: state.explorerWidth, range: AppState.panelWidthRange) { w in
-                        state.setExplorerWidth(w, persist: true)
-                    } content: {
-                        FileExplorerPanel(
-                            root: project.path ?? ws.path,
-                            revealPath: state.store(for: project, in: ws).lastOpenedFilePath,
-                            revealSeq: state.store(for: project, in: ws).revealSeq,
-                            onOpenFile: { state.store(for: project, in: ws).openFile($0) },
-                            onOpenTerminal: { dir in state.addProject(name: basename(dir), path: dir) }
-                        )
-                    }
-                }
-                if state.showGitPanel {
-                    // 파일/커밋 클릭 → 활성 프로젝트의 새 탭으로 diff를 연다(모달 아님). 좌측 경계로 폭 조절.
-                    ResizablePanel(width: state.gitPanelWidth, range: AppState.gitPanelWidthRange) { w in
-                        state.setGitPanelWidth(w, persist: true)
-                    } content: {
-                        GitPanel(
-                            dir: project.path ?? ws.path,
-                            sessionBase: project.sessionBaseHead,
-                            onResetBaseline: { state.resetSessionBaseline(projectId: project.id, cwd: project.path ?? ws.path) },
-                            onSendReview: { state.store(for: project, in: ws).injectToTerminal($0) }
-                        ) { state.store(for: project, in: ws).openDiff($0) }
-                    }
-                }
+            if state.owner(of: project.id).isMain {
+                projectColumn(ws, project)
+            } else {
+                SeparatedPlaceholder(state: state, project: project)
             }
         } else {
             Color.pBg
+        }
+    }
+
+    /// 메인 창이 소유한 프로젝트의 본문.
+    private func projectColumn(_ ws: Workspace, _ project: Project) -> some View {
+        HStack(spacing: 0) {
+            // 프로젝트별 안정 identity — 전환해도 store(터미널들)는 AppState가 유지한다.
+            BonsplitWorkspaceView(store: state.store(for: project, in: ws),
+                                  windowId: WindowID.main.rawValue)
+                .id(project.id)
+            if state.showExplorer {
+                // 좌측 경계 드래그로 폭 조절(손 뗄 때 영속). 파일 클릭 → 뷰어 탭. 우클릭 "여기에서 터미널 열기".
+                ResizablePanel(width: state.explorerWidth, range: AppState.panelWidthRange) { w in
+                    state.setExplorerWidth(w, persist: true)
+                } content: {
+                    FileExplorerPanel(
+                        root: project.path ?? ws.path,
+                        revealPath: state.store(for: project, in: ws).lastOpenedFilePath,
+                        revealSeq: state.store(for: project, in: ws).revealSeq,
+                        onOpenFile: { state.store(for: project, in: ws).openFile($0) },
+                        onOpenTerminal: { dir in state.addProject(name: basename(dir), path: dir) }
+                    )
+                }
+            }
+            if state.showGitPanel {
+                // 파일/커밋 클릭 → 활성 프로젝트의 새 탭으로 diff를 연다(모달 아님). 좌측 경계로 폭 조절.
+                ResizablePanel(width: state.gitPanelWidth, range: AppState.gitPanelWidthRange) { w in
+                    state.setGitPanelWidth(w, persist: true)
+                } content: {
+                    GitPanel(
+                        dir: project.path ?? ws.path,
+                        sessionBase: project.sessionBaseHead,
+                        onResetBaseline: { state.resetSessionBaseline(projectId: project.id, cwd: project.path ?? ws.path) },
+                        onSendReview: { state.store(for: project, in: ws).injectToTerminal($0) }
+                    ) { state.store(for: project, in: ws).openDiff($0) }
+                }
+            }
         }
     }
 }

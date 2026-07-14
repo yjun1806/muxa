@@ -5,10 +5,10 @@ import Testing
 /// 사이드바 펼침 상태의 영속 왕복 — CodingKeys 누락(인코딩은 되는데 저장이 안 되는 버그) 회귀 방지.
 @MainActor
 struct PersistedSidebarTests {
-    private func snapshot(expanded: [String]?) -> AppState.Persisted {
+    private func snapshot(expanded: [String]? = nil, windows: [ProjectWindow]? = nil) -> AppState.Persisted {
         AppState.Persisted(workspaces: [], activeId: "a", sidebarMode: .expanded, layouts: nil,
                            explorerWidth: nil, gitPanelWidth: nil, showExplorer: nil, showGitPanel: nil,
-                           expandedWorkspaces: expanded)
+                           expandedWorkspaces: expanded, windows: windows)
     }
 
     @Test func 펼침_집합이_저장되고_그대로_돌아온다() throws {
@@ -22,6 +22,23 @@ struct PersistedSidebarTests {
         let json = Data(#"{"workspaces":[],"activeId":"a","sidebarMode":"expanded"}"#.utf8)
         let back = try JSONDecoder().decode(AppState.Persisted.self, from: json)
         #expect(back.expandedWorkspaces == nil)
+        #expect(back.version == 0)
+    }
+
+    @Test func 분리_창_목록이_저장되고_그대로_돌아온다() throws {
+        let window = ProjectWindow(id: WindowID(rawValue: "w1"), projectIds: ["p1", "p2"],
+                                   activeProjectId: "p2",
+                                   frame: FrameSnapshot(x: 10, y: 20, width: 900, height: 600),
+                                   showExplorer: true, explorerWidth: 300)
+        let data = try JSONEncoder().encode(snapshot(windows: [window]))
+        let back = try JSONDecoder().decode(AppState.Persisted.self, from: data)
+        #expect(back.windows == [window])
+    }
+
+    @Test func 구_저장분은_windows가_nil로_디코드된다() throws {
+        let json = Data(#"{"workspaces":[],"activeId":"a","sidebarMode":"expanded"}"#.utf8)
+        let back = try JSONDecoder().decode(AppState.Persisted.self, from: json)
+        #expect(back.windows == nil)
         #expect(back.version == 0)
     }
 

@@ -67,8 +67,9 @@ struct QuickSwitchItem: Identifiable {
     }
 
     /// 명령 항목 팩토리 — KeymapAction을 실은 항목(점프 좌표는 비운다). 카탈로그가 쓴다.
+    /// 기본 단축키가 없는 명령은 힌트를 비운다(nil → 행에 칩이 안 그려진다).
     static func command(_ action: KeymapAction, id: String, title: String, subtitle: String,
-                        icon: String, shortcutHint: String) -> QuickSwitchItem {
+                        icon: String, shortcutHint: String? = nil) -> QuickSwitchItem {
         QuickSwitchItem(id: id, kind: .command, title: title, subtitle: subtitle, icon: icon,
                         waiting: false, workspaceId: "", projectId: nil, tabId: nil, subItemId: nil,
                         action: action, shortcutHint: shortcutHint)
@@ -93,6 +94,8 @@ enum QuickCommandCatalog {
                  subtitle: "변경사항·브랜치·워크트리", icon: "arrow.triangle.branch", shortcutHint: "⌘⇧G"),
         .command(.jumpToNextWaiting, id: "cmd:next-waiting", title: "다음 대기 세션",
                  subtitle: "배지된 다음 세션으로 점프", icon: "bell.badge", shortcutHint: "⌘⇧A"),
+        .command(.separateProject, id: "cmd:separate-project", title: "새 창으로 분리",
+                 subtitle: "활성 프로젝트를 새 창으로", icon: "macwindow"),
     ]
 }
 

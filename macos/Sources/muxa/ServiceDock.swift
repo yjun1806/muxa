@@ -120,7 +120,7 @@ struct ServiceDock: View {
         if !TmuxService.isAvailable {
             // tmux가 없으면 기능을 숨기는 대신 **왜 없는지 말하고 설치를 돕는다**.
             ServiceSetupView(state: state) { command in
-                state.activeStore?.injectToTerminal(command) ?? false
+                state.mainStore?.injectToTerminal(command) ?? false
             }
         } else if let service = selected {
             VStack(spacing: 0) {

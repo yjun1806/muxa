@@ -24,6 +24,25 @@ final class AppState {
     /// 백그라운드 활동(●)이 있는 프로젝트 id들(A). 사이드바 프로젝트 행이 관측해 상태 글리프를 그린다.
     private(set) var badgedProjects: Set<String> = []
 
+    /// 분리 창 목록(SSOT). **메인 창은 여기 없다** — 어느 창에도 없는 프로젝트가 메인 소유다(D28, 여집합).
+    /// 조회·이동·정리는 전부 `AppState+Windows`에.
+    private(set) var projectWindows: [ProjectWindow] = []
+
+    /// `projectWindows`의 쓰기 통로. Swift의 `private(set)`은 **파일을 넘지 못해** 확장 파일
+    /// (`AppState+Windows.swift`)에서 직접 대입할 수 없다 — 문 하나만 열어 둔다.
+    func setProjectWindows(_ next: [ProjectWindow]) { projectWindows = next }
+
+    /// 실물 창 경계(NSWindow reconcile·raise). 앱 델리게이트가 시작 시 꽂는다 — 테스트·순수 경로에선 nil.
+    /// 상태가 창을 **직접** 만들지 않고 이 경계에만 위임한다(부작용 격리).
+    @ObservationIgnored weak var windowHost: WindowHost?
+
+    /// 분리 창 프레임 저장을 미뤄 두는 예약(디바운스 — `saveFramesDebounced`). 새 이동이 오면 취소·재예약된다.
+    @ObservationIgnored private var frameSaveWork: DispatchWorkItem?
+    private static let frameSaveDelay: TimeInterval = 0.5
+
+    /// 모든 워크스페이스의 프로젝트 id — `WindowLayout.normalize`의 "아는 프로젝트" 목록.
+    var allProjectIds: [String] { workspaces.flatMap { $0.projects.map(\.id) } }
+
     /// 워크트리 피커 요청(원샷) — 사이드바 워크스페이스 행의 `+`가 올리고, ContentView(시트 소유자)가 소비한다.
     /// **뷰가 아니라 상태가 요청을 소유하는 이유**: `+`는 hover에서만 존재하는 버튼이라 시트를 그 행에 달면
     /// 마우스가 떠나 행이 사라질 때 시트도 함께 죽는다(`serviceAddRequested`와 같은 패턴).
@@ -43,6 +62,11 @@ final class AppState {
     /// 카드 위에 겹치면 메인 그리드 리플로우가 0이다.
     var showServiceDock = false
     var selectedServiceId: String?
+
+    /// 도크가 그리는 프로젝트 — 도크를 **연 시점에** 못 박는다(nil = 메인의 활성 프로젝트).
+    /// 분리 창의 서비스도 로그는 메인 도크에서 보므로(도크는 v1에서 메인 전용 — §6), 도크 스코프가
+    /// 메인의 활성 프로젝트로 고정돼 있으면 사용자가 클릭한 서비스가 아니라 **엉뚱한 프로젝트의 로그**가 뜬다.
+    private(set) var dockProjectId: String?
 
     /// 도구 패널 표시 상태(B). 재시작 시 마지막 열림/닫힘을 복원(Persisted에 저장) — 매번 다시 열 필요 없이.
     /// 상단바 토글 버튼·단축키(⌘⇧E/⌘⇧G)·알림이 이 상태를 연다.
@@ -233,13 +257,18 @@ final class AppState {
 
     /// 배지·시스템 알림 클릭의 공통 착지점 — 대상 프로젝트로 이동 + Git 패널 오픈 + (있으면) 그 탭 선택 + 앱 활성화.
     /// 배지 클릭·알림 클릭이 이 한 메서드를 공유한다("원클릭 검토" 동선의 단일 구현).
+    ///
+    /// **배지 해제·탭 선택은 소유 창과 무관하게 언제나 먼저 한다**(명세 §5.3) — 창 분기를 진입부에서
+    /// early-return으로 하면 정작 주의를 요구한 그 탭이 선택되지 않는다. 창은 "좌표를 어디에 반영할지"만 가른다.
     func revealActivity(projectId: String, tabId: String? = nil) {
         guard let ws = workspace(containing: projectId) else { return }
-        setActiveId(ws.id)        // 대상 워크스페이스로
-        setActiveProject(projectId) // 그 안의 프로젝트로 (+배지 해제)
+        clearBadge(projectId)
         if let tabId, let uuid = UUID(uuidString: tabId), let store = stores[projectId] {
             store.revealTab(TabID(uuid: uuid))
         }
+        guard !routeToOwner(projectId) else { return } // 분리 창이면 그 창만 앞으로 + 그 창의 좌표만
+        setActiveId(ws.id)        // 대상 워크스페이스로
+        setActiveProject(projectId) // 그 안의 프로젝트로
         showGitPanel = true       // 도구 패널(Git) 자동 오픈 — 무엇이 바뀌었는지 바로 체크
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -294,12 +323,14 @@ final class AppState {
             perform(action) // 명령 항목 — main.swift 키 모니터와 공유하는 실행 경로.
             return
         }
-        setActiveId(item.workspaceId)
-        if let projectId = item.projectId { setActiveProject(projectId) }
+        // 탭·서브탭 선택은 소유 창과 무관하게 먼저(§5.3) — 그 다음에 좌표를 어느 창에 반영할지 가른다.
         if let projectId = item.projectId, let tabId = item.tabId, let store = stores[projectId] {
             store.revealTab(tabId)
             if let subItemId = item.subItemId { store.selectGroupItem(tabId, itemId: subItemId) }
         }
+        if let projectId = item.projectId, routeToOwner(projectId) { return }
+        setActiveId(item.workspaceId)
+        if let projectId = item.projectId { setActiveProject(projectId) }
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -308,28 +339,45 @@ final class AppState {
     /// KeymapAction 하나를 실행한다 — main.swift 로컬 키 모니터와 ⌘K 팔레트가 공유하는 실행 경로.
     /// 실행됐으면(=소비) true. 활성 스토어가 필요한 동작(⌘T/⌘D/⌘W/⌘F 등)은 스토어가 없으면 무동작(false).
     /// 부작용(스토어·창 조작)은 이 메서드와 아래 store 헬퍼에만 격리한다.
+    ///
+    /// `windowId` = 키를 친 창. 스토어 대상 동작은 **그 창이 소유한** 스토어에만 적용하고,
+    /// 크로스윈도우 동작(워크스페이스 전환·⌘K·⌘⇧A)은 사이드바·팔레트가 있는 메인 창을 먼저 앞으로 올린다.
+    /// (팔레트가 부르는 경로는 언제나 메인 — 기본값.)
     @discardableResult
-    func perform(_ action: KeymapAction) -> Bool {
+    func perform(_ action: KeymapAction, in windowId: WindowID = .main) -> Bool {
         switch action {
         case .switchWorkspace(let n):
             guard workspaces.indices.contains(n - 1) else { return false }
+            raiseMainIfNeeded(from: windowId)
             setActiveId(workspaces[n - 1].id)
             return true
         case .cycleProject(let forward):
             cycleProject(forward: forward); return true
         case .toggleExplorer:
-            toggleExplorer(); return true
+            togglePanel(explorer: true, in: windowId); return true
         case .toggleGitPanel:
-            toggleGitPanel(); return true
+            togglePanel(explorer: false, in: windowId); return true
         case .jumpToNextWaiting:
+            raiseMainIfNeeded(from: windowId)
             jumpToNextWaiting(); return true
         case .quickSwitch:
+            raiseMainIfNeeded(from: windowId)
             toggleQuickSwitch(); return true
         case .toggleServiceDock:
+            // 도크는 v1에서 메인 창 전용이다(§6) — 분리 창에서 눌렀으면 도크가 뜨는 창을 먼저 앞으로 올린다.
+            // 안 그러면 보이지도 않는 메인에 도크가 열리고, 사용자는 ⌘J가 죽은 줄 안다.
+            raiseMainIfNeeded(from: windowId)
             if showServiceDock { closeServiceDock() } else { openServiceDock(serviceId: nil) }
             return true
-        case .closeTab where showServiceDock:
+        case .separateProject:
+            // 메인이 보고 있는 프로젝트를 새 창으로 — 이미 분리 창에서 눌렀다면 분리할 것이 없다.
+            guard windowId.isMain, let projectId = activeProject?.id else { return false }
+            separateProject(projectId)
+            return true
+        case .closeTab where windowId.isMain && showServiceDock:
             // ⌘W 오폭 방지 — 도크가 열려 있으면 ⌘W는 도크를 닫는다.
+            // **메인 창에서만.** 도크는 메인에만 있으므로, 분리 창의 ⌘W까지 여기서 가로채면
+            // 그 창의 탭 대신 보이지도 않는 메인의 도크가 닫힌다.
             //
             // 도크의 attach 터미널이 firstResponder여도 Bonsplit의 focusedPaneId는 여전히 뒤의 칸을
             // 가리킨다. 그대로 두면 사용자는 "지금 보고 있는 것(도크)"을 닫으려 ⌘W를 눌렀는데
@@ -337,9 +385,15 @@ final class AppState {
             closeServiceDock()
             return true
         case .newTerminal, .split, .closeTab, .find, .focusPane, .cycleTab:
-            guard let store = activeStore else { return false }
+            guard let store = store(ownedBy: windowId) else { return false }
             return Self.perform(action, store: store)
         }
+    }
+
+    /// 크로스윈도우 동작은 사이드바·팔레트가 있는 메인 창에서만 의미가 있다 — 분리 창에서 눌렀으면 먼저 앞으로.
+    private func raiseMainIfNeeded(from windowId: WindowID) {
+        guard !windowId.isMain else { return }
+        windowHost?.raise(.main)
     }
 
     /// 활성 스토어(분할·탭 컨트롤러) 대상 동작 실행 — 스토어 상태만 만지는 라우팅.
@@ -420,9 +474,10 @@ final class AppState {
         let cursor = cursorRank()
         // 현재 위치보다 뒤(사전식)인 첫 슬롯, 없으면 첫 슬롯으로 순환.
         let target = slots.first { cursor.lexicographicallyPrecedes($0.rank) } ?? slots[0]
+        stores[target.projectId]?.revealTab(target.tabId) // 그 탭 선택·포커스 (+배지 해제) — 창과 무관하게 먼저
+        guard !routeToOwner(target.projectId) else { return } // 분리 창이면 그 창만 앞으로
         setActiveId(target.workspaceId)         // 대상 워크스페이스로
         setActiveProject(target.projectId)      // 그 안의 프로젝트로 (+배지 해제)
-        stores[target.projectId]?.revealTab(target.tabId) // 그 탭 선택·포커스 (+배지 해제)
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -495,11 +550,20 @@ final class AppState {
         SidebarTree.firstWaiting(workspaces: workspaces, badged: badgedProjects)
     }
 
-    /// 활성 워크스페이스의 활성 프로젝트 스토어(단축키 대상 — ⌘T/⌘D/⌘W/⌘F).
-    var activeStore: TerminalStore? {
-        guard let ws = activeWorkspace, let project = ws.activeProject else { return nil }
+    /// **메인 창이 실제로 그리고 있는** 프로젝트의 스토어(단축키 대상 — ⌘T/⌘D/⌘W/⌘F).
+    ///
+    /// 활성 프로젝트가 분리 창에 있으면 nil이다 — 메인은 그때 SeparatedPlaceholder를 그리고 있고,
+    /// 소유권이 곧 키 라우팅의 자격이다(I3). 이 가드가 없으면 메인의 ⌘W가 **보이지도 않는 다른 창의**
+    /// 살아 있는 탭을 닫고 그 PTY까지 죽인다.
+    var mainStore: TerminalStore? {
+        guard let ws = activeWorkspace, let project = ws.activeProject,
+              owner(of: project.id).isMain else { return nil }
         return store(for: project, in: ws)
     }
+
+    /// **이미 만들어진** 스토어만 — 없으면 nil. 생성은 PTY 스폰이라 조회 경로가 만들면 안 된다.
+    /// (확장 파일에서 `stores`(private)에 닿을 수 없어 여는 창구.)
+    func existingStore(_ projectId: String) -> TerminalStore? { stores[projectId] }
 
     /// 프로젝트의 터미널 스토어(없으면 생성). cwd는 프로젝트 경로(없으면 워크스페이스 경로 상속).
     func store(for project: Project, in workspace: Workspace) -> TerminalStore {
@@ -526,6 +590,9 @@ final class AppState {
         }
         // 탭/뷰어가 바뀔 때마다 즉시 저장 — ⌘Q 없이(pkill·크래시) 종료돼도 다음 실행에 복원.
         s.onStateChange = { [weak self] in MainActor.assumeIsolated { self?.save() } }
+        // 늦게 열리는 프로젝트도 자기 창 소유권을 갖고 태어난다 — 분리 창의 프로젝트가 "메인 소유"로
+        // 만들어지면 그 안의 TermView는 어느 창에도 붙지 않는다(I3).
+        s.setOwnerWindow(owner(of: project.id), focusedTab: nil)
         stores[project.id] = s
         // 첫 store 생성(=첫 터미널이 이 경로에서 시작) 시점에 세션 기준선을 1회 기록(ARCHITECTURE 4.4 #2).
         recordSessionBaseline(projectId: project.id, cwd: cwd)
@@ -774,13 +841,23 @@ final class AppState {
     /// 도크를 닫는다 — attach 터미널을 전부 버린다(프로세스는 tmux가 계속 붙잡는다).
     func closeServiceDock() {
         showServiceDock = false
+        dockProjectId = nil
         dockTerms.removeAll()
     }
 
     /// 도크를 열고 서비스를 고른다(푸터 칩·팝오버·알림에서 호출).
-    func openServiceDock(serviceId: String?) {
+    /// `projectId` = 그 서비스가 속한 프로젝트(nil이면 메인의 활성 프로젝트 — ⌘J·칩의 기존 동작).
+    func openServiceDock(serviceId: String?, projectId: String? = nil) {
         selectedServiceId = serviceId ?? selectedServiceId
+        dockProjectId = projectId ?? activeProject?.id
         showServiceDock = true
+    }
+
+    /// 도크가 그릴 대상 — 도크를 연 프로젝트(사라졌으면 메인의 활성 프로젝트로 폴백).
+    var dockTarget: (workspace: Workspace, project: Project)? {
+        if let dockProjectId, let found = located(dockProjectId) { return found }
+        guard let ws = activeWorkspace, let project = ws.activeProject else { return nil }
+        return (ws, project)
     }
 
     /// **창 전체**의 서비스 — 소속(워크스페이스·프로젝트)을 달고 온다.
@@ -792,10 +869,20 @@ final class AppState {
 
     /// 어느 워크스페이스·프로젝트의 서비스든 **그리로 데려가서** 로그를 연다.
     /// (팝오버에서 다른 프로젝트의 서비스를 클릭했을 때 — 사용자가 직접 찾아 들어가지 않게.)
+    ///
+    /// 서비스 도크는 v1에서 **메인 창 전용**이다(dockTerms가 전역 맵이라 두 창이 같은 도크를 열면 TermView를
+    /// 쟁탈한다 — 명세 §6). 그래서 분리 창의 서비스라도 로그는 메인에서 열고, 그 프로젝트가 없는
+    /// 메인의 좌표는 건드리지 않는다(플레이스홀더로 넘어가지 않게).
+    /// 대신 **도크의 스코프를 그 프로젝트로 넘긴다** — 안 그러면 메인의 활성 프로젝트로 도크가 그려져
+    /// 사용자가 클릭한 서비스는 목록에 없고 엉뚱한 프로젝트의 로그가 열린다.
     func revealService(_ located: LocatedService) {
-        if activeId != located.workspaceId { setActiveId(located.workspaceId) }
-        if activeProject?.id != located.projectId { setActiveProject(located.projectId) }
-        openServiceDock(serviceId: located.service.id)
+        if owner(of: located.projectId).isMain {
+            if activeId != located.workspaceId { setActiveId(located.workspaceId) }
+            if activeProject?.id != located.projectId { setActiveProject(located.projectId) }
+        } else {
+            windowHost?.raise(.main)
+        }
+        openServiceDock(serviceId: located.service.id, projectId: located.projectId)
     }
 
     /// 도크를 열면서 곧바로 추가 시트를 띄운다 — 팝오버의 "서비스 추가"가 두 번 클릭이 되지 않게.
@@ -803,6 +890,7 @@ final class AppState {
     var serviceAddRequested = false
 
     func requestAddService() {
+        dockProjectId = activeProject?.id // 추가는 언제나 메인이 보고 있는 프로젝트에 한다
         showServiceDock = true
         serviceAddRequested = true
     }
@@ -845,11 +933,12 @@ final class AppState {
         Task { await TmuxService.collectTerminalGarbage(liveSessionNames: live, knownProjectIds: known) }
     }
 
-    /// 백그라운드 프로젝트에 활동(●)이 있음을 표시. 지금 보고 있는 활성 프로젝트(=활성 워크스페이스의
-    /// 활성 프로젝트)면 무시하고, 그 외(백그라운드 워크스페이스의 프로젝트 포함)는 전부 배지한다.
+    /// 백그라운드 프로젝트에 활동(●)이 있음을 표시. 지금 **어느 창에서든 보고 있는** 활성 프로젝트면
+    /// 무시하고, 그 외(백그라운드 워크스페이스의 프로젝트 포함)는 전부 배지한다.
+    /// 판정 기준이 메인의 활성 프로젝트 하나였다면, 분리 창에 띄워 놓고 보고 있는 프로젝트에 배지가 붙는다.
     /// stores는 프로젝트 id로 전역 유지되므로 백그라운드 워크스페이스 store의 활동도 여기로 들어온다.
     private func markProjectBadge(_ projectId: String) {
-        guard projectId != activeProject?.id else { return }
+        guard !visibleActiveProjectIds.contains(projectId) else { return }
         insertBadge(projectId)
     }
 
@@ -859,7 +948,8 @@ final class AppState {
         updateDockBadge()
     }
 
-    private func clearBadge(_ projectId: String) {
+    /// (창 라우팅(`AppState+Windows`)도 부른다 — 분리 창을 앞으로 올린 것도 "보게 된 것"이다.)
+    func clearBadge(_ projectId: String) {
         guard badgedProjects.contains(projectId) else { return }
         badgedProjects.remove(projectId)
         updateDockBadge()
@@ -875,6 +965,21 @@ final class AppState {
 
     func toggleExplorer() { showExplorer.toggle(); save() }
     func toggleGitPanel() { showGitPanel.toggle(); save() }
+
+    /// 단축키(⌘⇧E/⌘⇧G)가 부르는 창 지역 토글 — 크롬 값의 주인이 창마다 다르다(명세 §6의 비대칭):
+    /// 메인은 AppState의 필드, 분리 창은 자기 `ProjectWindow`. 창을 안 보면 분리 창에서 누른 키가
+    /// 뒤에 가려진 메인의 패널을 열고 정작 그 창은 아무 반응이 없다.
+    func togglePanel(explorer: Bool, in windowId: WindowID) {
+        guard !windowId.isMain else {
+            explorer ? toggleExplorer() : toggleGitPanel()
+            return
+        }
+        updateWindow(windowId) { window in
+            var next = window
+            if explorer { next.showExplorer.toggle() } else { next.showGitPanel.toggle() }
+            return next
+        }
+    }
     func setExplorer(_ open: Bool) { showExplorer = open; save() }
     func setGitPanel(_ open: Bool) { showGitPanel = open; save() }
 
@@ -981,6 +1086,9 @@ final class AppState {
         workspaces = next
         // 사라진 워크스페이스의 펼침 기록은 함께 버린다(유령 id 누적 방지).
         expandedWorkspaces = SidebarTree.prune(expandedWorkspaces, workspaceIds: next.map(\.id))
+        // 사라진 프로젝트를 품고 있던 분리 창도 함께 정리 — 빈 창이 남으면 고아 창이 된다(I5).
+        projectWindows = WindowLayout.normalize(projectWindows, projectIds: allProjectIds)
+        syncWindows()
         if activeId == id { activeId = next[min(idx, next.count - 1)].id }
         save()
     }
@@ -1005,6 +1113,16 @@ final class AppState {
             next.activeProjectId = projectId
             return next
         }
+    }
+
+    /// 워크스페이스를 지정해 활성 프로젝트를 바꾼다(활성 워크스페이스가 아니어도 된다).
+    /// **저장은 호출자 몫** — 창 이동(`moveProjects`)이 여러 워크스페이스를 연달아 고치고 마지막에 한 번 저장한다.
+    func setActiveProject(_ projectId: String, inWorkspace wsId: String) {
+        guard let idx = workspaces.firstIndex(where: { $0.id == wsId }),
+              workspaces[idx].projects.contains(where: { $0.id == projectId }) else { return }
+        var next = workspaces
+        next[idx].activeProjectId = projectId
+        workspaces = next
     }
 
     /// 새 프로젝트(워크트리 등)를 활성 워크스페이스에 추가하고 활성화한다.
@@ -1032,17 +1150,21 @@ final class AppState {
     }
 
     /// 활성 워크스페이스에서 프로젝트를 앞/뒤로 순환 전환한다(⌘⇧] / ⌘⇧[).
+    /// **분리된 프로젝트는 건너뛴다** — 다른 창이 그리고 있어 넘어가 봐야 플레이스홀더만 보인다(판정은 순수 함수).
     func cycleProject(forward: Bool) {
-        guard let ws = activeWorkspace, ws.projects.count > 1,
-              let idx = ws.projects.firstIndex(where: { $0.id == ws.activeProjectId }) else { return }
-        let count = ws.projects.count
-        let next = (idx + (forward ? 1 : count - 1)) % count
-        setActiveProject(ws.projects[next].id)
+        guard let ws = activeWorkspace,
+              let next = WindowLayout.nextMainProject(from: ws.activeProjectId, in: ws.projects.map(\.id),
+                                                      forward: forward, windows: projectWindows)
+        else { return }
+        setActiveProject(next)
     }
 
     /// 프로젝트를 닫는다(마지막 하나는 남긴다). 활성이면 인접 프로젝트로 전환.
     /// 닫히는 프로젝트의 **서비스 프로세스도 함께 죽인다**.
     func closeProject(_ projectId: String) {
+        // 분리 창에 있던 프로젝트면 **먼저** 메인으로 되돌린다 — 창을 정리한 뒤에 지워야 그 창이
+        // 유령으로 남지 않는다(파괴 순서: 창 → 프로젝트). 확인은 호출부(ProjectClose)가 이미 받았다.
+        if !self.owner(of: projectId).isMain { moveProjects([projectId], to: .main) }
         // **소속 워크스페이스를 id로 되짚는다** — 사이드바 트리는 비활성 워크스페이스의 프로젝트도
         // 그리므로(✕·우클릭 닫기), 활성 워크스페이스만 보면 그 클릭이 조용히 씹힌다.
         guard let owner = workspace(containing: projectId) else { return }
@@ -1066,6 +1188,9 @@ final class AppState {
             }
             return next
         }
+        // 닫힌 프로젝트가 분리 창에 있었다면 그 창에서도 빼낸다(빈 창은 사라진다 — I5).
+        projectWindows = WindowLayout.normalize(projectWindows, projectIds: allProjectIds)
+        syncWindows()
         // 닫힌 뒤 새로 활성화된 프로젝트도 배지 클리어(사용자가 보게 됐으니) — 유령 배지 방지.
         if let newActive = activeProject?.id { clearBadge(newActive) }
     }
@@ -1114,6 +1239,12 @@ final class AppState {
         /// 사이드바에서 펼쳐 둔 워크스페이스 id들(나중에 추가된 필드라 옵셔널 하위호환).
         /// **Set이 아니라 정렬된 배열로 저장한다** — Set은 JSON 순서가 매번 달라져 파일이 무의미하게 뒤바뀐다.
         var expandedWorkspaces: [String]?
+        /// 분리 창 목록(나중에 추가된 필드라 옵셔널 하위호환 — 구 저장분은 nil = 분리 창 없음).
+        ///
+        /// **currentVersion을 올리지 않는다**: version은 지금 디코드만 되고 `apply()`가 읽지 않으며,
+        /// 이 필드는 순수 가산이라 구 저장분이 그대로 로드된다. 새 저장분을 구 빌드가 읽어도 미지 키는 무시된다.
+        /// 어떤 모양이 들어와도 `WindowLayout.normalize`가 복구하므로 마이그레이션 훅이 필요 없다.
+        var windows: [ProjectWindow]?
 
         /// 디코드 중 버려진 프로젝트 id(손상 스냅샷). 디스크에 쓰지 않는 부산물이라 CodingKeys에서 제외한다.
         var droppedLayouts: [String] = []
@@ -1121,18 +1252,20 @@ final class AppState {
         private enum CodingKeys: String, CodingKey {
             case version, workspaces, activeId, sidebarMode, layouts
             case explorerWidth, gitPanelWidth, showExplorer, showGitPanel
-            case expandedWorkspaces
+            case expandedWorkspaces, windows
         }
 
         init(workspaces: [Workspace], activeId: String, sidebarMode: SidebarMode,
              layouts: [String: PaneSnapshot]?, explorerWidth: Double?, gitPanelWidth: Double?,
              showExplorer: Bool?, showGitPanel: Bool?, expandedWorkspaces: [String]?,
+             windows: [ProjectWindow]? = nil,
              version: Int = currentVersion) {
             self.version = version
             self.workspaces = workspaces; self.activeId = activeId; self.sidebarMode = sidebarMode; self.layouts = layouts
             self.explorerWidth = explorerWidth; self.gitPanelWidth = gitPanelWidth
             self.showExplorer = showExplorer; self.showGitPanel = showGitPanel
             self.expandedWorkspaces = expandedWorkspaces
+            self.windows = windows
         }
 
         // layouts는 **프로젝트별로 격리 디코드**한다(LenientLayouts) — 스냅샷 하나가 손상돼도 나머지
@@ -1152,6 +1285,7 @@ final class AppState {
             showExplorer = try c.decodeIfPresent(Bool.self, forKey: .showExplorer)
             showGitPanel = try c.decodeIfPresent(Bool.self, forKey: .showGitPanel)
             expandedWorkspaces = try c.decodeIfPresent([String].self, forKey: .expandedWorkspaces)
+            windows = try c.decodeIfPresent([ProjectWindow].self, forKey: .windows)
         }
     }
 
@@ -1173,9 +1307,21 @@ final class AppState {
                                  layouts: savedLayouts, explorerWidth: Double(explorerWidth),
                                  gitPanelWidth: Double(gitPanelWidth),
                                  showExplorer: showExplorer, showGitPanel: showGitPanel,
-                                 expandedWorkspaces: expandedWorkspaces.sorted())
+                                 expandedWorkspaces: expandedWorkspaces.sorted(),
+                                 windows: projectWindows)
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         try? data.write(to: Self.fileURL, options: .atomic)
+    }
+
+    /// 분리 창 프레임 저장 디바운스(trailing 0.5s) — 창을 끄는 동안 `windowDidMove`가 초당 수십 번 온다.
+    ///
+    /// **leading-edge 억제(`SignalCoalescer`)를 쓰면 안 된다** — 그건 첫 신호만 통과시키므로
+    /// 드래그가 **끝난 자리**(사용자가 원한 좌표)가 버려진다. 마지막 신호가 이겨야 한다.
+    func saveFramesDebounced() {
+        frameSaveWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.save() } }
+        frameSaveWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.frameSaveDelay, execute: work)
     }
 
     /// 복원 중 발생한 유실 — 시작 직후 인박스에 표면화한다(beginSession). 조용한 유실은 금지.
@@ -1225,6 +1371,9 @@ final class AppState {
         if let w = snapshot.gitPanelWidth { gitPanelWidth = Self.clampGitPanelWidth(CGFloat(w)) }
         if let open = snapshot.showExplorer { showExplorer = open }
         if let open = snapshot.showGitPanel { showGitPanel = open }
+        // 저장분이 어떤 모양이든(유령 프로젝트·중복·빈 창) 신뢰 가능한 배치로 되돌린다 — clampAll과 같은 성격.
+        // (workspaces 대입 **뒤에** 와야 한다 — 아는 프로젝트 id 목록에 의존한다.)
+        projectWindows = WindowLayout.normalize(snapshot.windows, projectIds: allProjectIds)
         // 복원 직전 상한·손상 방어를 통과시킨다(순수 함수). 비대·변조된 스냅샷의 복원 폭주를 막는다.
         savedLayouts = SnapshotSanitize.clampAll(snapshot.layouts ?? [:])
         if !snapshot.droppedLayouts.isEmpty {

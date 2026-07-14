@@ -17,19 +17,12 @@ guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == GHOSTTY_SU
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    /// 창 프레임 저장 키(AppKit이 UserDefaults에 크기·위치를 보관한다).
-    /// 개발 빌드와 릴리스가 같은 키를 쓰면 창 위치가 서로 튀므로 앱 이름으로 갈라둔다.
-    static let windowFrameAutosaveName = "\(AppInfo.name).main"
-
-    /// 복원한 프레임이 현재 연결된 화면들에서 실제로 보이는가(판정은 순수 함수에 위임).
-    static func isReachable(_ frame: NSRect) -> Bool {
-        WindowFrame.isReachable(frame, screens: NSScreen.screens.map(\.visibleFrame))
-    }
-
+final class AppDelegate: NSObject, NSApplicationDelegate {
     private var runtime: GhosttyRuntime?
     private var state: AppState?
-    private var window: NSWindow?
+    /// 창을 만들고 없애는 유일한 경계(모델 ⇄ NSWindow reconcile). 메인 창도 여기 등록된다.
+    private let host = WindowHost()
+    private var mainWindow: NSWindow? { host.window(.main) }
     private var keyMonitor: Any?
     /// 휠 마우스 → 가로 전용 스크롤 영역(탭바·서브탭 바) 브리지. 앱 수명 동안 유지.
     private var wheelMonitor: Any?
@@ -92,43 +85,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             MainActor.assumeIsolated { self?.runtime?.applyAppearance() }
         }
 
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1000, height: 680),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = AppInfo.name
-        // 콘텐츠를 타이틀바까지 끌어올리고(fullSizeContentView) 신호등만 남긴다. 상단바 컨트롤은
-        // SwiftUI 본문 최상단에 직접 둔다 — 타이틀바 액세서리는 렌더가 불안정해 비어 보였다.
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.isMovableByWindowBackground = true // 빈 영역 드래그로 창 이동(Tauri drag-region 대체)
-        window.backgroundColor = Palette.panel // 창 배경을 상단바와 같은 회색으로
-        // 창 크기·위치 복원. 저장분이 없을 때만(=최초 실행) 가운데 정렬 — center()를 뒤에 두면 복원한 위치를 덮는다.
-        //
-        // **화면 밖 검사는 우리가 한다.** setFrameUsingName이 알아서 보정해 줄 거라 믿었다가 창이 통째로
-        // 화면 밖(외장 모니터를 뽑은 뒤의 옛 좌표)에 떠서 앱이 보이지 않는 회귀를 냈다. 모니터를 뽑거나
-        // 해상도가 바뀌면 저장된 좌표는 언제든 무효가 되므로, 복원 직후 실제로 보이는지 직접 확인한다.
-        window.setFrameAutosaveName(Self.windowFrameAutosaveName)
-        if !window.setFrameUsingName(Self.windowFrameAutosaveName) || !Self.isReachable(window.frame) {
-            window.setContentSize(NSSize(width: 1000, height: 680))
-            window.center()
-        }
-
         // 크롬(상단바·사이드바) + 활성 워크스페이스(Bonsplit 탭바·분할)를 SwiftUI로 렌더.
         let hosting = NSHostingView(rootView: ContentView(state: state, home: SystemPaths.home))
         // safe-area를 끈다 — 안 그러면 SwiftUI가 타이틀바 아래로 콘텐츠를 밀어 상단바가
         // 신호등과 다른 줄로 분리된다(두 줄). 꺼야 콘텐츠가 타이틀바 밑까지 올라와 한 줄이 된다.
         hosting.safeAreaRegions = []
-        window.contentView = hosting
 
-        // 신호등을 상단바 중앙으로 — 상단바가 표준 타이틀바보다 높아 기본 위치면 위로 붙는다.
-        // 시스템이 레이아웃을 되돌리므로 창 이벤트마다 다시 맞춘다(아래 windowDid* 델리게이트).
-        window.delegate = self
-        window.makeKeyAndOrderFront(nil)
-        TrafficLights.align(in: window, barHeight: RowHeight.topBar)
-        self.window = window
+        // 창 설정·델리게이트(신호등 정렬·포커스 계약)는 전부 MuxaWindowController가 쥔다.
+        let main = MuxaWindowController(id: .main, content: hosting)
+        // 메인 창 닫기 = 앱 종료다 — 시트로 먼저 묻고(confirmQuit), 끄기로 했다면 창을 닫는 대신
+        // 바로 terminate한다. 창만 닫고 살아 있으면 Dock 아이콘만 남은 좀비가 된다.
+        main.shouldClose = { [weak self] in
+            guard let self else { return true }
+            if quitConfirmed { return true } // 이미 시트에서 확인받았다 — 종료 흐름이 창을 닫는 중
+            guard state.config.confirmQuit else {
+                NSApp.terminate(nil)
+                return false
+            }
+            requestQuit() // 시트로 확인 — 사용자가 확인하면 terminate가 창까지 정리한다
+            return false  // 지금은 닫지 않는다(취소했을 때 창이 남아야 한다)
+        }
+        host.register(main)
+        // 분리 창 본문 — 사이드바 없는 프로젝트 루트. 창을 만드는 건 WindowHost(reconcile)이고,
+        // 여기서는 "그 창에 무엇을 그릴지"만 알려준다.
+        host.makeProjectContent = { id in
+            let view = NSHostingView(rootView: ProjectWindowView(state: state, windowId: id,
+                                                                 home: SystemPaths.home))
+            view.safeAreaRegions = [] // 메인 창과 같은 이유 — 상단바가 신호등과 한 줄이 되게
+            return view
+        }
+        // 분리 창이 닫히면 그 프로젝트를 메인으로 되돌린다(무손실 재합치기 — D29).
+        host.onProjectWindowClosed = { [weak state] id in state?.rejoin(id) }
+        // 분리 창의 위치·크기 영속 — 모델엔 즉시, 디스크엔 디바운스(AppState.recordFrame).
+        host.onFrameChange = { [weak state] id, frame in state?.recordFrame(id, frame) }
+        state.windowHost = host
+        main.show()
+        // 복원된 분리 창을 실물로 띄운다 — load()는 모델만 채운다(reconcile은 경계가 한다).
+        state.syncWindows()
 
         // 단축키 — 포커스된 터미널이 키를 먼저 먹으므로 로컬 모니터로 가로챈다.
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -175,18 +168,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// 로컬 키 모니터의 착지점 — 판정은 KeymapResolver(순수)에 위임하고, 매치되면 실행 후 소비(true),
     /// 미매치면 통과(false → 포커스된 터미널이 먹는다). 우리 창 이벤트만 대상. (ARCHITECTURE 7 라우팅 규칙)
     private func handleShortcut(_ event: NSEvent) -> Bool {
-        guard event.window === window, let state else { return false }
+        // 우리가 아는 창(메인·분리 창)의 이벤트만 가로챈다 — 모르는 창(FloatingPanel의 메뉴·팝오버,
+        // 시트)은 그대로 통과시킨다. 실행 대상 창을 WindowID로 넘겨 그 창의 스토어에만 적용한다.
+        guard let eventWindow = event.window, let windowId = host.id(for: eventWindow),
+              let state else { return false }
         guard let action = keymap.resolve(keyCode: Int(event.keyCode),
                                           characters: event.charactersIgnoringModifiers,
                                           flags: event.modifierFlags) else { return false }
         // 빠른 전환기가 열려 있으면 ⌘K만 토글로 받고, 나머지 크롬 단축키는 삼켜 뒤 화면 오조작을 막는다.
         // (평문·Esc는 keymap 미매치라 여기 안 오고 전환기 입력창으로 흘러간다.)
-        if state.showQuickSwitch {
+        // **메인 창에서만.** 전환기는 메인에만 뜨는데(v1 — §6) 게이트가 전역이면, 팔레트를 열어 둔 채
+        // 분리 창으로 넘어간 순간 그 창의 단축키가 전부 삼켜진다(사용자에겐 "키가 죽었다").
+        if windowId.isMain, state.showQuickSwitch {
             if case .quickSwitch = action { state.toggleQuickSwitch() }
             return true
         }
         // 실행은 AppState.perform에 위임 — 팔레트(⌘K 명령 항목)와 공유하는 단일 진실 원천.
-        return state.perform(action)
+        return state.perform(action, in: windowId)
     }
 
     /// 메인 메뉴 — App 메뉴(종료 ⌘Q·가리기 ⌘H) + 표준 편집 메뉴(⌘X/C/V/A).
@@ -229,37 +227,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         editMenu.addItem(withTitle: "전체 선택", action: #selector(NSResponder.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = editMenu
 
+        // 창 메뉴 — 분리 창을 뒤로 보내거나 최소화했을 때 **되찾을 유일한 수단**이다(시스템이 열린 창
+        // 목록을 여기에 자동으로 채운다). 닫기(⌘W)는 넣지 않는다 — ⌘W는 탭 닫기 단축키다.
+        let windowItem = NSMenuItem()
+        mainMenu.addItem(windowItem)
+        let windowMenu = NSMenu(title: "창")
+        windowMenu.addItem(withTitle: "최소화", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(withTitle: "확대/축소", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windowMenu.addItem(.separator())
+        windowMenu.addItem(withTitle: "모두 앞으로 가져오기",
+                           action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
+        windowItem.submenu = windowMenu
+        NSApp.windowsMenu = windowMenu
+
         NSApp.mainMenu = mainMenu
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
-
-    /// 창 닫기(빨간 버튼·⌘W)도 결국 앱 종료다(창이 하나뿐이라 마지막 창이 닫히면 종료로 이어진다).
-    /// 그래서 ⌘Q와 **같은 시트**로 묻고, 취소하면 창을 닫지 않는다.
-    ///
-    /// 이 가로채기가 없으면 순서가 뒤집힌다 — 창이 **먼저 닫히고**, 마지막 창이 사라져 종료가 시작되고,
-    /// 거기서 "취소"를 누르면 종료만 취소된다. 창은 이미 닫힌 뒤라 **Dock 아이콘만 남은 좀비 앱**이 된다.
-    /// 덤으로 같은 질문이 경로에 따라 시트와 모달, 두 가지 모양으로 떠서 앱이 일관돼 보이지 않았다.
-    func windowShouldClose(_ sender: NSWindow) -> Bool {
-        if quitConfirmed { return true } // 이미 시트에서 확인받았다 — 종료 흐름이 창을 닫는 중
-        guard state?.config.confirmQuit ?? true else { return true }
-        requestQuit() // 시트로 확인 — 사용자가 확인하면 terminate가 창까지 정리한다
-        return false  // 지금은 닫지 않는다(취소했을 때 창이 남아야 한다)
-    }
-
-    // MARK: NSWindowDelegate — 신호등 재정렬
-    //
-    // 시스템은 리사이즈·활성화·풀스크린 전환 때 타이틀바를 다시 레이아웃하며 신호등을 표준 위치로
-    // 되돌린다. 그때마다 상단바 중앙으로 다시 내린다.
-
-    func windowDidResize(_ notification: Notification) { realignTrafficLights(notification) }
-    func windowDidBecomeKey(_ notification: Notification) { realignTrafficLights(notification) }
-    func windowDidExitFullScreen(_ notification: Notification) { realignTrafficLights(notification) }
-
-    private func realignTrafficLights(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow else { return }
-        TrafficLights.align(in: window, barHeight: RowHeight.topBar)
-    }
+    /// 분리 창만 닫혀도 종료 판정에 끌려가지 않게 false. 종료는 메인 창 닫기·⌘Q만이 시작한다
+    /// (메인 창 닫기 = 앱 종료 — MuxaWindowController.shouldClose).
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     /// ⌘Q(메뉴) 착지점 — **종료 흐름에 들어가기 전에** 묻는다.
     ///
@@ -272,7 +258,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NSApp.terminate(nil)
             return
         }
-        guard let window, window.isVisible else {
+        // 시트는 언제나 메인 창에 붙인다 — 분리 창에서 ⌘Q를 눌러도 같은 자리에서 묻는다.
+        guard let window = mainWindow, window.isVisible else {
             NSApp.terminate(nil) // 붙일 창이 없으면 물을 자리도 없다
             return
         }

@@ -5,6 +5,11 @@ import SwiftUI
 /// 둘 중 어느 쪽이 진짜인지 사용자가 매번 고민하게 된다.
 struct Breadcrumb: View {
     let workspace: Workspace
+    /// 표시할 프로젝트. 분리 창은 **그 창의** 프로젝트를 말해야 한다 — 워크스페이스의 활성 프로젝트는
+    /// 메인 창의 좌표라 다른 것을 가리킨다. 생략하면 메인의 좌표(활성 프로젝트)를 쓴다.
+    var project: Project?
+
+    private var shown: Project? { project ?? workspace.activeProject }
 
     var body: some View {
         HStack(alignment: .center, spacing: Space.sm) {
@@ -16,7 +21,7 @@ struct Breadcrumb: View {
             Image(systemName: "chevron.right")
                 .font(.muxa(.micro))
                 .foregroundStyle(Color.pMuted)
-            if let project = workspace.activeProject {
+            if let project = shown {
                 Image(systemName: project.path == nil ? "folder" : "arrow.triangle.branch")
                     .font(.muxa(.label))
                     .foregroundStyle(Color.pMuted)
@@ -29,6 +34,6 @@ struct Breadcrumb: View {
             }
         }
         .fixedSize()
-        .help(displayPath(workspace.activeProject?.path ?? workspace.path, home: SystemPaths.home))
+        .help(displayPath(shown?.path ?? workspace.path, home: SystemPaths.home))
     }
 }
