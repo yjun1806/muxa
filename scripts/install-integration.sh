@@ -71,9 +71,9 @@ backup() {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 1) muxa-notify 바이너리 → ~/.local/bin/muxa-notify 심링크
+# 1) muxa-notify 바이너리 → ~/.local/bin/muxa-notify (복사)
 # ═══════════════════════════════════════════════════════════════════════════
-info "1) muxa-notify 바이너리 심링크"
+info "1) muxa-notify 바이너리 설치"
 
 RELEASE_BIN="$ROOT/macos/.build/release/muxa-notify"
 DEBUG_BIN="$ROOT/macos/.build/debug/muxa-notify"
@@ -92,21 +92,18 @@ if [[ -z "$SRC_BIN" ]]; then
 fi
 ok "발견: ${SRC_BIN#"$ROOT/"}"
 
-# 멱등: 이미 같은 대상을 가리키는 심링크면 스킵.
-if [[ -L "$BIN_LINK" && "$(readlink "$BIN_LINK")" == "$SRC_BIN" ]]; then
-  skip "이미 심링크됨: $BIN_LINK → $SRC_BIN"
+# **심링크가 아니라 복사한다.** 예전엔 .build 산출물을 심링크했는데, 그 빌드 디렉터리(특히 워크트리)를
+# 지우면 링크가 끊겨(dangling) 훅이 매 도구 호출마다 "command not found"를 뱉었다. 복사본은 소스
+# 빌드가 사라져도 살아남는다(업데이트하려면 이 스크립트를 다시 돌린다). 앱 설치기와 동일한 원칙.
+if $APPLY; then
+  mkdir -p "$BIN_DIR"
+  [[ -e "$BIN_LINK" ]] && backup "$BIN_LINK" # 기존(심링크든 파일이든) 백업 후 교체
+  rm -f "$BIN_LINK"
+  cp "$SRC_BIN" "$BIN_LINK"
+  chmod +x "$BIN_LINK"
+  ok "복사: $SRC_BIN → $BIN_LINK"
 else
-  if $APPLY; then
-    mkdir -p "$BIN_DIR"
-    # 기존이 심링크가 아닌 실제 파일이면 함부로 지우지 않고 백업.
-    if [[ -e "$BIN_LINK" && ! -L "$BIN_LINK" ]]; then
-      backup "$BIN_LINK"
-    fi
-    ln -sf "$SRC_BIN" "$BIN_LINK"
-    ok "심링크 생성: $BIN_LINK → $SRC_BIN"
-  else
-    plan "심링크할 것: $BIN_LINK → $SRC_BIN"
-  fi
+  plan "복사할 것: $SRC_BIN → $BIN_LINK (심링크 아님 — 빌드 디렉터리 삭제에도 안 깨진다)"
 fi
 
 # PATH 안내 — ~/.local/bin 이 없으면 훅에서 muxa-notify 를 못 찾는다.
@@ -128,20 +125,36 @@ SETTINGS="$HOME/.claude/settings.json"
 # 분류·게이팅은 전부 앱이 한다: 훅 명령줄은 사용자의 settings.json 에 박혀 있어서, 여기에 로직을
 # 넣으면 앱 업데이트로 못 고친다. 덕분에 런타임 jq 의존도 사라졌다(세션 ID·배경작업 판정 모두 앱이 한다).
 #
-# 앱 안에서 벨(알림 인박스) → "설치" 버튼으로도 같은 일을 할 수 있다(권장 — 절대경로를 쓰므로 PATH 불필요).
-# 예전 형식(`muxa-notify --state …`)이 남아 있으면 앱 설치기가 새 형식으로 갈아끼운다(이중 발화 방지).
-read -r -d '' PRESETS_JSON <<'JSON' || true
-{
-  "SessionStart":     { "hooks": [ { "type": "command", "command": "muxa-notify hook --event SessionStart" } ] },
-  "UserPromptSubmit": { "hooks": [ { "type": "command", "command": "muxa-notify hook --event UserPromptSubmit" } ] },
-  "PreToolUse":       { "matcher": "*", "hooks": [ { "type": "command", "command": "muxa-notify hook --event PreToolUse" } ] },
-  "PostToolUse":      { "matcher": "*", "hooks": [ { "type": "command", "command": "muxa-notify hook --event PostToolUse" } ] },
-  "Notification":     { "hooks": [ { "type": "command", "command": "muxa-notify hook --event Notification" } ] },
-  "Stop":             { "hooks": [ { "type": "command", "command": "muxa-notify hook --event Stop" } ] },
-  "SubagentStart":    { "hooks": [ { "type": "command", "command": "muxa-notify hook --event SubagentStart" } ] },
-  "SubagentStop":     { "hooks": [ { "type": "command", "command": "muxa-notify hook --event SubagentStop" } ] }
-}
-JSON
+# **이벤트 집합은 앱 enum(ClaudeHookEvent)과 일치해야 한다** — 7개. `PostToolUse`는 일부러 뺐다:
+# PreToolUse만으로 진행 표시가 충분하고, 둘 다 구독하면 도구 호출당 프로세스가 두 번 뜨며 PostToolUse
+# payload(tool_response 전문)는 소켓 버퍼를 넘긴다. 스크립트가 이걸 넣으면 앱이 피하려던 비용이 되살아난다.
+#
+# **명령은 절대경로 + 존재 가드**로 감싼다(앱 설치기와 동일). muxa/바이너리를 지워도 훅이 남는데,
+# 가드가 없으면 muxa 밖의 모든 claude 세션이 매 도구 호출마다 "command not found"를 뱉는다.
+# `if [ -x <경로> ]; then <경로> …; fi` 로 없으면 조용히 통과시킨다(exit 0).
+guard_cmd() { printf "if [ -x '%s' ]; then '%s' hook --event %s; fi" "$BIN_LINK" "$BIN_LINK" "$1"; }
+
+if command -v jq >/dev/null 2>&1; then
+  PRESETS_JSON="$(jq -n \
+    --arg ss  "$(guard_cmd SessionStart)" \
+    --arg up  "$(guard_cmd UserPromptSubmit)" \
+    --arg pre "$(guard_cmd PreToolUse)" \
+    --arg no  "$(guard_cmd Notification)" \
+    --arg st  "$(guard_cmd Stop)" \
+    --arg sas "$(guard_cmd SubagentStart)" \
+    --arg sap "$(guard_cmd SubagentStop)" \
+    '{
+      SessionStart:     { hooks: [ { type: "command", command: $ss } ] },
+      UserPromptSubmit: { hooks: [ { type: "command", command: $up } ] },
+      PreToolUse:       { matcher: "*", hooks: [ { type: "command", command: $pre } ] },
+      Notification:     { hooks: [ { type: "command", command: $no } ] },
+      Stop:             { hooks: [ { type: "command", command: $st } ] },
+      SubagentStart:    { hooks: [ { type: "command", command: $sas } ] },
+      SubagentStop:     { hooks: [ { type: "command", command: $sap } ] }
+    }')"
+else
+  PRESETS_JSON=""
+fi
 
 if command -v jq >/dev/null 2>&1; then
   if $WANT_RESUME; then
@@ -188,9 +201,11 @@ if command -v jq >/dev/null 2>&1; then
     printf '%s' "$MERGED" | jq '.hooks'
   fi
 else
-  warn "jq 가 없어 자동 병합을 건너뛴다. muxa 앱의 알림 벨 → \"설치\" 버튼을 쓰면 jq 없이 등록된다."
-  echo "      직접 병합하려면 아래를 ~/.claude/settings.json 의 \"hooks\" 에 넣어라:"
-  printf '%s\n' "$PRESETS_JSON" | sed 's/^/        /'
+  warn "jq 가 없어 자동 병합을 건너뛴다. muxa 앱의 알림 벨 → \"설치\" 버튼을 쓰면 jq 없이 등록된다(권장)."
+  echo "      각 이벤트에 아래 형식의 command 를 넣어라(절대경로 + 존재 가드):"
+  for e in SessionStart UserPromptSubmit PreToolUse Notification Stop SubagentStart SubagentStop; do
+    echo "        $e: $(guard_cmd "$e")"
+  done
 fi
 printf '\n'
 
