@@ -30,7 +30,9 @@ struct SidebarIconItem: View {
         }
         .buttonStyle(.plain)
         .clickCursor()
-        .sidebarRow(id: workspace.id, hoveredId: $hoveredId, menuOpenId: $menuOpenId) {
+        // 접힘 모드는 이니셜·막대뿐이라 라벨이 없으면 VO가 읽을 게 없다(버튼 자체는 이미 접근 가능).
+        .sidebarRow(id: workspace.id, label: "\(workspace.name) 워크스페이스", selected: active,
+                    hoveredId: $hoveredId, menuOpenId: $menuOpenId) {
             WorkspaceMenu.items(for: workspace, state: state)
         }
         // 이름 칩은 항목 바깥(사이드바 우측)에 그린다 — 클릭을 먹지 않게 히트테스트를 끈다.

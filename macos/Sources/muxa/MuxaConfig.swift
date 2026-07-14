@@ -118,4 +118,49 @@ enum MuxaConfigLoader {
         }
         return MuxaConfig.parse(text).expandingPaths(home: SystemPaths.home)
     }
+
+    /// 설정 파일이 없으면 **주석만 있는 기본본**을 1회 만들고 경로를 돌려준다(있으면 손대지 않는다).
+    /// 메뉴 '설정 파일 열기'가 쓴다 — 빈 파일을 열어 주면 어떤 키를 쓸 수 있는지 알 길이 없다.
+    @discardableResult
+    static func ensureFile() -> URL {
+        let url = fileURL
+        guard !FileManager.default.fileExists(atPath: url.path) else { return url }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                 withIntermediateDirectories: true)
+        try? MuxaConfig.template.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+}
+
+extension MuxaConfig {
+    /// 기본 설정 템플릿 — **전부 주석**이라 파싱하면 `defaults`와 같다(그 사실을 테스트가 못 박는다).
+    /// 값이 아니라 "무엇을 쓸 수 있는지"를 알려주는 게 목적이다.
+    static let template = """
+    # muxa 설정 — key = value 한 줄 포맷(ghostty와 같은 스타일). `#`으로 시작하는 줄은 주석.
+    # 저장하면 즉시 반영된다(재시작 불필요). 폰트·테마 등 터미널 설정은 ~/.config/ghostty/config를 쓴다.
+
+    # 사이드바 기본 표시: expanded | collapsed | hidden
+    # sidebar_mode = expanded
+
+    # 종료할 때 확인창을 띄울지: true | false
+    # confirm_quit = true
+
+    # 이 시간(초)보다 오래 걸린 명령만 완료 배지를 띄운다.
+    # command_finished_threshold_sec = 8
+
+    # 첫 실행 시 열 폴더(없으면 홈).
+    # default_workspace_path = ~/code
+
+    # 복원된 에이전트 세션 재개: off | manual | auto
+    # agent_resume = manual
+
+    # 단축키 재정의 — keybind.<동작> = <조합>. ⌘Q·⌘H·⌘K·⌘1–8은 예약이라 바꿀 수 없다.
+    # 동작: new_terminal · close_tab · find · toggle_explorer · toggle_git · split_horizontal ·
+    #       split_vertical · project_next · project_prev · tab_next · tab_prev ·
+    #       jump_next_waiting · quick_switch · toggle_service_dock · separate_project ·
+    #       focus_left · focus_right · focus_up · focus_down
+    # keybind.new_terminal = cmd+t
+    # keybind.split_vertical = cmd+shift+d
+
+    """
 }

@@ -1,20 +1,32 @@
 import AppKit
 
-/// 프로젝트 닫기의 **유일한 진입점**(사이드바 ✕ · 우클릭 메뉴).
+/// 프로젝트 닫기의 **판정**(순수) — 바로 닫을 것인가, 물을 것인가.
 ///
 /// `AppState.closeProject`는 파괴적이다 — 서비스(dev 서버)와 tmux 세션을 함께 죽인다.
-/// 그 프로젝트가 **분리 창**에 있으면 그건 지금 화면 밖에서 돌고 있는 에이전트라는 뜻이라,
-/// 메인 창의 ✕ 한 번으로 몰살시키지 않게 그때만 한 번 묻는다(파괴는 좁게 — CLAUDE.md).
-/// 메인 창의 프로젝트는 눈앞에 있으므로 오늘과 같이 묻지 않고 닫는다.
+/// 판정을 NSAlert(경계)와 한 함수에 섞어 두면 자동 검증이 하나도 못 붙어, 조건이 뒤집혀도
+/// (예: "메인이어도 서비스가 살아 있으면 묻는다"로 확장) 아무도 잡지 못한다 —
+/// 판정은 값으로, 삭제·시트는 경계에만(CLAUDE.md: 파괴는 좁게, 보존은 넓게).
+enum ProjectCloseDecision: Equatable {
+    /// 눈앞(메인 창)의 프로젝트 — 묻지 않고 닫는다.
+    case closeNow
+    /// 분리 창에서 돌고 있다 = 화면 밖의 에이전트 — ✕ 한 번으로 몰살시키지 않게 묻는다.
+    case confirm
+
+    static func decide(separated: Bool) -> ProjectCloseDecision {
+        separated ? .confirm : .closeNow
+    }
+}
+
+/// 프로젝트 닫기의 **유일한 진입점**(사이드바 ✕ · 우클릭 메뉴) — 판정을 받아 시트만 띄운다.
 @MainActor
 enum ProjectClose {
     static func request(_ project: Project, state: AppState) {
-        guard confirmIfSeparated(project, state: state) else { return }
+        let decision = ProjectCloseDecision.decide(separated: !state.owner(of: project.id).isMain)
+        if decision == .confirm, !confirm(project) { return }
         state.closeProject(project.id)
     }
 
-    private static func confirmIfSeparated(_ project: Project, state: AppState) -> Bool {
-        guard !state.owner(of: project.id).isMain else { return true }
+    private static func confirm(_ project: Project) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "\(project.name)을(를) 닫을까요?"

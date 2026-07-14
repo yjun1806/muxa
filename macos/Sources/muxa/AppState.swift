@@ -40,6 +40,21 @@ final class AppState {
     @ObservationIgnored private var frameSaveWork: DispatchWorkItem?
     private static let frameSaveDelay: TimeInterval = 0.5
 
+    /// 아직 모델에 반영하지 않은 창 프레임(드래그 중) — **관측 밖**이라 뷰를 흔들지 않는다.
+    /// `save()` 직전에 한 번만 `projectWindows`에 병합한다(`AppState+Windows.recordFrame`).
+    @ObservationIgnored var pendingFrames: [WindowID: FrameSnapshot] = [:]
+
+    /// 쌓아 둔 프레임을 모델에 병합한다 — 저장 직전에만 부른다(재대입 = 뷰 무효화).
+    func flushPendingFrames() {
+        guard !pendingFrames.isEmpty else { return }
+        var next = projectWindows
+        for idx in next.indices {
+            if let frame = pendingFrames[next[idx].id] { next[idx].frame = frame }
+        }
+        pendingFrames.removeAll()
+        projectWindows = next
+    }
+
     /// 모든 워크스페이스의 프로젝트 id — `WindowLayout.normalize`의 "아는 프로젝트" 목록.
     var allProjectIds: [String] { workspaces.flatMap { $0.projects.map(\.id) } }
 
@@ -242,6 +257,13 @@ final class AppState {
         }
     }
 
+    /// 알림 권한이 거부된 상태를 인박스에 표면화한다(dedup은 AttentionLog가 한다 — 활성화마다 불려도 1건).
+    /// 이 앱의 핵심 가치가 "에이전트가 기다리면 알려준다"인데, 거부는 조용한 Dock 바운스로 끝나 사용자가
+    /// 고장으로 오해한다. 켜는 방법까지 문장에 담는다.
+    func surfaceNotificationsDisabled() {
+        attention.recordSystem(title: "알림이 꺼져 있습니다 — 시스템 설정 > 알림에서 \(AppInfo.name)을(를) 허용하세요.")
+    }
+
     /// 인박스 항목 클릭 → 그 칸으로 점프(원클릭 검토 동선 재사용). 소속이 사라진 항목이면 무동작.
     /// 시스템 항목(빈 컨텍스트)도 revealActivity가 소속 프로젝트를 못 찾아 안전하게 무동작한다.
     func revealAttention(_ entry: AttentionEntry) {
@@ -352,7 +374,10 @@ final class AppState {
             setActiveId(workspaces[n - 1].id)
             return true
         case .cycleProject(let forward):
-            cycleProject(forward: forward); return true
+            // 돌 곳이 없어도 **키는 삼킨다** — 매치된 단축키를 통과시키면 ⌘⇧[ 가 터미널에 문자로 꽂힌다.
+            // "할 일이 없다"와 "이 키는 내 것이 아니다"는 다르다.
+            cycleProject(forward: forward, in: windowId)
+            return true
         case .toggleExplorer:
             togglePanel(explorer: true, in: windowId); return true
         case .toggleGitPanel:
@@ -698,9 +723,16 @@ final class AppState {
             return next
         }
         Task {
-            await TmuxService.start(service, projectId: projectId, cwd: cwd)
+            reportServiceStart(await TmuxService.start(service, projectId: projectId, cwd: cwd), service)
             syncServiceMonitor()
         }
+    }
+
+    /// 서비스 기동 실패를 인박스에 표면화한다(성공이면 무동작). 실패해도 상태는 회색 점선(.missing)이라
+    /// "아직 안 띄운 것"과 똑같이 보인다 — 사유를 여기서만 말할 수 있다. dedup은 AttentionLog가 한다.
+    private func reportServiceStart(_ reason: String?, _ service: Service) {
+        guard let reason else { return }
+        attention.recordSystem(title: "\(service.name) 시작 실패 — \(reason)")
     }
 
     /// 서비스를 등록 해제하고 프로세스도 죽인다.
@@ -732,7 +764,7 @@ final class AppState {
         dropDockTerm(serviceId) // 옛 세션에 attach된 터미널은 버린다 — 다시 열 때 새 세션에 붙는다
         Task {
             await TmuxService.kill(projectId: projectId, serviceId: serviceId)
-            await TmuxService.start(service, projectId: projectId, cwd: cwd)
+            reportServiceStart(await TmuxService.start(service, projectId: projectId, cwd: cwd), service)
             syncServiceMonitor()
         }
     }
@@ -797,7 +829,10 @@ final class AppState {
                 let cwd = project.path ?? ws.path
                 guard let cwd else { continue }
                 for service in project.services ?? [] {
-                    Task { await TmuxService.start(service, projectId: project.id, cwd: cwd) }
+                    Task {
+                        reportServiceStart(await TmuxService.start(service, projectId: project.id, cwd: cwd),
+                                           service)
+                    }
                 }
             }
         }
@@ -940,6 +975,16 @@ final class AppState {
     private func markProjectBadge(_ projectId: String) {
         guard !visibleActiveProjectIds.contains(projectId) else { return }
         insertBadge(projectId)
+    }
+
+    /// 앱이 다시 앞으로 나왔다 — **지금 보이는** 활성 프로젝트들의 배지를 해제한다.
+    ///
+    /// 배지 판정(`markProjectBadge`)은 "앱이 백그라운드면 안 보이는 것"이라 배경에서 끝난 작업에 ●를 단다.
+    /// 그런데 돌아왔을 때 지우는 경로가 없으면 **눈앞에서 보고 있는 프로젝트에 배지가 영영 남는다** —
+    /// 사용자는 화면에 다 보이는 걸 두고 "아직 나를 기다린다"는 신호를 계속 받는다. 다는 조건과
+    /// 지우는 조건이 같은 함수(`visibleActiveProjectIds`)를 봐야 신호가 거짓말하지 않는다.
+    func clearVisibleBadges() {
+        for projectId in visibleActiveProjectIds { clearBadge(projectId) }
     }
 
     /// 배지 추가/해제는 이 두 함수로 일원화한다 — 매번 Dock 카운트를 함께 갱신하기 위해.
@@ -1149,14 +1194,26 @@ final class AppState {
         }
     }
 
-    /// 활성 워크스페이스에서 프로젝트를 앞/뒤로 순환 전환한다(⌘⇧] / ⌘⇧[).
-    /// **분리된 프로젝트는 건너뛴다** — 다른 창이 그리고 있어 넘어가 봐야 플레이스홀더만 보인다(판정은 순수 함수).
-    func cycleProject(forward: Bool) {
+    /// 프로젝트를 앞/뒤로 순환 전환한다(⌘⇧] / ⌘⇧[) — **키를 친 창 안에서만**.
+    ///
+    /// 메인: 활성 워크스페이스의 프로젝트를 돌되 **분리된 것은 건너뛴다**(다른 창이 그리고 있어
+    /// 넘어가 봐야 플레이스홀더만 보인다). 분리 창: 그 창이 품은 프로젝트 목록 안에서 돈다 —
+    /// 메인의 좌표를 건드리면 보이지도 않는 창의 활성 프로젝트가 조용히 바뀐다.
+    @discardableResult
+    func cycleProject(forward: Bool, in windowId: WindowID = .main) -> Bool {
+        if let window = projectWindows.first(where: { $0.id == windowId }) {
+            guard let next = WindowLayout.nextProject(from: window.activeProjectId,
+                                                      in: window.projectIds, forward: forward)
+            else { return false }
+            setActiveProject(next, inWindow: windowId)
+            return true
+        }
         guard let ws = activeWorkspace,
               let next = WindowLayout.nextMainProject(from: ws.activeProjectId, in: ws.projects.map(\.id),
                                                       forward: forward, windows: projectWindows)
-        else { return }
+        else { return false }
         setActiveProject(next)
+        return true
     }
 
     /// 프로젝트를 닫는다(마지막 하나는 남긴다). 활성이면 인접 프로젝트로 전환.
@@ -1193,6 +1250,15 @@ final class AppState {
         syncWindows()
         // 닫힌 뒤 새로 활성화된 프로젝트도 배지 클리어(사용자가 보게 됐으니) — 유령 배지 방지.
         if let newActive = activeProject?.id { clearBadge(newActive) }
+    }
+
+    /// 워크트리가 제거돼(remove·병합 후 정리) **경로가 사라진 프로젝트들**을 닫는다.
+    /// 판정은 순수(WorktreeOrphans), 파괴(서비스·tmux 세션 종료)는 기존 동선(closeProject)에 태운다.
+    /// 워크스페이스의 마지막 프로젝트는 closeProject가 보존한다(고아로 남더라도 화면을 비우지 않는다).
+    func closeProjects(underPath path: String) {
+        for id in WorktreeOrphans.projectIds(in: workspaces, removedPath: path) {
+            closeProject(id)
+        }
     }
 
     /// 프로젝트 하나를 불변 갱신한다(어느 워크스페이스든 — 소속을 id로 찾는다). 새 배열로 교체.
@@ -1299,6 +1365,7 @@ final class AppState {
     /// 열린 모든 터미널의 스크롤백을 매번 리드백·재기록하지 않게 한다. 무거운 스크롤백 캡처는
     /// `captureScrollback: true`(종료 시 endSession)에서만 — 복원 시점에만 최신 화면이 필요하기 때문이다.
     func save(captureScrollback: Bool = false) {
+        flushPendingFrames() // 드래그 중 쌓아 둔 창 좌표를 여기서 한 번에 모델로(뷰 무효화 1회)
         // 인스턴스화된 스토어(=열린 프로젝트)의 현재 레이아웃을 통합 스냅샷으로 반영. 빈 스토어는 스킵.
         for (projectId, store) in stores where !store.controller.allTabIds.isEmpty {
             savedLayouts[projectId] = store.snapshot(captureScrollback: captureScrollback)
@@ -1310,8 +1377,23 @@ final class AppState {
                                  expandedWorkspaces: expandedWorkspaces.sorted(),
                                  windows: projectWindows)
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
-        try? data.write(to: Self.fileURL, options: .atomic)
+        // **저장 실패를 삼키지 않는다.** 디스크가 가득 차거나(원자적 쓰기는 임시 파일을 쓰므로 용량을
+        // 2배 요구한다) 저장소 권한이 깨지면 조용히 실패해, 다음 실행에서 사용자가 몇 시간짜리 레이아웃을
+        // 잃고 이유를 모른다. 로드는 손상을 인박스로 표면화하는데(restoreWarnings) 쓰기만 침묵이었다.
+        // save()는 잦게 불리므로 **연속 실패는 1회만** 알린다(복구되면 플래그를 내린다).
+        do {
+            try data.write(to: Self.fileURL, options: .atomic)
+            saveFailed = false
+        } catch {
+            if !saveFailed {
+                attention.recordSystem(title: "세션 저장 실패 — \(error.localizedDescription)")
+            }
+            saveFailed = true
+        }
     }
+
+    /// 직전 저장이 실패했는가 — 같은 실패를 매 저장마다 인박스에 쌓지 않기 위한 1회성 플래그.
+    private var saveFailed = false
 
     /// 분리 창 프레임 저장 디바운스(trailing 0.5s) — 창을 끄는 동안 `windowDidMove`가 초당 수십 번 온다.
     ///

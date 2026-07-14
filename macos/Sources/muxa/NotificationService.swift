@@ -28,9 +28,14 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     /// .app 번들에서 실행 중인지 — UNUserNotificationCenter 사용 가능 조건.
     private let bundled = Bundle.main.bundleIdentifier != nil
     private var authorized = false
+    /// 사용자가 알림을 **거부**했는가(.denied). 거부는 조용한 Dock 바운스 폴백으로 끝나 사용자가
+    /// "알림 기능이 고장났다"고 믿게 된다 — 상위(AppState)가 인박스에 표면화하도록 알린다.
+    private(set) var denied = false
 
     /// 알림 클릭 라우팅 — AppDelegate가 AppState.revealActivity로 주입한다(경계 밖 부작용을 상위가 소유).
     var onActivate: ((NotifyContext) -> Void)?
+    /// 알림이 꺼져 있음을 표면화하는 콜백(부작용 소유는 상위). refreshAuthorization이 .denied를 볼 때마다 호출 — dedup은 AttentionLog.
+    var onDenied: (() -> Void)?
 
     private override init() { super.init() }
 
@@ -38,8 +43,27 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     func requestAuthorizationIfPossible() {
         guard bundled else { return }
         UNUserNotificationCenter.current().delegate = self
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { [weak self] granted, _ in
-            Task { @MainActor in self?.authorized = granted }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { [weak self] _, _ in
+            // granted 하나만 믿지 않는다 — 이미 거부된 상태면 프롬프트가 다시 안 뜨고 콜백만 false로 온다.
+            // 실제 상태(.denied 포함)는 시스템에 되묻는다.
+            Task { @MainActor in self?.refreshAuthorization() }
+        }
+    }
+
+    /// 알림 권한 상태를 **시스템에서 다시 읽는다**. 앱 활성화 때마다 부른다(AppDelegate).
+    ///
+    /// 시작 시 requestAuthorization 콜백 한 번으로 캐시하면, 사용자가 나중에 시스템 설정에서 켜도
+    /// 앱은 그 세션 내내 false로 믿어 알림이 안 온다.
+    func refreshAuthorization() {
+        guard bundled else { return }
+        UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in
+            let status = settings.authorizationStatus
+            Task { @MainActor in
+                guard let self else { return }
+                self.authorized = status == .authorized || status == .provisional
+                self.denied = status == .denied
+                if self.denied { self.onDenied?() }
+            }
         }
     }
 

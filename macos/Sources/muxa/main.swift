@@ -17,7 +17,7 @@ guard ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == GHOSTTY_SU
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var runtime: GhosttyRuntime?
     private var state: AppState?
     /// 창을 만들고 없애는 유일한 경계(모델 ⇄ NSWindow reconcile). 메인 창도 여기 등록된다.
@@ -63,7 +63,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let state = AppState(app: app, config: config)
         state.load()
         state.beginSession() // 크래시 마커 arm + 직전 더티 종료 여부 판정(노출용)
-        state.ensureInitial(path: config.defaultWorkspacePath ?? SystemPaths.currentDir ?? SystemPaths.home)
+        // 첫 워크스페이스 경로 — 판정은 순수(InitialWorkspacePath). 번들 실행의 cwd는 `/`라 그대로 쓰면
+        // 첫 화면이 파일시스템 루트가 된다.
+        state.ensureInitial(path: InitialWorkspacePath.resolve(
+            configured: config.defaultWorkspacePath,
+            currentDir: SystemPaths.currentDir,
+            isBundled: Bundle.main.bundleIdentifier != nil,
+            home: SystemPaths.home
+        ))
         // 좀비 청소 — 서비스 tmux 세션은 muxa를 꺼도 살아남는다(그게 존재 이유다). 그 대가로 등록이
         // 사라진 세션이 포트를 문 채 남을 수 있어, 복원 직후 등록과 대조해 쓸어낸다. (Service.swift)
         state.collectServiceGarbage()
@@ -75,6 +82,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationService.shared.onActivate = { [weak state] ctx in
             state?.revealActivity(projectId: ctx.projectId, tabId: ctx.tabId)
         }
+        // 알림 권한이 거부돼 있으면 인박스에 표면화한다 — 조용한 Dock 바운스 폴백은 "고장"으로 읽힌다.
+        NotificationService.shared.onDenied = { [weak state] in state?.surfaceNotificationsDisabled() }
         self.state = state
         // 단축키 테이블 — 설정의 keybinding 재정의를 기본 위에 얹고(없으면 기본 그대로) 진단을 로그·노출한다. (ARCHITECTURE 7)
         rebuildKeymap(config)
@@ -204,7 +213,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appItem.title = AppInfo.name
         mainMenu.addItem(appItem)
         let appMenu = NSMenu(title: AppInfo.name)
+        // 버전 확인 경로 — "어느 빌드에서 터졌나"를 사용자가 말할 수 있어야 한다(Info.plist 버전을 표시).
+        appMenu.addItem(withTitle: "\(AppInfo.name) 정보",
+                        action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
+        // 설정은 텍스트 파일뿐이다(~/.config/muxa/config) — 파일이 없으면 주석 달린 기본본을 만들어 연다.
+        // 이 항목이 없으면 설정이 존재한다는 사실조차 알 수 없다.
+        let configItem = NSMenuItem(title: "설정 파일 열기…", action: #selector(openConfigFile), keyEquivalent: ",")
+        configItem.target = self
+        appMenu.addItem(configItem)
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "\(AppInfo.name) 가리기", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(.separator())
+        // 문제 보고 동선 — 앱이 터져도 사용자가 개발자에게 줄 수 있는 자료가 없었다(로그 파일·내보내기 0건).
+        let diagItem = NSMenuItem(title: "진단 정보 복사", action: #selector(copyDiagnostics), keyEquivalent: "")
+        diagItem.target = self
+        appMenu.addItem(diagItem)
+        let supportItem = NSMenuItem(title: "지원 폴더 열기", action: #selector(openSupportFolder), keyEquivalent: "")
+        supportItem.target = self
+        appMenu.addItem(supportItem)
         appMenu.addItem(.separator())
         // ⌘Q는 곧장 terminate로 보내지 않는다 — requestQuit이 먼저 시트로 확인한다(위 주석).
         let quitItem = NSMenuItem(title: "\(AppInfo.name) 종료", action: #selector(requestQuit), keyEquivalent: "q")
@@ -227,6 +254,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(withTitle: "전체 선택", action: #selector(NSResponder.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = editMenu
 
+        // 명령 메뉴 — 앱의 실제 명령(새 터미널·분할·패널…)이 지금까지 키 모니터와 마우스에만 있었다.
+        // 메뉴바는 macOS에서 명령의 정본이자 VoiceOver(VO+M)·'키보드 단축키' 재바인딩의 유일한 표면이다.
+        // 목록·단축키는 **QuickCommandCatalog 단일 출처**를 그대로 구워 쓴다(표를 두 번 적지 않는다).
+        let commandItem = NSMenuItem()
+        mainMenu.addItem(commandItem)
+        let commandMenu = NSMenu(title: "명령")
+        let paletteItem = NSMenuItem(title: "명령 팔레트…", action: #selector(openCommandPalette), keyEquivalent: "k")
+        paletteItem.target = self
+        commandMenu.addItem(paletteItem)
+        commandMenu.addItem(.separator())
+        for (i, command) in QuickCommandCatalog.items.enumerated() {
+            let item = NSMenuItem(title: command.title, action: #selector(runCatalogCommand(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = i // 카탈로그 인덱스 — KeymapAction은 @objc로 못 실어 나른다
+            if let hint = command.shortcutHint, let key = MenuShortcut.parse(hint) {
+                item.keyEquivalent = key.equivalent
+                item.keyEquivalentModifierMask = key.modifiers
+            }
+            commandMenu.addItem(item)
+        }
+        commandItem.submenu = commandMenu
+
         // 창 메뉴 — 분리 창을 뒤로 보내거나 최소화했을 때 **되찾을 유일한 수단**이다(시스템이 열린 창
         // 목록을 여기에 자동으로 채운다). 닫기(⌘W)는 넣지 않는다 — ⌘W는 탭 닫기 단축키다.
         let windowItem = NSMenuItem()
@@ -241,6 +290,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.windowsMenu = windowMenu
 
         NSApp.mainMenu = mainMenu
+    }
+
+    /// 메뉴의 명령 항목 착지점 — 실행은 키 모니터·팔레트와 같은 경로(AppState.perform)로 보낸다.
+    @objc private func runCatalogCommand(_ sender: NSMenuItem) {
+        guard let state, QuickCommandCatalog.items.indices.contains(sender.tag),
+              let action = QuickCommandCatalog.items[sender.tag].action else { return }
+        _ = state.perform(action, in: focusedWindowId)
+    }
+
+    @objc private func openCommandPalette() {
+        state?.toggleQuickSwitch()
+    }
+
+    /// 설정 파일을 연다 — 없으면 주석 달린 기본본을 1회 만들고(빈 파일이면 뭘 쓸 수 있는지 알 수 없다) 연다.
+    @objc private func openConfigFile() {
+        NSWorkspace.shared.open(MuxaConfigLoader.ensureFile())
+    }
+
+    /// 명령을 적용할 창 — 키 창이 우리 창이면 그 창, 아니면 메인(키 모니터와 같은 규칙).
+    private var focusedWindowId: WindowID {
+        guard let window = NSApp.keyWindow, let id = host.id(for: window) else { return .main }
+        return id
+    }
+
+    /// 메뉴 명령의 키 등가물이 **우리 창이 키일 때만** 먹게 한다.
+    /// 시트·팝오버(FloatingPanel)가 떠 있을 때 ⌘W·⌘T가 뒤 화면을 조작하면 안 된다 —
+    /// 키 모니터도 같은 이유로 모르는 창의 이벤트를 통과시킨다(handleShortcut).
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        let ours = menuItem.action == #selector(runCatalogCommand(_:))
+            || menuItem.action == #selector(openCommandPalette)
+        guard ours else { return true }
+        guard let window = NSApp.keyWindow else { return false }
+        return host.id(for: window) != nil
+    }
+
+    /// 진단 정보(버전·macOS·지원 폴더·직전 종료)를 클립보드로 — 조립은 순수(Diagnostics.report), 여기선 부작용만.
+    @objc private func copyDiagnostics() {
+        let info = Bundle.main.infoDictionary
+        let text = Diagnostics.report(
+            name: AppInfo.name,
+            version: info?["CFBundleShortVersionString"] as? String ?? "dev",
+            build: info?["CFBundleVersion"] as? String ?? "-",
+            os: ProcessInfo.processInfo.operatingSystemVersionString,
+            supportDir: MuxaSupportDir.url.path,
+            lastLaunchWasDirty: state?.lastLaunchWasDirty ?? false
+        )
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
+
+    /// 지원 폴더(state.v4.json·스크롤백)를 Finder로 — 사용자가 자료를 직접 첨부할 수 있게.
+    @objc private func openSupportFolder() {
+        NSWorkspace.shared.open(MuxaSupportDir.url)
+    }
+
+    /// 앱이 활성화될 때마다 알림 권한을 시스템에 되묻는다 — 사용자가 중간에 켰을 수도, 껐을 수도 있다.
+    func applicationDidBecomeActive(_ notification: Notification) {
+        NotificationService.shared.refreshAuthorization()
+        // 배지를 다는 판정("앱이 백그라운드면 안 보인다")과 짝이 되는 해제 경로. 없으면 눈앞에 띄워 둔
+        // 프로젝트에 ●와 Dock 카운트가 영영 남는다 — 다 보이는 걸 두고 기다리라는 신호가 된다.
+        state?.clearVisibleBadges()
     }
 
     /// 분리 창만 닫혀도 종료 판정에 끌려가지 않게 false. 종료는 메인 창 닫기·⌘Q만이 시작한다

@@ -54,23 +54,66 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleExecutable</key><string>$APP_FILE</string>
     <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.1.0</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
+    <key>CFBundleVersion</key><string>$APP_BUILD</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
+    <key>NSHumanReadableCopyright</key><string>muxa</string>
+    <!-- TCC 프롬프트 문구 — 사용자가 프로젝트를 여는 곳이 정확히 이 폴더들이다.
+         설명이 없으면 macOS가 이유 없는 접근 요청을 띄우고, 사용자는 거부한다. -->
+    <key>NSDocumentsFolderUsageDescription</key><string>muxa가 이 폴더의 프로젝트를 열고 git 상태를 읽습니다.</string>
+    <key>NSDesktopFolderUsageDescription</key><string>muxa가 이 폴더의 프로젝트를 열고 git 상태를 읽습니다.</string>
+    <key>NSDownloadsFolderUsageDescription</key><string>muxa가 이 폴더의 프로젝트를 열고 git 상태를 읽습니다.</string>
 </dict>
 </plist>
 PLIST
 
-# ad-hoc 코드 서명 — 미서명 실행 경고·일부 시스템 API 제약을 줄인다(배포 서명 아님).
-codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || echo "  (codesign 생략 — 실행엔 영향 없음)"
+# ── 코드 서명 ────────────────────────────────────────────────────────────────
+# 기본은 ad-hoc(`-`) — 개발 실행용이고 Gatekeeper는 이걸 거부한다(배포 불가).
+# 배포는 Developer ID를 넣는다:
+#   CODESIGN_ID="Developer ID Application: … (TEAMID)" ./scripts/build-dmg.sh release
+#   → 이어서 notarytool submit --wait + stapler staple 이 필요하다(docs/SETUP.md).
+#
+# **`--deep`을 쓰지 않는다.** Apple이 배포 서명에 비권장한다 — 중첩 실행파일에 상위의 식별자·
+# entitlements가 상속되고 서명 순서가 안쪽→바깥쪽이 아니라, 공증에서 거부되는 대표 원인이다.
+# 그래서 중첩 실행파일(muxa-notify) → .app 루트 순으로 **하나씩** 서명한다.
+# SPM 리소스 번들(muxa_muxa·Bonsplit_Bonsplit)은 **실행 코드가 없는 평평한 리소스 디렉터리**라
+# 개별 서명 대상이 아니다(codesign이 "bundle format unrecognized"로 거부한다) — 앱 루트 서명의
+# CodeResources 봉인이 그대로 덮는다.
+CODESIGN_ID="${CODESIGN_ID:--}"
+SIGN_FLAGS=(--force --sign "$CODESIGN_ID")
+# 하드닝 런타임·보안 타임스탬프는 공증의 필수 조건이다. ad-hoc에는 붙일 수 없어(타임스탬프 서버가
+# 서명자를 요구한다) 실 식별자일 때만 준다.
+[ "$CODESIGN_ID" = "-" ] || SIGN_FLAGS+=(--options runtime --timestamp)
+
+sign_all() {
+  codesign "${SIGN_FLAGS[@]}" "$APP/Contents/MacOS/muxa-notify" || return 1
+  codesign "${SIGN_FLAGS[@]}" "$APP" || return 1
+}
+
+if ! sign_all; then
+  # 릴리스에서 조용히 넘어가면 **무서명 DMG가 그대로 나간다**(나갔는지조차 알 수 없다) — 즉시 중단.
+  [ "$CONFIG" = "release" ] && { echo "코드 서명 실패 — 무서명 릴리스는 배포할 수 없다." >&2; exit 1; }
+  echo "  (codesign 생략 — 개발 실행엔 영향 없음)"
+fi
+
+# 검증 게이트 — 릴리스는 서명이 실제로 유효한지 확인하고 실패면 중단한다.
+if [ "$CONFIG" = "release" ]; then
+  codesign --verify --strict --verbose=2 "$APP" || { echo "서명 검증 실패 — 중단." >&2; exit 1; }
+  if [ "$CODESIGN_ID" = "-" ]; then
+    echo "  경고: ad-hoc 서명이다 — 내려받은 사용자는 Gatekeeper에 막힌다. 배포하려면 CODESIGN_ID에 Developer ID를 넣고 공증하라." >&2
+  else
+    # 공증 전에는 rejected가 정상이다(참고용 출력 — 여기서 중단하지 않는다).
+    spctl -a -t exec -vv "$APP" || true
+  fi
+fi
 
 # LaunchServices에 강제 재등록 — 같은 slug를 다시 빌드해 CFBundleName이 바뀌어도 Dock·⌘Tab이
 # 옛 이름을 캐시해 안 바뀌는 걸 막는다. 이게 없으면 "아무리 빌드해도 이름이 그대로"가 된다.
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 [ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$APP" 2>/dev/null || true
 
-echo "빌드 완료: macos/$APP   ($APP_NAME · $BUNDLE_ID)"
+echo "빌드 완료: macos/$APP   ($APP_NAME · $BUNDLE_ID · $APP_VERSION ($APP_BUILD))"
 echo "실행: open macos/$APP"

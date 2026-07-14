@@ -1420,8 +1420,20 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     private func detectClaudeResume(from term: TermView, cwd: String?) -> ResumeBinding? {
         guard let cwd, let fg = term.foregroundPid, let shell = term.shellPid,
               AgentProcessDetector.agentRunning(commNames: ["claude"], from: fg, upTo: shell) else { return nil }
-        return ClaudeSessionIndex.resumeBinding(forCwd: cwd)
+        // **스캔 결과는 짧게 캐시한다.** 스캔 1회가 `~/.claude/projects/<cwd>` 전체 stat(세션 수백 개면
+        // 수백 회)인데, save()는 탭 생성·닫기·이름변경·패널 토글·창 이동마다 불린다 — 탭마다 스캔하면
+        // 메인 스레드에서 stat이 천 번씩 돈다. 세션 id는 이 창(TTL) 안에서 바뀌지 않는다.
+        if let hit = resumeScanCache[cwd], Date().timeIntervalSince(hit.at) < Self.resumeScanTTL {
+            return hit.binding
+        }
+        let binding = ClaudeSessionIndex.resumeBinding(forCwd: cwd)
+        resumeScanCache[cwd] = (binding, Date())
+        return binding
     }
+
+    /// cwd별 스캔 폴백 캐시(짧은 TTL) — 저장 폭주가 디스크를 갈지 않게.
+    private var resumeScanCache: [String: (binding: ResumeBinding?, at: Date)] = [:]
+    private static let resumeScanTTL: TimeInterval = 5
 
     private func convert(_ node: ExternalTreeNode, captureScrollback: Bool) -> PaneSnapshot {
         switch node {

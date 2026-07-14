@@ -33,7 +33,20 @@ _muxa_identity() {
     [ -n "$slug" ] || slug="dev"
     APP_NAME="Muxa Dev · $slug"; BUNDLE_ID="com.muxa.dev.$slug"; APP_FILE="muxa-dev-$slug"
   fi
-  export APP_CONFIG APP_BIN APP_NAME BUNDLE_ID APP_FILE
+
+  # 버전도 여기가 단일 출처다 — 스크립트에 상수로 박아 두면 모든 빌드가 `0.1.0 (1)`로 나가
+  # crash report·Finder 정보에서 서로 구분되지 않는다("어느 빌드에서 터졌나"를 물을 수 없다).
+  #   APP_VERSION  = 최신 태그(v0.2.0 → 0.2.0), 태그가 없으면 0.0.0
+  #   APP_BUILD    = 커밋 수(단조 증가 — LaunchServices·업데이터가 요구하는 성질)
+  # `|| true` 없이 쓰면 태그가 없을 때 git이 128로 죽고, 이 파일을 source 하는 `set -e` 스크립트가
+  # 통째로 중단된다(빌드가 아무 메시지 없이 실패한다 — 실제로 그랬다).
+  APP_VERSION="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+  APP_VERSION="${APP_VERSION#v}"
+  [ -n "$APP_VERSION" ] || APP_VERSION="0.0.0"
+  APP_BUILD="$(git rev-list --count HEAD 2>/dev/null || echo 0)"
+  [ -n "$APP_BUILD" ] || APP_BUILD="0"
+
+  export APP_CONFIG APP_BIN APP_NAME BUNDLE_ID APP_FILE APP_VERSION APP_BUILD
 }
 
 _muxa_identity "${1:-debug}"
@@ -44,5 +57,6 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   printf 'app name    %s\n' "$APP_NAME"
   printf 'bundle id   %s\n' "$BUNDLE_ID"
   printf 'executable  %s   (ps/pgrep 에 이 이름으로 뜬다)\n' "$APP_FILE"
+  printf 'version     %s (%s)\n' "$APP_VERSION" "$APP_BUILD"
   printf 'bundle path macos/%s/%s.app\n' "$APP_BIN" "$APP_FILE"
 fi

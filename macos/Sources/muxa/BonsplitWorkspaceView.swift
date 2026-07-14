@@ -50,8 +50,13 @@ struct BonsplitWorkspaceView: View {
         switch store.content(for: tabId) {
         case .terminal:
             let term = store.term(for: tabId)
-            TerminalRepresentable(term: term, windowId: windowId) {
-                store.controller.focusPane(paneId)
+            // **[weak store]가 필수다.** 이 클로저는 TerminalRepresentable이 `term.onFocus`에 대입해
+            // TermView가 들고 있고, store는 `terms[tabId]`로 그 TermView를 들고 있다 — 강하게 잡으면
+            // store ↔ TermView가 서로를 붙잡는 순환이 되어, 프로젝트를 닫아 스토어를 버려도(stores[id]=nil)
+            // 아무도 해제되지 않는다. TermView.deinit이 안 돌면 ghostty_surface_free가 호출되지 않아
+            // 자식 셸(PTY)·타이머·배지 신호가 영원히 산다. 바로 아래 onContextMenu와 같은 패턴.
+            TerminalRepresentable(term: term, windowId: windowId) { [weak store] in
+                store?.controller.focusPane(paneId)
             }
             // 칸 우클릭 메뉴 — TermView가 "터미널이 마우스를 캡처했는가"를 코어에 물어 이 콜백을 부를지 정한다.
             // 캡처 중(vim·tmux 등)이면 우클릭은 그 앱으로 가고 여기 오지 않는다.

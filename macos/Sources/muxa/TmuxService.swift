@@ -48,11 +48,19 @@ enum TmuxService {
         executable = resolve("tmux", fallbacks: ["/opt/homebrew/bin/tmux",
                                                  "/usr/local/bin/tmux",
                                                  "/usr/bin/tmux"])
+        brew = resolveBrew()
         return isAvailable
     }
 
     /// Homebrew 실행 경로 — 설치 안내에서 "brew가 있는가"를 판단하는 데만 쓴다.
-    static var brew: String? {
+    ///
+    /// **반드시 캐시해야 한다.** 이 값을 tmux 미설치 화면(`ServiceSetupView`)이 **SwiftUI body에서**
+    /// 읽는데, computed였을 때는 렌더할 때마다 로그인 셸(`$SHELL -l -c …`)을 동기로 띄웠다
+    /// (실측 0.178s, oh-my-zsh·nvm 환경이면 1s 이상) — 관측값이 바뀔 때마다 앱이 멈췄다.
+    /// 재해석은 `refresh()`(사용자가 방금 설치했을 때)에서만.
+    private(set) static var brew: String? = resolveBrew()
+
+    private static func resolveBrew() -> String? {
         resolve("brew", fallbacks: ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"])
     }
 
@@ -67,7 +75,13 @@ enum TmuxService {
         return fallbacks.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
+    /// 경로 해석용 동기 실행의 **상한**. 이 호출은 첫 창이 뜨기 전 메인 스레드에서 로그인 셸을 띄운다
+    /// (`$SHELL -l -c 'command -v tmux'`) — rc가 nvm·conda를 돌리거나 네트워크(사내 프록시·NFS)를 때리면
+    /// 무한정 늘어져 **창도 못 띄운 채 멈춘 앱**이 된다. 늦으면 포기하고 fallback 경로 훑기로 넘어간다.
+    static let resolveTimeout: TimeInterval = 2
+
     /// 프로세스를 실행해 stdout 첫 줄을 얻는다(경로 해석 전용 — 동기, 시작 시 1회).
+    /// 타임아웃 안에 안 끝나면 죽이고 nil(= fallback 경로로 넘어간다). 복구 불가한 정지를 만들지 않는다.
     private static func capture(_ launchPath: String, _ args: [String]) -> String? {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: launchPath)
@@ -75,15 +89,20 @@ enum TmuxService {
         let pipe = Pipe()
         proc.standardOutput = pipe
         proc.standardError = FileHandle.nullDevice
+        let done = DispatchSemaphore(value: 0)
+        proc.terminationHandler = { _ in done.signal() }
         do {
             try proc.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            proc.waitUntilExit()
-            guard proc.terminationStatus == 0 else { return nil }
-            return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
             return nil
         }
+        guard done.wait(timeout: .now() + resolveTimeout) == .success else {
+            proc.terminate() // 늘어지는 로그인 셸을 놓아준다 — 우리는 기다리지 않는다
+            return nil
+        }
+        guard proc.terminationStatus == 0 else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// 전용 소켓에 tmux 명령을 실행한다. stderr는 무시(nullDevice로 데드락 방지 — GitService.run과 동일).
@@ -113,6 +132,46 @@ enum TmuxService {
         }
     }
 
+    /// stderr까지 캡처하는 실행 변형 — **기동 실패 사유**가 필요한 경로에만 쓴다(출력이 짧다).
+    /// 상시 폴링(list-panes·capture-pane)은 stdout만 읽는 `run`을 그대로 쓴다.
+    static func runResult(_ args: [String]) async -> (stdout: String, stderr: String, exitCode: Int32) {
+        guard let executable else { return ("", "tmux를 찾을 수 없습니다", -1) }
+        return await withCheckedContinuation { cont in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: executable)
+                proc.arguments = ["-L", socket] + args
+                let outPipe = Pipe()
+                let errPipe = Pipe()
+                proc.standardOutput = outPipe
+                proc.standardError = errPipe
+                do {
+                    try proc.run()
+                    // **두 파이프를 동시에 비운다.** 한쪽을 끝까지 읽고 나서 다른 쪽을 읽으면, 그 다른 쪽의
+                    // 버퍼(64KB)가 먼저 차는 순간 자식은 거기서 멈추고 우리는 첫 파이프의 EOF를 기다린다 —
+                    // 서로를 기다리는 교착이다. 출력이 짧은 경로만 쓴다는 전제는 실패 시 쏟아지는
+                    // stderr(셸 초기화 오류 등) 앞에서 언제든 깨진다.
+                    let errQueue = DispatchQueue(label: "muxa.tmux.stderr")
+                    var errData = Data()
+                    let group = DispatchGroup()
+                    group.enter()
+                    errQueue.async {
+                        errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+                        group.leave()
+                    }
+                    let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+                    group.wait()
+                    proc.waitUntilExit()
+                    cont.resume(returning: (String(decoding: outData, as: UTF8.self),
+                                            String(decoding: errData, as: UTF8.self),
+                                            proc.terminationStatus))
+                } catch {
+                    cont.resume(returning: ("", error.localizedDescription, -1))
+                }
+            }
+        }
+    }
+
     // MARK: 기동
 
     /// 서비스를 시작한다(이미 있으면 아무것도 하지 않는다 — 멱등).
@@ -120,22 +179,38 @@ enum TmuxService {
     /// 명령을 **로그인 셸로 감싸는 이유**: `.app` 번들로 띄운 muxa는 로그인 셸의 PATH를 상속하지 않아
     /// `pnpm`/`node`(homebrew·nvm 경로)를 못 찾는다. 감싸지 않으면 dev 서버가 command not found로 즉사한다.
     /// 인자를 배열로 넘기므로 명령에 따옴표가 섞여도 셸 인용이 필요 없다.
-    static func start(_ service: Service, projectId: String, cwd: String) async {
+    ///
+    /// - Returns: 성공(또는 이미 있음)이면 nil, 실패면 사용자용 사유. **버리면 안 된다** — 세션 생성이
+    ///   실패하면(cwd 없음·tmux 서버 기동 실패) 상태가 `.missing`(회색 점선)이라 "아직 안 띄운 것"과
+    ///   구분이 안 돼 침묵으로 사라진다. 명령이 즉사하는 쪽(exited)만 알림을 받던 비대칭을 메운다.
+    @discardableResult
+    static func start(_ service: Service, projectId: String, cwd: String) async -> String? {
         let session = ServiceSession.name(projectId: projectId, serviceId: service.id)
-        guard await !exists(session) else { return }
+        guard await !exists(session) else { return nil }
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-        await run(["new-session", "-d", "-s", session, "-c", cwd,
-                   shell, "-l", "-c", service.command])
-        await applyServerOptions()
+        let result = await runResult(startArgs(session: session, cwd: cwd,
+                                               shell: shell, command: service.command))
+        guard result.exitCode != 0 else { return nil }
+        let reason = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        return reason.isEmpty ? "tmux 세션 생성 실패 (exit \(result.exitCode))" : reason
     }
 
-    /// 서버 전역 옵션. 세션이 생겨야 서버가 뜨므로 start 직후에 건다(멱등이라 매번 걸어도 무해).
+    /// 기동 명령 목록(순수) — **순서가 곧 정확성이다**.
     ///
-    /// `remain-on-exit on`이 **필수**다. 이게 없으면 프로세스가 죽는 순간 pane이 증발해서
-    /// exit code도 마지막 로그도 영영 못 읽는다 — 알림의 유일한 결정론적 신호가 사라진다.
-    private static func applyServerOptions() async {
-        await run(["set-option", "-g", "remain-on-exit", "on"])
-        await run(["set-option", "-g", "status", "off"]) // 도크에 tmux 상태바가 이중으로 보이지 않게
+    /// `remain-on-exit on`이 없으면 프로세스가 죽는 순간 pane이 증발해 exit code도 마지막 로그도
+    /// 영영 못 읽는다(알림의 유일한 결정론적 신호가 사라진다). 이걸 `new-session` **뒤에** 걸면,
+    /// 서버가 없던 상태에서 첫 서비스가 즉사할 때(포트 선점·오타 — 가장 흔한 실패) 옵션이 붙기 전에
+    /// pane이 사라져 상태가 `.exited`가 아니라 `.missing`이 된다. 알림도 배지도 로그도 없다.
+    ///
+    /// 그래서 **한 번의 tmux 호출**에 `;`로 이어 붙여 서버 기동 → 옵션 → 세션 생성 순으로 보낸다.
+    /// tmux 서버는 이 명령 목록을 순차 처리하므로 pane이 생기는 시점엔 옵션이 이미 걸려 있다
+    /// (`start-server`가 먼저 있어야 옵션만 걸고 서버가 곧장 꺼지는 일이 없다).
+    /// 인자를 배열로 넘기므로 `;`은 셸이 아니라 tmux가 구분자로 읽는다.
+    static func startArgs(session: String, cwd: String, shell: String, command: String) -> [String] {
+        ["start-server",
+         ";", "set-option", "-g", "remain-on-exit", "on",
+         ";", "set-option", "-g", "status", "off", // 도크에 tmux 상태바가 이중으로 보이지 않게
+         ";", "new-session", "-d", "-s", session, "-c", cwd, shell, "-l", "-c", command]
     }
 
     static func exists(_ session: String) async -> Bool {
@@ -197,7 +272,7 @@ enum TmuxService {
     // MARK: 종료·정리
 
     static func kill(session: String) async {
-        await run(["kill-session", "-t", "=\(session)"])
+        _ = await run(["kill-session", "-t", "=\(session)"]) // 없는 세션이면 exit 1 — 멱등하므로 무시한다
     }
 
     static func kill(projectId: String, serviceId: String) async {

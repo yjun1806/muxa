@@ -81,6 +81,9 @@ struct QuickSwitcher: View {
                             .contentShape(Rectangle())
                             .clickCursor()
                             .onTapGesture { state.quickJump(item) }
+                            .accessibilityRow(label: item.title,
+                                              selected: idx == clamped(selection, items.count),
+                                              activate: { state.quickJump(item) })
                     }
                 }
                 .padding(.vertical, 4)

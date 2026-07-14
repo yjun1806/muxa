@@ -6,14 +6,23 @@ import SwiftUI
 /// 네 번 반복됐다 — 세 번이면 추출한다.
 extension View {
     /// - id: 이 행의 신원(워크스페이스·프로젝트가 같은 id 공간을 쓴다).
+    /// - label: VoiceOver가 읽을 이름. 아이콘·점만 있는 행(접힘 모드)은 이게 없으면 읽을 게 없다.
+    /// - selected: 지금 보고 있는 행인가 — VO가 `.isSelected`로 말한다(색은 스크린리더에 없다).
+    /// - activate: 행 클릭과 **같은 동작**. 직접 그린 행(HStack + onTapGesture)은 접근성 요소가 아니라
+    ///   VO 커서가 못 들어가고 활성화할 액션도 없다 — 여기서 요소로 묶고 기본 액션을 달아 준다.
+    ///   이미 `Button`인 행(접힘 모드 항목)은 nil을 주면 된다(버튼이 이미 다 갖고 있다).
     /// - menu: **닫히는 순간이 아니라 열리는 순간에** 만든다(클로저) — 메뉴 항목을 미리 만들면
     ///   `store(for:in:)` 같은 부작용이 우클릭 전에 일어난다.
     @MainActor
     func sidebarRow(id: String,
+                    label: String,
+                    selected: Bool = false,
                     hoveredId: Binding<String?>,
                     menuOpenId: Binding<String?>,
+                    activate: (() -> Void)? = nil,
                     menu: @escaping () -> [MuxaMenuItem]) -> some View {
         clickCursor() // 직접 그린 행이라 커서 말고는 "누를 수 있다"는 신호가 없다(§Cursor)
+        .accessibilityRow(label: label, selected: selected, activate: activate)
         .onHover { hovering in
             if hovering {
                 hoveredId.wrappedValue = id

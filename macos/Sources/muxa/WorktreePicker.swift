@@ -5,6 +5,8 @@ import SwiftUI
 struct WorktreePicker: View {
     let dir: String
     var onPick: (String, String) -> Void
+    /// 제거된 워크트리의 절대경로 — 그 폴더를 쓰던 프로젝트를 호출부가 닫는다(고아·좀비 서비스 방지).
+    var onRemoved: (String) -> Void
     var onCancel: () -> Void
 
     @State private var worktrees: [GitWorktree] = []
@@ -107,7 +109,7 @@ struct WorktreePicker: View {
         .padding(.horizontal, 16).frame(height: 30)
     }
 
-    /// 워크트리 제거(비강제) → 목록 갱신. dirty면 git이 거부하고 사유를 보인다.
+    /// 워크트리 제거(비강제) → 그 폴더를 쓰던 프로젝트 정리 → 목록 갱신. dirty면 git이 거부하고 사유를 보인다.
     private func remove(_ wt: GitWorktree) {
         busy = true
         errorMessage = nil
@@ -115,6 +117,7 @@ struct WorktreePicker: View {
             if let msg = await GitService.worktreeRemove(wt.path, in: dir) {
                 errorMessage = msg
             } else {
+                onRemoved(wt.path) // 폴더가 사라졌다 — 그걸 쓰던 프로젝트·서비스도 닫는다
                 await load()
             }
             busy = false
@@ -164,6 +167,7 @@ struct WorktreePicker: View {
             if let err {
                 WorktreeMergeConfirm.showError(err)
             } else {
+                onRemoved(wt.path) // 병합 후 정리도 워크트리 폴더를 지운다 — 같은 정리가 필요하다
                 await load()
             }
             busy = false

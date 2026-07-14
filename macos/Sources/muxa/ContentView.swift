@@ -36,9 +36,12 @@ struct ContentView: View {
                                     set: { state.worktreePickerRequested = $0 })) {
             // 대상은 항상 **활성** 워크스페이스다 — +가 눌리는 즉시 setActiveId로 전환하기 때문.
             if let ws = state.activeWorkspace {
-                WorktreePicker(dir: ws.path ?? SystemPaths.currentDir ?? SystemPaths.home) { name, path in
+                WorktreePicker(dir: ws.path ?? SystemPaths.home) { name, path in
                     state.addProject(name: name, path: path)
                     state.worktreePickerRequested = false
+                } onRemoved: { path in
+                    // 워크트리 폴더가 사라졌다 — 그 폴더를 쓰던 프로젝트를 닫는다(죽은 경로·좀비 dev 서버 방지).
+                    state.closeProjects(underPath: path)
                 } onCancel: {
                     state.worktreePickerRequested = false
                 }

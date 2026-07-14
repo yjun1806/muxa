@@ -32,6 +32,10 @@ struct GitPanel: View {
     @State private var gh: GitService.GHStatus?
     /// canonical repo 루트(리뷰 코멘트 키) — 진입 시 1회 계산. nil이면 리뷰 바 숨김.
     @State private var reviewRoot: String?
+    /// 프로젝트 경로 상태 — 폴더가 없거나 못 읽으면 "git 저장소 아님"(거짓)보다 진짜 사유를 먼저 말한다.
+    @State private var pathState: PathState = .ok
+    /// 진행 중인 갱신 — FSEvents가 연달아 오면 이전 것을 취소해 결과가 뒤바뀌어 착지하지 않게 한다.
+    @State private var refreshTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -45,10 +49,12 @@ struct GitPanel: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 HDivider()
             }
-            if dir != nil, loaded, status == nil {
-                PanelLabel("git 저장소 아님")
-            } else if dir == nil {
+            if dir == nil {
                 PanelLabel("프로젝트 경로 없음")
+            } else if let reason = pathState.message {
+                PanelLabel(reason) // 경로 소실·권한 거부를 "git 저장소 아님"으로 위장하지 않는다
+            } else if loaded, status == nil {
+                PanelLabel("git 저장소 아님")
             } else {
                 picker
                 HDivider()
@@ -70,8 +76,8 @@ struct GitPanel: View {
             if let dir { reviewRoot = await GitService.repoRoot(in: dir) } // 리뷰 코멘트 키
             if let dir { watcher = FileWatcher(path: dir) } // B-2: 변경 시 git 패널 자동 갱신
         }
-        .onChange(of: watcher?.changeSeq) { _, _ in Task { await refresh() } }
-        .onChange(of: sessionBase) { _, _ in Task { await refresh() } } // 기준선 기록·리셋 후 세션 커밋 재계산
+        .onChange(of: watcher?.changeSeq) { _, _ in scheduleRefresh() }
+        .onChange(of: sessionBase) { _, _ in scheduleRefresh() } // 기준선 기록·리셋 후 세션 커밋 재계산
     }
 
     private var header: some View {
@@ -288,7 +294,10 @@ struct GitPanel: View {
                 IconButton(icon: staged ? "minus" : "plus", scale: .caption, weight: .bold,
                            help: staged ? "전부 언스테이지" : "전부 스테이지") {
                     Task {
-                        _ = staged ? await GitService.unstageAll(in: dir) : await GitService.stageAll(in: dir)
+                        // 실패(인덱스 락 경합·권한 등)를 삼키지 않는다 — 예전엔 `_ =`로 버려
+                        // "클릭이 안 먹네"만 남았다.
+                        let ok = staged ? await GitService.unstageAll(in: dir) : await GitService.stageAll(in: dir)
+                        syncError = ok ? nil : "\(staged ? "전부 언스테이지" : "전부 스테이지") 실패"
                         await refresh()
                     }
                 }
@@ -301,12 +310,17 @@ struct GitPanel: View {
     /// 파일 행 — [스테이지/언스테이지 버튼][상태문자][파일명 → diff 열기][버리기].
     private func fileRow(_ change: GitFileChange, staged: Bool, dir: String) -> some View {
         let badge = staged ? change.index : change.worktree
+        let name = basename(change.opPath)
+        let verb = staged ? "언스테이지" : "스테이지"
         return HStack(spacing: Space.sm) {
+            // 접근성 이름에 **파일명을 싣는다** — 아이콘만 있는 버튼은 VoiceOver가 "plus"로 읽어
+            // 20개 행이 전부 똑같이 들린다(어느 파일의 버튼인지 말하지 않는다).
             IconButton(icon: staged ? "minus" : "plus", scale: .caption, weight: .bold,
-                       help: staged ? "언스테이지" : "스테이지") {
+                       help: verb, label: "\(name) \(verb)") {
                 Task {
-                    _ = staged ? await GitService.unstage(change.opPath, in: dir)
-                               : await GitService.stage(change.opPath, in: dir)
+                    let ok = staged ? await GitService.unstage(change.opPath, in: dir)
+                                    : await GitService.stage(change.opPath, in: dir)
+                    syncError = ok ? nil : "\(name) \(verb) 실패"
                     await refresh()
                 }
             }
@@ -329,7 +343,8 @@ struct GitPanel: View {
             .clickCursor()
             .help(change.path)
 
-            IconButton(icon: "trash", scale: .caption, help: "변경 버리기") { discard(change, in: dir) }
+            IconButton(icon: "trash", scale: .caption, help: "변경 버리기",
+                       label: "\(name) 변경 버리기") { discard(change, in: dir) }
         }
         .panelRow()
         .contextMenu {
@@ -483,24 +498,49 @@ struct GitPanel: View {
         }
     }
 
+    /// FSEvents·기준선 변경에 물린 갱신 — 진행 중인 것을 취소하고 새로 건다.
+    /// (npm install처럼 이벤트가 쏟아질 때 이전 결과가 뒤늦게 착지해 화면이 되돌아가는 걸 막는다.)
+    private func scheduleRefresh() {
+        refreshTask?.cancel()
+        refreshTask = Task { await refresh() }
+    }
+
     private func refresh() async {
         guard let dir else {
-            status = nil
-            commits = []
-            sessionCommits = []
-            branches = []
-            loaded = true
+            clearGit()
             return
         }
-        status = await GitService.status(in: dir)
-        commits = status == nil ? [] : await GitService.log(in: dir)
-        branches = status == nil ? [] : await GitService.localBranches(in: dir)
-        // 이번 세션 = 기준선 이후 커밋(base..HEAD). 기준선 없거나 git 저장소 아니면 빈 목록.
-        if let base = sessionBase, status != nil {
-            sessionCommits = await GitService.sessionCommits(base: base, in: dir)
-        } else {
-            sessionCommits = []
+        // 폴더가 사라졌거나 못 읽으면 git을 부를 이유가 없다 — 사유는 pathState가 화면에 말한다.
+        pathState = PathState.check(dir)
+        guard pathState == .ok else {
+            clearGit()
+            return
         }
+        // 네 조회를 **병렬로** 띄운다 — 순차 await면 FSEvents 배치마다 셸아웃 4번이 줄줄이 기다린다.
+        async let statusResult = GitService.status(in: dir)
+        async let logResult = GitService.log(in: dir)
+        async let branchResult = GitService.localBranches(in: dir)
+        async let sessionResult = loadSessionCommits(in: dir)
+        let (s, allCommits, branchList, session) = await (statusResult, logResult, branchResult, sessionResult)
+        guard !Task.isCancelled else { return } // 뒤늦은 결과가 최신 상태를 덮지 않게
+        status = s
+        commits = s == nil ? [] : allCommits
+        branches = s == nil ? [] : branchList
+        sessionCommits = s == nil ? [] : session
+        loaded = true
+    }
+
+    /// 이번 세션 = 기준선 이후 커밋(base..HEAD). 기준선이 없으면 빈 목록.
+    private func loadSessionCommits(in dir: String) async -> [GitCommit] {
+        guard let base = sessionBase else { return [] }
+        return await GitService.sessionCommits(base: base, in: dir)
+    }
+
+    private func clearGit() {
+        status = nil
+        commits = []
+        sessionCommits = []
+        branches = []
         loaded = true
     }
 

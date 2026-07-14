@@ -8,13 +8,23 @@ enum GitService {
         let exitCode: Int32
     }
 
+    /// git 셸아웃 인자 조립(순수·SSOT) — 모든 실행 경로(run·runResult·runWithStdin)가 이걸 거친다.
+    ///
+    /// **`core.quotepath=false`가 항상 앞에 붙는다.** git 기본값은 true라 `status --porcelain`이
+    /// 비ASCII 경로를 `"\355\225\234…"`(따옴표 + 8진 이스케이프)로 내보낸다. 그 문자열을 그대로
+    /// 파싱해 담으면 `git add -- <path>`·`git diff -- <path>`·휴지통 이동이 전부 실제 파일과 안 맞아
+    /// **한글 파일명이 Git 패널에서 통째로 안 먹는다**(사용자 머신의 기본값이 true다).
+    static func gitArgs(_ args: [String]) -> [String] {
+        ["git", "-c", "core.quotepath=false"] + args
+    }
+
     /// 지정 디렉토리에서 git 명령을 백그라운드로 실행한다. stderr는 무시(nullDevice로 데드락 방지).
     static func run(_ args: [String], in dir: String) async -> Output {
         await withCheckedContinuation { cont in
             DispatchQueue.global(qos: .userInitiated).async {
                 let proc = Process()
                 proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-                proc.arguments = ["git"] + args
+                proc.arguments = gitArgs(args)
                 proc.currentDirectoryURL = URL(fileURLWithPath: dir)
                 // 에이전트가 같은 리포에서 git을 동시에 돌리는 중에도 인덱스 락을 건드리지 않는다 —
                 // muxa의 상시 status/diff 폴링이 에이전트 커밋과 락 경합하는 것을 막는다(cmux 대조 ⑦).

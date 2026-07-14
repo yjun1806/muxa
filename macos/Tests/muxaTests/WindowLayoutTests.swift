@@ -103,11 +103,20 @@ struct WindowLayoutTests {
         #expect(after.first?.activeProjectId == "p1")
     }
 
+    @Test func 존재하지_않는_창으로_옮기면_메인이_가진다() {
+        // move는 창을 만들지 않는다(순수 함수의 책임 밖) — 대상 창이 목록에 없으면 여집합(메인)으로 떨어진다.
+        // AppState.moveProjects의 "새 창 append + 재적용"이 정확히 이 분기에 기대고 있다.
+        let after = WindowLayout.move(["p1"], to: WindowID(rawValue: "없음"), in: [])
+        #expect(after.isEmpty)
+        #expect(WindowLayout.owner(of: "p1", in: after) == .main)
+    }
+
     // MARK: 보이는 활성 프로젝트 (배지 판정의 입력)
 
     @Test func 분리_창의_활성_프로젝트도_보이는_것으로_친다() {
         let windows = [ProjectWindow(id: w1, projectIds: ["p2", "p3"], activeProjectId: "p2")]
-        let visible = WindowLayout.visibleActiveProjects(mainActive: "p1", in: windows)
+        let visible = WindowLayout.visibleActiveProjects(mainActive: "p1", in: windows,
+                                                         visibleWindows: [.main, w1])
         #expect(visible == ["p1", "p2"])   // p3는 그 창의 비활성 프로젝트라 안 보인다
     }
 
@@ -115,7 +124,22 @@ struct WindowLayoutTests {
         // 메인의 활성 프로젝트(p1)가 분리 창으로 갔고 그 창은 p4를 보고 있다 —
         // 메인은 p1 자리에 플레이스홀더를 그리므로 p1은 아무 데서도 안 보인다(배지가 붙어야 한다).
         let windows = [ProjectWindow(id: w1, projectIds: ["p1", "p4"], activeProjectId: "p4")]
-        #expect(WindowLayout.visibleActiveProjects(mainActive: "p1", in: windows) == ["p4"])
+        #expect(WindowLayout.visibleActiveProjects(mainActive: "p1", in: windows,
+                                                   visibleWindows: [.main, w1]) == ["p4"])
+    }
+
+    @Test func 최소화된_분리_창의_프로젝트는_보이지_않는다() {
+        // 그 창이 눈에 안 들어와 있으면(최소화·가려짐) 그 창의 활성 프로젝트도 "보고 있는 중"이 아니다 —
+        // 알림 게이트와 같은 정의여야 대기 신호에 배지가 붙는다.
+        let windows = [ProjectWindow(id: w1, projectIds: ["p2"], activeProjectId: "p2")]
+        #expect(WindowLayout.visibleActiveProjects(mainActive: "p1", in: windows,
+                                                   visibleWindows: [.main]) == ["p1"])
+    }
+
+    @Test func 앱이_백그라운드면_아무것도_보이지_않는다() {
+        let windows = [ProjectWindow(id: w1, projectIds: ["p2"], activeProjectId: "p2")]
+        #expect(WindowLayout.visibleActiveProjects(mainActive: "p1", in: windows,
+                                                   visibleWindows: []).isEmpty)
     }
 
     // MARK: 메인 창의 프로젝트 순환
@@ -133,5 +157,20 @@ struct WindowLayoutTests {
                                              forward: true, windows: windows) == nil)
         #expect(WindowLayout.nextMainProject(from: "p1", in: ["p1"],
                                              forward: true, windows: []) == nil)
+    }
+
+    // MARK: 분리 창 안의 프로젝트 순환
+
+    @Test func 분리_창의_순환은_그_창이_품은_목록_안에서만_돈다() {
+        let ids = ["p1", "p2", "p3"]
+        #expect(WindowLayout.nextProject(from: "p1", in: ids, forward: true) == "p2")
+        #expect(WindowLayout.nextProject(from: "p3", in: ids, forward: true) == "p1")   // 순환
+        #expect(WindowLayout.nextProject(from: "p1", in: ids, forward: false) == "p3")  // 역순환
+    }
+
+    @Test func 프로젝트가_하나뿐인_창은_순환하지_않는다() {
+        #expect(WindowLayout.nextProject(from: "p1", in: ["p1"], forward: true) == nil)
+        #expect(WindowLayout.nextProject(from: nil, in: ["p1", "p2"], forward: true) == nil)
+        #expect(WindowLayout.nextProject(from: "밖", in: ["p1", "p2"], forward: true) == nil)
     }
 }

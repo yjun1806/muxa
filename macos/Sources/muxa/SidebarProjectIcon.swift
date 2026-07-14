@@ -32,7 +32,9 @@ struct SidebarProjectIcon: View {
         }
         .buttonStyle(.plain)
         .clickCursor()
-        .sidebarRow(id: project.id, hoveredId: $hoveredId, menuOpenId: $menuOpenId) {
+        // 점 하나가 전부인 항목 — 라벨이 없으면 VO엔 이름 없는 버튼이다.
+        .sidebarRow(id: project.id, label: project.name, selected: active,
+                    hoveredId: $hoveredId, menuOpenId: $menuOpenId) {
             ProjectMenu.items(for: project, in: workspace, state: state)
         }
         .overlay(alignment: .leading) {

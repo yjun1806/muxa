@@ -9,6 +9,12 @@ enum ScrollbackText {
     static let maxLines = 4000
     static let maxBytes = 400_000
 
+    /// **원본 읽기 상한** — 정제 전에 파일 꼬리만 올린다. 상한(maxBytes)이 어차피 꼬리를 남기므로
+    /// 8MB짜리 덤프를 통째로 문자열로 올릴 이유가 없다(strip은 원본 전체를 스칼라 배열로 복사하고
+    /// capLines는 원본 전체를 split한다 — ⌘Q 종료가 메인 스레드에서 터미널당 수백 ms를 먹었다).
+    /// 여유(2배)는 strip으로 사라질 몫(테마 OSC)과 줄 경계 절단분을 감안한 것.
+    static let captureBytes = 2 * maxBytes
+
     /// 색/제어 스트립 → 줄 상한(꼬리) → 바이트 상한(UTF-8 안전, 꼬리). 셋 다 적용한 문자열.
     static func sanitize(_ raw: String, maxLines: Int = maxLines, maxBytes: Int = maxBytes) -> String {
         capBytes(capLines(strip(raw), maxLines: maxLines), maxBytes: maxBytes)
@@ -77,9 +83,14 @@ enum ScrollbackText {
     /// 문자 단위로 자르면 이스케이프 시퀀스 중간이 끊겨 "31m" 같은 잔해가 본문으로 출력된다.
     static func capBytesVT(_ s: String, maxBytes: Int) -> String {
         guard s.utf8.count > maxBytes else { return s }
-        let tail = capBytes(s, maxBytes: maxBytes)
-        guard let nl = tail.firstIndex(of: "\n") else { return "" } // 한 줄뿐이면 통째로 버린다
-        return String(tail[tail.index(after: nl)...])
+        return dropPartialFirstLine(capBytes(s, maxBytes: maxBytes))
+    }
+
+    /// 꼬리를 잘라낸 텍스트의 **첫 줄을 버린다** — 절단면은 이스케이프 시퀀스 중간일 수 있다.
+    /// 개행이 없으면(한 줄뿐) 통째로 버린다. 파일 꼬리 읽기(ScrollbackStore.readTail)와 공유하는 규칙.
+    static func dropPartialFirstLine(_ s: String) -> String {
+        guard let nl = s.firstIndex(of: "\n") else { return "" }
+        return String(s[s.index(after: nl)...])
     }
 
     /// ESC 기반 시퀀스(CSI·OSC·기타 Fe)와 C0 제어문자를 제거. 개행(\n)·탭(\t)만 보존, \r는 버린다.
@@ -168,6 +179,21 @@ enum ScrollbackStore {
         } catch {
             return nil
         }
+    }
+
+    /// 파일 **꼬리**에서 최대 maxBytes만 읽는다(원본 전체를 메모리에 올리지 않는다 — TranscriptTail과 같은 패턴).
+    /// 잘렸으면 깨진 첫 줄을 버린다(순수 판정은 ScrollbackText.dropPartialFirstLine).
+    static func readTail(path: String, maxBytes: Int = ScrollbackText.captureBytes) -> String? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        guard let size = try? handle.seekToEnd() else { return nil }
+        let truncated = size > UInt64(maxBytes)
+        let offset = truncated ? size - UInt64(maxBytes) : 0
+        guard (try? handle.seek(toOffset: offset)) != nil,
+              let data = try? handle.readToEnd(), !data.isEmpty
+        else { return nil }
+        let text = String(decoding: data, as: UTF8.self)
+        return truncated ? ScrollbackText.dropPartialFirstLine(text) : text
     }
 
     /// 탭이 닫힐 때 해당 스크롤백 파일 정리.

@@ -58,7 +58,7 @@ final class ServiceMonitor {
 
     /// 한 번 훑는다 — 상태 갱신 + 죽음 전이 감지 + (아직 모르는) 포트 조회.
     func refresh(services: [Service]) async {
-        let byId = Dictionary(uniqueKeysWithValues: services.map { ($0.id, $0) })
+        let byId = Self.index(services)
         let bySession = await TmuxService.states()
 
         // 세션명 키 → 서비스 id 키로 옮긴다. muxa 소유가 아닌 세션은 parse가 걸러낸다.
@@ -94,6 +94,16 @@ final class ServiceMonitor {
             let log = await TmuxService.capture(projectId: projectId, serviceId: id, lines: 60)
             if let port = ServiceSession.extractPort(log) { ports[id] = port }
         }
+    }
+
+    /// serviceId → 서비스 색인(순수).
+    ///
+    /// **`Dictionary(uniqueKeysWithValues:)`를 쓰면 안 된다** — 중복 키에서 fatalError다. 저장 파일이
+    /// 손상돼(프로젝트 블록 복붙·동기화 충돌) 같은 serviceId가 둘 생기면 첫 폴링(2초)에서 앱이 죽고,
+    /// 다시 켜도 같은 파일을 읽어 또 죽는다 = 영구 부팅 불가. 저장 파일은 신뢰 경계 밖이다
+    /// (SnapshotSanitize와 같은 원칙 — 변조된 입력에 죽지 않는다). 중복은 **먼저 온 것을 남긴다**.
+    static func index(_ services: [Service]) -> [String: Service] {
+        Dictionary(services.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     /// 세션명에서 프로젝트 id를 되찾는다(서비스 값 타입은 자기 프로젝트를 모른다 — 소유는 Project에 있다).

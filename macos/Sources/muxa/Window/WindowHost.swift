@@ -34,11 +34,37 @@ final class WindowHost {
     func window(_ id: WindowID) -> NSWindow? { controllers[id]?.window }
 
     /// 그 창을 앞으로. 창이 없으면 false — 호출자가 self-heal(메인으로 재합치기)한다.
+    ///
+    /// **최소화 복원을 먼저 한다.** `makeKeyAndOrderFront`는 Dock에 접힌 창을 되살리지 못하는데,
+    /// 그래도 true를 돌려주면 호출자(알림 클릭·사이드바 클릭)는 성공으로 믿는다 —
+    /// 사용자 눈엔 "알림을 눌렀는데 아무 창도 안 뜬다"가 된다.
     @discardableResult
     func raise(_ id: WindowID) -> Bool {
         guard let window = controllers[id]?.window else { return false }
+        if window.isMiniaturized { window.deminiaturize(nil) }
         window.makeKeyAndOrderFront(nil)
         return true
+    }
+
+    /// 지금 **실제로 눈에 들어와 있는** 창들 — 배지 게이트(`visibleActiveProjectIds`)의 입력.
+    /// 알림 게이트(`TerminalStore.isTabVisible`)와 **같은 순수 판정**을 쓴다 — 두 게이트의 "보인다"가
+    /// 어긋나면 최소화된 창의 프로젝트에 알림은 뜨는데 배지는 안 붙는다(놓치면 되찾을 단서가 없다).
+    var visibleWindowIds: Set<WindowID> {
+        let appActive = NSApp.isActive
+        return Set(controllers.compactMap { id, controller -> WindowID? in
+            let window = controller.window
+            return WindowVisibility.isVisible(appActive: appActive,
+                                              windowVisible: window.isVisible,
+                                              miniaturized: window.isMiniaturized,
+                                              occluded: !window.occlusionState.contains(.visible)) ? id : nil
+        })
+    }
+
+    /// 창 제목 — `titleVisibility = .hidden`이라 크롬엔 안 보이지만 **'창' 메뉴에는 그대로 나온다**.
+    /// 모든 창이 "muxa"면 창을 잃었을 때 되찾을 유일한 UI가 동명 항목만 나열한다.
+    func setTitle(_ id: WindowID, _ title: String) {
+        guard let window = controllers[id]?.window, window.title != title else { return }
+        window.title = title
     }
 
     /// 모델 ⇄ 실물 reconcile(I4). 메인 창은 모델 밖(여집합 — D29)이라 건드리지 않는다.

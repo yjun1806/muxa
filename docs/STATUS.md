@@ -35,14 +35,42 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 - **뷰어 라이브 리로드** ✅ — 열린 코드/md가 디스크에서 바뀌면 자동 재로드
 - **세션 복원 정합성** ✅ — 트리는 터미널만(`layoutSnapshot`), 문서/diff는 `SavedViewer`로 별도 복원
 
+## 최근 완료 (2026-07-14) — 상용 감사: 인프라·배포
+
+- **첫 화면이 `/`였다** — `.app`을 Finder/Dock에서 열면 cwd가 `/`라 첫 워크스페이스가 파일시스템 루트로
+  생겼다(터미널에서 띄운 개발 빌드에서만 멀쩡했다). 판정을 순수 함수로 뽑았다: `InitialWorkspacePath.resolve`
+  (설정값 > **bare 개발 실행일 때만** cwd > 홈). 테스트로 못 박음.
+- **메뉴바에 앱 명령이 없었다** → `명령` 메뉴 신설. 목록·단축키는 `QuickCommandCatalog` 단일 출처를 그대로
+  구워 쓴다(`MenuShortcut.parse`가 "⌘⇧D" → 키 등가물). 키 등가물은 **우리 창이 키일 때만** 먹는다
+  (`validateMenuItem` — 시트가 떠 있을 때 ⌘W가 뒤 화면을 닫지 않게).
+- **버전·About·설정 진입점** — 버전은 `scripts/app-identity.sh`가 git 태그·커밋 수에서 파생(APP_VERSION/APP_BUILD,
+  더는 `0.1.0 (1)` 고정 아님). 앱 메뉴에 `정보`·`설정 파일 열기…`(⌘,) 추가 — 설정 파일이 없으면 주석 달린
+  기본본(`MuxaConfig.template`)을 만들어 연다.
+- **서명 파이프라인** — `--deep` 제거(안쪽→바깥쪽 순차 서명), `CODESIGN_ID`로 Developer ID 파라미터화,
+  실 식별자면 `--options runtime --timestamp`(공증 필수 조건), **릴리스는 서명 실패 시 hard fail + `--verify --strict` 게이트**.
+  `build-dmg.sh`는 `NOTARY_PROFILE`이 있으면 `notarytool submit --wait` + `stapler staple`. README에 설치·Gatekeeper 우회 절차.
+- **워크트리 제거가 프로젝트를 고아로 남겼다** — 폴더를 지워도 그 경로를 쓰던 프로젝트·dev 서버가 그대로 살아
+  있었다. 판정은 순수(`WorktreeOrphans.projectIds`), 닫기는 기존 파괴 동선(`closeProject` → 서비스·tmux 종료).
+
+### ★ 육안 검증 필요 (이 수정)
+- Finder/Dock에서 새 사용자 상태로 첫 실행 → 워크스페이스가 **홈**에 생기는가(더 이상 `/`가 아닌가).
+- 메뉴바 `명령` 메뉴의 항목이 실제로 동작하는가 · 시트가 떠 있을 때 ⌘W가 뒤 탭을 닫지 않는가.
+- 워크트리 시트에서 휴지통/병합 후 정리 → 그 워크트리를 쓰던 프로젝트 탭이 닫히고 dev 서버가 죽는가.
+- `Developer ID`로 서명·공증한 DMG의 첫 실행(계정 필요 — 미검증).
+
 ## 최근 완료 (2026-07-14) — 창 분리·재합치기 (D28~D30)
 
 프로젝트를 **별도 창으로 분리**하고(우클릭 · ⌘K "새 창으로 분리" · 워크스페이스 단위), 창을 닫으면
 **메인으로 무손실 재합치기**된다. 서피스는 아무도 옮기지 않는다 — 소유 창(`WindowID`)을 값으로 스탬프하고
 뷰 계층이 스스로 재부모화한다(D28). 배치의 원자는 프로젝트, 메인 창은 **여집합**(D29) — 분리 창 목록만 저장한다.
 
-- 순수 로직: `WindowLayout`(owner/move/normalize/visibleActiveProjects/nextMainProject) · `WindowVisibility` ·
-  `TermAttach` · `WindowFrame.restore`. **전부 테스트로 못 박음**(전체 241 tests green).
+- 순수 로직: `WindowLayout`(owner/move/normalize/visibleActiveProjects/nextMainProject/nextProject) ·
+  `WindowVisibility` · `ProjectCloseDecision` · `TermAttach` · `WindowFrame.restore`. **전부 테스트로 못 박음**.
+- 여러 프로젝트를 품은 분리 창은 상단바의 **프로젝트 스트립**(`WindowProjectStrip`)으로 그 안에서 전환한다
+  (사이드바는 여전히 메인에만 — 분리 창은 탐색하는 창이 아니다). ⌘⇧[ / ⌘⇧]도 **그 창의 목록 안에서** 돈다.
+- 배지 게이트(`visibleActiveProjectIds`)가 알림 게이트와 **같은 판정**을 쓴다 — 최소화·가려짐·앱 비활성인
+  창의 활성 프로젝트에도 배지가 붙는다(`WindowHost.visibleWindowIds` → `WindowVisibility.isVisible`).
+- 분리 창의 **제목 = 그 창의 프로젝트 이름**(크롬엔 안 보이고 '창' 메뉴에만) — 동명 항목이면 창을 되찾을 수 없다.
 - 경계: `WindowHost`(모델⇄NSWindow 단일 reconcile) · `MuxaWindowController`(창별 포커스 계약·프레임 보고).
 - 알림 가시성 판정이 `isKeyWindow` → `WindowVisibility.isVisible(appActive:…)`로 바뀌었다.
   **앱이 백그라운드면 언제나 "안 보임"** — 이게 깨지면 에이전트 완료 알림이 전면 억제된다(제품 가치 소멸).
@@ -65,6 +93,38 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 9. ★ 알림 클릭/⌘⇧A/⌘K가 분리 창을 앞으로 올리고 **그 탭이 실제로 선택**된다(배지 해제·탭 선택은 창과 무관하게 항상).
 10. ★ 분리 창 2개를 각 모니터에 두고 재시작 → 위치·소속 복원. 외장 모니터를 뽑고 재시작 → 화면 밖 창 없이 cascade.
 11. ★ Bonsplit `keepAllAlive`가 창 간 이동에서 호스팅 뷰를 어떻게 다루는지 — **미확인**(소스 미열람).
+12. ★ 워크스페이스를 통째로 분리 → 그 창 상단바의 **프로젝트 스트립**으로 두 번째 프로젝트가 실제로 그려지는가.
+13. ★ 분리 창을 ⌘M으로 최소화 → 그 창 프로젝트의 대기 신호에 사이드바 ●·Dock 배지가 붙는가.
+    알림 클릭·사이드바 클릭이 **최소화된 창을 되살리는가**(deminiaturize).
+14. ★ 분리 창 드래그가 끊기지 않는가(프레임은 저장 직전에만 모델에 병합 — 드래그 중 재렌더 없음).
+
+## 최근 완료 (2026-07-14) — 상용 감사: 뷰·접근성
+
+- **TerminalStore ↔ TermView 순환 참조 끊김** — `BonsplitWorkspaceView`의 `onFocus`가 store를 강하게
+  되잡아, 프로젝트를 닫아도(`stores[id]=nil`) 스토어·서피스가 해제되지 않았다 → 자식 셸(PTY)·idle
+  타이머·Dock 배지가 영원히 살아남았다. `[weak store]`로 끊었다(바로 아래 `onContextMenu`와 같은 패턴).
+- **커스텀 메뉴 키보드 네비** — 직접 그린 메뉴(`MuxaMenuView`)에 ↑↓·Return을 붙였다. 이동 판정은
+  순수 타입 `MuxaMenuNav`(구분선·비활성 건너뜀 + 순환), 테스트로 못 박음. Esc는 기존대로 패널이 처리.
+- **VoiceOver 진입점** — 조작면이 `Button`이 아니라 `onTapGesture`라 접근성 트리에 아예 없었다.
+  공용 모디파이어 `accessibilityRow(label:selected:activate:)`(→ `Design/AccessibleRow.swift`)로
+  사이드바 4행·주의 큐 헤더·그룹 서브탭·⌘K 팔레트 행에 라벨·버튼 트레이트·기본 액션을 달았다.
+- **hover에서만 "존재"하던 컨트롤** — 사이드바 `+`(새 프로젝트)·프로젝트 ✕가 hover 아니면 뷰 트리에서
+  사라져 키보드·VO로는 도달 불가였다. 이제 항상 렌더하고 `opacity`로만 감춘다(마우스 히트만 hover로 가름).
+
+### ★ 육안 검증 필요 (이 수정 — 접근성은 VoiceOver ⌘F5로 본다)
+
+1. ★ 프로젝트 닫기 → `ps`로 그 프로젝트 셸(`sleep 9999` 등)이 **실제로 죽는지**(순환 참조 해소의 유일한 증거).
+2. ★ 우클릭 메뉴에서 ↑↓·Return·Esc — 구분선/비활성 항목을 건너뛰고, hover와 키보드 강조가 겹치지 않는지.
+3. ★ 메뉴가 열릴 때 키 포커스를 받는지(`.focusable()` + nonactivating 패널 조합 — 코드로 판정 불가).
+4. ★ 사이드바 행에 안 보이는 `+`·✕가 **마우스로 눌리지 않는지**(hover 밖 클릭 = 행 선택이어야 한다).
+5. ★ VO 커서가 사이드바 행에 착지하고 이름·선택 상태를 읽는지, 행의 보조 액션(닫기·추가)이 나오는지.
+6. ★ **메뉴를 여는 키보드 경로는 여전히 없다** — 아래 미해결 참조.
+
+### 미해결(이번 범위 밖)
+
+- 터미널 포커스에서 **크롬으로 나가는 키보드 경로**가 없다(`KeymapResolver`에 크롬 포커스 액션 부재).
+  착지점(`@FocusState`)·복귀 키를 4개 패널에 설계해야 하는 별건 — 실행 검증 없이 넣으면 터미널 키를 뺏는다.
+- `GitPanel`·`FileExplorerPanel`이 같은 폴더에 **FSEventStream을 2개** 건다(프로젝트당 1개로 공유해야).
 
 ## 최근 완료 (2026-07-14) — 재개(resume)가 **살아 있는 claude에 명령을 꽂던** 버그
 

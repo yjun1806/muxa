@@ -126,9 +126,16 @@ enum WindowLayout {
     /// 지금 **어느 창에서든 눈에 들어와 있는** 활성 프로젝트들 — 메인의 활성 프로젝트 + 각 분리 창의 것.
     /// 배지 판정("보고 있는 프로젝트엔 배지를 달지 않는다")의 입력이다. 메인의 활성 프로젝트가 분리돼
     /// 나갔으면 메인은 플레이스홀더를 그리고 있으므로 보이는 것이 아니다.
-    static func visibleActiveProjects(mainActive: String?, in windows: [ProjectWindow]) -> Set<String> {
-        var result = Set(windows.compactMap(\.activeProjectId))
-        if let mainActive, owner(of: mainActive, in: windows).isMain { result.insert(mainActive) }
+    ///
+    /// **창이 실제로 보이는지도 묻는다**(`visibleWindows` = 최소화·가려짐·앱 비활성을 이미 통과한 창들).
+    /// 모델의 activeProjectId만 보면 최소화된 분리 창의 프로젝트가 "보고 있는 중"으로 판정돼
+    /// 대기 신호에 배지가 안 붙는다 — 알림을 놓치면 그 세션을 되찾을 단서가 사라진다.
+    static func visibleActiveProjects(mainActive: String?, in windows: [ProjectWindow],
+                                      visibleWindows: Set<WindowID>) -> Set<String> {
+        var result = Set(windows.filter { visibleWindows.contains($0.id) }.compactMap(\.activeProjectId))
+        if let mainActive, visibleWindows.contains(.main), owner(of: mainActive, in: windows).isMain {
+            result.insert(mainActive)
+        }
         return result
     }
 
@@ -144,6 +151,15 @@ enum WindowLayout {
             if owner(of: candidate, in: windows).isMain { return candidate }
         }
         return nil
+    }
+
+    /// 분리 창 안의 프로젝트 순환(⌘⇧[ / ⌘⇧]) — 그 창이 품은 목록 안에서만 돈다.
+    /// 하나뿐이거나 현재 값이 목록 밖이면 nil(무동작).
+    static func nextProject(from current: String?, in projectIds: [String], forward: Bool) -> String? {
+        guard let current, projectIds.count > 1,
+              let idx = projectIds.firstIndex(of: current) else { return nil }
+        let count = projectIds.count
+        return projectIds[(idx + (forward ? 1 : count - 1)) % count]
     }
 
     /// 빈 창 제거 + activeProjectId clamp — move/normalize의 공통 마무리.

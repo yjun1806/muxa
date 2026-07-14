@@ -41,10 +41,20 @@ struct SidebarProjectRow: View {
             }
             Spacer(minLength: Space.xs)
             // ✕는 서비스 요약과 **같은 자리**를 쓴다(hover 시 교체 → 행 폭이 흔들리지 않는다).
-            if hovered {
-                if workspace.projects.count > 1 { closeButton }
-            } else if !services.isEmpty {
-                serviceSummary(services)
+            // 교체를 `if hovered`(존재)가 아니라 opacity(보임)로 한다 — hover가 없는 사용자에게
+            // ✕가 접근성 트리에서 사라지면 "프로젝트 닫기"에 도달할 길이 우클릭 메뉴뿐이고,
+            // 그 메뉴도 마우스 전용이다. 마우스 히트만 hover로 가른다(안 보이는 ✕가 눌리지 않게).
+            ZStack(alignment: .trailing) {
+                if !services.isEmpty {
+                    serviceSummary(services)
+                        .opacity(hovered ? 0 : 1)
+                        .accessibilityHidden(true) // 요약은 행 라벨(이름)에 섞이면 소음이다
+                }
+                if workspace.projects.count > 1 {
+                    closeButton
+                        .opacity(hovered ? 1 : 0)
+                        .allowsHitTesting(hovered)
+                }
             }
         }
         .padding(.leading, Space.treeIndent) // 2단 트리의 들여쓰기 = 위계
@@ -54,27 +64,31 @@ struct SidebarProjectRow: View {
         .background(active ? Color.pBtnActive : (hovered ? Color.pBtnHover : Color.clear))
         .clipShape(RoundedRectangle(cornerRadius: Radius.md))
         .contentShape(Rectangle())
-        .onTapGesture {
-            // 분리된 프로젝트는 그 창을 앞으로 부르기만 한다 — 메인의 활성 좌표는 건드리지 않는다
-            // (메인이 그 프로젝트를 그리지 않으므로 활성으로 바꾸면 플레이스홀더만 남는다).
-            if separated {
-                state.focusWindow(owning: project.id)
-                return
-            }
-            // 배지(주의) 있는 프로젝트로 이동하면 Git 패널까지 함께 연다(원클릭 검토 동선).
-            if state.badgedProjects.contains(project.id) {
-                state.revealActivity(projectId: project.id)
-            } else {
-                // **setActiveId 먼저** — setActiveProject는 활성 워크스페이스 대상이라,
-                // 다른 그룹의 프로젝트를 눌렀을 때 전환 없이 부르면 조용히 씹힌다.
-                state.setActiveId(workspace.id)
-                state.setActiveProject(project.id)
-            }
-        }
-        .sidebarRow(id: project.id, hoveredId: $hoveredId, menuOpenId: $menuOpenId) {
+        .onTapGesture(perform: select)
+        .sidebarRow(id: project.id, label: project.name, selected: active,
+                    hoveredId: $hoveredId, menuOpenId: $menuOpenId, activate: select) {
             ProjectMenu.items(for: project, in: workspace, state: state)
         }
         .help(displayPath(project.path ?? workspace.path, home: SystemPaths.home))
+    }
+
+    /// 행 클릭 = 이 프로젝트로 이동(마우스·VoiceOver가 같은 동작을 쓴다).
+    private func select() {
+        // 분리된 프로젝트는 그 창을 앞으로 부르기만 한다 — 메인의 활성 좌표는 건드리지 않는다
+        // (메인이 그 프로젝트를 그리지 않으므로 활성으로 바꾸면 플레이스홀더만 남는다).
+        if separated {
+            state.focusWindow(owning: project.id)
+            return
+        }
+        // 배지(주의) 있는 프로젝트로 이동하면 Git 패널까지 함께 연다(원클릭 검토 동선).
+        if state.badgedProjects.contains(project.id) {
+            state.revealActivity(projectId: project.id)
+        } else {
+            // **setActiveId 먼저** — setActiveProject는 활성 워크스페이스 대상이라,
+            // 다른 그룹의 프로젝트를 눌렀을 때 전환 없이 부르면 조용히 씹힌다.
+            state.setActiveId(workspace.id)
+            state.setActiveProject(project.id)
+        }
     }
 
     /// 자체 경로를 가진 프로젝트(워크트리·임의 폴더)의 이름은 식별자라 모노스페이스로 읽는다
@@ -105,5 +119,7 @@ struct SidebarProjectRow: View {
         .buttonStyle(.plain)
         .clickCursor()
         .help("프로젝트 닫기")
+        // 파괴적 동작인데 대상이 안 들리면 안 된다 — VO는 `.help()`를 hint로만 읽는다(라벨은 "xmark"로 떨어진다).
+        .accessibilityLabel("\(project.name) 닫기")
     }
 }

@@ -46,6 +46,7 @@ struct TabGroupView: View {
             .buttonStyle(.plain)
             .clickCursor()
             .opacity(selected ? 0.8 : 0.4)
+            .accessibilityLabel("\(item.title) 닫기")
         }
         .foregroundStyle(selected ? Color.pFg : Color.pMuted)
         .padding(.horizontal, 8)
@@ -56,6 +57,8 @@ struct TabGroupView: View {
         .contentShape(Rectangle())
         .clickCursor()
         .onTapGesture { group.selectedId = item.id; onFocus() }
+        .accessibilityRow(label: item.title, selected: selected,
+                          activate: { group.selectedId = item.id; onFocus() })
         .onRightClick { point in
             let menu = SubTabMenu.items(item, dir: dir, siblings: group.items.count,
                                         onClose: { onCloseItem(item.id) },

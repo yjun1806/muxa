@@ -32,6 +32,7 @@ struct SidebarQueueHeader: View {
             .contentShape(Rectangle())
             .clickCursor()
             .onTapGesture { state.jumpToNextWaiting() }
+            .accessibilityRow(label: text(target), activate: { state.jumpToNextWaiting() })
             .onHover { hovered = $0 }
             .animation(Motion.fast, value: hovered)
         }

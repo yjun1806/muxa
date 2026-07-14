@@ -7,6 +7,9 @@ struct IconButton: View {
     var scale: TypeScale = .label
     var weight: Font.Weight = .regular
     var help: String
+    /// VoiceOver가 읽을 이름. 없으면 help를 쓴다 — `.help()`는 hint일 뿐이라 label을 안 주면
+    /// SF Symbol 기본 설명("plus"·"trash")으로 읽혀 목록의 모든 행이 똑같이 들린다.
+    var label: String? = nil
     let action: () -> Void
 
     @State private var hovered = false
@@ -24,6 +27,7 @@ struct IconButton: View {
         .onHover { hovered = $0 }
         .animation(Motion.fast, value: hovered)
         .help(help)
+        .accessibilityLabel(label ?? help)
     }
 }
 

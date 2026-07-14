@@ -565,7 +565,9 @@ final class TermView: NSView, NSTextInputClient {
         }
         guard ok, let path, !path.isEmpty else { return nil }
         defer { try? FileManager.default.removeItem(atPath: path) }
-        guard let text = try? String(contentsOfFile: path, encoding: .utf8), !text.isEmpty else { return nil }
+        // **꼬리만 읽는다.** ghostty 스크롤백은 수 MB까지 가는데 정제 상한(ScrollbackText)이 어차피
+        // 꼬리를 남긴다 — 통째로 올리면 ⌘Q 종료 경로에서 터미널마다 수백 ms를 메인 스레드가 먹는다.
+        guard let text = ScrollbackStore.readTail(path: path), !text.isEmpty else { return nil }
         return text
     }
 

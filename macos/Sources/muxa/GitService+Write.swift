@@ -91,7 +91,7 @@ extension GitService {
             DispatchQueue.global(qos: .userInitiated).async {
                 let proc = Process()
                 proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-                proc.arguments = ["git"] + args
+                proc.arguments = gitArgs(args)
                 proc.currentDirectoryURL = URL(fileURLWithPath: dir)
                 let inPipe = Pipe()
                 let outPipe = Pipe()

@@ -21,7 +21,7 @@ struct ProjectWindowView: View {
         VStack(spacing: 0) {
             if let model, let projectId = model.activeProjectId,
                let located = state.located(projectId) {
-                topBar(workspace: located.workspace, project: located.project)
+                topBar(model, workspace: located.workspace, project: located.project)
                 contentCard(model, workspace: located.workspace, project: located.project)
             } else {
                 Color.pPanel
@@ -30,28 +30,24 @@ struct ProjectWindowView: View {
         .background(Color.pPanel)
     }
 
-    /// 상단바 — 신호등 여백 + 브레드크럼 + 합치기 + 패널 토글. 메인의 상단바와 같은 줄 높이를 쓴다
-    /// (신호등을 이 높이의 중앙으로 내리는 건 MuxaWindowController).
-    private func topBar(workspace: Workspace, project: Project) -> some View {
+    /// 상단바 — 신호등 여백 + 브레드크럼 + (여럿이면) 프로젝트 스트립 + 합치기 + 패널 토글.
+    /// 메인의 상단바와 같은 줄 높이를 쓴다(신호등을 이 높이의 중앙으로 내리는 건 MuxaWindowController).
+    ///
+    /// 패널 토글은 키보드(⌘⇧E·⌘⇧G)와 **같은 경로**(`AppState.togglePanel`)를 부른다 — 값의 출처가
+    /// 갈라지면 마우스로만 되는 비대칭이 생긴다.
+    private func topBar(_ model: ProjectWindow, workspace: Workspace, project: Project) -> some View {
         HStack(alignment: .center, spacing: Space.md) {
             Color.clear.frame(width: TrafficLights.reservedLeadingWidth)
             Breadcrumb(workspace: workspace, project: project)
+            WindowProjectStrip(state: state, window: model)
             Spacer(minLength: Space.lg)
             IconButton(icon: "macwindow.badge.minus", scale: .body,
                        help: "메인 창으로 합치기") { state.rejoin(windowId) }
-            PanelToggle(icon: "folder", on: model?.showExplorer ?? false, help: "파일 익스플로러") {
-                state.updateWindow(windowId) { w in
-                    var next = w
-                    next.showExplorer.toggle()
-                    return next
-                }
+            PanelToggle(icon: "folder", on: model.showExplorer, help: "파일 익스플로러") {
+                state.togglePanel(explorer: true, in: windowId)
             }
-            PanelToggle(icon: "arrow.triangle.branch", on: model?.showGitPanel ?? false, help: "Git 패널") {
-                state.updateWindow(windowId) { w in
-                    var next = w
-                    next.showGitPanel.toggle()
-                    return next
-                }
+            PanelToggle(icon: "arrow.triangle.branch", on: model.showGitPanel, help: "Git 패널") {
+                state.togglePanel(explorer: false, in: windowId)
             }
         }
         .padding(.horizontal, Space.lg)

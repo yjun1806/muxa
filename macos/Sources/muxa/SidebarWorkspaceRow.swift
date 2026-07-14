@@ -36,17 +36,23 @@ struct SidebarWorkspaceRow: View {
                            height: ProjectStatusStyle.dotSize(rollup))
             }
             Spacer(minLength: Space.xs)
-            // 힌트·+ 는 hover에서만 — 헤더가 상시 시끄러우면 프로젝트 행이 안 보인다.
-            if hovered {
+            // 힌트·+ 는 hover에서만 **보인다**. 하지만 뷰 트리에선 **항상 존재한다** —
+            // `if hovered`로 감싸면 hover가 없는 사용자(키보드·VoiceOver·스위치 컨트롤)에게
+            // `+`(새 프로젝트)가 접근성 트리에서 통째로 사라져, 확장 트리의 유일한 진입점이 봉쇄된다.
+            // 보임은 opacity가, 마우스 히트는 hover가 그대로 가른다(빈 자리를 눌러도 메뉴가 열리지 않게).
+            HStack(spacing: Space.xs) {
                 // 힌트의 상한은 단축키 표(KeymapResolver)와 한 출처를 쓴다 — 범위를 늘렸는데
                 // 힌트만 8에서 멈추는 일이 없게.
                 if index < KeymapResolver.workspaceShortcutLimit {
                     Text("⌘\(index + 1)")
                         .font(.muxaMono(.caption))
                         .foregroundStyle(Color.pMuted)
+                        .accessibilityHidden(true) // 단축키 힌트는 장식 — 행 라벨에 섞이면 이름이 지저분해진다
                 }
                 IconButton(icon: "plus", help: "새 프로젝트") { showAddMenu() }
+                    .allowsHitTesting(hovered)
             }
+            .opacity(hovered ? 1 : 0)
         }
         .padding(.horizontal, Space.sm)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -56,7 +62,9 @@ struct SidebarWorkspaceRow: View {
         .contentShape(Rectangle())
         // 행 클릭 = 전환(활성이 되면 파생 규칙으로 자동 펼침 — SidebarTree.isExpanded).
         .onTapGesture { state.setActiveId(workspace.id) }
-        .sidebarRow(id: workspace.id, hoveredId: $hoveredId, menuOpenId: $menuOpenId) {
+        .sidebarRow(id: workspace.id, label: "\(workspace.name) 워크스페이스", selected: active,
+                    hoveredId: $hoveredId, menuOpenId: $menuOpenId,
+                    activate: { state.setActiveId(workspace.id) }) {
             WorkspaceMenu.items(for: workspace, state: state)
         }
         .help(workspace.tooltip)

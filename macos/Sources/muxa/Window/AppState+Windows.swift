@@ -38,8 +38,14 @@ extension AppState {
     }
 
     /// 지금 어느 창에서든 보이고 있는 활성 프로젝트들 — 배지 판정의 입력(보고 있으면 배지를 달지 않는다).
+    ///
+    /// "보인다"의 정의는 알림 게이트와 **하나여야 한다** — 창이 최소화·가려짐이거나 앱이 백그라운드면
+    /// 그 창의 활성 프로젝트도 보이는 게 아니다(그래서 배지가 붙어야 한다).
+    /// 호스트가 아직 없으면(로드 직전) 메인만 보이는 것으로 본다.
     var visibleActiveProjectIds: Set<String> {
-        WindowLayout.visibleActiveProjects(mainActive: activeProject?.id, in: projectWindows)
+        let visible = windowHost?.visibleWindowIds ?? [.main]
+        return WindowLayout.visibleActiveProjects(mainActive: activeProject?.id,
+                                                  in: projectWindows, visibleWindows: visible)
     }
 
     // MARK: 라우팅 (§5.3 — early-return이 아니라 **선택자**다)
@@ -63,6 +69,7 @@ extension AppState {
     }
 
     /// 분리 창의 활성 프로젝트를 바꾼다(그 창이 품은 프로젝트일 때만).
+    /// 그 창이 그 프로젝트를 그리게 됐으니 배지도 함께 해제한다(메인의 `setActiveProject`와 같은 계약).
     func setActiveProject(_ projectId: String, inWindow id: WindowID) {
         updateWindow(id) { window in
             guard window.projectIds.contains(projectId) else { return window }
@@ -70,6 +77,8 @@ extension AppState {
             next.activeProjectId = projectId
             return next
         }
+        guard window(owning: projectId)?.id == id else { return }
+        clearBadge(projectId)
     }
 
     // MARK: 이동
@@ -97,10 +106,15 @@ extension AppState {
         moveProjects([projectId], to: WindowID(rawValue: UUID().uuidString))
     }
 
-    /// 워크스페이스의 전 프로젝트를 새 창으로 분리한다 — `moveProjects`의 설탕(D29).
+    /// 워크스페이스의 **메인 소유** 프로젝트를 새 창으로 분리한다 — `moveProjects`의 설탕(D29).
+    ///
+    /// 이미 다른 분리 창에 있는 프로젝트는 건드리지 않는다 — `move`는 먼저 모든 창에서 제거하므로,
+    /// 전부 옮기면 사용자가 배치해 둔 그 창이 빈 창이 되어 예고 없이 닫힌다(파괴는 좁게).
     func separateWorkspace(_ workspaceId: String) {
-        guard let ws = workspaces.first(where: { $0.id == workspaceId }), !ws.projects.isEmpty else { return }
-        moveProjects(ws.projects.map(\.id), to: WindowID(rawValue: UUID().uuidString))
+        guard let ws = workspaces.first(where: { $0.id == workspaceId }) else { return }
+        let ids = ws.projects.map(\.id).filter { owner(of: $0).isMain }
+        guard !ids.isEmpty else { return }
+        moveProjects(ids, to: WindowID(rawValue: UUID().uuidString))
     }
 
     /// 분리 창의 프로젝트를 전부 메인으로 되돌린다(창 닫기 = 무손실 재합치기 — D30).
@@ -123,18 +137,31 @@ extension AppState {
         var next = projectWindows
         next[idx] = transform(next[idx])
         setProjectWindows(next)
+        refreshWindowTitles()
         save()
     }
 
-    /// 분리 창이 움직였다/크기가 바뀌었다 — **메모리엔 즉시, 디스크엔 디바운스**(명세 §10-5).
-    /// 드래그 중 매 프레임 `save()`를 부르면 열린 스토어를 전부 재스냅샷하고 JSON을 통째로 쓴다.
+    /// 분리 창이 움직였다/크기가 바뀌었다 — **모델은 저장 직전에만** 고친다(디스크는 디바운스).
+    ///
+    /// `windowDidMove`는 드래그 중 초당 수십 번 온다. 그때마다 @Observable `projectWindows`를 재대입하면
+    /// 이 값을 읽는 뷰(메인 사이드바 전 행·워크스페이스 열·분리 창 본문)가 전부 무효화돼 드래그가 끊긴다.
+    /// 프레임이 필요한 곳은 **저장(재시작 복원)뿐**이므로, 값은 관측 밖 사이드 테이블에 쌓고
+    /// `save()` 직전에 한 번만 모델에 병합한다(`flushPendingFrames`).
     func recordFrame(_ id: WindowID, _ frame: FrameSnapshot) {
-        guard let idx = projectWindows.firstIndex(where: { $0.id == id }),
-              projectWindows[idx].frame != frame else { return }
-        var next = projectWindows
-        next[idx].frame = frame
-        setProjectWindows(next)
+        guard let current = projectWindows.first(where: { $0.id == id }) else { return }
+        guard (pendingFrames[id] ?? current.frame) != frame else { return }
+        pendingFrames[id] = frame
         saveFramesDebounced()
+    }
+
+    /// 분리 창 제목 = 그 창이 그리는 프로젝트 이름.
+    /// 모든 창이 "muxa"면 '창' 메뉴가 동명 항목만 나열해 창을 되찾을 수단이 사라진다(WindowHost.setTitle).
+    func refreshWindowTitles() {
+        guard let host = windowHost else { return }
+        for window in projectWindows {
+            let name = window.activeProjectId.flatMap { located($0)?.project.name }
+            host.setTitle(window.id, name ?? AppInfo.name)
+        }
     }
 
     /// 그 프로젝트를 품은 창을 앞으로 부른다(메인 창의 플레이스홀더·사이드바 클릭에서).
@@ -178,5 +205,8 @@ extension AppState {
 
     /// 모델(`projectWindows`) ⇄ 실물(`NSWindow`) reconcile — 모델에 있는데 창이 없으면 열고, 반대면 닫는다(I4).
     /// `projectWindows`를 바꾸는 **모든** 경로가 여기를 통과한다 → 유령 창·도달 불가 프로젝트가 생길 수 없다.
-    func syncWindows() { windowHost?.sync(projectWindows) }
+    func syncWindows() {
+        windowHost?.sync(projectWindows)
+        refreshWindowTitles()
+    }
 }
