@@ -6,10 +6,13 @@ let package = Package(
     name: "muxa",
     platforms: [.macOS(.v14)], // SwiftUI @Observable·최신 API
     dependencies: [
-        // 분할·탭 SwiftUI 프레임워크(MIT). cmux(manaflow) fork — 탭바 SplitActionButton
-        // (새터미널·분할 버튼을 탭바에 내장)으로 탭 추가 버튼을 분할 버튼 옆에 둔다.
-        // 태그가 없어 revision 고정(재현성) — bootstrap/Package.resolved가 동일 커밋 보장.
-        .package(url: "https://github.com/manaflow-ai/bonsplit.git", revision: "10c154fda321f2cf21a998eeffc28f67a28bd08e"),
+        // 분할·탭 SwiftUI 프레임워크(MIT). **우리 fork**(yjun1806/bonsplit, `muxa` 브랜치) —
+        // manaflow-ai fork에서 갈라져 나왔다(그쪽이 SplitActionButton·ChromeColors 등
+        // 탭바 커스터마이즈 API를 추가했고, 원본 almonk엔 그게 없다). 탭바 디자인·툴바를
+        // 우리 입맛대로 고치려면 소스 수정이 필요해 fork했다.
+        // upstream 추적: 로컬 클론(~/Documents/private/bonsplit)에 `upstream` 리모트로 manaflow가 걸려 있다.
+        // 태그가 없어 revision 고정(재현성) — Package.resolved가 동일 커밋을 보장한다.
+        .package(url: "https://github.com/yjun1806/bonsplit.git", revision: "10c154fda321f2cf21a998eeffc28f67a28bd08e"),
     ],
     targets: [
         .executableTarget(

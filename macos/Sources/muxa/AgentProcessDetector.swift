@@ -64,6 +64,17 @@ enum AgentProcessDetector {
         return names
     }
 
+    /// pid가 실행 중인 **바이너리 이름**(comm). 죽었거나 접근 불가면 nil.
+    ///
+    /// `descendantNames`와 달리 argv[0]을 보지 않는다. 그건 node 스크립트(`claude`)를 구별하려는
+    /// 장치인데, 그 대가로 `KERN_PROCARGS2` sysctl을 두 번 돌리고 수십 KB를 할당한다.
+    /// **바이너리를 이름으로 묻는 자리**(tmux가 붙어 있나)에는 comm이 더 싸고 더 안정적이다 —
+    /// `proc_pidinfo` 한 번이면 끝나고, 폴링으로 반복 호출된다.
+    static func command(of pid: pid_t) -> String? {
+        guard let info = bsdInfo(pid) else { return nil }
+        return comm(info)
+    }
+
     /// pid가 **스스로를 부르는 이름**(argv[0]). 실패하면 nil.
     ///
     /// `comm`(실행 바이너리 이름)으로는 부족하다. `claude`는 node 스크립트라 comm이 `node`로 잡히고,

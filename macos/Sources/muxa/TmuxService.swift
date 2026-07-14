@@ -151,7 +151,7 @@ enum TmuxService {
     /// 인자 배열로 직접 실행하는 다른 명령들은 셸을 안 거쳐 이 문제가 없다.)
     /// 세션명은 우리가 만든 값(muxa__uuid__uuid)이라 작은따옴표 안에 안전하게 들어간다.
     static func attachCommand(projectId: String, serviceId: String) -> String {
-        let tmux = executable ?? "tmux"
+        let tmux = ShellQuote.single(executable ?? "tmux")
         return "\(tmux) -L \(socket) attach -t '=\(ServiceSession.name(projectId: projectId, serviceId: serviceId))'"
     }
 
@@ -163,7 +163,7 @@ enum TmuxService {
     /// (`=<세션>:` 타겟과 zsh 인용 이유는 capture·attachCommand 주석 참조.)
     static func logCommand(projectId: String, serviceId: String, lines: Int = 200) -> String {
         let session = ServiceSession.name(projectId: projectId, serviceId: serviceId)
-        let tmux = executable ?? "tmux"
+        let tmux = ShellQuote.single(executable ?? "tmux")
         return "\(tmux) -L \(socket) capture-pane -p -t '=\(session):' -S -\(lines)"
     }
 

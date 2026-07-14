@@ -92,8 +92,7 @@ final class TermView: NSView, NSTextInputClient {
         // 깨끗해져 재출력 아티팩트(cat/배너)가 매 복원마다 쌓이는 중첩도 준다. (rm은 하지 않는다 — 저장
         // 레이아웃이 이 파일을 가리키므로 지우면 다음 복원에서 빈 파일이 돼 복원이 실패한다. 정리는 GC가 담당.)
         if let restoreScrollbackFile {
-            let quoted = "'" + restoreScrollbackFile.replacingOccurrences(of: "'", with: "'\\''") + "'"
-            config.initial_input = dup("clear; cat \(quoted)\n")
+            config.initial_input = dup("clear; cat \(ShellQuote.single(restoreScrollbackFile))\n")
         } else if let initialCommand {
             // 서비스 도크가 `tmux attach`(살아있음) 또는 로그 출력(죽음)을 태우는 경로.
             // 스크롤백 복원과 같은 stdin 주입 방식을 쓴다(같은 슬롯이라 둘은 배타적 —

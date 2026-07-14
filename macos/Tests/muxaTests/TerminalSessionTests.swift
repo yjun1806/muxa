@@ -105,6 +105,26 @@ struct TerminalSessionTests {
         #expect(!startCmd().contains("attach -t =muxa"))
     }
 
+    /// cwd·tmux 경로는 외부 입력이다 — 아포스트로피 든 경로(`~/Bob's app`)에서 따옴표가 조기에 닫히거나
+    /// `'; rm … ; '`로 명령이 주입되면 안 된다. POSIX 관용구 `'\''`로 탈출한다.
+    @Test func 아포스트로피_든_경로도_안전하게_인용된다() {
+        let cmd = TerminalSession.startCommand(
+            tmux: "/opt/homebrew/bin/tmux", socket: "muxa",
+            session: "muxa__p__term__t", cwd: "/Users/yj/Bob's app")
+        #expect(cmd.contains(#"-c '/Users/yj/Bob'\''s app'"#))
+        // 탈출된 아포스트로피 밖으로 새어나온 raw `'s app`이 없어야 한다(따옴표 조기 종료 방지).
+        #expect(!cmd.contains(#"Bob's app'"#))
+    }
+
+    @Test func 주입_시도가_담긴_경로는_통째로_한_인자로_인용된다() {
+        let cmd = TerminalSession.startCommand(
+            tmux: "/opt/homebrew/bin/tmux", socket: "muxa",
+            session: "muxa__p__term__t", cwd: "/x'; touch pwned; '")
+        // 주입 페이로드가 인용 밖으로 나와 독립 명령이 되지 않는다.
+        #expect(cmd.contains(#"'/x'\''; touch pwned; '\'''"#))
+        #expect(!cmd.contains("; touch pwned; 2>/dev/null"))
+    }
+
     /// exec로 태우면 detach하는 순간 셸까지 죽어 탭이 사라진다. 프롬프트로 돌아와야 탭이 살아남는다.
     @Test func exec로_태우지_않는다() {
         #expect(!startCmd().contains("exec "))

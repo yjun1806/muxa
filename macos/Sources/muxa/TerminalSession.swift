@@ -49,22 +49,43 @@ enum TerminalSession {
     ///   rc 스니펫도 조건이 안 맞아 OSC를 안 쏜다(cwd 추적 소실). 실측으로 확인한 실패다.
     static func startCommand(tmux: String, socket: String, session: String, cwd: String,
                              env: [String: String] = [:]) -> String {
-        let t = "\(tmux) -L \(socket)"
+        let t = "\(ShellQuote.single(tmux)) -L \(ShellQuote.single(socket))"
         // -e는 **세션을 새로 만들 때만** 적용된다(이미 있으면 무시). 복원된 세션의 셸에는 옛 tabId가
         // 남아 있는데, 그건 세션명으로 되짚어 현재 탭을 찾는다(§resolve).
-        let envArgs = env.keys.sorted().map { " -e '\($0)=\(env[$0]!)'" }.joined()
-        let q = "'\(session)'"
+        // 값(경로·env)은 외부 입력이므로 모두 탈출한다 — 아포스트로피 든 경로(`~/Bob's app`)나 주입 차단.
+        let envArgs = env.keys.sorted().map { " -e \(ShellQuote.single("\($0)=\(env[$0]!)"))" }.joined()
+        let q = ShellQuote.single(session)
         return [
-            "\(t) new-session -d -s \(q) -c '\(cwd)'\(envArgs) 2>/dev/null",
+            "\(t) new-session -d -s \(q) -c \(ShellQuote.single(cwd))\(envArgs) 2>/dev/null",
             "\(t) set-option -t \(q) remain-on-exit off 2>/dev/null",
             "\(t) set-option -g allow-passthrough on 2>/dev/null",
             // 탭 이름 — tmux는 기본으로 자기 제목(= `tmux … attach …` 명령줄)을 내보내, 탭 이름이
             // 그 문자열로 굳는다(실측). 안쪽 셸이 있는 폴더를 대신 전파해 자동 명명을 되살린다.
             "\(t) set-option -g set-titles on 2>/dev/null",
             "\(t) set-option -g set-titles-string '#{b:pane_current_path}' 2>/dev/null",
-            "\(t) attach -t '=\(session)'",
+            "\(t) attach -t \(ShellQuote.single("=\(session)"))",
         ].joined(separator: "; ")
     }
+
+    /// 이 탭이 **아직 tmux 세션에 붙어 있는가**(순수). 입력은 그 탭 pty의 포그라운드 프로세스 이름.
+    ///
+    /// `attach` 중이면 바깥 pty의 포그라운드는 **항상 tmux 클라이언트 하나**다 — 안쪽에서 도는
+    /// 빌드·에이전트는 tmux가 따로 만든 pty에 살아서 바깥에선 안 보인다. 그래서 안쪽 내용에 흔들리지
+    /// 않는 깨끗한 신호가 된다. 셸 이름이 보인다는 건 attach가 끝나 프롬프트로 돌아왔다는 뜻이다.
+    ///
+    /// `startCommand`가 `exec`를 안 쓰므로(탭을 살리려는 의도적 선택) 그 이탈은 **조용하다** —
+    /// 화면은 멀쩡한 셸이고 탭은 `∞`를 단 채 남는다. 아무도 안 보면 아이콘이 계속 거짓말한다.
+    ///
+    /// - Parameter foregroundName: 못 읽었으면 nil. **모를 땐 붙어 있다고 본다**(보존적 판정) —
+    ///   셸 스폰 직후엔 pid가 아직 0이라(TermView가 재시도한다) 그 구간을 끊김으로 다루면
+    ///   탭을 만들자마자 `∞`가 떨어진다.
+    static func isAttached(foregroundName: String?) -> Bool {
+        guard let foregroundName else { return true }
+        return normalized(foregroundName) == tmuxCommand
+    }
+
+    /// tmux 클라이언트의 프로세스 이름.
+    private static let tmuxCommand = "tmux"
 
     /// 탭을 닫을 때 이 세션을 **죽일지, 백그라운드로 남길지**(순수).
     ///

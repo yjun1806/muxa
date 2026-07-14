@@ -233,8 +233,10 @@ final class NotifyServer {
         let category = parts.count > 4 ? NotifyCategory(rawValue: parts[4]) : nil
         let resumeCommand = parts.count > 5 ? parts[5] : ""
         let agentLabel = parts.count > 6 ? parts[6] : ""
+        // 줄 프로토콜 명령은 외부 입력이다 — muxa가 만드는 고정 꼴일 때만 신뢰(.hook), 아니면 배너 확인(.scan).
         let resume = resumeCommand.isEmpty ? nil
-            : ResumeBinding(command: resumeCommand, agentLabel: agentLabel.isEmpty ? nil : agentLabel, source: .hook)
+            : ResumeBinding(command: resumeCommand, agentLabel: agentLabel.isEmpty ? nil : agentLabel,
+                            source: ResumeBinding.hookSource(forExternalCommand: resumeCommand))
         // 유효 신호가 아무것도 없으면(상태도, 바인딩도) 폐기 — 구 동작(미인식 state 폐기)과 동일.
         guard state != nil || resume != nil else { return nil }
         return NotifyMessage(tabId: tabId, state: state, title: title, body: body,

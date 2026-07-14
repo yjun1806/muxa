@@ -43,9 +43,11 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     // MARK: L3 — tmux 세션(프로세스 연속성)
 
-    /// 지속 세션 탭의 아이콘 — 일반 터미널(`terminal`)과 **눈으로 구별되어야 한다**.
+    /// 지속 세션 탭의 아이콘 — 일반 터미널(`terminalTabIcon`)과 **눈으로 구별되어야 한다**.
     /// 어느 탭이 tmux 안에 있는지 모르면 "닫아도 되나"를 판단할 수 없다.
     static let persistentTabIcon = "infinity"
+    /// 일반 터미널 탭의 아이콘. tmux 밖으로 나온 지속 세션 탭도 여기로 돌아온다(§releaseDetachedTab).
+    static let terminalTabIcon = "terminal"
 
     /// 지속 세션 터미널 버튼 — 탭바의 `+` 옆에 선다. tmux가 있을 때만 노출한다.
     static let persistentTerminalKind = "persistentTerminal"
@@ -70,6 +72,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 똑같이 동작해 버튼을 나눈 이유가 사라진다. 지속 세션은 공짜가 아니므로(터미널 안의 터미널)
     /// **어느 탭이 그것인지 눈에 보이게 고르는 게 맞다** — 잠깐 `ls` 치는 탭까지 tmux로 감쌀 이유는 없다.
     @ObservationIgnored private var persistentIntent: [TabID: Bool] = [:]
+
+    /// 이 스토어의 살아있는 터미널 탭이 쓰는 tmux 세션명 전부 — 프로젝트를 닫을 때 이 세션들을
+    /// 명시적으로 죽여 유령화를 막는다(닫힌 프로젝트는 GC의 "모르는 프로젝트" 가드에 걸려 영영 정리 불가).
+    var liveTmuxSessionNames: Set<String> { Set(tmuxSessions.values) }
 
     /// 훅이 보낸 tabId를 **이 스토어의 살아있는 탭**으로 되짚는다. 아니면 nil(다른 스토어가 가져간다).
     ///
@@ -109,7 +115,98 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         let name = TerminalSession.name(projectId: projectId, tabId: tabId.uuid.uuidString)
         tmuxSessions[tabId] = name
         persist()
+        syncAttachTimer()
         return name
+    }
+
+    // MARK: L3 — tmux 이탈 감지 (∞가 거짓말하지 않게)
+
+    /// tmux를 놓친 것으로 **보이는** 횟수. 확정 전까지 참는다(아래 attachMissesToRelease).
+    @ObservationIgnored private var tmuxMisses: [TabID: Int] = [:]
+    /// 지속 세션 탭이 하나라도 있을 때만 도는 attach 점검 타이머(없으면 CPU를 쓰지 않게 껐다 켠다 — idleTimer와 같은 규칙).
+    @ObservationIgnored private var attachTimer: Timer?
+    /// 점검 주기(초). 상태 점을 갱신하는 용도라 2초면 충분하다(ServiceMonitor.pollInterval과 같은 근거).
+    private static let attachTickInterval: TimeInterval = 2.0
+    /// 이탈로 **확정**하기까지 필요한 연속 관측 수. 1로 하면 기동 레이스에서 오탐한다 —
+    /// 탭을 막 만든 직후엔 `tmux attach`가 아직 안 떠서 포그라운드가 셸이다.
+    private static let attachMissesToRelease = 2
+
+    /// 지속 세션 탭이 있으면 타이머를 켜고, 없으면 끈다.
+    private func syncAttachTimer() {
+        let needsTick = !tmuxSessions.isEmpty
+        if needsTick, attachTimer == nil {
+            let timer = Timer(timeInterval: Self.attachTickInterval, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.checkTmuxAttachment() }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            attachTimer = timer
+        } else if !needsTick, let timer = attachTimer {
+            timer.invalidate()
+            attachTimer = nil
+        }
+    }
+
+    /// 지속 세션 탭들이 **아직 tmux 안에 있는지** 훑는다. 나온 탭은 `∞`를 뗀다.
+    ///
+    /// 판정 입력은 그 탭 pty의 포그라운드 프로세스 이름 하나뿐이다(`proc_pidinfo` 1회 — tmux에
+    /// 셸아웃하지 않는다). attach 중이면 바깥 pty의 포그라운드는 항상 tmux 클라이언트이므로
+    /// 안쪽에서 뭐가 돌든 흔들리지 않는다(§TerminalSession.isAttached).
+    private func checkTmuxAttachment() {
+        // 키를 **스냅샷으로 뜬 뒤** 돈다 — releaseDetachedTab이 루프 안에서 tmuxSessions를 지운다.
+        for tabId in Array(tmuxSessions.keys) {
+            let name = terms[tabId]?.foregroundPid.flatMap(AgentProcessDetector.command(of:))
+            guard !TerminalSession.isAttached(foregroundName: name) else {
+                tmuxMisses[tabId] = nil // 붙어 있다 — 헛짚음 이력은 지운다(끊겼다 붙은 경우도 여기로 온다)
+                continue
+            }
+            let misses = (tmuxMisses[tabId] ?? 0) + 1
+            tmuxMisses[tabId] = misses
+            guard misses >= Self.attachMissesToRelease else { continue }
+            releaseDetachedTab(tabId)
+        }
+    }
+
+    /// tmux 밖으로 나온 것이 **확정된** 탭 — 세션을 놓아주고 `∞`를 뗀다. 탭 자체는 살려둔다
+    /// (사용자가 보는 건 멀쩡한 셸이다. 그걸 닫아버리면 화면에 있던 것을 우리가 빼앗는 셈이다).
+    ///
+    /// 세션을 그냥 잊으면 **GC가 죽인다** — `TerminalSession.orphans`는 살아있는 탭이 참조하지 않는
+    /// 세션을 정리하므로, `⌃b d`로 detach된(=안의 빌드가 멀쩡히 돌고 있는) 세션이 그 판정에 걸린다.
+    /// 그래서 탭을 닫을 때와 **똑같이** 놓아준다: 작업이 있으면 백그라운드 목록으로, 셸뿐이면 죽인다.
+    private func releaseDetachedTab(_ tabId: TabID) {
+        tmuxMisses[tabId] = nil
+        releaseTmuxSession(of: tabId, title: tabTitle(tabId))
+        persistentIntent[tabId] = nil // 이 탭은 이제 그냥 터미널이다 — 닫기 판정도 그에 맞게 바뀐다
+        controller.updateTab(tabId, icon: Self.terminalTabIcon) // ∞를 뗀다(새 기호를 만들지 않는다 — 원래 아이콘으로)
+        persist() // 스냅샷에서도 세션 참조를 지운다(다음 실행에서 빈 세션을 새로 만들지 않게)
+        syncAttachTimer()
+    }
+
+    /// 이 탭이 붙잡고 있던 tmux 세션을 **놓는다** — 안에서 돌던 작업이 있으면 죽이지 않고 남긴다.
+    ///
+    /// 무조건 죽이면 ⌘W를 잘못 눌렀을 때 30분 돌던 빌드가 즉사한다(tmux를 쓰는 이유를 반쯤 버린다).
+    /// 무조건 남기면 눈에 안 보이는 유령이 쌓인다. 그래서 셸만 있으면 죽이고, 작업이 있으면 남긴 뒤
+    /// **목록에 기록해 되찾을 수 있게** 한다(기록이 없으면 GC가 다음 시작 때 죽인다).
+    ///
+    /// 탭이 닫힐 때(⌘W)와 tmux 밖으로 튕겨났을 때 둘 다 같은 처리다 — **탭이 세션을 놓는다**는 사실이
+    /// 같고, 그 안의 작업을 잃으면 안 된다는 것도 같다. 세션이 이미 없으면 포그라운드가 비어
+    /// kill로 떨어지는데, 없는 세션을 kill하는 건 무해하다(멱등).
+    /// - Parameter title: 표시용 탭 이름. 호출부가 **맵이 비워지기 전에** 읽어 넘긴다.
+    private func releaseTmuxSession(of tabId: TabID, title: String) {
+        guard let session = tmuxSessions.removeValue(forKey: tabId) else { return }
+        let cwd = pwds[tabId]
+        Task { [weak self] in
+            let foreground = await TmuxService.paneForeground(session: session)
+            guard TerminalSession.shouldDetach(foreground: foreground) else {
+                await TmuxService.kill(session: session)
+                return
+            }
+            // 표시용 이름 — 셸이 아닌 첫 프로세스가 "무엇을 되찾는지"다(래퍼 셸·버전 이름에 속지 않는다).
+            let label = TerminalSession.workLabel(foreground: foreground) ?? "작업"
+            await MainActor.run {
+                self?.onDetachSession?(DetachedSession(session: session, command: label, cwd: cwd,
+                                                       title: title, detachedAt: Date()))
+            }
+        }
     }
     /// 복원 리플레이 명령의 완료 신호를 아직 삼키지 않은 탭들. 리플레이를 건 탭만 담고,
     /// 첫 commandFinished에서 하나씩 소비한다(§handleSignal — 복원이 만드는 "완료" 오탐 차단).
@@ -244,6 +341,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     deinit {
         idleTimer?.invalidate() // idle 추정 타이머가 런루프에 남지 않게 정리(작업 중 스토어가 해제되는 드문 경우).
+        attachTimer?.invalidate() // tmux 이탈 감시 타이머도 같이(런루프가 스토어를 붙잡지 않게).
     }
 
     /// 완료 배지 임계(ns)를 갱신한다 — 설정 라이브 리로드 시 AppState가 이미 실행 중인 스토어에도 전파한다.
@@ -313,29 +411,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         resetCoalescers(for: tabId) // 배지·알림 병합 이력 해제(맵 누수 방지)
         manualTitles[tabId] = nil // 수동 지정 제목 해제
         persistentIntent[tabId] = nil
-        // tmux 세션 처리 — **안에서 돌던 작업이 있으면 죽이지 않고 남긴다**(백그라운드로 detach).
-        //
-        // 무조건 죽이면 ⌘W를 잘못 눌렀을 때 30분 돌던 빌드가 즉사한다(tmux를 쓰는 이유를 반쯤 버린다).
-        // 무조건 남기면 눈에 안 보이는 유령이 쌓인다. 그래서 셸만 있으면 죽이고, 작업이 있으면 남긴 뒤
-        // **목록에 기록해 되찾을 수 있게** 한다(기록이 없으면 GC가 다음 시작 때 죽인다).
-        if let session = tmuxSessions.removeValue(forKey: tabId) {
-            let cwd = pwds[tabId]
-            // 탭 이름은 **닫히기 전에** 읽어야 한다(맵이 이미 비워지는 중이다).
-            let title = tabTitle(tabId)
-            Task { [weak self] in
-                let foreground = await TmuxService.paneForeground(session: session)
-                guard TerminalSession.shouldDetach(foreground: foreground) else {
-                    await TmuxService.kill(session: session)
-                    return
-                }
-                // 표시용 이름 — 셸이 아닌 첫 프로세스가 "무엇을 되찾는지"다(래퍼 셸·버전 이름에 속지 않는다).
-                let label = TerminalSession.workLabel(foreground: foreground) ?? "작업"
-                await MainActor.run {
-                    self?.onDetachSession?(DetachedSession(session: session, command: label, cwd: cwd,
-                                                           title: title, detachedAt: Date()))
-                }
-            }
-        }
+        // 탭 이름은 **닫히기 전에** 읽어야 한다(맵이 이미 비워지는 중이다).
+        releaseTmuxSession(of: tabId, title: tabTitle(tabId))
+        tmuxMisses[tabId] = nil
+        syncAttachTimer() // 마지막 지속 세션 탭이 닫히면 감시 타이머를 끈다
         engineTitles[tabId] = nil // 엔진 제목 캐시 해제
         syncHasTabs() // 마지막 탭이 닫히면 빈 상태 뷰로 전환(관측 갱신)
         persist()
@@ -1016,6 +1095,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                                             inPane: pane) else { return nil }
         tmuxSessions[id] = detached.session // 새 세션을 만들지 않고 이 이름에 붙는다
         persistentIntent[id] = true
+        syncAttachTimer() // 되찾은 탭도 이탈 감시 대상이다
         pendingCwd[id] = detached.cwd
         regroup(id, inPane: pane ?? controller.focusedPaneId)
         syncHasTabs()
@@ -1037,7 +1117,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         let start = source.flatMap { inheritedCwd(inPane: $0) } ?? cwd
         let wantsPersistent = persistent ?? inheritedPersistence(inPane: origin)
         let id = controller.createTab(title: "터미널",
-                                      icon: wantsPersistent ? Self.persistentTabIcon : "terminal",
+                                      icon: wantsPersistent ? Self.persistentTabIcon : Self.terminalTabIcon,
                                       inPane: pane)
         if let id {
             pendingCwd[id] = start
@@ -1172,7 +1252,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             restoreSnap = nil
             restoreLayout(snap)
         } else {
-            _ = controller.createTab(title: "터미널", icon: "terminal", inPane: nil)
+            _ = controller.createTab(title: "터미널", icon: Self.terminalTabIcon, inPane: nil)
         }
         // 실제 탭이 생겼으면 부트스트랩 welcome을 닫는다(복원이 이미 선택을 잡았으므로 순서 안전).
         let real = controller.allTabIds.filter { !bootstrap.contains($0) }
@@ -1180,7 +1260,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             for id in bootstrap { _ = controller.closeTab(id) }
         }
         if controller.allTabIds.isEmpty {
-            _ = controller.createTab(title: "터미널", icon: "terminal", inPane: nil)
+            _ = controller.createTab(title: "터미널", icon: Self.terminalTabIcon, inPane: nil)
         }
         syncHasTabs() // 초기 탭 확정 → 빈 상태 게이트(showEmptyState) 해제
         ready = true // 이후 탭/뷰어 변경은 즉시 저장(⌘Q 없이도 복원되게)
@@ -1192,8 +1272,19 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     // 경로/해시로 재생성. 구조·순서·선택을 그대로 담아 단일 패스로 복원(선택 튐·빈 터미널 방지).
 
     /// 현재 레이아웃 → 저장 스냅샷. AppState.save가 사용.
-    func snapshot() -> PaneSnapshot {
-        convert(controller.treeSnapshot())
+    ///
+    /// `captureScrollback`이 false면 서피스 리드백·파일 쓰기를 건너뛰고 **기존 스크롤백 파일 경로만**
+    /// 이어 붙인다 — 패널 토글·활성 탭 전환 같은 잦은 메타 저장이 열린 모든 터미널 화면을 매번 다시
+    /// 쓰지 않게 한다(무거운 IO는 종료 시 endSession에서만). 파일 경로는 `<tabId>.txt`로 결정적이라
+    /// 재캡처 없이도 직전 내용을 그대로 가리킨다.
+    func snapshot(captureScrollback: Bool = true) -> PaneSnapshot {
+        convert(controller.treeSnapshot(), captureScrollback: captureScrollback)
+    }
+
+    /// 이 탭의 스크롤백 파일이 디스크에 있으면 그 경로(없으면 nil). 재캡처를 건너뛸 때 직전 저장을 잇는다.
+    private func existingScrollbackPath(_ tabId: TabID) -> String? {
+        let url = ScrollbackStore.fileURL(for: tabId)
+        return FileManager.default.fileExists(atPath: url.path) ? url.path : nil
     }
 
     /// 실체화된 터미널의 화면+스크롤백을 읽어(정제·상한) 별도 파일에 쓴다. 저장된 경로(없으면 nil).
@@ -1228,7 +1319,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         return ClaudeSessionIndex.resumeBinding(forCwd: cwd)
     }
 
-    private func convert(_ node: ExternalTreeNode) -> PaneSnapshot {
+    private func convert(_ node: ExternalTreeNode, captureScrollback: Bool) -> PaneSnapshot {
         switch node {
         case .pane(let p):
             var tabs: [TabSnapshot] = []
@@ -1241,10 +1332,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                 case .terminal:
                     // 현재 셸 작업 디렉터리 기록 — TermView가 살아 있으면 그 pwd, 아직 미실체화 탭이면 복원 힌트.
                     let tabCwd = terms[tid]?.pwd ?? pendingCwd[tid]
-                    // 화면+스크롤백 캡처 — 실체화된 터미널이면 서피스에서 읽어 파일에 쓰고,
-                    // 아직 미실체화(복원만 되고 안 연) 탭이면 이전 힌트 경로를 그대로 이어 준다(④).
-                    let scrollbackFile = terms[tid].flatMap { captureScrollback(from: $0, tabId: tid) }
-                        ?? restoredScrollbackFile[tid]
+                    // 화면+스크롤백 캡처 — 실체화된 터미널이면 서피스에서 읽어 파일에 쓰고(캡처 요청 시에만),
+                    // 아니면 기존 파일 경로나 이전 복원 힌트를 그대로 이어 준다(④). 메타 저장은 재캡처를 건너뛴다.
+                    let captured = captureScrollback ? terms[tid].flatMap { self.captureScrollback(from: $0, tabId: tid) } : nil
+                    let scrollbackFile = captured ?? existingScrollbackPath(tid) ?? restoredScrollbackFile[tid]
                     // 재개 바인딩 — **훅이 알려준 사실이 먼저다.**
                     // 종전엔 cwd 스캔(추측)이 훅 바인딩을 덮어썼다. 훅은 "이 탭의 세션은 이것"이라고
                     // 확정해 주는데, 그걸 버리고 "이 디렉터리에서 가장 최근에 수정된 jsonl"이라는 추측으로
@@ -1270,7 +1361,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             return .leaf(tabs: tabs, selected: min(selected, tabs.count - 1), focused: focused)
         case .split(let s):
             return .split(vertical: s.orientation == "vertical", divider: s.dividerPosition,
-                          first: convert(s.first), second: convert(s.second))
+                          first: convert(s.first, captureScrollback: captureScrollback),
+                          second: convert(s.second, captureScrollback: captureScrollback))
         }
     }
 
@@ -1322,7 +1414,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                 } else if let tid = controller.createTab(
                     title: "터미널",
                     // 지속 세션이었던 탭은 복원 후에도 그렇게 보여야 한다 — 아이콘이 유일한 구분이다.
-                    icon: t.tmuxSession != nil ? Self.persistentTabIcon : "terminal",
+                    icon: t.tmuxSession != nil ? Self.persistentTabIcon : Self.terminalTabIcon,
                     inPane: pane
                 ) {
                     if let cwd = t.cwd { pendingCwd[tid] = cwd } // 새 셸을 저장된 작업 디렉터리에서 띄우게 힌트.
@@ -1333,6 +1425,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                     if let session = t.tmuxSession {
                         tmuxSessions[tid] = session
                         persistentIntent[tid] = true // 저장된 세션이 있다 = 지속 세션으로 열었던 탭이다
+                        syncAttachTimer() // 복원된 탭도 이탈 감시 대상이다
                     }
                     // tmux 탭은 스크롤백 리플레이를 하지 않는다 — tmux가 화면을 통째로 갖고 있다.
                     if t.tmuxSession == nil, let sf = t.scrollbackFile, t.resume?.trusted != true {

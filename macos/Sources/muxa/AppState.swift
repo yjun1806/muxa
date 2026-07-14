@@ -624,6 +624,24 @@ final class AppState {
         Task { @MainActor in syncServiceMonitor() }
     }
 
+    /// 프로젝트가 사라질 때 그 **터미널** tmux 세션(지속 세션 ∞ 탭·detached)도 함께 죽인다.
+    ///
+    /// 서비스(`killServices`)와 대칭이다. 스토어를 그냥 버리면 `deinit`은 타이머만 끄고 tmux 세션은
+    /// 살아남는데, 프로젝트가 workspaces에서 빠지면 다음 시작의 GC가 **모르는 프로젝트**로 보고 보존해
+    /// (`TerminalSession.orphans`) 세션이 영영 정리되지 않는다 — 되찾을 UI도 함께 사라져 순수 누수다.
+    /// 프로젝트가 사라지면 reattach 경로가 없으므로, `didCloseTab`이 지키는 "말없이 남기면 유령" 원칙을
+    /// 여기서도 지켜 명시적으로 죽인다. 세션명은 (1) 열린 스토어의 라이브 세션 (2) 저장된 레이아웃
+    /// (3) detached 복구 목록에서 모은다 — 아직 안 연 프로젝트(lazy)의 세션도 (2)(3)으로 커버된다.
+    private func killTerminalSessions(of project: Project) {
+        guard TmuxService.isAvailable else { return }
+        var names = Set<String>()
+        if let store = stores[project.id] { names.formUnion(store.liveTmuxSessionNames) }
+        if let layout = savedLayouts[project.id] { names.formUnion(layout.tmuxSessions()) }
+        for d in project.detached ?? [] { names.insert(d.session) }
+        guard !names.isEmpty else { return }
+        for name in names { Task { await TmuxService.kill(session: name) } }
+    }
+
     /// 앱 시작 시 1회 — 알림 배선 + 저장된 서비스 재기동 + 폴링 시작.
     ///
     /// **재기동은 "복원"이지 "자동 실행"이 아니다.** tmux 세션이 살아 있으면 start가 멱등이라 아무 일도
@@ -884,6 +902,7 @@ final class AppState {
         guard workspaces.count > 1, let idx = workspaces.firstIndex(where: { $0.id == id }) else { return }
         for project in workspaces[idx].projects {
             killServices(of: project) // 등록만 지우면 dev 서버가 포트를 문 채 살아남는다
+            killTerminalSessions(of: project) // 지속 세션·detached도 함께 — 스토어·레이아웃 버리기 전에
             stores[project.id] = nil
             savedLayouts[project.id] = nil
             clearBadge(project.id)
@@ -958,6 +977,7 @@ final class AppState {
         if let ws = activeWorkspace, ws.projects.count > 1,
            let project = ws.projects.first(where: { $0.id == projectId }) {
             killServices(of: project)
+            killTerminalSessions(of: project) // 스토어·레이아웃을 버리기 전에 — 세션명을 여기서 읽는다
         }
         stores[projectId] = nil
         savedLayouts[projectId] = nil
@@ -1059,10 +1079,13 @@ final class AppState {
     /// 손상돼도 직전 정상 세션으로 되돌아갈 수 있다. 매 save마다 복사하면 손상본이 백업까지 덮는다.
     private static let backupURL = MuxaSupportDir.url.appendingPathComponent("state.v4-previous.json")
 
-    func save() {
+    /// 상태 저장. 기본은 **메타데이터만**(레이아웃 구조·선택·경로) — 패널 토글·활성 전환 등 잦은 저장이
+    /// 열린 모든 터미널의 스크롤백을 매번 리드백·재기록하지 않게 한다. 무거운 스크롤백 캡처는
+    /// `captureScrollback: true`(종료 시 endSession)에서만 — 복원 시점에만 최신 화면이 필요하기 때문이다.
+    func save(captureScrollback: Bool = false) {
         // 인스턴스화된 스토어(=열린 프로젝트)의 현재 레이아웃을 통합 스냅샷으로 반영. 빈 스토어는 스킵.
         for (projectId, store) in stores where !store.controller.allTabIds.isEmpty {
-            savedLayouts[projectId] = store.snapshot()
+            savedLayouts[projectId] = store.snapshot(captureScrollback: captureScrollback)
         }
         let snapshot = Persisted(workspaces: workspaces, activeId: activeId, sidebarMode: sidebarMode,
                                  layouts: savedLayouts, explorerWidth: Double(explorerWidth),
@@ -1159,7 +1182,7 @@ final class AppState {
     /// 세션 정상 종료 — 마지막 레이아웃을 저장하고 크래시 마커를 지운다(disarm).
     /// applicationWillTerminate가 호출한다. 이 경로를 못 타면(크래시) 마커가 남아 다음 시작에 더티로 잡힌다.
     func endSession() {
-        save()
+        save(captureScrollback: true) // 종료 시 1회만 스크롤백을 최신 화면으로 갱신 — 복원이 이걸 재출력한다
         CrashMarker.disarm()
     }
 }
