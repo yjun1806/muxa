@@ -49,8 +49,11 @@ enum Palette {
 
     // MARK: - 중립·기능색
     static let bg = NSColor.dynamic(light: 0xFFFFFF, dark: 0x1B1B1D) // 콘텐츠·패인 배경
-    static let panel = NSColor.dynamic(light: 0xF3F4F6, dark: 0x252528) // 상단바·사이드바·패인 헤더(한 덩어리 회색)
-    static let border = NSColor.dynamic(light: 0xE2E5E9, dark: 0x38383C)
+    // 크롬(바깥)은 콘텐츠·터미널(안)과 뚜렷이 갈려야 층이 읽힌다. 예전엔 라이트 F3F4F6·다크 252528로
+    // 근접해, 근백색·근흑색 터미널과 한 톤으로 뭉갰다. 양쪽 다 크롬을 한 단계 밀어 명도차를 벌렸다
+    // (라이트 F3F4F6→E7EAEE 진하게 / 다크 252528→303035 밝게).
+    static let panel = NSColor.dynamic(light: 0xE7EAEE, dark: 0x303035) // 상단바·사이드바·패인 헤더(한 덩어리 회색)
+    static let border = NSColor.dynamic(light: 0xD5D9DF, dark: 0x48484E) // 카드 경계 — 크롬↔콘텐츠 층을 또렷하게
     static let borderFocus = brand // 포커스·활성 강조 = 브랜드 키 컬러(브랜드 스케일 단일 출처)
     static let borderActivity = NSColor.dynamic(light: 0xF59E0B, dark: 0xFBBF24) // 칸 활동 플래시(주황) — focus(청록)와 구분되는 주의 환기색
     static let muted = NSColor.dynamic(light: 0x6B7280, dark: 0x8A8A90)
