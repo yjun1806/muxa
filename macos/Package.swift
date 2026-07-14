@@ -12,7 +12,16 @@ let package = Package(
         // 우리 입맛대로 고치려면 소스 수정이 필요해 fork했다.
         // upstream 추적: 로컬 클론(~/Documents/private/bonsplit)에 `upstream` 리모트로 manaflow가 걸려 있다.
         // 태그가 없어 revision 고정(재현성) — Package.resolved가 동일 커밋을 보장한다.
-        .package(url: "https://github.com/yjun1806/bonsplit.git", revision: "10c154fda321f2cf21a998eeffc28f67a28bd08e"),
+        // 탭바를 muxa 팔레트로 테마링하려고 소스를 고쳐야 했다 — 그래서 fork다(→ ARCHITECTURE D21).
+        // `muxa` 브랜치를 revision으로 고정한다(태그 없음 — Package.resolved가 같은 커밋을 보장).
+        //
+        // ⚠️ upstream(manaflow) main은 이 커밋보다 앞서 있고, #180에서 탭 지시자를
+        // SwiftUI → AppKit 레이어로 옮겼다. 우리 변경은 SwiftUI 기반이라 그대로는 안 얹힌다 —
+        // 따라잡으려면 재작성이 필요하다(별도 작업).
+        //
+        // 로컬에서 fork를 고칠 땐 `.package(path: "../../bonsplit")`으로 바꾼다. **커밋 금지** —
+        // 그 상태로 커밋하면 다른 머신엔 그 경로가 없어 빌드가 통째로 깨진다.
+        .package(url: "https://github.com/yjun1806/bonsplit.git", revision: "7d8896c9d341b2903ff091d7ed2c3c67f7e9efba"),
     ],
     targets: [
         .executableTarget(

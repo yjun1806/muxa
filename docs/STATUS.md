@@ -35,6 +35,28 @@ swift test                  # 순수 로직 단위 테스트 (92개, GhosttyKit 
 - **뷰어 라이브 리로드** ✅ — 열린 코드/md가 디스크에서 바뀌면 자동 재로드
 - **세션 복원 정합성** ✅ — 트리는 터미널만(`layoutSnapshot`), 문서/diff는 `SavedViewer`로 별도 복원
 
+## 최근 완료 (2026-07-14) — 탭바 테마링 + 칸 포커스 반전 (Bonsplit fork)
+
+Bonsplit을 **우리 fork로 갈아타고**(`yjun1806/bonsplit`, → [ARCHITECTURE D21](ARCHITECTURE.md)) 탭바를 muxa 팔레트로 테마링했다.
+그 과정에서 **칸 포커스 표현을 뒤집었다** — 테두리 → 밝기(→ [D20](ARCHITECTURE.md), [DESIGN "칸 상태"](DESIGN.md)).
+
+**고친 것 (전부 실측으로 드러난 문제):**
+- **활성 탭 대비가 1.00:1이었다** — Bonsplit이 시스템 색을 쓰는데 `windowBackground == controlBackground`라 **선택 탭 배경과 탭바 배경의 픽셀이 동일**했다. 활성 탭의 면이 시각적으로 존재하지 않았다. hover도 같은 이유로 변화량 0.
+- **`chromeColors`가 다크에서 안 먹었다** — `layer.backgroundColor = color.cgColor`가 drawing scope 밖에서 **조용히 라이트 값으로 폴백**한다. fork의 존재 이유가 무력화돼 있었다. scope 안에서 resolve + `viewDidChangeEffectiveAppearance` 재적용으로 수정.
+- **활성 지시자가 시스템 강조색**이었다(사용자가 accent를 바꾸면 muxa 크롬만 색이 변함) → `brand`.
+- 분할 시 **비포커스 칸의 선택 탭을 읽을 수 없었다**(지시선 대비 1.46:1) → 색 + 굵기 2중 인코딩.
+
+**지금 활성 탭이 말하는 방식:** 면(`bg`, 아래 터미널과 같은 hex) + 위 2면 라운드 + 하단 선(포커스 teal 2pt / 비포커스 회색 1pt) + 아이콘 teal + 굵은 제목. 탭바는 `btnActive`(면을 띄우려면 아래가 눌려야 한다).
+
+**검증:** `swift build` green · **83 tests / 10 suites** (신규 `BonsplitChromeTests` 5개 — 팔레트→hex 변환은 틀려도 조용해서 못 박음).
+
+### ★ 실기기 육안 검증 필요 (이 기능)
+- **다크 모드 탭바 색** — 위 `cgColor` 버그를 고쳤으나 눈으로 확인 안 됨. 라이트↔다크 전환 시 탭바가 따라오는지.
+- **분할 버튼 레인** — `splitButtonBackdrop: "#00000000"`이 레인 면만 끄고 **탭 페이드는 살리는지**. 뚝 잘려 보이면 실패.
+- **베일 강도** — 라이트 3% / 다크 12%가 적정한지(두 칸을 나란히 대조하는 데 지장 없는지).
+- **하단 지시선 vs 탭바 바텀 구분선** — 같은 픽셀을 다툰다. z-order로 한쪽이 가려질 수 있음.
+- **탭 상단 3pt** — 클릭·hover는 되는데 배경이 안 칠해진다(`tabTopInset`이 배경에만 적용). hover 시 눈에 띄면 조정.
+
 ## 최근 완료 (2026-07-13) — 알림 파이프라인 개편: 훅이 1차 소스
 
 orca(stablyai)·cmux 구현을 대조해 **추정 1차 → 훅 1차**로 뒤집었다. 설계 근거는 [ARCHITECTURE 4.5](ARCHITECTURE.md) 참조.

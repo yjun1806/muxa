@@ -62,6 +62,20 @@ enum Palette {
     static let btnHover = NSColor.dynamic(light: 0xE5E7EB, dark: 0x37373B)
     static let btnActive = NSColor.dynamic(light: 0xD1D5DB, dark: 0x47474C)
 
+    /// 포커스 없는 칸에 덮는 베일 — **"지금 입력이 어디로 가는가"를 밝기로 말한다**(테두리 대신).
+    ///
+    /// 테두리는 상시 켜지면 강조를 잃는다. 같은 테두리 채널을 에이전트 알림(주황)이 쓰는데,
+    /// 청록 테두리가 늘 깔려 있으면 정작 나를 부르는 주황이 그 위에서 경쟁해야 한다.
+    /// 밝기로 말하면 테두리가 비고, **테두리가 뜨면 그건 진짜 알림이다**.
+    ///
+    /// **약하게 잡는다** — 칸을 나란히 놓고 두 터미널을 대조하는 게 이 앱의 일상이다.
+    /// 안 보이는 칸을 만들면 분할의 의미가 없다. 알아볼 수 있을 만큼만 눌러 둔다.
+    /// (다크가 라이트보다 진한 건 어두운 배경에서 같은 알파가 훨씬 덜 보이기 때문이다.)
+    static let paneVeil = NSColor(name: nil) { appearance in
+        let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        return NSColor(white: 0, alpha: isDark ? 0.12 : 0.03)
+    }
+
     // git 상태색 — 익스플로러 파일명·git 패널 배지 공용(하드코딩 금지, 여기 한 곳).
     static let gitModified = NSColor.dynamic(light: 0xB08800, dark: 0xE2B341) // 수정(주황/노랑)
     static let gitAdded = NSColor.dynamic(light: 0x1A7F37, dark: 0x3FB950) // 추가·untracked(초록)
@@ -114,6 +128,7 @@ extension Color {
     static let pBrandHover = Color(nsColor: Palette.brandHover)
     static let pOnBrand = Color(nsColor: Palette.onBrand)
     static let pBorderActivity = Color(nsColor: Palette.borderActivity)
+    static let pPaneVeil = Color(nsColor: Palette.paneVeil)
     static let pMuted = Color(nsColor: Palette.muted)
     static let pFg = Color(nsColor: Palette.fg)
     static let pBtnHover = Color(nsColor: Palette.btnHover)

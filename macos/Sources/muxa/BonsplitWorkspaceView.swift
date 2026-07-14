@@ -28,8 +28,19 @@ struct BonsplitWorkspaceView: View {
     private func tabContent(_ tabId: TabID, paneId: PaneID) -> some View {
         paneBody(tabId, paneId: paneId)
             .overlay(PaneBorders(store: store, tabId: tabId, paneId: paneId))
+            // 검색 바는 **크롬**이다 — PaneBorders의 베일 위에 얹어야 한다. 아래 두면 칸이 포커스를
+            // 잃는 순간(검색창을 열어둔 채 옆 칸을 클릭) 검색창까지 같이 어두워진다.
+            .overlay(alignment: .topTrailing) { searchOverlay(tabId) }
             // 복원된 재개 바인딩이 있는 터미널 탭엔 상단에 세션 재개 배너를 얹는다(D2). 바인딩 없으면 아무것도 안 그린다.
             .overlay(alignment: .top) { ResumeOverlay(store: store, tabId: tabId) }
+    }
+
+    /// ⌘F 검색 바 — active일 때만 우상단에 뜬다. 터미널 탭에만 있다.
+    @ViewBuilder
+    private func searchOverlay(_ tabId: TabID) -> some View {
+        if case .terminal = store.content(for: tabId) {
+            SearchOverlay(term: store.term(for: tabId))
+        }
     }
 
     @ViewBuilder
@@ -37,11 +48,8 @@ struct BonsplitWorkspaceView: View {
         switch store.content(for: tabId) {
         case .terminal:
             let term = store.term(for: tabId)
-            ZStack(alignment: .topTrailing) {
-                TerminalRepresentable(term: term) {
-                    store.controller.focusPane(paneId)
-                }
-                SearchOverlay(term: term) // active일 때만 우상단에 뜬다
+            TerminalRepresentable(term: term) {
+                store.controller.focusPane(paneId)
             }
             // 칸 우클릭 메뉴 — TermView가 "터미널이 마우스를 캡처했는가"를 코어에 물어 이 콜백을 부를지 정한다.
             // 캡처 중(vim·tmux 등)이면 우클릭은 그 앱으로 가고 여기 오지 않는다.
@@ -110,12 +118,18 @@ private struct EmptyProjectView: View {
     }
 }
 
-/// 이 칸에 얹는 강조 테두리들 — 직접 그리지 않고 **카드 레이어로 위치·색만 올려보낸다**.
+/// 이 칸에 얹는 강조 — **포커스는 밝기로, 알림은 테두리로** 말한다.
 ///
-/// 칸 안에서 그리면 카드의 라운드 클립에 모서리가 깎인다. 그래서 `paneBorder`(→ `ContentCard`)가
-/// 클립 바깥에서 대신 그린다. 카드 모서리에 닿은 변은 그쪽에서 경계까지 스냅해 둥글린다.
+/// 포커스에 테두리를 쓰지 않는 이유: 그건 **상시** 켜지는 신호다. 그런데 같은 테두리 채널을
+/// 에이전트 알림(주황=나를 기다림)도 쓴다. 청록 테두리가 늘 깔려 있으면, 정작 나를 부르는 주황이
+/// 그 위에서 경쟁해야 한다 — 강조가 강조를 잡아먹는다.
+/// 그래서 포커스는 **베일**(포커스 없는 칸을 살짝 눌러 둠)로 말하고, 테두리는 비워 둔다.
+/// **테두리가 떴다 = 무슨 일이 났다**가 성립한다.
+/// (그 칸의 활성 탭도 함께 말한다 — 탭 카드의 teal 윤곽·아이콘·굵은 제목. → `BonsplitChrome`)
 ///
-/// - focus(청록): 지금 입력이 가는 칸. Bonsplit의 `focusedPaneId`(@Observable)를 읽어 자동 재렌더.
+/// 테두리는 직접 그리지 않고 **카드 레이어로 위치·색만 올려보낸다**. 칸 안에서 그리면 카드의
+/// 라운드 클립에 모서리가 깎이므로, `paneBorder`(→ `ContentCard`)가 클립 바깥에서 대신 그린다.
+///
 /// - agent(주황=나를 기다림·초록=완료): "지금 이 칸의 추정 상태"를 지속 표시. 그 칸을 보면 해제된다.
 /// - flash(주황): 활동 순간 잠깐 켰다가 페이드아웃(켤 땐 빠르게, 끌 땐 천천히).
 ///
@@ -137,15 +151,20 @@ private struct PaneBorders: View {
             let flashing = store.flashingTabs.contains(tabId)
 
             Color.clear
-                .paneBorder(id: "focus-\(paneId)",
-                            color: focused ? Color.pBorderFocus : nil,
-                            animation: .easeInOut(duration: 0.15))
                 .paneBorder(id: "agent-\(tabId)",
                             color: agent,
                             animation: .easeInOut(duration: 0.25))
                 .paneBorder(id: "flash-\(tabId)",
                             color: flashing ? Color.pBorderActivity : nil,
                             animation: .easeOut(duration: flashing ? 0.12 : 0.5))
+                // 포커스 없는 칸을 살짝 눌러 둔다. 칸을 나란히 놓고 대조하는 게 이 앱의 일상이라
+                // **약하게** 잡았다 — 안 보이는 칸을 만들면 분할의 의미가 없다.
+                .overlay {
+                    Color.pPaneVeil
+                        .opacity(focused ? 0 : 1)
+                        .animation(Motion.fast, value: focused)
+                        .allowsHitTesting(false)
+                }
         }
     }
 }
