@@ -20,13 +20,11 @@ enum TabContent {
 final class TerminalStore: NSObject, BonsplitDelegate {
     let controller: BonsplitController
 
-    // 크롬 색(chromeColors)은 설정하지 않는다.
+    // 크롬 색은 init에서 `BonsplitChrome.colors`로 준다 (→ Design/BonsplitChrome.swift).
     //
-    // `tabBarBackgroundHex`를 주면 활성 탭 대비는 조금 살지만, 분할 버튼 레인의 backdrop이
-    // 그 색에서 파생돼 **불투명해진다**. 기본값은 반투명 크롬(.translucentChrome + masksTabContent)이라
-    // 탭이 레인 아래로 흐릿하게 흘러가는데, 불투명해지면 탭이 레인 앞에서 뚝 잘린 것처럼 보인다.
-    // 활성 탭 대비를 얻자고 탭바의 기본 동작을 깨는 건 남는 장사가 아니다 —
-    // 탭 스타일을 정말 바꾸려면 Bonsplit을 포크해야 한다.
+    // 예전엔 못 줬다: `tabBarBackgroundHex`만 주면 분할 버튼 레인의 backdrop이 그 색에서 파생돼
+    // **불투명해지고**, 레인 아래로 흐릿하게 흘러가야 할 탭이 뚝 잘려 보였다. 이제 backdrop에
+    // 투명을 **명시**해 그 파생을 끊는다 — 레인 면만 안 칠하고 페이드는 살아남는다(둘은 독립 변수).
 
     @ObservationIgnored private let app: ghostty_app_t
     /// 새 셸의 기본 시작 폴더(= 프로젝트 경로, 없으면 워크스페이스 경로 상속).
@@ -323,6 +321,20 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         // 탭 폭 모드는 기본(.fixed)을 유지한다.
         // .fill로 바꾸면 탭이 "분할 버튼 레인을 뺀 폭"에 맞춰져, 탭 스크롤이 레인 앞에서 끊긴다
         // (원래는 탭이 레인 아래로 흘러가며 페이드된다 — 그 동작이 옳다).
+        //
+        // 탭바 색·지시선 = muxa 팔레트(→ Design/BonsplitChrome.swift).
+        // 안 주면 Bonsplit이 시스템 색을 쓰는데, 거기선 **활성 탭 배경과 탭바 배경이 같은 색**이라
+        // (windowBackground == controlBackground) 활성 탭의 면이 시각적으로 존재하지 않는다.
+        config.appearance.chromeColors = BonsplitChrome.colors
+        config.appearance.tabCornerRadius = BonsplitChrome.tabCornerRadius
+        config.appearance.tabTopInset = BonsplitChrome.tabTopInset
+        config.appearance.activeIndicatorAtBottom = BonsplitChrome.activeIndicatorAtBottom
+        // 다른 칸을 보고 오면 활성 탭이 스크롤 밖에 남아 있을 수 있다 — 안 보이는 활성 탭은
+        // 탭바가 존재하는 이유 자체를 부정한다. 포커스가 돌아오면 가운데로 데려온다.
+        config.appearance.keepsSelectedTabVisible = true
+        config.appearance.activeIndicatorHeight = BonsplitChrome.activeIndicatorHeight
+        config.appearance.inactiveIndicatorHeight = BonsplitChrome.inactiveIndicatorHeight
+        config.appearance.selectedTabTitleWeight = BonsplitChrome.selectedTabTitleWeight
         self.controller = BonsplitController(configuration: config)
         super.init()
         controller.delegate = self

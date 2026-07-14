@@ -35,11 +35,38 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 - **뷰어 라이브 리로드** ✅ — 열린 코드/md가 디스크에서 바뀌면 자동 재로드
 - **세션 복원 정합성** ✅ — 트리는 터미널만(`layoutSnapshot`), 문서/diff는 `SavedViewer`로 별도 복원
 
+## 최근 완료 (2026-07-14) — main 머지: "층을 무엇이 만드는가" 논쟁 해소
+
+`main`(크롬 층 대비 강화 · Bonsplit fork 탭바 · dev/prod 정체성 · fork upstream 추격)을 이 브랜치에 머지했다.
+**핵심 충돌은 `panel`/`border` 다크 값이었다 — 같은 줄, 정반대 방향.**
+main은 "크롬↔콘텐츠가 뭉갠다"며 명도차를 벌렸고(ΔL\*≈10), 이 브랜치는 "층은 카드 고도가 만든다"며 좁혔다(≈4).
+
+**판정: 둘 다 부분적으로 옳아서 중간을 택했다(ΔL\*≈7.8).** 근거 —
+카드 고도(`Elevation.Card`)는 **사이드바·상단바↔카드에는 닿지만, 카드 *안*의 도구 패널↔터미널에는 안 닿는다**
+(거긴 `panel`/`bg`가 `border` 선 하나를 두고 직접 맞닿는다). 고도가 못 덮는 경계가 실재하므로
+명도차를 0으로 되돌릴 수 없고, 고도가 절반을 지므로 10까지 벌릴 필요도 없다. 값·수치는 [DESIGN 2절](DESIGN.md).
+
+- **`btnActive` 다크는 `47474C`로 되돌렸다** — c713cd5가 이 토큰에 **칸 탭바의 면**이라는 새 역할을 줬다.
+  이 브랜치의 `3C3C41`은 `bg` 대비 1.57:1로 그 측정 지표(1.9:1)를 절반쯤 무효화한다. `47474C`는 1.86:1이고
+  r≈g의 무채라 zinc 원칙과 충돌하지 않는다. `panel`을 올린 만큼 `btnHover`도 한 칸 올려 사다리를 유지.
+- **`borderFocus` 토큰은 삭제했다** — 유일한 소비자였던 칸 포커스 링이 `paneVeil`로 대체됐고(D20),
+  남은 포커스 강조인 선택 탭 지시선은 탭바(`btnActive`) 위라 `3B8A7F`가 **2.26:1**로 3:1에 미달한다
+  (`brand`는 3.93:1). 맡을 자리가 없어졌다. main의 `activeIndicator = brand`가 옳다 — 그대로 뒀다.
+- **main의 기능은 전부 살렸다** — `paneVeil`·`BonsplitChrome`·dev/prod 정체성·`TerminalStore` 주입 무손실.
+- 검증: `swift build` green · **99 tests / 12 suites** green. **화면은 육안 미검증(★ 아래).**
+
+### ★ 이 머지가 만든 육안 검증 항목
+1. **다크에서 크롬↔터미널 층이 읽히는가** — 명도차(ΔL\*7.8) + 카드 그림자 + 인셋 하이라이트의 합으로.
+   안 읽히면 `panel` 다크를 `303035` 쪽으로 더 올린다(반대로 크롬이 도형처럼 튀면 `262629` 쪽으로).
+2. **카드 *안*: 익스플로러/git 패널 ↔ 터미널 경계** — 여기가 고도 사각지대다. `border`(`3E3E44`)만으로 갈리는가.
+3. **탭바(`47474C`) 위 활성 탭(`bg`)이 면으로 보이는가** — 1.86:1.
+4. **비포커스 칸이 `paneVeil` + 카드 그림자로 이중으로 어두워지지 않는가.**
+
 ## 최근 완료 (2026-07-14) — 사이드바 "런 큐" 2단 트리 + 팔레트 수술
 
-프로젝트 전환을 **헤더 탭 → 사이드바 트리**로 옮기고(D20), 브랜드 teal을 **아이콘 전용으로 격리**했다(D21).
-근거·수치는 [ARCHITECTURE 2절 D20·D21](ARCHITECTURE.md), 값·규칙은 [DESIGN.md](DESIGN.md).
-순수 로직 테스트 16개 추가(전체 94개 green). **화면은 육안 미검증(★).**
+프로젝트 전환을 **헤더 탭 → 사이드바 트리**로 옮기고(D23), 브랜드 teal을 **아이콘 전용으로 격리**했다(D24).
+근거·수치는 [ARCHITECTURE 2절 D23·D24](ARCHITECTURE.md), 값·규칙은 [DESIGN.md](DESIGN.md).
+순수 로직 테스트 16개 추가. **화면은 육안 미검증(★).**
 
 - **사이드바 = 워크스페이스 › 프로젝트 2단 트리** — `SidebarTree`(순수: status/rollup/펼침/firstWaiting) +
   `SidebarWorkspaceRow`(소섹션 머리글) · `SidebarProjectRow`(주인공) · `SidebarQueueHeader`(주의 큐 한 줄) ·
@@ -48,9 +75,9 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 - **펼침 상태 영속** — `AppState.expandedWorkspaces`(+`state.v4.json`, 옵셔널 필드라 구 저장분 무손실).
   활성 워크스페이스는 **접히지 않는다**(규칙은 `SidebarTree` 한 곳).
 - **에이전트 상태를 색이 아니라 모양으로** — 유휴 5pt 무채 / 작업중 6pt 딥틸 / 주의 6pt 호박(`ProjectStatusStyle`).
-- **팔레트** — `brand`(텍스트·CTA)와 `borderFocus`(테두리) 분리, 중립 zinc 통일, **목록 선택은 중립 채움**
-  (탐색기 행·서비스 목록의 브랜드 wash 제거), AA 미달값 수리(borderActivity 라이트 2.15:1 → 5.05:1 등),
-  카드 고도(`Elevation.Card`)로 층을 만든다.
+- **팔레트** — 중립 zinc 통일, **목록 선택은 중립 채움**(탐색기 행·서비스 목록의 브랜드 wash 제거),
+  AA 미달값 수리(borderActivity 라이트 2.15:1 → 5.05:1 등), 카드 고도(`Elevation.Card`)로 층을 만든다.
+  (당시 도입한 `borderFocus` 토큰은 위 머지에서 삭제됐다 — 포커스는 `paneVeil`이 말한다.)
 - **접힌 모드 회귀 방지** — icon/slim에서도 프로젝트 항목을 그리고, 워크트리 생성을 워크스페이스
   우클릭 메뉴(`ProjectAddMenu`)에도 실었다. 안 그러면 그 모드에서 프로젝트 관리가 통째로 사라진다.
 
@@ -61,9 +88,50 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 3. **워크트리 시트** — hover 사이드바에서 `+` → "워크트리…" → 사이드바가 접혀도 시트가 살아 있는가.
 4. **상태 점 갱신 전파** — 백그라운드 프로젝트가 working → attention으로 바뀔 때 행이 다시 그려지는가.
 5. **카드 그림자·인셋 하이라이트**가 라이트/다크에서 보이는가(ghostty 서피스 리렌더 이상 없이).
-   함께: **카드 *안쪽* 헤어라인**(인덴트 가이드·패널 헤더 구분선)은 고도 보상이 닿지 않는 영역이라
-   다크에서 1.20~1.25:1까지 내려간다 — 너무 흐리면 `border`를 한 단계 올린다.
+   함께: **카드 *안쪽* 헤어라인**(인덴트 가이드·패널 헤더 구분선)은 고도 보상이 닿지 않는 영역이다 —
+   위 머지에서 `border`를 한 단계 올렸으니(`34343A`→`3E3E44`) 이제 충분한지 본다.
 6. 세션 복원 직후엔 스토어가 없어 **모든 프로젝트가 유휴 점**이다("안 연 프로젝트"와 구분되지 않음 — 의도된 절제).
+
+## 최근 완료 (2026-07-14) — Bonsplit fork를 upstream main(#180)에 따라잡히기
+
+fork(`yjun1806/bonsplit`) `muxa` 브랜치에 upstream `main`(46def98)을 머지·push했고,
+`macos/Package.swift`의 revision을 새 SHA(`7754f46`)로 고정했다. → [D22](ARCHITECTURE.md)
+
+- upstream이 탭 지시자·구분선을 SwiftUI → AppKit(`TabBarSelectionChromeView`)으로 옮겼다. 우리 SwiftUI 구현은 버리고
+  포커스별 색·두께·하단 배치만 그 경로에 재구현했다.
+- fork가 진짜 **가산적**이 됐다 — 선택 탭 제목 굵기가 `selectedTabTitleWeight`(기본 `.regular`)로 게이팅됐다.
+  muxa 쪽 변경은 `BonsplitChrome.selectedTabTitleWeight`(+`TerminalStore` 1줄)뿐.
+- 검증: bonsplit `swift test` 194개 green · muxa `swift build` + `swift test` green.
+
+### ★ 실기기 육안 검증 필요 (이 머지)
+- 포커스된 칸의 선택 탭 = 하단 teal 2pt / 포커스 잃으면 회색 1pt (색·두께 **둘 다** 바뀌는지).
+- 라이트↔다크 토글 시 탭바 면·활성 탭 면·지시자 색이 즉시 따라오는지.
+- 탭을 많이 열어 스크롤 — 탭이 분할 버튼 레인 아래로 페이드되고, 지시자는 레인 아래로 새어들지 않는지.
+- 다른 칸 보고 돌아왔을 때 선택 탭이 뷰포트로 스크롤되는지(`keepsSelectedTabVisible`).
+- 선택 탭 제목이 포커스 시 semibold인지.
+- 기본 `BonsplitConfiguration()`(다른 host) 렌더가 upstream과 동일한지 — 가산성 회귀.
+
+## 최근 완료 (2026-07-14) — 탭바 테마링 + 칸 포커스 반전 (Bonsplit fork)
+
+Bonsplit을 **우리 fork로 갈아타고**(`yjun1806/bonsplit`, → [ARCHITECTURE D21](ARCHITECTURE.md)) 탭바를 muxa 팔레트로 테마링했다.
+그 과정에서 **칸 포커스 표현을 뒤집었다** — 테두리 → 밝기(→ [D20](ARCHITECTURE.md), [DESIGN "칸 상태"](DESIGN.md)).
+
+**고친 것 (전부 실측으로 드러난 문제):**
+- **활성 탭 대비가 1.00:1이었다** — Bonsplit이 시스템 색을 쓰는데 `windowBackground == controlBackground`라 **선택 탭 배경과 탭바 배경의 픽셀이 동일**했다. 활성 탭의 면이 시각적으로 존재하지 않았다. hover도 같은 이유로 변화량 0.
+- **`chromeColors`가 다크에서 안 먹었다** — `layer.backgroundColor = color.cgColor`가 drawing scope 밖에서 **조용히 라이트 값으로 폴백**한다. fork의 존재 이유가 무력화돼 있었다. scope 안에서 resolve + `viewDidChangeEffectiveAppearance` 재적용으로 수정.
+- **활성 지시자가 시스템 강조색**이었다(사용자가 accent를 바꾸면 muxa 크롬만 색이 변함) → `brand`.
+- 분할 시 **비포커스 칸의 선택 탭을 읽을 수 없었다**(지시선 대비 1.46:1) → 색 + 굵기 2중 인코딩.
+
+**지금 활성 탭이 말하는 방식:** 면(`bg`, 아래 터미널과 같은 hex) + 위 2면 라운드 + 하단 선(포커스 teal 2pt / 비포커스 회색 1pt) + 아이콘 teal + 굵은 제목. 탭바는 `btnActive`(면을 띄우려면 아래가 눌려야 한다).
+
+**검증:** `swift build` green · **83 tests / 10 suites** (신규 `BonsplitChromeTests` 5개 — 팔레트→hex 변환은 틀려도 조용해서 못 박음).
+
+### ★ 실기기 육안 검증 필요 (이 기능)
+- **다크 모드 탭바 색** — 위 `cgColor` 버그를 고쳤으나 눈으로 확인 안 됨. 라이트↔다크 전환 시 탭바가 따라오는지.
+- **분할 버튼 레인** — `splitButtonBackdrop: "#00000000"`이 레인 면만 끄고 **탭 페이드는 살리는지**. 뚝 잘려 보이면 실패.
+- **베일 강도** — 라이트 3% / 다크 12%가 적정한지(두 칸을 나란히 대조하는 데 지장 없는지).
+- **하단 지시선 vs 탭바 바텀 구분선** — 같은 픽셀을 다툰다. z-order로 한쪽이 가려질 수 있음.
+- **탭 상단 3pt** — 클릭·hover는 되는데 배경이 안 칠해진다(`tabTopInset`이 배경에만 적용). hover 시 눈에 띄면 조정.
 
 ## 최근 완료 (2026-07-13) — 알림 파이프라인 개편: 훅이 1차 소스
 

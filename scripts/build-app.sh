@@ -5,40 +5,25 @@
 #
 #   ./scripts/build-app.sh            # debug 번들
 #   ./scripts/build-app.sh release    # release 번들
-#   open macos/.build/<config>/muxa.app
+#   open macos/.build/<config>/muxa-dev-<slug>.app   (개발)  ·  muxa.app (릴리스)
 set -euo pipefail
-cd "$(dirname "$0")/../macos"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR/../macos"
 
 CONFIG="${1:-debug}"
+
+# ── 빌드 식별자 — 이름 규칙은 app-identity.sh 한 곳에서만 정한다(단일 출처) ────────────
+# dev/prod가 이름만 봐도 완전히 갈린다: 릴리스 `muxa`, 개발 `muxa-dev-<slug>`.
+# 번들 id도 갈려(com.muxa.app vs com.muxa.dev.<slug>) 알림 권한·LaunchServices 등록이 각각이라
+# 창·프로세스가 서로 섞이지 않는다. → docs/SETUP.md, 종료는 `make kill`(이 워크트리 것만).
+# shellcheck source=app-identity.sh
+source "$SCRIPT_DIR/app-identity.sh" "$CONFIG"
+BIN="$APP_BIN"
+
 if [ "$CONFIG" = "release" ]; then
   swift build -c release
-  BIN=.build/release
 else
   swift build
-  BIN=.build/debug
-fi
-
-# ── 빌드 식별자 ───────────────────────────────────────────────────────────
-# 워크트리마다 개발빌드를 띄우면 Dock·⌘Tab에 전부 "muxa"로 떠서 어느 창이 어느 브랜치인지 알 수 없다.
-# 그래서 개발빌드는 리포(=워크트리) 이름 또는 브랜치명을 앱 이름·번들 id·파일명에 박는다.
-# 번들 id가 갈리면 알림 권한·LaunchServices 등록도 각각이라 창이 서로 섞이지 않는다.
-if [ "$CONFIG" = "release" ]; then
-  APP_NAME="muxa"
-  BUNDLE_ID="com.muxa.app"
-  APP_FILE="muxa"
-else
-  ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo "")"
-  LABEL="$(basename "${ROOT:-$PWD}")"
-  # 메인 체크아웃(디렉터리명이 그냥 muxa)이면 이름이 안 갈리므로 브랜치명을 쓴다.
-  if [ "$LABEL" = "muxa" ]; then
-    LABEL="$(git branch --show-current 2>/dev/null || echo "dev")"
-  fi
-  # 파일명·번들 id에 쓸 수 있게 영숫자·하이픈만 남긴다.
-  SLUG="$(printf '%s' "$LABEL" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//')"
-  [ -n "$SLUG" ] || SLUG="dev"
-  APP_NAME="muxa · $SLUG"     # Dock·⌘Tab·메뉴바에 이 이름이 뜬다
-  BUNDLE_ID="com.muxa.dev.$SLUG"
-  APP_FILE="muxa-$SLUG"
 fi
 
 APP="$BIN/$APP_FILE.app"
@@ -82,5 +67,10 @@ PLIST
 # ad-hoc 코드 서명 — 미서명 실행 경고·일부 시스템 API 제약을 줄인다(배포 서명 아님).
 codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || echo "  (codesign 생략 — 실행엔 영향 없음)"
 
-echo "빌드 완료: macos/$APP"
+# LaunchServices에 강제 재등록 — 같은 slug를 다시 빌드해 CFBundleName이 바뀌어도 Dock·⌘Tab이
+# 옛 이름을 캐시해 안 바뀌는 걸 막는다. 이게 없으면 "아무리 빌드해도 이름이 그대로"가 된다.
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+[ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$APP" 2>/dev/null || true
+
+echo "빌드 완료: macos/$APP   ($APP_NAME · $BUNDLE_ID)"
 echo "실행: open macos/$APP"

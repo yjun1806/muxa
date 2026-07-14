@@ -12,7 +12,16 @@ let package = Package(
         // 우리 입맛대로 고치려면 소스 수정이 필요해 fork했다.
         // upstream 추적: 로컬 클론(~/Documents/private/bonsplit)에 `upstream` 리모트로 manaflow가 걸려 있다.
         // 태그가 없어 revision 고정(재현성) — Package.resolved가 동일 커밋을 보장한다.
-        .package(url: "https://github.com/yjun1806/bonsplit.git", revision: "10c154fda321f2cf21a998eeffc28f67a28bd08e"),
+        // 탭바를 muxa 팔레트로 테마링하려고 소스를 고쳐야 했다 — 그래서 fork다(→ ARCHITECTURE D21).
+        // `muxa` 브랜치를 revision으로 고정한다(태그 없음 — Package.resolved가 같은 커밋을 보장).
+        //
+        // revision은 커밋 SHA를 직접 가리키므로 **브랜치가 main일 필요가 없다**. 다만 그 커밋이
+        // 원격에서 어떤 ref로든 도달 가능해야 한다 — `muxa` 브랜치를 지우거나 force-push하면
+        // 커밋이 unreachable이 되고 SPM이 못 가져온다.
+        //
+        // 로컬에서 fork를 고칠 땐 `.package(path: "../../bonsplit")`으로 바꾼다. **커밋 금지** —
+        // 그 상태로 커밋하면 다른 머신엔 그 경로가 없어 빌드가 통째로 깨진다.
+        .package(url: "https://github.com/yjun1806/bonsplit.git", revision: "7754f46c91d08986a6f93ad75f53b5dd02ba30ca"),
     ],
     targets: [
         .executableTarget(

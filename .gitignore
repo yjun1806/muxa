@@ -10,3 +10,6 @@ vendor/
 
 # SPM 빌드 산출물
 macos/.build/
+
+# Claude Code 워크트리 — 리포 전체 사본이 들어있다. 커밋하면 두 번째 복사본이 리포에 박힌다.
+.claude/worktrees/

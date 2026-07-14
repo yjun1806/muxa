@@ -35,7 +35,7 @@ enum AttentionKind: String, Codable {
         switch self {
         case .done: return Palette.gitAdded
         case .bell: return Palette.borderActivity
-        case .notify: return Palette.brand // 콘텐츠(글리프)는 텍스트 등급인 brand — borderFocus는 테두리 전용이다
+        case .notify: return Palette.brand // 콘텐츠(글리프)는 텍스트 등급(4.5:1)인 brand로 칠한다
         case .system: return Palette.gitConflict
         }
     }

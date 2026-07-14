@@ -48,9 +48,9 @@ struct SidebarIconItem: View {
 
     /// 슬림 막대 — 색은 **신호**(주의·작업중)만 말하고, "지금 보는 곳"은 색이 아니라 **폭·높이**가 말한다.
     ///
-    /// 활성을 색(borderFocus)으로 칠하면 두 가지가 깨진다: ① 라이트 모드에서 `brand`와 `borderFocus`는
-    /// 같은 hex(#0F766E)라 "돌고 있다"와 "여기 있다"가 아예 구별되지 않는다 ② 활성 그룹 안의
-    /// 작업중 신호가 통째로 묻힌다(슬림에선 그게 유일한 신호다).
+    /// 활성을 브랜드색으로 칠하면 두 가지가 깨진다: ① "돌고 있다"(작업중 롤업도 `brand`다)와
+    /// "여기 있다"가 같은 색이 되어 아예 구별되지 않는다 ② 활성 그룹 안의 작업중 신호가
+    /// 통째로 묻힌다(슬림에선 그게 유일한 신호다).
     private func slimBar(_ rollup: SidebarTree.ProjectStatus) -> some View {
         // 조용한 활성 그룹만 무채로 한 단계 밝힌다 — 색 축을 하나 더 태우지 않고도 "여기"가 읽힌다.
         let color: Color = (rollup == .idle && active) ? .pFg : ProjectStatusStyle.color(rollup)
