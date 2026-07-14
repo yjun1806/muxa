@@ -7,7 +7,7 @@ import Testing
 struct ClaudeSessionIndexTests {
     @Test func 정상_UUID는_안전하다() {
         #expect(ClaudeSessionIndex.isSafeSessionId("550e8400-e29b-41d4-a716-446655440000"))
-        #expect(ClaudeSessionIndex.isSafeSessionId("abc-123_DEF.4"))
+        #expect(ClaudeSessionIndex.isSafeSessionId("550E8400-E29B-41D4-A716-446655440000")) // 대문자도 같은 UUID
     }
 
     @Test func 주입_문자가_있으면_거부한다() {
@@ -21,6 +21,12 @@ struct ClaudeSessionIndexTests {
             "a`whoami`",                // 백틱
             "a$(id)",                   // 명령 치환
             "a'b",                      // 작은따옴표
+            // 셸 메타문자가 **하나도 없는** 플래그 주입 — 문자 블랙리스트는 이걸 못 막는다.
+            // 인자 자리에 들어가면 `claude --resume --dangerously-skip-permissions`가 조립된다.
+            "--dangerously-skip-permissions",
+            "-p",
+            "abc-123_DEF.4",            // 문자는 안전하지만 UUID가 아니다 → 신뢰하지 않는다
+            "550e8400-e29b-41d4-a716",  // 잘린 UUID
         ]
         for id in hostile {
             #expect(!ClaudeSessionIndex.isSafeSessionId(id), "거부돼야 함: \(id)")
