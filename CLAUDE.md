@@ -62,15 +62,30 @@ muxa는 macOS 전용 터미널 기반 에이전틱 개발 환경 (Swift/SwiftUI 
 
 ```bash
 ./scripts/bootstrap.sh   # (최초 1회) GhosttyKit 설치 — docs/SETUP.md
-cd macos
-swift build            # 빌드
-swift test             # 순수 로직 단위 테스트
-.build/debug/muxa      # 실행 (창 뜸)
+make build             # 빌드            (= cd macos && swift build)
+make test              # 순수 로직 단위 테스트
+make app               # 번들로 빌드·실행 (권장 — 이름·알림·아이콘 정상)
+make whoami            # 이 워크트리 앱의 이름·번들 id·프로세스명 확인
+make kill              # 이 워크트리 개발 앱만 종료
+make relaunch          # 종료 → 재빌드 → 실행 (안전한 테스트 루프)
 ```
 
 - **순수 로직은 테스트로 못 박는다.** 파싱·판정·정리 같은 순수 함수는 UI 없이 검증된다 — 먼저 여기까지 끝낸다.
 - **UI·PTY 변경은 재빌드+재실행으로 확인한다.** 자동 검증을 통과해도 실제 화면에서 깨지는 게 있다
   (셸을 거치는 명령의 인용, 뷰 교체 시 서피스 레이스 등). 육안 확인이 안 된 것은 STATUS에 **★로 남긴다**.
-- **muxa 인스턴스는 하나만 띄우고 검증한다.** 여러 개가 뜨면 같은 `state.v4.json`·tmux 소켓을 공유해
-  서로 덮어쓴다. 죽일 때는 **경로를 정확히 지정**한다(다른 워크트리의 앱을 죽이지 않게).
+
+### 인스턴스 종료 — 절대 남의 것을 죽이지 않는다 (CRITICAL)
+
+여러 muxa가 동시에 뜬다(워크트리별 개발빌드 + 릴리스). 이름 규칙은 **`scripts/app-identity.sh` 단일 출처**:
+
+| | 프로세스명(ps/pgrep) | 번들 id | Dock 이름 |
+|---|---|---|---|
+| 릴리스 | `muxa` (정확히) | `com.muxa.app` | `muxa` |
+| 개발 | `muxa-dev-<slug>` | `com.muxa.dev.<slug>` | `Muxa Dev · <slug>` |
+
+- **`pkill muxa`·`pgrep -f muxa` 금지.** 부분 문자열이라 릴리스·모든 워크트리·`muxa-notify`까지 다 잡아 **서로 죽인다**. 실제로 반복된 실수다.
+- **죽일 땐 `make kill`을 쓴다** — `make whoami`가 뽑은 이 워크트리의 `muxa-dev-<slug>`만 정확히 종료한다. 릴리스·타 워크트리 불가침.
+- 굳이 직접 잡을 땐: 이 워크트리 개발 = `pkill -f muxa-dev-<slug>`, 릴리스만 = `pkill -x muxa`. **`-x`(정확 매치)나 유니크한 `muxa-dev-<slug>` 문자열**만 쓴다.
+- 프로세스 종료는 **사용자 승인**이 필요하다(글로벌 규칙) — `make kill`이라도 실행 전 확인받는다.
+
 - 커밋 자유(private), push만 승인. 커밋 트레일러 금지. 응답은 한국어.
