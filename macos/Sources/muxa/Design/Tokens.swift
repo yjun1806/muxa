@@ -98,22 +98,18 @@ enum SlimBar {
 /// (칩 오프셋을 호출부에서 `sidebarWidth - Space.sm + Space.md`처럼 산술로 만들면, 인셋을 바꾼 사람이
 ///  칩이 어긋나는 이유를 영영 못 찾는다 — 두 값과 그 식을 여기 한 곳에 둔다.)
 enum Sidebar {
-    /// 좌우 인셋. 슬림(14pt)은 0 — 인셋을 주면 클릭 영역이 2pt로 쪼그라든다.
-    static let hInset: CGFloat = Space.sm
+    /// 좌우 인셋. 크롬은 좁을수록 좋다 — 사이드바는 터미널에 자리를 내주는 쪽이다(6→4).
+    static let hInset: CGFloat = Space.xs
+
+    /// 슬림(14pt)의 인셋 — 더 좁게 잡는다. 0이면 활성·hover 배경이 좌우 벽에 딱 붙어 답답하다.
+    /// 2pt면 배경이 숨 쉬면서도 클릭 영역이 10pt 남는다(예전엔 `hInset`을 그대로 써서 2pt로
+    /// 쪼그라들었고, 그래서 아예 0으로 뒀던 것이다 — 값이 문제였지 인셋이 문제가 아니었다).
+    static let slimInset: CGFloat = Space.tight
     /// 사이드바 우측 경계 ↔ 이름 칩.
     static let chipGap: CGFloat = Space.md
     /// 항목의 leading 기준, 이름 칩이 사이드바 밖으로 나가는 거리.
     static func chipOffset(width: CGFloat) -> CGFloat { width - hInset + chipGap }
 
-    /// 사이드바 오른쪽 ↔ 콘텐츠 카드 사이의 빈 자리 = **카드 그림자가 설 자리**(`ContentView`).
-    ///
-    /// 사이드바는 이 틈을 칠하지 않는다(칠하면 카드보다 위 레이어라 그림자를 덮는다). 그래서
-    /// **눈에 보이는 크롬 띠는 사이드바 폭 + 이 틈**이고, 항목을 사이드바 폭 기준으로만 가운데 두면
-    /// 그 절반(2pt)만큼 왼쪽으로 치우쳐 보인다 — 슬림(14pt)에선 한눈에 티가 난다.
-    /// 항목은 이 틈까지 포함한 띠의 중심에 놓는다(`leadingBias`).
-    static let cardGap: CGFloat = Space.xs
-    /// 위 보정 — 콘텐츠를 오른쪽으로 이만큼 밀면 띠(폭 + 틈)의 중심에 온다.
-    static let leadingBias: CGFloat = cardGap
 }
 
 /// 떠 있는 패널(팝오버)의 폭.
@@ -166,7 +162,12 @@ enum Elevation {
     /// **오른쪽으로만 민다**(x 오프셋). 위아래로 번지면 크롬 위에 그늘이 지고, 왼쪽 번짐은
     /// 사이드바 자기 불투명 면에 어차피 가려진다.
     enum Peek {
+        /// peek로 펼쳐졌을 때 — 카드 위에 확실히 떠 있어야 한다.
         static let shadowOpacity: (light: Double, dark: Double) = (0.10, 0.45)
+        /// **도킹 상태에서도 드리운다** — 사이드바가 카드보다 위 레이어라 카드는 왼쪽으로 그림자를
+        /// 흘릴 수 없다(가려진다). 그래서 층은 위에서 아래로 던지는 이 그늘이 만든다.
+        /// 무게는 카드 고도와 같게 잡는다(`Card.shadowOpacity`) — 같은 계급의 경계다.
+        static let shadowOpacityDocked: (light: Double, dark: Double) = Card.shadowOpacity
         static let shadowRadius: CGFloat = 4
         static let shadowOffsetX: CGFloat = 3
     }

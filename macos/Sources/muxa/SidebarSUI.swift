@@ -24,8 +24,10 @@ struct SidebarSUI: View {
 
     private var width: CGFloat { effectiveMode.baseWidth }
 
-    private var shadowOpacity: Double {
-        scheme == .dark ? Elevation.Peek.shadowOpacity.dark : Elevation.Peek.shadowOpacity.light
+    /// 도킹/peek 각각의 그늘 세기 — 라이트/다크는 같은 알파로 같은 무게가 안 난다(`Elevation`).
+    private func shadowOpacity(peek: Bool) -> Double {
+        let pair = peek ? Elevation.Peek.shadowOpacity : Elevation.Peek.shadowOpacityDocked
+        return scheme == .dark ? pair.dark : pair.light
     }
 
     /// 이름이 보이지 않는 모드 — 호버 시 이름 칩을 띄운다.
@@ -35,23 +37,25 @@ struct SidebarSUI: View {
         Group {
             if effectiveMode == .expanded { tree } else { compact }
         }
-        // 슬림(14pt)은 좌우 패딩을 빼야 항목이 사이드바 폭을 다 쓴다 — 안 그러면 클릭 영역이 2pt로 쪼그라들어
-        // 좌클릭 전환도, 우클릭 메뉴도 조준이 사실상 불가능해진다(색 막대는 그 영역 밖으로 그려져 멀쩡해 보인다).
+        // 슬림(14pt)은 인셋을 더 좁게 — 0이면 강조 배경이 좌우 벽에 붙고, `hInset`을 그대로 쓰면
+        // 클릭 영역이 6pt로 쪼그라든다(좌클릭 전환도 우클릭 메뉴도 조준이 힘들어진다).
         .padding(.vertical, Space.sm)
-        .padding(.horizontal, effectiveMode == .slim ? 0 : Sidebar.hInset)
-        // 눈에 보이는 크롬 띠는 사이드바 폭 + 카드 앞 틈(그림자 자리)이다 — 그 틈까지 세어 가운데를 잡는다.
-        // 안 그러면 항목이 틈의 절반만큼 왼쪽으로 치우쳐 보인다(§Sidebar.leadingBias).
-        .padding(.leading, Sidebar.leadingBias)
+        .padding(.horizontal, effectiveMode == .slim ? Sidebar.slimInset : Sidebar.hInset)
         .frame(width: width, alignment: .top)
         .frame(maxHeight: .infinity)
         .background(Color.pPanel)
-        // peek로 펼쳐지면 **콘텐츠 카드 위에** 뜬다 — 카드 고도가 못 닿는 유일한 자리다(사이드바가 카드보다 위 레이어).
-        // 남는 신호가 1px 하선뿐이면(다크 border↔bg 1.62:1) 2단 트리가 터미널에 얹힌 것처럼 보인다.
-        // 그래서 여기서만 그림자를 준다 — 오른쪽으로만(`Elevation.Peek`). 도킹 상태(peeking=false)엔 0이라
-        // 크롬끼리 이어지는 자리에 그늘이 지지 않는다(예전에 그림자를 뺐던 이유가 그것이다).
-        .shadow(color: .black.opacity(peeking ? shadowOpacity : 0),
+        // **사이드바가 카드에 그림자를 드리운다** — 카드가 스스로 못 하기 때문이다.
+        //
+        // 사이드바는 카드 *위에* 뜨는 불투명 오버레이라(ContentView의 .overlay), 카드가 왼쪽으로 흘리는
+        // 그림자는 이 면에 통째로 가려진다 — 즉 "층은 고도가 만든다"는 말이 정작 **사이드바↔터미널
+        // 경계에서만 거짓**이 된다(층이 가장 필요한 자리다). 카드 앞에 틈을 비워 그림자가 설 자리를
+        // 주는 방법도 있었지만, 그러면 **보이는 띠(폭+틈)와 사이드바 폭이 어긋나** 항목의 좌우 대칭이
+        // 영영 안 맞는다(어느 쪽에 맞춰도 한쪽이 틀린다 — 실측으로 두 번 확인했다).
+        // 위 레이어가 아래로 그림자를 던지는 게 물리적으로도 옳다: 틈이 사라져 폭 = 띠가 되고,
+        // 가운데가 자명해진다.
+        .shadow(color: .black.opacity(shadowOpacity(peek: peeking)),
                 radius: Elevation.Peek.shadowRadius,
-                x: peeking ? Elevation.Peek.shadowOffsetX : 0)
+                x: Elevation.Peek.shadowOffsetX)
         .overlay(alignment: .trailing) {
             if peeking { Rectangle().fill(Color.pBorder).frame(width: RowHeight.hairline) }
         }
