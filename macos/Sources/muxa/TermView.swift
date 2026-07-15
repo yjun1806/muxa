@@ -201,8 +201,14 @@ final class TermView: NSView, NSTextInputClient {
     /// pid 무장 재시도 간격.
     private static let processArmRetryDelay: TimeInterval = 0.25
 
-    /// 서피스의 foreground pid를 잡아 종료 감시를 무장한다. 이미 무장됐거나 서피스가 없으면 무동작,
-    /// pid가 아직 유효하지 않으면(스폰 전) 잠시 뒤 재시도한다. 스폰 직후 첫 유효 pid = 셸이다.
+    /// 서피스의 foreground pid를 잡아 종료 감시를 무장하고 셸 pid를 기록한다. 이미 무장됐거나 서피스가
+    /// 없으면 무동작, pid가 아직 유효하지 않으면(스폰 전) 잠시 뒤 재시도한다.
+    ///
+    /// **첫 유효 pid가 곧 셸이라고 믿지 않는다.** 무거운 rc(nvm·pyenv·starship…)는 셸 시작 직후 자식을
+    /// 포그라운드로 잠깐 띄우는데, 그 찰나에 잡으면 셸이 아닌 pid가 shellPid로 굳는다. 그러면 (1) 재개
+    /// 게이트가 이후 영영 `fg != shell`로 막히고(“가끔 씹힘”의 정체), (2) 종료 감시가 그 자식에 붙어
+    /// **자식이 끝날 때 탭을 셸 종료로 오인**한다. 그래서 이름이 셸일 때까지 재시도한다 — 이름은 셸 pid를
+    /// 확정하는 검증에만 쓰고, 재개 판정 자체는 여전히 정확한 `fg == shellPid` 비교로 남긴다.
     private func armProcessWatcher() {
         guard processWatcher == nil, let surface else { return }
         let raw = ghostty_surface_foreground_pid(surface)
@@ -214,8 +220,19 @@ final class TermView: NSView, NSTextInputClient {
             }
             return
         }
-        shellPid = pid_t(raw) // 트리 루트 기록 — 재개 자동감지가 foreground→여기까지 부모 사슬을 훑는다.
-        let source = DispatchSource.makeProcessSource(identifier: pid_t(raw), eventMask: .exit, queue: .main)
+        let pid = pid_t(raw)
+        // 포그라운드가 셸이 아니면(rc 자식) 아직 굳히지 않고 다시 본다. 이름을 못 얻으면(권한·타이밍)
+        // 판정 불가이므로 폴백으로 그대로 잡는다(기존 동작 — 최소한 무장은 한다).
+        if let name = AgentProcessDetector.command(of: pid), !TerminalSession.isShell(name),
+           processArmAttempts < Self.maxProcessArmAttempts {
+            processArmAttempts += 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.processArmRetryDelay) { [weak self] in
+                self?.armProcessWatcher()
+            }
+            return
+        }
+        shellPid = pid // 트리 루트(셸) 기록 — 재개 자동감지가 foreground→여기까지 부모 사슬을 훑는다.
+        let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .main)
         source.setEventHandler { [weak self] in self?.handleProcessExit() }
         processWatcher = source
         source.resume()

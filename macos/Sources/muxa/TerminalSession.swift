@@ -179,7 +179,8 @@ enum TerminalSession {
         return name
     }
 
-    private static func isShell(_ raw: String) -> Bool {
+    /// 이 프로세스 이름이 "그냥 셸"인가 — detach 판정(shouldDetach)과 셸 pid 확정(§TermView.armProcessWatcher)이 공유한다.
+    static func isShell(_ raw: String) -> Bool {
         let name = normalized(raw)
         return name.isEmpty || shellNames.contains(name)
     }
