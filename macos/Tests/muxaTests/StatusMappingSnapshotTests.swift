@@ -13,7 +13,7 @@ struct StatusMappingSnapshotTests {
     @Test func 프로젝트_상태_글리프() {
         #expect(ProjectStatusStyle.glyph(.idle) == "circle")
         #expect(ProjectStatusStyle.glyph(.working) == "circle.fill")
-        #expect(ProjectStatusStyle.glyph(.attention) == "exclamationmark.circle.fill")
+        #expect(ProjectStatusStyle.glyph(.attention) == "ellipsis.circle.fill") // 느낌표는 failure로 옮김(에러 오독 방지)
     }
 
     @Test func 프로젝트_상태_점크기는_유휴만_작다() {

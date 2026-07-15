@@ -140,7 +140,7 @@ zinc 원칙과도 충돌하지 않는다. `panel`을 올린 만큼 hover도 한 
 | git deleted / **에러·파괴적 동작** / **서비스 종료** | `gitDeleted` / `danger` / `serviceExited` | `CF222E` · `FF7B72` (빨강) |
 | git renamed | `gitRenamed` | `0969DA` · `58A6FF` (파랑) |
 | git conflict | `gitConflict` | `BC4C00` · `DB6D28` |
-| **에이전트 활동·주의 환기** | `borderActivity` | `B45309` · `FBBF24` (호박) — 라이트 `F59E0B`는 흰 배경 대비 2.15:1로 사실상 안 보였다 |
+| **에이전트 활동·주의 환기** | `borderActivity` | `A16207` · `FBBF24` (앰버) — `B45309`(적갈색)은 실패색 빨강과 헷갈려 앰버로 옮겼다(4.9:1). `F59E0B`는 2.15:1로 미달이었다 |
 | PR merged | `prMerged` | `8250DF` · `B392F9` (보라) |
 
 **색만으로 구분하지 않는다.** 상태는 색 + **모양**(글리프·크기)으로 함께 말한다(색맹 안전).

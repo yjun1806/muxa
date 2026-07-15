@@ -79,7 +79,10 @@ enum Palette {
     // 사이드바 2단 트리의 **세로 가이드선** — 프로젝트를 그 워크스페이스 아래로 묶어 소속을 그린다.
     // 1px가 panel 위에서 읽혀야 하므로 border보다 살짝 진하게 잡는다(다크 3E3E44는 panel 대비 안 보였다 → 54545C).
     static let guide = NSColor.dynamic(light: 0xCBCBD2, dark: 0x54545C)
-    static let borderActivity = NSColor.dynamic(light: 0xB45309, dark: 0xFBBF24) // 활동·주의 환기(호박) — 라이트 #F59E0B는 흰 배경 대비 2.15:1로 사실상 안 보였다
+    // 활동·주의 환기(호박). 라이트를 B45309(적갈색)→A16207(앰버/머스터드)로 옮겼다 — 적갈색이 실패색
+    // #CF222E(빨강)와 헷갈렸다(에러처럼 읽힘). A16207은 초록 채널이 살아 확실한 앰버고 흰 배경 대비 4.9:1(AA).
+    // (#F59E0B는 2.15:1로 미달이었다.) 다크 FBBF24는 이미 밝은 노랑이라 그대로.
+    static let borderActivity = NSColor.dynamic(light: 0xA16207, dark: 0xFBBF24)
     static let muted = NSColor.dynamic(light: 0x65656B, dark: 0x98989E) // 보조 텍스트 — 다크 #8A8A90은 3.82:1로 AA 탈락이었다
     static let mutedHover = NSColor.dynamic(light: 0x232326, dark: 0xE4E4E7)
     static let fg = NSColor.dynamic(light: 0x232326, dark: 0xE4E4E7)
