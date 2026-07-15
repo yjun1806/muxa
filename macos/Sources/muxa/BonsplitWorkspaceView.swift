@@ -35,6 +35,8 @@ struct BonsplitWorkspaceView: View {
             .overlay(alignment: .topTrailing) { searchOverlay(tabId) }
             // 복원된 재개 바인딩이 있는 터미널 탭엔 상단에 세션 재개 배너를 얹는다(D2). 바인딩 없으면 아무것도 안 그린다.
             .overlay(alignment: .top) { ResumeOverlay(store: store, tabId: tabId) }
+            // ∞ 탭을 작업이 도는 중에 닫으려 하면 이 칸 상단에 확인 배너를 얹는다(NSAlert 대체). 대상 아니면 안 그린다.
+            .overlay(alignment: .top) { CloseConfirmOverlay(store: store, tabId: tabId) }
     }
 
     /// ⌘F 검색 바 — active일 때만 우상단에 뜬다. 터미널 탭에만 있다.

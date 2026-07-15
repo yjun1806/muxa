@@ -394,6 +394,27 @@ final class AppState {
 
     // MARK: 크롬 동작 실행 (키맵·팔레트 공유 단일 진실 원천 — ARCHITECTURE 7 라우팅)
 
+    /// ∞ 닫기 확인 배너가 떠 있는 칸의 키를 배너 결정으로 소비한다 — ⌘W=완전 종료·⌘B=백그라운드 유지·⌘C/esc=취소.
+    ///
+    /// **keymap.resolve보다 앞서** 불려야 한다: 안 그러면 ⌘W가 `.closeTab`으로 잡혀 "완전 종료" 대신
+    /// 또 확인을 돌린다. 배너가 없으면 false를 돌려 기존 단축키·터미널 입력으로 흘려보낸다(평소 흐름 불변).
+    /// 배너가 떠 있는 활성(선택+포커스) 칸에만 적용 — 다른 칸의 배너는 클릭으로 결정한다.
+    func closeConfirmShortcut(keyCode: Int, characters: String?,
+                             flags: NSEvent.ModifierFlags, in windowId: WindowID) -> Bool {
+        guard let store = store(ownedBy: windowId),
+              let pane = store.controller.focusedPaneId,
+              let tab = store.controller.selectedTab(inPane: pane),
+              store.closeConfirmation(for: tab.id) != nil else { return false }
+        if keyCode == 53 { store.cancelClose(tab.id); return true } // esc — ⌘ 없이도 취소
+        guard flags.contains(.command) else { return false } // ⌘ 없는 다른 키는 터미널로 흘려보낸다
+        switch characters?.lowercased() {
+        case "w": store.confirmCloseKilling(tab.id); return true
+        case "b": store.confirmCloseKeeping(tab.id); return true
+        case "c": store.cancelClose(tab.id); return true
+        default: return false
+        }
+    }
+
     /// KeymapAction 하나를 실행한다 — main.swift 로컬 키 모니터와 ⌘K 팔레트가 공유하는 실행 경로.
     /// 실행됐으면(=소비) true. 활성 스토어가 필요한 동작(⌘T/⌘D/⌘W/⌘F 등)은 스토어가 없으면 무동작(false).
     /// 부작용(스토어·창 조작)은 이 메서드와 아래 store 헬퍼에만 격리한다.

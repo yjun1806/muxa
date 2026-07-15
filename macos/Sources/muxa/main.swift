@@ -188,6 +188,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // 시트)은 그대로 통과시킨다. 실행 대상 창을 WindowID로 넘겨 그 창의 스토어에만 적용한다.
         guard let eventWindow = event.window, let windowId = host.id(for: eventWindow),
               let state else { return false }
+        // 닫기 확인 배너가 떠 있으면 그 키(⌘W/⌘B/⌘C/esc)를 배너 결정으로 먼저 소비한다 —
+        // keymap.resolve보다 앞서야 ⌘W가 .closeTab이 아니라 "완전 종료"로 간다.
+        if state.closeConfirmShortcut(keyCode: Int(event.keyCode),
+                                      characters: event.charactersIgnoringModifiers,
+                                      flags: event.modifierFlags, in: windowId) { return true }
         guard let action = keymap.resolve(keyCode: Int(event.keyCode),
                                           characters: event.charactersIgnoringModifiers,
                                           flags: event.modifierFlags) else { return false }

@@ -15,21 +15,25 @@ struct ResumeOverlay: View {
 
     var body: some View {
         // resumeTabs(관측)가 소비 시 줄어들며 배너가 자동으로 사라진다. 전략이 .none(off)면 아예 그리지 않는다.
+        // ZStack에 애니메이션을 걸어야 배너의 transition(등장/퇴장)이 발동한다(§paneBannerTransition).
         let strategy = store.resumeStrategy(for: tabId)
-        if store.resumeTabs.contains(tabId), strategy != .none,
-           let binding = store.resumeBinding(for: tabId) {
-            ResumeBanner(
-                label: binding.agentLabel.flatMap { $0.isEmpty ? nil : $0 } ?? "에이전트",
-                command: binding.command,
-                strategy: strategy,
-                isGuess: binding.source == .scan,
-                hold: store.resumeBlock(for: tabId)
-            ) {
-                store.executeResume(for: tabId)
+        let show = store.resumeTabs.contains(tabId) && strategy != .none
+        ZStack {
+            if show, let binding = store.resumeBinding(for: tabId) {
+                ResumeBanner(
+                    label: binding.agentLabel.flatMap { $0.isEmpty ? nil : $0 } ?? "에이전트",
+                    command: binding.command,
+                    strategy: strategy,
+                    isGuess: binding.source == .scan,
+                    hold: store.resumeBlock(for: tabId)
+                ) {
+                    store.executeResume(for: tabId)
+                }
+                .padding(.top, Space.md)
+                .paneBannerTransition()
             }
-            .padding(.top, 8)
-            .transition(.opacity)
         }
+        .animation(Motion.medium, value: show)
     }
 }
 
@@ -62,13 +66,7 @@ private struct ResumeBanner: View {
                     Image(systemName: "play.fill").font(.muxa(.caption))
                     Text("\(label) 세션 재개").font(.muxa(.body, weight: .medium))
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                // 1급 CTA는 **텍스트 등급**(4.5:1) 토큰으로 칠한다 — 비텍스트(3:1) 등급 색에 흰 글자를
-                // 얹으면 다크에서 AA에 미달한다. brand + onBrand는 양 모드 AA 통과.
-                .background(Color.pBrand)
-                .foregroundStyle(Color.pOnBrand)
-                .clipShape(Capsule())
+                .paneBannerCTA()
             }
             .buttonStyle(.plain)
             .clickCursor()
@@ -108,12 +106,7 @@ private struct ResumeBanner: View {
                 }
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.pBorder, lineWidth: 1))
-        .frame(maxWidth: 520)
-        .padding(.horizontal, 12)
+        .paneBannerChrome(maxWidth: 520)
         .onAppear {
             guard strategy.isAuto, hold == nil else { return }
             // 배너가 뜬 뒤 지연 후 자동 실행. 소비가 뒤따르므로 재발화·중복 호출은 store가 무동작 처리한다.

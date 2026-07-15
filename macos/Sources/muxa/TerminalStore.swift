@@ -447,7 +447,6 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         newTerminal(inPane: pane, persistent: true)
     }
 
-    /// 탭이 닫히면 그 터미널(PTY·서피스)·뷰어 상태를 해제한다.
     /// ∞ 지속 세션 탭을 **안에서 작업이 돌고 있는데** 닫으려 하면 확인을 받는다(자동으로 백그라운드에
     /// 남기지 않고 사용자가 고르게 한다). 배너를 띄우려면 tmux를 비동기로 조회해야 하는데 이 훅은 동기라,
     /// **일단 거부(veto)하고** 판정 뒤 칸 상단에 배너를 띄운다. 결정은 버튼 콜백(confirmClose*/cancelClose)이 한다.
@@ -522,9 +521,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         persistentIntent[tabId] = nil
         confirmedCloses.remove(tabId) // 확인 게이트 잔여 정리(취소 후 재닫기 등 — 멱등)
         closeConfirmations[tabId] = nil // 확인 배너 상태 정리(멱등)
-        // closeOverride는 releaseTmuxSession이 소비하므로 여기선 건드리지 않는다(그 뒤 호출된다).
         // 탭 이름은 **닫히기 전에** 읽어야 한다(맵이 이미 비워지는 중이다).
-        releaseTmuxSession(of: tabId, title: tabTitle(tabId))
+        releaseTmuxSession(of: tabId, title: tabTitle(tabId)) // 여기서 closeOverride를 동기로 소비한다
+        closeOverride[tabId] = nil // 세션이 이미 없어 조기 반환했을 때의 잔여 결정 청소(정상 경로엔 무해 — 멱등)
         tmuxMisses[tabId] = nil
         syncAttachTimer() // 마지막 지속 세션 탭이 닫히면 감시 타이머를 끈다
         engineTitles[tabId] = nil // 엔진 제목 캐시 해제
