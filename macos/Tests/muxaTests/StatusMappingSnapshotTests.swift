@@ -25,7 +25,7 @@ struct StatusMappingSnapshotTests {
     // MARK: 서비스 상태(도크·칩·사이드바 요약)
 
     @Test func 서비스_상태_글리프() {
-        #expect(ServiceStatusStyle.glyph(.running) == "circle.fill")
+        #expect(ServiceStatusStyle.glyph(.running) == "play.circle.fill") // ● 충돌 피해 ▶로 분리(I1)
         #expect(ServiceStatusStyle.glyph(.exited(code: 0)) == "stop.circle")
         #expect(ServiceStatusStyle.glyph(.exited(code: 3)) == "exclamationmark.triangle.fill")
         #expect(ServiceStatusStyle.glyph(.missing) == "circle.dotted")
@@ -55,11 +55,11 @@ struct StatusMappingSnapshotTests {
         #expect(AgentActivity.idle.borderColor == nil)
     }
 
-    // MARK: 통일 대상의 핵심 증거 — 같은 글리프가 서로 다른 의미에 쓰인다
+    // MARK: 글리프 충돌 해소(4단계, I1) — 색+모양 둘 다로 갈린다
 
-    @Test func 글리프_충돌_현황_에이전트작업중과_서비스실행중이_같은_원() {
-        // 한 사이드바 행에 동시에 뜨는데 둘 다 `circle.fill`(색만 틸/초록으로 다름).
-        // **이 등식이 깨지면**(글리프 분리) 통일 4단계가 진전된 것 — 그때 이 테스트를 갱신한다.
-        #expect(ProjectStatusStyle.glyph(.working) == ServiceStatusStyle.glyph(.running))
+    @Test func 에이전트작업중과_서비스실행중은_이제_다른_글리프다() {
+        // 한 사이드바 행에 동시에 뜨는 둘: 작업중 ●(circle.fill, 틸) vs 서비스 실행중 ▶(play.circle.fill, 초록).
+        // 색맹이어도 모양으로 구분된다("색+모양 둘 다" 복원).
+        #expect(ProjectStatusStyle.glyph(.working) != ServiceStatusStyle.glyph(.running))
     }
 }

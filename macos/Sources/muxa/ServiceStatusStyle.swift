@@ -4,9 +4,11 @@ import SwiftUI
 /// 푸터 칩·도크 목록·팝오버 세 곳이 같은 규칙을 써야 "빨간 건 죽은 것"이 흔들리지 않는다.
 enum ServiceStatusStyle {
     /// **색만으로 구분하지 않는다**(색맹 안전) — 죽으면 글리프 자체가 바뀐다.
+    /// 실행중은 `play.circle.fill`(▶) — 정상종료 `stop.circle`(■)과 play/stop 짝이고, **에이전트 작업중
+    /// `circle.fill`(●)과 모양이 달라야** 한 사이드바 행에 나란히 떠도 안 헷갈린다(I1 — 색+모양 둘 다).
     static func glyph(_ status: ServiceState) -> String {
         switch status {
-        case .running: return "circle.fill"
+        case .running: return "play.circle.fill"
         case .exited(let code): return code == 0 ? "stop.circle" : "exclamationmark.triangle.fill"
         case .missing: return "circle.dotted"
         }
