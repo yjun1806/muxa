@@ -82,11 +82,25 @@ PLIST
 # SPM 리소스 번들(muxa_muxa·Bonsplit_Bonsplit)은 **실행 코드가 없는 평평한 리소스 디렉터리**라
 # 개별 서명 대상이 아니다(codesign이 "bundle format unrecognized"로 거부한다) — 앱 루트 서명의
 # CodeResources 봉인이 그대로 덮는다.
-CODESIGN_ID="${CODESIGN_ID:--}"
+# 서명 정체성 결정. 명시 지정(CODESIGN_ID)이 없으면 로컬 self-signed 인증서를 찾고, 그것도 없으면 ad-hoc.
+# **로컬 인증서를 자동으로 쓰는 이유**: ad-hoc은 재빌드마다 정체성이 바뀌어 TCC(문서 폴더 접근) 권한이
+# 리셋된다 — "허용"을 눌러도 재설치하면 또 묻는다. self-signed는 designated requirement가 인증서 leaf에
+# 고정돼 재빌드해도 권한이 유지된다. 인증서는 scripts/make-local-signing-cert.sh가 한 번 만든다.
+LOCAL_CERT="muxa Local Signing"
+if [ -z "${CODESIGN_ID:-}" ]; then
+  if security find-certificate -c "$LOCAL_CERT" >/dev/null 2>&1; then
+    CODESIGN_ID="$LOCAL_CERT"
+  else
+    CODESIGN_ID="-"
+  fi
+fi
 SIGN_FLAGS=(--force --sign "$CODESIGN_ID")
-# 하드닝 런타임·보안 타임스탬프는 공증의 필수 조건이다. ad-hoc에는 붙일 수 없어(타임스탬프 서버가
-# 서명자를 요구한다) 실 식별자일 때만 준다.
-[ "$CODESIGN_ID" = "-" ] || SIGN_FLAGS+=(--options runtime --timestamp)
+# 하드닝 런타임·보안 타임스탬프는 **공증(Developer ID 배포)** 의 필수 조건이다. ad-hoc에는 붙일 수 없고
+# (타임스탬프 서버가 서명자를 요구한다), 로컬 self-signed에도 불필요하다(오프라인이면 타임스탬프가 실패한다).
+# Developer ID일 때만 준다.
+case "$CODESIGN_ID" in
+  "Developer ID Application:"*) SIGN_FLAGS+=(--options runtime --timestamp) ;;
+esac
 
 sign_all() {
   codesign "${SIGN_FLAGS[@]}" "$APP/Contents/MacOS/muxa-notify" || return 1
@@ -103,7 +117,10 @@ fi
 if [ "$CONFIG" = "release" ]; then
   codesign --verify --strict --verbose=2 "$APP" || { echo "서명 검증 실패 — 중단." >&2; exit 1; }
   if [ "$CODESIGN_ID" = "-" ]; then
-    echo "  경고: ad-hoc 서명이다 — 내려받은 사용자는 Gatekeeper에 막힌다. 배포하려면 CODESIGN_ID에 Developer ID를 넣고 공증하라." >&2
+    echo "  경고: ad-hoc 서명이다 — 재빌드마다 TCC 권한이 리셋돼 문서 폴더 접근 프롬프트가 반복된다." >&2
+    echo "  로컬은 './scripts/make-local-signing-cert.sh' 한 번이면 해결된다. 배포는 Developer ID + 공증." >&2
+  elif [ "$CODESIGN_ID" = "$LOCAL_CERT" ]; then
+    echo "  로컬 self-signed 서명('$LOCAL_CERT') — 재빌드해도 TCC 권한이 유지된다. 배포는 Developer ID + 공증." >&2
   else
     # 공증 전에는 rejected가 정상이다(참고용 출력 — 여기서 중단하지 않는다).
     spctl -a -t exec -vv "$APP" || true
