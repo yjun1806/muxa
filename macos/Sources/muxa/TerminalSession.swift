@@ -74,6 +74,8 @@ enum TerminalSession {
             // 안쪽 셸이 있는 폴더를 대신 전파해 자동 명명을 되살린다.
             "set-option -g set-titles on",
             "set-option -g set-titles-string '#{b:pane_current_path}'",
+            // muxa가 이미 탭·도크 UI를 가지므로 tmux 하단 상태바는 중복이다(서비스 세션과 동일하게 끈다).
+            "set-option -g status off",
             // 없으면 만들고 있으면 그대로 둔다(-A). 앱을 껐다 켜도 같은 이름이면 그 세션에 다시 붙는다.
             "new-session -d -A -s \(q) -c \(ShellQuote.single(cwd))\(envArgs)",
             // 서버 전역은 `on`이다(서비스가 죽은 뒤 exit code·로그를 읽어야 하므로). 터미널에 그대로 두면
@@ -83,6 +85,30 @@ enum TerminalSession {
             "attach -t \(ShellQuote.single("=\(session)"))",
         ].joined(separator: " ';' ")
         return "\(ShellQuote.single(tmux)) -L \(ShellQuote.single(socket)) \(cmds)"
+    }
+
+    /// `startCommand` 결과를 ghostty `command` 필드로 **직접 exec**할 때의 래퍼(순수).
+    ///
+    /// `initial_input`(셸 stdin 주입)은 tty가 그 줄을 에코해, 탭이 열릴 때 tmux 명령이 한 번 번쩍인다
+    /// (`clear`·`stty -echo`로도 못 막는다 — 셸이 줄을 읽기 전에 커널이 이미 에코한다). `command` 필드는
+    /// ghostty가 프로세스를 직접 태워 에코 경로를 안 타므로 화면에 아무것도 안 찍힌다(번쩍임 제거).
+    ///
+    /// 두 가지를 지킨다 — 참조 구현 cmux(같은 GhosttyKit fork)의 `tmuxShellInvokedStartCommand`·
+    /// `commandThenReturnLines`와 동일한 레시피다:
+    ///  1. **`/bin/sh -c`로 감싼다** — ghostty는 command를 `exec -l <cmd>`로 태워 **단일 실행 파일**만
+    ///     받는다(ghostty `src/termio/Exec.zig`). `;`로 이어진 tmux 서브명령 + attach는 복합 명령이라
+    ///     감싸지 않으면 pane이 즉사한다.
+    ///  2. **`exec -l $SHELL`로 로그인 셸을 남긴다** — attach가 detach되거나 끝나도 살아있는 셸이 남아
+    ///     탭이 죽지 않는다(`initial_input` 방식의 "셸 유지"를 command 경로에서 재현). `$SHELL`
+    ///     미설정이면 zsh로 폴백한다.
+    ///
+    /// `exec -l`은 POSIX sh 표준이 아니라 bash/zsh 빌트인 플래그다 — macOS `/bin/sh`가 bash라 동작한다
+    /// (muxa는 macOS 전용). `/bin/sh`가 dash인 환경으로 이식하면 `-l`이 깨지므로 여기서 못 박아 둔다.
+    static func execCommand(_ inner: String) -> String {
+        // `exec -l "$SHELL"`의 큰따옴표는 sh가 확장한다(값에 공백이 있어도 안전). 바깥 작은따옴표는
+        // ghostty의 word-split이 script를 인자 하나로 보게 하고, sh가 그 안을 셸 코드로 실행한다.
+        let script = "\(inner); exec -l \"${SHELL:-/bin/zsh}\""
+        return "/bin/sh -c \(ShellQuote.single(script))"
     }
 
     /// 이 탭이 **아직 tmux 세션에 붙어 있는가**(순수). 입력은 그 탭 pty의 포그라운드 프로세스 이름.

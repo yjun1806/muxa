@@ -606,18 +606,22 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         let tmuxSession = tmuxSessionName(for: tabId)
         // env를 -e로 심는다 — tmux 세션의 셸은 tmux 서버 환경을 상속해서, 이걸 빼면 훅 알림이
         // 어느 탭인지 못 찾고 rc 스니펫도 안 돈다(실측).
-        let initialCommand = tmuxSession.map { session in
+        // ghostty `command` 필드로 직접 exec한다(초기입력 주입 아님) — tmux attach 명령이 셸에
+        // 에코돼 탭이 열릴 때 번쩍이던 것을 없앤다. execCommand가 `/bin/sh -c '…; exec -l $SHELL'`로
+        // 감싸 detach 후에도 셸이 남는다(탭 생존 유지).
+        let command = tmuxSession.map { session in
             let env = ["MUXA_TAB_ID": tabId.uuid.uuidString,
                        "MUXA_SURFACE_ID": tabId.uuid.uuidString,
                        "MUXA_SOCK": NotifyServer.socketPath]
-            return TerminalSession.startCommand(tmux: TmuxService.executable ?? "tmux",
-                                                socket: TmuxService.socket,
-                                                session: session, cwd: tabCwd ?? SystemPaths.home,
-                                                env: env)
+            let inner = TerminalSession.startCommand(tmux: TmuxService.executable ?? "tmux",
+                                                     socket: TmuxService.socket,
+                                                     session: session, cwd: tabCwd ?? SystemPaths.home,
+                                                     env: env)
+            return TerminalSession.execCommand(inner)
         }
         let t = TermView(app: app, cwd: tabCwd, tabId: tabId, sockPath: NotifyServer.socketPath,
                          restoreScrollbackFile: tmuxSession == nil ? restoredScrollbackFile[tabId] : nil,
-                         initialCommand: initialCommand)
+                         command: command)
         // 나중에 만들어지는 TermView도 현재 소유 창을 물려받아야 한다 — 안 그러면 분리 창에서 새로 연
         // 탭이 "메인 소유"로 태어나 어느 창에도 안 붙는다.
         t.ownerWindowId = ownerWindowId

@@ -151,8 +151,30 @@ struct TerminalSessionTests {
     }
 
     /// exec로 태우면 detach하는 순간 셸까지 죽어 탭이 사라진다. 프롬프트로 돌아와야 탭이 살아남는다.
+    /// (`startCommand` 자체는 exec를 안 쓴다 — 셸 유지는 `execCommand`의 후행 `exec -l $SHELL`이 맡는다.)
     @Test func exec로_태우지_않는다() {
         #expect(!startCmd().contains("exec "))
+    }
+
+    // MARK: command 필드 래퍼(execCommand) — 초기입력 주입 대신 직접 exec(번쩍임 제거)
+
+    /// ghostty는 `command`를 `exec -l <cmd>`로 태워 단일 실행 파일만 받는다 — `;`로 이어진 복합 tmux
+    /// 명령은 `/bin/sh -c`로 감싸지 않으면 pane이 즉사한다.
+    @Test func execCommand는_sh_c로_감싼다() {
+        #expect(TerminalSession.execCommand("tmux -L muxa attach").hasPrefix("/bin/sh -c '"))
+    }
+
+    /// attach가 detach되거나 끝나도 살아있는 로그인 셸이 남아 탭이 죽지 않는다($SHELL, 미설정 시 zsh).
+    @Test func execCommand는_로그인_셸을_남긴다() {
+        #expect(TerminalSession.execCommand("tmux attach").contains(#"exec -l "${SHELL:-/bin/zsh}""#))
+    }
+
+    /// inner는 인용을 많이 쓴다(startCommand). 그 작은따옴표가 바깥 `/bin/sh -c '…'`의 따옴표를
+    /// 조기에 닫지 않아야 한다 — POSIX `'\''`로 탈출된다.
+    @Test func execCommand는_inner의_따옴표를_탈출한다() {
+        let wrapped = TerminalSession.execCommand("attach -t '=sess'")
+        #expect(wrapped.contains(#"'\''=sess'\''"#))
+        #expect(!wrapped.contains("attach -t '=sess'; exec")) // raw가 그대로 새어나오지 않는다
     }
 
     /// tmux는 기본으로 자기 제목(= attach 명령줄)을 내보내 탭 이름이 그걸로 굳는다(실측).

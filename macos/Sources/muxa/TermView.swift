@@ -65,7 +65,8 @@ final class TermView: NSView, NSTextInputClient {
     override var acceptsFirstResponder: Bool { true }
 
     init(app: ghostty_app_t, cwd: String?, tabId: TabID? = nil, sockPath: String? = nil,
-         restoreScrollbackFile: String? = nil, initialCommand: String? = nil) {
+         restoreScrollbackFile: String? = nil, initialCommand: String? = nil,
+         command: String? = nil) {
         self.tabId = tabId
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false // 수동 프레임 — 제약 엔진 제외
@@ -104,7 +105,12 @@ final class TermView: NSView, NSTextInputClient {
         // 앞에 `clear`를 둬 echo된 명령 줄·login 배너를 화면에서 지우고 순수 내용만 남긴다 — 다음 저장 캡처가
         // 깨끗해져 재출력 아티팩트(cat/배너)가 매 복원마다 쌓이는 중첩도 준다. (rm은 하지 않는다 — 저장
         // 레이아웃이 이 파일을 가리키므로 지우면 다음 복원에서 빈 파일이 돼 복원이 실패한다. 정리는 GC가 담당.)
-        if let restoreScrollbackFile {
+        if let command {
+            // ghostty가 셸 대신 이 프로그램을 직접 exec한다 — stdin 주입이 아니라 명령이 화면에
+            // 에코되지 않는다(터미널 탭의 tmux attach 번쩍임 제거). `TerminalSession.execCommand` 참조.
+            // env_vars(MUXA_TAB_ID 등)는 이 프로세스에 그대로 심기고 exec 후에도 상속된다.
+            config.command = dup(command)
+        } else if let restoreScrollbackFile {
             config.initial_input = dup("clear; cat \(ShellQuote.single(restoreScrollbackFile))\n")
         } else if let initialCommand {
             // 서비스 도크가 `tmux attach`(살아있음) 또는 로그 출력(죽음)을 태우는 경로.
