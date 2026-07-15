@@ -35,6 +35,37 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 - **뷰어 라이브 리로드** ✅ — 열린 코드/md가 디스크에서 바뀌면 자동 재로드
 - **세션 복원 정합성** ✅ — 트리는 터미널만(`layoutSnapshot`), 문서/diff는 `SavedViewer`로 별도 복원
 
+## 다음 후보 (미구현) — 사이드바 에이전트 목록 (Orca 대조 완료)
+
+프로젝트 행의 **분포 pill**(리딩 헤드라인 + 접힘/확장 pill, 커밋 `8e34b9b`)을 Orca식 **에이전트 목록**으로
+확장하는 방향. Orca 실제 코드(`../orca` Electron 클론 — [[orca-cmux-reference-clones]])로 대조해
+"베낄 것 / 이길 것"을 좁혔다. **결론: "Orca 약점" 프레임은 절반 틀렸다** — 아래처럼 흡수 3 + 개선 4.
+
+**Orca 컴포넌트(대조 SSOT)** — `orca/src/renderer/src/components/sidebar/`:
+- 접힘 pill·트리 `worktree-card-compact-agents.tsx` · 개별 행 `worktree-card-compact-agent-row.tsx`
+- 상태 그룹핑·요약 `worktree-card-agent-summary.ts` · 행 데이터·**agent 판정** `worktree-agent-rows.ts` +
+  `worktree-title-derived-agent-rows.ts` · 정렬 `worktree-agent-row-order.ts` · full 행 `dashboard/DashboardAgentRow.tsx`
+- 본문 텍스트 파생 `lib/agent-row-primary-text.ts`. 기본 모드 `compact`(`src/shared/constants.ts:51`).
+
+**Orca가 이미 잘함 → 흡수(개선 아님):**
+- **상태 인지형 본문** — working이면 라이브 도구 호출("Bash: pnpm test"), done이면 마지막 메시지
+  (`worktree-card-compact-agent-row.tsx:52`). primary는 부트스트랩 preamble 절대 노출 안 함.
+- **에이전트만 분류** — 훅 리포트 + CLI 타이틀 매칭(Claude/Codex/Gemini…)만 행 생성, 순수 셸 제외
+  (`worktree-title-derived-agent-rows.ts:128`). muxa는 `hookedTabs`로 같은 판정 가능.
+- **성능** — per-워크트리 구독 + **카드당 relative-time 타이머 1개**(빈 카드는 0). muxa 폴링·칩 갱신에 참고.
+- **파괴 판정 보수** — 훅이 조용해지면 working→`idle`로 낮추되 **삭제 안 함**(`worktree-agent-rows.ts:237`). muxa 원칙과 동일.
+
+**muxa가 이길 지점(진짜 개선):**
+- (3) **활성 우선 정렬 + 유휴 접기** — Orca는 `startedAt` 오름차순 평면 나열이라 유휴가 섞여 소음
+  (`worktree-agent-row-order.ts:17`). muxa는 대기→작업중→완료→유휴 정렬, 유휴는 "○ N" 한 줄로 접기.
+- (4) **상태 한정 시간** — Orca는 맨숫자 "19m"이라 "시작? 완료?" 모호. muxa는 "입력 대기 19m째"·"완료 23h 전".
+- (5) **접힘에서 바로 점프** — Orca 다중 pill은 확장 토글만(내부 아이콘 `aria-hidden`). muxa는 접힘 칩 클릭=순환 점프(이미 있음).
+- (1) **명시적 카운트** — Orca 접힘은 색 dot로만(숫자 없음, aria-label에만). muxa는 상태별 숫자 표기(색맹+즉독).
+
+**데이터 준비(전부 있음):** 라이브 활동 = `ToolActivity`(편집/실행/검색) + 탭 제목(Claude OSC) · 경과/대기시간 =
+추정기 `lastOutputAt`(systemUptime 경과) · 에이전트 판정 = `hookedTabs`. **경량 가드**: 접힘 기본 + 유휴 접기로 절제
+(muxa 우위=가벼움, [[muxa-vs-orca-positioning]]).
+
 ## 최근 완료 (2026-07-15) — 상태값 통일 (STATUS-UNIFY)
 
 에이전트·서비스 상태가 **5개 어휘·4개 매핑 테이블에 흩어져** 한 사실이 화면마다 다른 색·모양으로 그려지던 걸,
