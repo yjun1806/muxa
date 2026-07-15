@@ -53,9 +53,17 @@ struct SidebarSUI: View {
         // 영영 안 맞는다(어느 쪽에 맞춰도 한쪽이 틀린다 — 실측으로 두 번 확인했다).
         // 위 레이어가 아래로 그림자를 던지는 게 물리적으로도 옳다: 틈이 사라져 폭 = 띠가 되고,
         // 가운데가 자명해진다.
-        .shadow(color: .black.opacity(shadowOpacity(peek: peeking)),
-                radius: Elevation.Peek.shadowRadius,
-                x: Elevation.Peek.shadowOffsetX)
+        //
+        // **오른쪽 그라디언트로 그린다(`.shadow` 아님).** `.shadow`는 세로 기둥(maxHeight)의 위·아래
+        // 모서리에서도 블러돼 크롬 위로 번진다 — 상단헤더↔사이드바 사이와 왼쪽 아래 코너에 회색 띠가
+        // 생겼다(Peek 주석이 경고한 "위아래로 번지면 크롬 위에 그늘"). 그라디언트는 딱 오른쪽만 그려 번짐이 없다.
+        .overlay(alignment: .trailing) {
+            LinearGradient(colors: [.black.opacity(shadowOpacity(peek: peeking)), .clear],
+                           startPoint: .leading, endPoint: .trailing)
+                .frame(width: Elevation.Peek.shadowRadius + Elevation.Peek.shadowOffsetX)
+                .offset(x: Elevation.Peek.shadowRadius + Elevation.Peek.shadowOffsetX) // 패널 오른쪽 바깥, 카드 위로
+                .allowsHitTesting(false)
+        }
         .overlay(alignment: .trailing) {
             if peeking { Rectangle().fill(Color.pBorder).frame(width: RowHeight.hairline) }
         }

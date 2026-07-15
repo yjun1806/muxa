@@ -48,6 +48,9 @@ final class MuxaWindowController: NSObject, NSWindowDelegate {
         // SwiftUI 본문 최상단에 직접 둔다 — 타이틀바 액세서리는 렌더가 불안정해 비어 보였다.
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
+        // 타이틀바 하단 구분선을 끈다 — 기본값 `.automatic`은 콘텐츠가 타이틀바에 닿으면 전체폭 회색
+        // 그림자 띠를 그린다(fullSizeContentView라 상단바 바로 아래에 뜬다). 크롬은 한 덩어리로 이어져야 한다.
+        window.titlebarSeparatorStyle = .none
         window.isMovableByWindowBackground = true // 빈 영역 드래그로 창 이동(Tauri drag-region 대체)
         window.backgroundColor = Palette.panel // 창 배경을 상단바와 같은 회색으로
         window.contentView = content
