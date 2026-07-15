@@ -21,7 +21,7 @@ let package = Package(
         //
         // 로컬에서 fork를 고칠 땐 `.package(path: "../../bonsplit")`으로 바꾼다. **커밋 금지** —
         // 그 상태로 커밋하면 다른 머신엔 그 경로가 없어 빌드가 통째로 깨진다.
-        .package(url: "https://github.com/yjun1806/bonsplit.git", revision: "7754f46c91d08986a6f93ad75f53b5dd02ba30ca"),
+        .package(url: "https://github.com/yjun1806/bonsplit.git", revision: "b6b4bc7b19b084912baf38e5e25a084a03e22b78"),
     ],
     targets: [
         .executableTarget(

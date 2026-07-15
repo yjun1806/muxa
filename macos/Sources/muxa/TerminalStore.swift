@@ -387,6 +387,20 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         controller.onFileDrop = { [weak self] urls, paneId in
             self?.insertDroppedPaths(urls.map(\.path), inPane: paneId) ?? false
         }
+        // 칸 사이 divider를 더블클릭하면 모든 칸을 같은 크기로 되돌린다.
+        // 어느 divider를 눌렀는지는 무시한다 — 요청은 "전부 균등"이다.
+        controller.onDividerDoubleClick = { [weak self] _ in
+            self?.equalizeAllPanes()
+        }
+    }
+
+    /// 모든 칸을 같은 크기로 리사이즈한다(divider 더블클릭). 각 split의 divider를 양쪽
+    /// 서브트리의 칸 개수 비율로 놓아, 트리 모양과 무관하게 모든 칸이 같은 면적이 된다 —
+    /// 좌우 분할만 있으면 곧 **모든 칸이 같은 너비**다(→ `SplitEqualize`).
+    func equalizeAllPanes() {
+        for (splitId, position) in SplitEqualize.positions(for: controller.treeSnapshot()) {
+            _ = controller.setDividerPosition(position, forSplit: splitId)
+        }
     }
 
     /// 드롭된 경로를 그 칸의 터미널 프롬프트에 셸-이스케이프해 삽입한다 — claude code는 삽입된 이미지 경로를
