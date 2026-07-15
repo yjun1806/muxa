@@ -135,7 +135,8 @@ zinc 원칙과도 충돌하지 않는다. `panel`을 올린 만큼 hover도 한 
 
 | 의미 | 토큰 | 라이트 · 다크 |
 |---|---|---|
-| git added / **서비스 실행 중** | `gitAdded` / `serviceRunning` | `1A7F37` · `3FB950` (초록) |
+| git added / **완료(에이전트)** | `gitAdded` | `1A7F37` · `3FB950` (초록) |
+| **서비스 실행 중** | `serviceRunning`(=`gitRenamed` 파랑) | `0969DA` · `58A6FF` — 완료 초록과 한 행에 나란히 떠서 분리(파랑=live) |
 | git modified | `gitModified` | `9A6700` · `E2B341` (노랑) |
 | git deleted / **에러·파괴적 동작** / **서비스 종료** | `gitDeleted` / `danger` / `serviceExited` | `CF222E` · `FF7B72` (빨강) |
 | git renamed | `gitRenamed` | `0969DA` · `58A6FF` (파랑) |

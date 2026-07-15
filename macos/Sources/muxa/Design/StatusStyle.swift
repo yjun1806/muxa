@@ -24,7 +24,7 @@ enum StatusStyle {
         case .quiet, .inert: return .pMuted          // 무채 — 조용/미실행
         case .active: return .pBrand                 // 딥틸 — 돌고 있다
         case .attention: return .pBorderActivity     // 호박 — 기다린다
-        case .success: return .pServiceRunning       // 초록(gitAdded) — 완료/정상
+        case .success: return .pGitAdded             // 초록 — 완료/정상(서비스 실행중 파랑과 구분)
         case .failure: return .pServiceExited        // 빨강 — 실패
         }
     }

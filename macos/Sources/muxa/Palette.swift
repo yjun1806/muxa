@@ -131,7 +131,9 @@ enum Palette {
     static let danger = gitDeleted
 
     // 서비스(장수 프로세스) 상태 점 — "정상/문제"라는 같은 의미축이라 git 상태색을 재사용한다.
-    static let serviceRunning = gitAdded // 실행 중(초록)
+    // 실행 중(파랑 — "live"). 완료(success=초록 gitAdded)와 **한 사이드바 행에 나란히** 떠서 둘 다 초록이면
+    // 헷갈렸다 → gitRenamed(파랑)로 분리한다. 파랑은 "구동 중/살아 있음"으로도 자연스럽다.
+    static let serviceRunning = gitRenamed
     static let serviceExited = gitDeleted // 비정상 종료(빨강)
 }
 
@@ -174,6 +176,7 @@ extension Color {
     static let pBtnHover = Color(nsColor: Palette.btnHover)
     static let pBtnActive = Color(nsColor: Palette.btnActive)
     static let pDanger = Color(nsColor: Palette.danger)
+    static let pGitAdded = Color(nsColor: Palette.gitAdded) // 완료·성공의 초록(서비스 실행중 파랑과 분리)
     static let pServiceRunning = Color(nsColor: Palette.serviceRunning)
     static let pServiceExited = Color(nsColor: Palette.serviceExited)
 }
