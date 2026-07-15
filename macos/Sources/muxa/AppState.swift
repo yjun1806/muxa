@@ -602,20 +602,22 @@ final class AppState {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    /// 프로젝트 탭을 **상태별로 집계**한다(작업중·대기·유휴 각 몇 탭) — 사이드바가 분포를 아이콘+개수로 그린다.
+    /// 프로젝트 탭을 **상태별로 집계**한다(작업중·대기·완료·유휴 각 몇 탭) — 사이드바가 분포를 아이콘+개수로.
     /// **이미 만들어진 스토어만** 본다(트리를 그리는 것만으로 PTY 스폰 금지). 안 연 프로젝트는 전부 0.
-    /// 판정은 탭별 `agentActivity(for:)` 한 출처 — done은 유휴로 접는다(조용한 상태).
-    func projectTabStatus(_ projectId: String) -> (working: Int, waiting: Int, idle: Int) {
-        guard let store = stores[projectId] else { return (0, 0, 0) }
-        var working = 0, waiting = 0, idle = 0
+    /// 판정은 탭별 `agentActivity(for:)` 한 출처 — **done은 유휴에 접지 않고 따로 센다**(패인 테두리 초록과
+    /// 일치하게, C2). done 탭은 사용자가 보면 acknowledge로 idle이 되어 자연히 사라진다.
+    func projectTabStatus(_ projectId: String) -> (working: Int, waiting: Int, done: Int, idle: Int) {
+        guard let store = stores[projectId] else { return (0, 0, 0, 0) }
+        var working = 0, waiting = 0, done = 0, idle = 0
         for tabId in store.controller.allTabIds {
             switch store.agentActivity(for: tabId) {
             case .working: working += 1
             case .waiting: waiting += 1
-            case .idle, .done: idle += 1
+            case .done: done += 1   // idle에 접지 않는다 — 완료는 별도 표기(패인 테두리 초록과 일치, C2)
+            case .idle: idle += 1
             }
         }
-        return (working, waiting, idle)
+        return (working, waiting, done, idle)
     }
 
     /// 프로젝트 서비스들의 현재 상태.
