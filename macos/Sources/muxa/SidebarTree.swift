@@ -38,24 +38,28 @@ enum SidebarTree {
         return .idle
     }
 
-    // MARK: 펼침 (활성은 항상 펼침 — 규칙을 여기 한 곳에서만 강제한다)
+    // MARK: 펼침 (각 워크스페이스가 독립적으로 여닫힌다 — 집합이 유일한 진실)
 
-    /// 이 워크스페이스가 지금 펼쳐져 있는가. **활성은 집합에 없어도 펼쳐진다**(접히지 않는다).
-    static func isExpanded(wsId: String, activeId: String, expanded: Set<String>) -> Bool {
-        wsId == activeId || expanded.contains(wsId)
+    /// 이 워크스페이스가 지금 펼쳐져 있는가. **집합에 있으면 펼침** — 활성 여부와 무관하다.
+    /// (활성은 로드·전환·생성 시 집합에 넣어 두므로, 여기서 특례를 둘 필요가 없다.)
+    static func isExpanded(wsId: String, expanded: Set<String>) -> Bool {
+        expanded.contains(wsId)
     }
 
-    /// 디스클로저 클릭. 활성 워크스페이스면 **무동작**(같은 집합을 그대로 돌려준다) — 접을 수 없기 때문.
-    static func toggled(_ expanded: Set<String>, wsId: String, activeId: String) -> Set<String> {
-        guard wsId != activeId else { return expanded }
+    /// 디스클로저 클릭 — 그 워크스페이스 하나만 넣고/빼기. **다른 워크스페이스는 건드리지 않는다**
+    /// (아코디언이 아니다 — 여럿이 동시에 펼쳐진 채 유지된다).
+    static func toggled(_ expanded: Set<String>, wsId: String) -> Set<String> {
         var next = expanded
         if next.contains(wsId) { next.remove(wsId) } else { next.insert(wsId) }
         return next
     }
 
-    /// 영속값 → 런타임 집합. nil(구 저장분·최초 실행)이면 **빈 집합** = 활성만 펼침(마이그레이션 기본값).
-    static func restore(saved: [String]?, workspaceIds: [String]) -> Set<String> {
-        prune(Set(saved ?? []), workspaceIds: workspaceIds)
+    /// 영속값 → 런타임 집합. **활성은 항상 펼친 채로 시작**한다(포커스한 워크스페이스는 프로젝트가 보여야
+    /// 하고, 구 저장분엔 활성이 집합에 없으므로 마이그레이션도 여기서 겸한다). nil이면 활성만.
+    static func restore(saved: [String]?, activeId: String, workspaceIds: [String]) -> Set<String> {
+        var set = Set(saved ?? [])
+        if !activeId.isEmpty { set.insert(activeId) }
+        return prune(set, workspaceIds: workspaceIds)
     }
 
     /// 존재하지 않는 워크스페이스 id 제거 — 워크스페이스를 닫을 때 유령 id가 쌓이지 않게.

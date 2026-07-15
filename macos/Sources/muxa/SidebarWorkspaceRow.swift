@@ -60,7 +60,7 @@ struct SidebarWorkspaceRow: View {
         .background(hovered ? Color.pBtnHover : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: Radius.md))
         .contentShape(Rectangle())
-        // 행 클릭 = 전환(활성이 되면 파생 규칙으로 자동 펼침 — SidebarTree.isExpanded).
+        // 행 클릭 = 전환(포커스한 워크스페이스는 펼쳐 보여준다 — 단 다른 건 접지 않는다).
         .onTapGesture { state.setActiveId(workspace.id) }
         .sidebarRow(id: workspace.id, label: "\(workspace.name) 워크스페이스", selected: active,
                     hoveredId: $hoveredId, menuOpenId: $menuOpenId,
@@ -70,8 +70,7 @@ struct SidebarWorkspaceRow: View {
         .help(workspace.tooltip)
     }
 
-    /// 디스클로저 — 클릭은 **전환 없이** 접기/펼치기. 활성 워크스페이스는 접히지 않으므로 비활성으로 둔다
-    /// (누를 수 있는데 아무 일도 안 일어나는 거짓 어포던스를 만들지 않는다).
+    /// 디스클로저 — 클릭은 **전환 없이** 그 워크스페이스 하나만 접기/펼치기(활성도 접을 수 있다).
     private var disclosure: some View {
         Button { state.toggleWorkspaceExpansion(workspace.id) } label: {
             Image(systemName: expanded ? "chevron.down" : "chevron.right")
@@ -82,7 +81,6 @@ struct SidebarWorkspaceRow: View {
         }
         .buttonStyle(.plain)
         .clickCursor()
-        .disabled(active)
     }
 
     /// `+` 메뉴(새 프로젝트·워크트리·임의 폴더). SwiftUI `Menu`가 아니라 `MuxaMenuWindow`를 쓰는 이유:
