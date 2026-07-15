@@ -25,7 +25,9 @@ struct Breadcrumb: View {
                 Image(systemName: project.path == nil ? "folder" : "arrow.triangle.branch")
                     .font(.muxa(.label))
                     .foregroundStyle(Color.pMuted)
-                // 워크트리 프로젝트의 이름은 브랜치 = 식별자다 → 모노스페이스(사이드바 행과 같은 규칙).
+                // **표시명 우선** — 사용자가 붙인 이름(예: "메인")을 그대로 보여준다(사이드바 행과 한 규칙).
+                // 브랜치는 Git 패널이 맡는다. 워크트리 프로젝트는 이름 = 브랜치라 자연히 브랜치가 뜨고,
+                // 모노스페이스로 식별자임을 알린다.
                 Text(project.name)
                     .font(project.path == nil ? .muxa(.body, weight: .medium)
                                               : .muxaMono(.body, weight: .medium))
