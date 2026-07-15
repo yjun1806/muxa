@@ -110,7 +110,17 @@ final class GhosttyRuntime {
             guard let userdata, let state else { return false }
             let view = Unmanaged<TermView>.fromOpaque(userdata).takeUnretainedValue()
             guard let surface = view.surface else { return false }
-            let str = NSPasteboard.general.string(forType: .string) ?? ""
+            let pasteboard = NSPasteboard.general
+            // 텍스트가 있으면 그대로 붙여넣는다. 텍스트가 없고 이미지만 있으면(스크린샷 등) 임시 PNG로
+            // 저장해 그 경로를 붙여넣어 claude code가 첨부로 인식하게 한다(파일 드롭 첨부와 동일 메커니즘).
+            let str: String
+            if let text = pasteboard.string(forType: .string), !text.isEmpty {
+                str = text
+            } else if let path = ClipboardImage.materialize(from: pasteboard) {
+                str = TerminalDrop.insertionText(for: [path])
+            } else {
+                str = ""
+            }
             str.withCString { ptr in
                 ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
             }
