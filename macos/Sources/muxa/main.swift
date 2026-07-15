@@ -46,6 +46,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // (그 버튼들은 Bonsplit이 `.help()`로 그리므로 우리가 뷰를 감쌀 수 없다 — 앱 전역 지연을 줄인다.)
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 250])
 
+        // 분할 칸 사이 divider 위 리사이즈 커서. Bonsplit은 이 훅이 **설정됐을 때만** divider의
+        // 확장 효과 영역(두께 + hitExpansion)에 커서를 걸고, unset이면 AppKit 네이티브(그려진 1pt
+        // 선 위에서만)로 폴백한다 — 그 1pt는 사실상 못 짚어 커서가 안 바뀌는 것처럼 보인다.
+        // vertical divider(좌우 칸 구분) = 좌우 리사이즈, horizontal divider(상하 칸 구분) = 상하 리사이즈.
+        BonsplitDividerCursors.vertical = .resizeLeftRight
+        BonsplitDividerCursors.horizontal = .resizeUpDown
+
         setAppIcon() // Dock 아이콘 — bare 실행(.app 번들 아님)이라 런타임에 직접 설정
         ShikiHighlighter.shared.warmUp() // 코드 하이라이터를 미리 로드 — 첫 코드 파일도 즉시 뜨게
         NotificationService.shared.requestAuthorizationIfPossible() // 데스크톱 알림 권한(번들일 때만)
