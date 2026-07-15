@@ -99,38 +99,35 @@ struct SidebarProjectRow: View {
         return b
     }
 
-    /// 2번째 줄 = **탭 분포 pill**. 평소엔 접혀 요약만, `+N›`으로 펼친다(리딩 헤드라인과 안 싸우게).
-    /// 카테고리 ≤2면 전부 노출·확장 없음(숨길 게 없다). >2면 접힘=앞 2개+`+N›`(나머지 탭 수), 펼침=전부+접기.
+    /// 2번째 줄 = **탭 분포 pill**(요약 칩) + 펼치면 **에이전트 목록**(탭별 상세).
+    /// 칩 = 상태별 색·모양·개수(색맹 안전한 즉독 요약). 셰브론으로 펼치면 각 에이전트가 무엇을 하는지 한 줄씩.
+    /// 유휴만 있으면(펼칠 게 없으면) 셰브론을 그리지 않는다 — 접힘 칩만.
     private func pill(_ buckets: [Bucket]) -> some View {
-        HStack(spacing: Space.sm) { pillContent(buckets) }
-            .padding(.horizontal, Space.sm)
-            .padding(.vertical, Space.tight)
-            .overlay(Capsule().stroke(Color.pBorder, lineWidth: RowHeight.hairline)) // 어느 행 상태에서도 읽히는 pill 윤곽
-            .padding(.leading, IconSize.statusGlyph + Space.sm) // 이름 아래에 정렬
-    }
-
-    @ViewBuilder
-    private func pillContent(_ buckets: [Bucket]) -> some View {
-        if buckets.count <= 2 {
-            ForEach(buckets.indices, id: \.self) { chip(buckets[$0], expanded: false) }
-        } else if pillExpanded {
-            ForEach(buckets.indices, id: \.self) { chip(buckets[$0], expanded: true) }
-            pillCollapse
-        } else {
-            chip(buckets[0], expanded: false)
-            chip(buckets[1], expanded: false)
-            pillMore(hidden: buckets[2...].reduce(0) { $0 + $1.count })
+        let expandable = buckets.contains { $0.tone != .quiet } // 대기·작업·완료 하나라도 있으면 펼칠 값이 있다
+        return VStack(alignment: .leading, spacing: Space.tight) {
+            chipRow(buckets, expandable: expandable)
+            if expandable && pillExpanded { agentList() }
         }
+        .padding(.leading, IconSize.statusGlyph + Space.sm) // 이름 아래에 정렬
     }
 
-    /// 톤 하나의 칩 — 접힘: 글리프 + 개수(**>1일 때만**). 펼침: 글리프 + 라벨 + 개수.
-    /// **클릭 = 그 상태의 다음 탭으로 순환 점프**(`jumpToProjectTab`).
-    private func chip(_ b: Bucket, expanded: Bool) -> some View {
+    /// 접힘 칩 행 — 버킷 요약 칩들 + (펼칠 게 있으면) 셰브론. 칩 클릭=그 상태 순환 점프, 셰브론=목록 토글.
+    private func chipRow(_ buckets: [Bucket], expandable: Bool) -> some View {
+        HStack(spacing: Space.sm) {
+            ForEach(buckets.indices, id: \.self) { chip(buckets[$0]) }
+            if expandable { expandToggle }
+        }
+        .padding(.horizontal, Space.sm)
+        .padding(.vertical, Space.tight)
+        .overlay(Capsule().stroke(Color.pBorder, lineWidth: RowHeight.hairline)) // 어느 행 상태에서도 읽히는 pill 윤곽
+    }
+
+    /// 톤 하나의 칩 — 글리프 + 개수(**>1일 때만**). **클릭 = 그 상태의 다음 탭으로 순환 점프**.
+    private func chip(_ b: Bucket) -> some View {
         Button { state.jumpToProjectTab(project.id, matching: b.jump) } label: {
             HStack(spacing: Space.xs) {
                 Image(systemName: StatusStyle.glyph(b.tone)).font(.muxa(.micro, weight: .semibold))
-                if expanded { Text(StatusStyle.label(b.tone)).font(.muxa(.caption)) }
-                if expanded || b.count > 1 { Text("\(b.count)").font(.muxaMono(.caption)) }
+                if b.count > 1 { Text("\(b.count)").font(.muxaMono(.caption)) }
             }
             .foregroundStyle(StatusStyle.color(b.tone))
             .contentShape(Rectangle())
@@ -141,33 +138,74 @@ struct SidebarProjectRow: View {
         .accessibilityLabel("\(project.name) \(StatusStyle.label(b.tone)) 탭 \(b.count)개로 이동")
     }
 
-    /// `+N›` — 나머지 버킷을 펼친다(오버플로 표시가 곧 확장 버튼 = 요소 하나 절약 + 큰 타깃).
-    private func pillMore(hidden: Int) -> some View {
-        Button { pillExpanded = true } label: {
-            HStack(spacing: 1) {
-                Text("+\(hidden)").font(.muxaMono(.caption))
-                Image(systemName: "chevron.right").font(.muxa(.micro))
-            }
-            .foregroundStyle(Color.pMuted)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .clickCursor()
-        .help("나머지 탭 \(hidden)개 — 펼치기")
-        .accessibilityLabel("탭 분포 \(hidden)개 더 펼치기")
-    }
-
-    /// 접기 셰브론(펼친 pill 끝).
-    private var pillCollapse: some View {
-        Button { pillExpanded = false } label: {
-            Image(systemName: "chevron.down").font(.muxa(.micro))
+    /// 목록 펼침/접힘 셰브론.
+    private var expandToggle: some View {
+        Button { pillExpanded.toggle() } label: {
+            Image(systemName: pillExpanded ? "chevron.down" : "chevron.right").font(.muxa(.micro))
                 .foregroundStyle(Color.pMuted)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .clickCursor()
-        .help("접기")
-        .accessibilityLabel("탭 분포 접기")
+        .help(pillExpanded ? "에이전트 목록 접기" : "에이전트 목록 펼치기")
+        .accessibilityLabel(pillExpanded ? "에이전트 목록 접기" : "에이전트 목록 펼치기")
+    }
+
+    // MARK: 에이전트 목록 — 펼쳤을 때 탭별 상세(무엇을 하는지 한 줄씩)
+
+    /// 펼침 목록 = 비유휴 에이전트 행(긴급도순, 순수 정렬은 `AppState.agentRows`) + 유휴는 "○ 유휴 N" 한 줄로 접기.
+    @ViewBuilder
+    private func agentList() -> some View {
+        let rows = state.agentRows(project.id)
+        let visible = rows.filter { $0.state != .idle } // 유휴는 접어 소음 제거(#3 개선)
+        let idleCount = rows.count - visible.count
+        VStack(alignment: .leading, spacing: Space.tight) {
+            ForEach(visible) { agentRowView($0) }
+            if idleCount > 0 { idleFold(idleCount) }
+        }
+        .padding(.top, Space.tight)
+    }
+
+    /// 에이전트 한 행 — 상태 글리프 + 제목 + 상태 인지형 본문(대기=경과·작업=라이브도구·완료=완료).
+    /// **클릭 = 그 탭 지목 이동**(`focusAgentTab`, 상태 순환이 아니라 이 탭 하나).
+    private func agentRowView(_ r: AgentRow) -> some View {
+        let tone = r.state.tone
+        return Button { state.focusAgentTab(project.id, r.tabId) } label: {
+            HStack(spacing: Space.xs) {
+                Image(systemName: StatusStyle.glyph(tone)).font(.muxa(.micro, weight: .semibold))
+                    .foregroundStyle(StatusStyle.color(tone))
+                    .frame(width: IconSize.statusGlyph)
+                Text(r.title).font(.muxa(.caption)).foregroundStyle(Color.pFg)
+                    .lineLimit(1).truncationMode(.tail)
+                Text("·").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
+                Text(r.subtitle).font(.muxa(.caption)).foregroundStyle(Color.pMuted)
+                    .lineLimit(1).truncationMode(.tail)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .clickCursor()
+        .help("\(r.title) — \(r.subtitle). 클릭해 이동")
+        .accessibilityLabel("\(r.title) \(r.subtitle) 탭으로 이동")
+    }
+
+    /// 유휴 접기 행 — "○ 유휴 N". 클릭=유휴 탭 순환 점프(펼쳐도 개별 나열은 안 함, 소음이라).
+    private func idleFold(_ count: Int) -> some View {
+        Button { state.jumpToProjectTab(project.id, matching: [.idle]) } label: {
+            HStack(spacing: Space.xs) {
+                Image(systemName: StatusStyle.glyph(.quiet)).font(.muxa(.micro, weight: .semibold))
+                    .foregroundStyle(StatusStyle.color(.quiet))
+                    .frame(width: IconSize.statusGlyph)
+                Text("유휴 \(count)").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .clickCursor()
+        .help("유휴 탭 \(count)개 — 클릭해 이동")
+        .accessibilityLabel("\(project.name) 유휴 탭 \(count)개로 이동")
     }
 
     /// 행 클릭 = 이 프로젝트로 이동(마우스·VoiceOver가 같은 동작을 쓴다).

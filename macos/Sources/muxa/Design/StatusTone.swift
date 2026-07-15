@@ -28,3 +28,15 @@ extension SidebarTree.ProjectStatus {
         }
     }
 }
+
+extension AgentActivity {
+    /// 탭 하나의 추정 상태 → 표시 톤. 롤업(ProjectStatus)과 같은 어휘를 써 사이드바가 한목소리로 그린다.
+    var tone: StatusTone {
+        switch self {
+        case .idle: return .quiet
+        case .working: return .active
+        case .waiting: return .attention
+        case .done: return .success
+        }
+    }
+}

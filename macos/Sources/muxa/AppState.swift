@@ -638,6 +638,17 @@ final class AppState {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// 에이전트 목록 행 클릭 — 그 **특정 탭**을 앞으로 가져온다(`jumpToProjectTab`은 상태별 순환, 이건 지목).
+    /// 분리 창에 있으면 그 창만 앞으로(메인의 활성 좌표는 안 건드림). 탭 UUID 문자열을 TabID로 되살린다.
+    func focusAgentTab(_ projectId: String, _ tabId: TabID) {
+        guard let ws = workspace(containing: projectId), let store = stores[projectId] else { return }
+        store.revealTab(tabId)                          // 탭 선택은 소유 창과 무관하게 먼저
+        guard !routeToOwner(projectId) else { return }  // 분리 창이면 그 창만 앞으로
+        setActiveId(ws.id)
+        setActiveProject(projectId)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     /// 프로젝트 탭을 **상태별로 집계**한다(작업중·대기·완료·유휴 각 몇 탭) — 사이드바가 분포를 아이콘+개수로.
     /// **이미 만들어진 스토어만** 본다(트리를 그리는 것만으로 PTY 스폰 금지). 안 연 프로젝트는 전부 0.
     /// 판정은 탭별 `agentActivity(for:)` 한 출처 — **done은 유휴에 접지 않고 따로 센다**(패인 테두리 초록과
