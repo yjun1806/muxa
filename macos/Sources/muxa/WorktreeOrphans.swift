@@ -14,21 +14,14 @@ enum WorktreeOrphans {
     /// 상속하는 프로젝트의 cwd도 실제로 사라진 것이라, 안 닫으면 없는 폴더에 tmux 세션이 포트를 문 채
     /// 좀비로 남는다 — 이 판정이 존재하는 이유가 정확히 그거다. (판정은 여기, 실제 종료는 경계에서.)
     static func projectIds(in workspaces: [Workspace], removedPath: String) -> [String] {
-        let root = normalize(removedPath)
+        let root = normalizePath(removedPath)
         guard !root.isEmpty, root != "/" else { return [] } // 루트는 절대 대상이 아니다(전부 닫힌다)
         return workspaces.flatMap { workspace in
             workspace.projects.compactMap { project -> String? in
-                guard let path = (project.path ?? workspace.path).map(normalize) else { return nil }
+                guard let path = (project.path ?? workspace.path).map(normalizePath) else { return nil }
                 guard path == root || path.hasPrefix(root + "/") else { return nil }
                 return project.id
             }
         }
-    }
-
-    /// 뒤 슬래시를 떼어 비교를 안정화한다(`/a/b/` == `/a/b`).
-    private static func normalize(_ path: String) -> String {
-        var result = path
-        while result.count > 1, result.hasSuffix("/") { result.removeLast() }
-        return result
     }
 }

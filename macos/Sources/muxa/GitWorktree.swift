@@ -7,6 +7,9 @@ struct GitWorktree: Identifiable {
     let head: String     // 커밋 sha
     let isBare: Bool
     let isDetached: Bool
+    /// `git worktree list`의 **첫 레코드 = 메인 워킹트리**(repo 루트). 사용자가 이미 그 폴더에서
+    /// 작업 중이라 "새 프로젝트로 추가?" 대상이 아니다 — 워크스페이스 경로가 nil이어도 이 플래그로 제외된다.
+    let isMain: Bool
 
     var id: String { path }
 
@@ -30,7 +33,9 @@ enum GitWorktreeParser {
 
         func flush() {
             if let path {
-                result.append(GitWorktree(path: path, branch: branch, head: head, isBare: bare, isDetached: detached))
+                // 첫 실제 레코드 = 메인 워킹트리(git이 항상 먼저 나열한다).
+                result.append(GitWorktree(path: path, branch: branch, head: head,
+                                          isBare: bare, isDetached: detached, isMain: result.isEmpty))
             }
             path = nil; head = ""; branch = nil; bare = false; detached = false
         }

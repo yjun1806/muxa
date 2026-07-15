@@ -43,6 +43,9 @@ struct Workspace: Codable, Identifiable {
     var name: String // 표시 이름(경로 basename)
     var projects: [Project]
     var activeProjectId: String
+    /// 사용자가 이미 처리(추가/무시)한 외부 워크트리 경로 — 인박스 "추가?" 제안의 baseline(D31).
+    /// 영속이라 재시작해도 다시 조르지 않는다. 옵셔널이라 하위호환(옛 저장분엔 없음 → nil로 디코드).
+    var acknowledgedWorktreePaths: [String]? = nil
 
     var activeProject: Project? {
         projects.first { $0.id == activeProjectId }
@@ -57,6 +60,14 @@ func basename(_ path: String) -> String {
     let trimmed = path.replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
     let parts = trimmed.split(separator: "/")
     return parts.last.map(String.init) ?? path
+}
+
+/// 경로 비교 안정화 — 뒤 슬래시를 뗀다(`/a/b/` == `/a/b`). 루트 `/`는 보존한다.
+/// (심링크는 풀지 않는다 — 순수 함수라 파일시스템을 안 건드린다. 필요하면 호출부에서 미리 resolve)
+func normalizePath(_ path: String) -> String {
+    var result = path
+    while result.count > 1, result.hasSuffix("/") { result.removeLast() }
+    return result
 }
 
 /// 표시용 경로 — 홈 접두를 ~로 축약.
