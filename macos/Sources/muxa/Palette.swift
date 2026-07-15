@@ -76,6 +76,9 @@ enum Palette {
     // 카드 경계이자 **카드 안의 패널↔터미널 분할선**. 고도가 못 닿는 그 선이 유일한 신호라 함께 올렸다
     // (다크 34343A→3E3E44: bg 대비 1.39→1.62, panel 대비 1.14→1.33).
     static let border = NSColor.dynamic(light: 0xDCDCE0, dark: 0x3E3E44)
+    // 사이드바 2단 트리의 **세로 가이드선** — 프로젝트를 그 워크스페이스 아래로 묶어 소속을 그린다.
+    // 1px가 panel 위에서 읽혀야 하므로 border보다 살짝 진하게 잡는다(다크 3E3E44는 panel 대비 안 보였다 → 54545C).
+    static let guide = NSColor.dynamic(light: 0xCBCBD2, dark: 0x54545C)
     static let borderActivity = NSColor.dynamic(light: 0xB45309, dark: 0xFBBF24) // 활동·주의 환기(호박) — 라이트 #F59E0B는 흰 배경 대비 2.15:1로 사실상 안 보였다
     static let muted = NSColor.dynamic(light: 0x65656B, dark: 0x98989E) // 보조 텍스트 — 다크 #8A8A90은 3.82:1로 AA 탈락이었다
     static let mutedHover = NSColor.dynamic(light: 0x232326, dark: 0xE4E4E7)
@@ -156,6 +159,7 @@ extension Color {
     static let pBg = Color(nsColor: Palette.bg)
     static let pPanel = Color(nsColor: Palette.panel)
     static let pBorder = Color(nsColor: Palette.border)
+    static let pGuide = Color(nsColor: Palette.guide)
     static let pBrand = Color(nsColor: Palette.brand)
     static let pBrandSubtle = Color(nsColor: Palette.brandSubtle)
     static let pBrandHover = Color(nsColor: Palette.brandHover)

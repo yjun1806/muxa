@@ -69,6 +69,48 @@ struct ResizablePanel<Content: View>: View {
     }
 }
 
+/// 왼쪽 칼럼을 **우측 경계** 드래그로 리사이즈하는 controlled 래퍼 — `ResizablePanel`의 좌우 대칭.
+/// 서비스 도크의 [좌: 목록 | 우: 터미널] 분할에 쓴다. 왼쪽에 있어 오른쪽으로 끌면 넓어진다(delta = +dx).
+struct ResizableLeftColumn<Content: View>: View {
+    let width: CGFloat
+    let range: ClosedRange<CGFloat>
+    let onCommit: (_ newWidth: CGFloat) -> Void
+    @ViewBuilder let content: () -> Content
+
+    private static var hitWidth: CGFloat { 11 }
+    @State private var liveWidth: CGFloat?
+    @State private var startWidth: CGFloat = 0
+    private var effectiveWidth: CGFloat { liveWidth ?? width }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            content()
+                .frame(width: effectiveWidth, alignment: .leading)
+                .clipped()
+            Rectangle().fill(Color.pBorder).frame(width: 1)
+        }
+        // 핸들은 우측 경계에 얹는다(콘텐츠 안쪽으로만 뻗어 오른쪽 터미널의 트래킹을 뺏지 않는다).
+        .overlay(alignment: .trailing) { handle }
+    }
+
+    private var handle: some View {
+        PanelResizeDivider(
+            onBegan: { startWidth = width },
+            onChanged: { dx in liveWidth = clamp(startWidth + dx) },
+            onEnded: { dx in
+                let final = clamp(startWidth + dx)
+                liveWidth = nil
+                onCommit(final)
+            }
+        )
+        .frame(width: Self.hitWidth)
+    }
+
+    private func clamp(_ w: CGFloat) -> CGFloat {
+        min(max(w, range.lowerBound), range.upperBound)
+    }
+}
+
 /// 좌우 리사이즈 드래그를 확실히 잡는 AppKit 핸들. 창 이동(isMovableByWindowBackground)을
 /// 막고(`mouseDownCanMoveWindow=false`) 마우스 트래킹으로 시작점 대비 x 이동량(dx)을 콜백한다.
 private struct PanelResizeDivider: NSViewRepresentable {

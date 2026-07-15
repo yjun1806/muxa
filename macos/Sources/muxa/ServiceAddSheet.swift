@@ -23,8 +23,16 @@ struct ServiceAddSheet: View {
 
     private var effectiveManager: PackageManager { manager ?? pickedManager }
 
+    /// 서비스가 실행될 폴더가 멀쩡한가 — 없거나(nil·빈 문자열) 루트(`/`)면 pnpm 등이 그 폴더의
+    /// package.json을 못 찾아 즉사한다(`ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND`). 추가 전에 막는다.
+    private var cwdIsValid: Bool {
+        guard let cwd, !cwd.isEmpty, cwd != "/" else { return false }
+        return true
+    }
+
     private var isValid: Bool {
-        !name.trimmingCharacters(in: .whitespaces).isEmpty
+        cwdIsValid
+            && !name.trimmingCharacters(in: .whitespaces).isEmpty
             && !command.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
@@ -33,6 +41,8 @@ struct ServiceAddSheet: View {
             Text("서비스 추가")
                 .font(.muxa(.title, weight: .semibold))
                 .foregroundStyle(Color.pFg)
+
+            runPath
 
             if !scripts.isEmpty {
                 scriptPicker
@@ -101,6 +111,47 @@ struct ServiceAddSheet: View {
             let found = ProjectScripts.discover(in: cwd)
             scripts = found.scripts
             manager = found.manager
+        }
+    }
+
+    // MARK: 실행 경로 — 이 서비스가 어느 폴더에서 도는지 명시한다
+
+    /// 서비스 cwd = 프로젝트 경로(없으면 워크스페이스 경로)다. pnpm 등은 이 폴더의 package.json을
+    /// 찾으므로, 루트(`/`)·빈 경로면 여기서 곧바로 드러나고 "추가"가 막힌다(엉뚱한 데서 도는 걸 사전 차단).
+    ///
+    /// 상태를 **모양으로** 나른다(DESIGN §2·ServiceRow와 같은 규칙): 컨테이너는 언제나 같고
+    /// 글리프만 바뀐다 — 정상 = 조용한 `folder`(muted, `pBg` 박스), 이상 = `exclamationmark.triangle.fill`
+    /// (호박, 호박 subtle 틴트 박스). 정상은 크롬처럼 조용하고, 이상은 색맹에도 모양으로 드러난다.
+    @ViewBuilder private var runPath: some View {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            Text("실행 경로").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
+            HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
+                Image(systemName: cwdIsValid ? "folder" : "exclamationmark.triangle.fill")
+                    .font(.muxa(.micro))
+                    .foregroundStyle(cwdIsValid ? Color.pMuted : Color.pBorderActivity)
+                    .frame(width: IconSize.statusSlot)
+                    .accessibilityHidden(true) // 텍스트가 이미 의미를 말한다 — 글리프는 중복 낭독일 뿐
+                if cwdIsValid {
+                    Text(displayPath(cwd, home: SystemPaths.home))
+                        .font(.muxaMono(.caption))
+                        .foregroundStyle(Color.pFg)
+                        .textSelection(.enabled)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text(cwd == "/"
+                         ? "루트(/)에서는 실행할 수 없습니다 — 워크스페이스 경로를 프로젝트 폴더로 바꾸세요."
+                         : "실행할 폴더가 없습니다 — 워크스페이스 경로를 먼저 지정하세요.")
+                        .font(.muxa(.caption))
+                        .foregroundStyle(Color.pBorderActivity)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(Space.sm)
+            .background(cwdIsValid ? Color.pBg : Color.pBorderActivity.opacity(Tint.subtle),
+                        in: RoundedRectangle(cornerRadius: Radius.sm))
         }
     }
 

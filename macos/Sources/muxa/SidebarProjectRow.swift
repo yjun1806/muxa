@@ -11,6 +11,21 @@ struct SidebarProjectRow: View {
     @Binding var hoveredId: String?
     @Binding var menuOpenId: String?
 
+    /// 이 프로젝트의 현재 git 브랜치 — 프로젝트를 **브랜치/워크트리 단위**로 읽는다(StatusBar와 같은 조회).
+    /// nil이면(비 git·detached) 프로젝트 이름으로 폴백한다. 조회는 아래 `.task`가 채운다.
+    @State private var branch: String?
+
+    /// 브랜치를 조회할 폴더 — 자체 경로(워크트리) 우선, 없으면 워크스페이스 경로 상속.
+    private var gitDir: String? { project.path ?? workspace.path }
+
+    /// 이 프로젝트가 **활성 워크스페이스**에 속하나 — 폴링 간격을 가른다.
+    private var isActiveWorkspace: Bool { workspace.id == state.activeId }
+
+    /// 브랜치 폴링 간격 — **비활성을 더 자주** 본다. 활성은 눈으로 직접 보니 느긋해도 되고(길게), 비활성은
+    /// 사이드바 상태가 그 워크스페이스를 아는 **유일한 창**이라 신선하게 유지한다(짧게). `git checkout`을 반영.
+    private static let branchPollActive: Duration = .seconds(30)
+    private static let branchPollInactive: Duration = .seconds(10)
+
     /// 다른 창이 그리고 있는 프로젝트 — 메인의 활성 표시(채움)를 주지 않는다(여긴 그 프로젝트가 없다).
     private var separated: Bool { !state.owner(of: project.id).isMain }
     private var active: Bool {
@@ -21,13 +36,49 @@ struct SidebarProjectRow: View {
     var body: some View {
         let status = state.projectStatus(project.id)
         let services = state.services(of: project.id)
+        // 에이전트 큐: 탭 분포(작업중·대기·유휴 몇 탭)를 아이콘+개수로. 조용한 유휴(단일 탭·미개봉)는 1줄.
+        let tabs = state.projectTabStatus(project.id)
+        let showBreakdown = tabs.working > 0 || tabs.waiting > 0 || (tabs.working + tabs.waiting + tabs.idle) > 1
+        VStack(alignment: .leading, spacing: Space.tight) {
+            topRow(status: status, services: services)
+            if showBreakdown { breakdown(tabs) }
+        }
+        .padding(.leading, Space.treeIndent) // 2단 트리의 들여쓰기 = 위계
+        .padding(.trailing, Space.sm)
+        .padding(.vertical, showBreakdown ? Space.tight : 0) // 2줄일 때만 위아래 숨을 준다
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minHeight: RowHeight.row)
+        .background(active ? Color.pBtnActive : (hovered ? Color.pBtnHover : Color.clear))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.md))
+        .contentShape(Rectangle())
+        .onTapGesture(perform: select)
+        .sidebarRow(id: project.id, label: displayName, selected: active,
+                    hoveredId: $hoveredId, menuOpenId: $menuOpenId, activate: select) {
+            ProjectMenu.items(for: project, in: workspace, state: state)
+        }
+        .help(displayPath(project.path ?? workspace.path, home: SystemPaths.home))
+        // 현재 브랜치를 주기적으로 조회 — 프로젝트를 브랜치/워크트리 단위로 읽는다(`git checkout` 반영).
+        // **비활성 워크스페이스는 더 짧게** 폴링한다(사이드바가 그 상태를 아는 유일한 창). dir·활성 여부가
+        // 바뀌면 task가 재시작해 즉시 새 간격으로 다시 돈다. 접힌 워크스페이스는 행이 없어 폴링도 안 돈다.
+        .task(id: "\(gitDir ?? "-")·\(isActiveWorkspace)") {
+            guard let dir = gitDir else { branch = nil; return }
+            while !Task.isCancelled {
+                branch = await GitService.currentBranch(in: dir)
+                try? await Task.sleep(for: isActiveWorkspace ? Self.branchPollActive : Self.branchPollInactive)
+            }
+        }
+    }
+
+    /// 이름 줄 — 상태 점 · 이름 · (분리 글리프) · 서비스 요약/닫기. 2줄일 땐 이게 위, 상태 라인이 아래.
+    private func topRow(status: SidebarTree.ProjectStatus, services: [Service]) -> some View {
         HStack(spacing: Space.sm) {
-            // 슬롯은 항상 12pt — 점 크기가 바뀌어도(유휴 5 / 신호 6) 이름이 흔들리지 않는다.
-            Circle()
-                .fill(ProjectStatusStyle.color(status))
-                .frame(width: ProjectStatusStyle.dotSize(status), height: ProjectStatusStyle.dotSize(status))
-                .frame(width: IconSize.statusSlot, height: IconSize.statusSlot)
-            Text(project.name)
+            // 상태 **아이콘**(점이 아니라 글리프) — 색만이 아니라 모양으로 상태를 말한다. 슬롯을 고정해
+            // 아이콘 모양이 상태마다 달라도(링·원·느낌표) 이름의 시작선이 흔들리지 않는다.
+            Image(systemName: ProjectStatusStyle.glyph(status))
+                .font(.muxa(.micro, weight: .semibold))
+                .foregroundStyle(ProjectStatusStyle.color(status))
+                .frame(width: IconSize.statusGlyph, height: IconSize.statusGlyph)
+            Text(displayName)
                 .font(nameFont)
                 .foregroundStyle(active || hovered ? Color.pFg : Color.pMuted)
                 .lineLimit(1)
@@ -57,19 +108,40 @@ struct SidebarProjectRow: View {
                 }
             }
         }
-        .padding(.leading, Space.treeIndent) // 2단 트리의 들여쓰기 = 위계
-        .padding(.trailing, Space.sm)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: RowHeight.row)
-        .background(active ? Color.pBtnActive : (hovered ? Color.pBtnHover : Color.clear))
-        .clipShape(RoundedRectangle(cornerRadius: Radius.md))
-        .contentShape(Rectangle())
-        .onTapGesture(perform: select)
-        .sidebarRow(id: project.id, label: project.name, selected: active,
-                    hoveredId: $hoveredId, menuOpenId: $menuOpenId, activate: select) {
-            ProjectMenu.items(for: project, in: workspace, state: state)
+    }
+
+    /// 2번째 줄 = **상태별 탭 분포**를 아이콘 + 개수로(작업중·대기·유휴 순, 0인 상태는 생략).
+    /// 상태 어휘·색은 `ProjectStatusStyle` 한 출처(위 상태 아이콘과 같은 글리프·색) — 대기는 attention으로 접는다.
+    private func breakdown(_ tabs: (working: Int, waiting: Int, idle: Int)) -> some View {
+        // **긴급도순**: 대기 → 작업중 → 유휴. 왼쪽 끝만 훑으면 "나를 기다리나"가 판정된다.
+        // 각 항목은 클릭하면 그 상태의 다음 탭으로 순환 점프한다(done은 유휴에 접어 함께 순회).
+        HStack(spacing: Space.md) {
+            if tabs.waiting > 0 { tabStat(.attention, tabs.waiting, jump: [.waiting], label: "대기 중") }
+            if tabs.working > 0 { tabStat(.working, tabs.working, jump: [.working], label: "작업 중") }
+            if tabs.idle > 0 { tabStat(.idle, tabs.idle, jump: [.idle, .done], label: "유휴") }
         }
-        .help(displayPath(project.path ?? workspace.path, home: SystemPaths.home))
+        .padding(.leading, IconSize.statusGlyph + Space.sm) // 이름 아래에 정렬(상태 아이콘 슬롯 + 간격)
+    }
+
+    /// 상태 하나의 아이콘 + 탭 개수 — 색·글리프는 상태가 정한다(색+모양 둘 다, 색맹 안전).
+    /// **클릭 = 그 상태의 다음 탭으로 순환 점프**(`jumpToProjectTab`). 히트 영역은 글리프+숫자 전체.
+    private func tabStat(_ status: SidebarTree.ProjectStatus, _ count: Int,
+                         jump states: Set<AgentActivity>, label: String) -> some View {
+        Button { state.jumpToProjectTab(project.id, matching: states) } label: {
+            HStack(spacing: Space.xs) {
+                Image(systemName: ProjectStatusStyle.glyph(status))
+                    .font(.muxa(.micro, weight: .semibold))
+                Text("\(count)")
+                    .font(.muxaMono(.caption))
+            }
+            .foregroundStyle(ProjectStatusStyle.color(status))
+            .contentShape(Rectangle()) // 글리프 사이 여백도 눌리게(작은 타깃 보정)
+        }
+        .buttonStyle(.plain)
+        .clickCursor()
+        .help("\(label) 탭 \(count)개 — 클릭해 이동")
+        .accessibilityLabel("\(project.name) \(label) 탭 \(count)개로 이동")
     }
 
     /// 행 클릭 = 이 프로젝트로 이동(마우스·VoiceOver가 같은 동작을 쓴다).
@@ -91,11 +163,14 @@ struct SidebarProjectRow: View {
         }
     }
 
-    /// 자체 경로를 가진 프로젝트(워크트리·임의 폴더)의 이름은 식별자라 모노스페이스로 읽는다
-    /// (판정은 `Project.usesMonoName` 한 곳 — 브레드크럼·이름 칩도 같은 규칙을 쓴다).
+    /// 표시 이름 = 현재 브랜치(있으면), 없으면 프로젝트 이름. 프로젝트를 **브랜치/워크트리 단위**로 읽는다.
+    private var displayName: String { branch ?? project.name }
+
+    /// 브랜치·워크트리 이름은 **식별자**라 모노스페이스로 읽는다(브레드크럼·이름 칩과 같은 규칙).
     private var nameFont: Font {
         let weight: Font.Weight = active ? .medium : .regular
-        return project.usesMonoName ? .muxaMono(.body, weight: weight) : .muxa(.body, weight: weight)
+        let mono = branch != nil || project.usesMonoName
+        return mono ? .muxaMono(.body, weight: weight) : .muxa(.body, weight: weight)
     }
 
     /// 서비스 요약 — 색·글리프 규칙은 `ServiceStatusStyle` 재사용(새 규칙을 만들지 않는다).

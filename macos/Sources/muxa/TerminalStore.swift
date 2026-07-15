@@ -898,6 +898,24 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         clearTabBadge(tabId)
     }
 
+    /// 사이드바 분포 클릭이 부른다 — 이 상태의 **다음 탭**으로 순환 선택·포커스한다(여럿이면 누를 때마다 다음).
+    /// 순회는 칸→탭 순(quickSwitchTabs와 같은 순서). 현재 선택 탭 뒤의 첫 매칭으로, 없으면 처음으로 감는다.
+    /// 매칭 탭이 없으면 false — 호출부(AppState)가 프로젝트 전환을 건너뛴다.
+    func revealNextTab(matching states: Set<AgentActivity>) -> Bool {
+        let ordered = controller.allPaneIds.flatMap { pane in
+            controller.tabs(inPane: pane).map { (pane: pane, tab: $0.id) }
+        }
+        let matches = ordered.indices.filter { states.contains(agentActivity(for: ordered[$0].tab)) }
+        guard !matches.isEmpty else { return false }
+        let current = controller.focusedPaneId.flatMap { controller.selectedTabId(inPane: $0) }
+        let currentIdx = ordered.firstIndex { $0.tab == current } ?? -1
+        let targetIdx = matches.first { $0 > currentIdx } ?? matches[0] // 다음 매칭, 없으면 순환
+        let target = ordered[targetIdx]
+        controller.focusPane(target.pane)
+        revealTab(target.tab)
+        return true
+    }
+
     /// 빠른 전환기(⌘K): 이 스토어의 모든 탭(터미널·그룹)과 그룹 서브탭을 가벼운 값으로 열거한다.
     /// 배지 여부를 함께 실어 "대기 우선" 정렬을 상위(AppState)가 판단하게 한다. 순회 순서는
     /// 칸(pane)→탭 순이라 계층(칸›탭›서브탭)이 자연스럽게 나온다.
@@ -1014,8 +1032,16 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             var map = agentActivity
             if next.state == .idle { map[tabId] = nil } else { map[tabId] = next.state }
             agentActivity = map
+            reflectTabActivity(tabId, next.state)
         }
         syncIdleTimer()
+    }
+
+    /// 에이전트 상태를 **탭 크롬**에 잇는다(사이드바 분포와 같은 신호가 탭에도) — Bonsplit 기존 플래그만 쓴다.
+    /// working이면 로딩 스피너를 켠다. **대기는 이미 패인 테두리(`AgentActivity.borderColor`)·notify 배지가
+    /// 말하므로** 여기선 working만 반영해 배지 시스템과 신호가 겹치지 않게 한다.
+    private func reflectTabActivity(_ tabId: TabID, _ state: AgentActivity) {
+        controller.updateTab(tabId, isLoading: state == .working)
     }
 
     /// working 추정 중인 탭이 하나라도 있으면 타이머를 켜고, 없으면 끈다.
@@ -1043,6 +1069,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             guard next.state != est.state else { continue }
             estimators[tabId] = next
             if next.state == .idle { map[tabId] = nil } else { map[tabId] = next.state }
+            reflectTabActivity(tabId, next.state)
             changed = true
         }
         if changed { agentActivity = map }

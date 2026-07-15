@@ -88,14 +88,24 @@ final class AppState {
     /// 로컬 상태로만 움직이고(전역 재렌더 방지), 손을 뗀 순간에만 여기로 커밋해 저장한다.
     private(set) var explorerWidth: CGFloat = AppState.defaultPanelWidth
     private(set) var gitPanelWidth: CGFloat = AppState.defaultGitPanelWidth
+    /// 서비스 서랍 폭 — 탐색기·Git과 같은 좌측 경계 드래그 리사이즈·영속. 좌(목록)+우(터미널)를 나란히
+    /// 담으므로 로그가 읽히려면 하한이 넓다.
+    private(set) var serviceDockWidth: CGFloat = AppState.defaultServiceDockWidth
+    /// 서비스 도크 안 **목록 칼럼** 폭 — [좌: 목록 | 우: 터미널] 분할의 왼쪽. 세션 내 조절(비영속).
+    private(set) var serviceListWidth: CGFloat = 200
 
     static let defaultPanelWidth: CGFloat = 280
     static let panelWidthRange: ClosedRange<CGFloat> = 180 ... 720
     // Git 패널은 브랜치 헤더·3분할 피커·커밋 박스가 들어가 익스플로러(파일 트리)보다 최소 너비가 크다.
     static let defaultGitPanelWidth: CGFloat = 320
     static let gitPanelWidthRange: ClosedRange<CGFloat> = 300 ... 720
+    // 서비스 서랍은 좌(목록)+우(터미널)를 나란히 담아 좁으면 터미널이 안 읽힌다 — Git보다 하한·기본을 키운다.
+    static let defaultServiceDockWidth: CGFloat = 560
+    static let serviceDockWidthRange: ClosedRange<CGFloat> = 420 ... 900
+    static let serviceListWidthRange: ClosedRange<CGFloat> = 150 ... 360
     static func clampPanelWidth(_ w: CGFloat) -> CGFloat { clamp(w, to: panelWidthRange) }
     static func clampGitPanelWidth(_ w: CGFloat) -> CGFloat { clamp(w, to: gitPanelWidthRange) }
+    static func clampServiceDockWidth(_ w: CGFloat) -> CGFloat { clamp(w, to: serviceDockWidthRange) }
     private static func clamp(_ w: CGFloat, to range: ClosedRange<CGFloat>) -> CGFloat {
         min(max(w, range.lowerBound), range.upperBound)
     }
@@ -108,6 +118,15 @@ final class AppState {
     func setGitPanelWidth(_ w: CGFloat, persist: Bool = true) {
         gitPanelWidth = Self.clampGitPanelWidth(w)
         if persist { save() }
+    }
+
+    func setServiceDockWidth(_ w: CGFloat, persist: Bool = true) {
+        serviceDockWidth = Self.clampServiceDockWidth(w)
+        if persist { save() }
+    }
+
+    func setServiceListWidth(_ w: CGFloat) {
+        serviceListWidth = Self.clamp(w, to: Self.serviceListWidthRange)
     }
 
     /// ⌘K 빠른 전환기(명령 팔레트) 표시 상태 — 세션 영속 대상 아님. 단축키가 토글한다.
@@ -530,6 +549,12 @@ final class AppState {
         activeWorkspace?.activeProject
     }
 
+    /// 활성 프로젝트가 도는 폴더 — 서비스 추가의 기본 대상 cwd(서비스 시작 cwd와 같은 규칙).
+    var activeProjectCwd: String? {
+        guard let p = activeProject else { return nil }
+        return p.path ?? activeWorkspace?.path
+    }
+
     // MARK: 사이드바 2단 트리 (판정은 SidebarTree(순수) — 여기선 신호만 모아 넘긴다)
 
     /// 디스클로저 클릭 — 전환 없이 그 워크스페이스 하나만 접기/펼치기(다른 건 그대로).
@@ -561,6 +586,33 @@ final class AppState {
     /// 워크스페이스 롤업 — 자식 중 가장 센 신호(접힌 그룹·icon·slim 막대가 쓴다).
     func workspaceStatus(_ workspace: Workspace) -> SidebarTree.ProjectStatus {
         SidebarTree.rollup(workspace.projects.map { projectStatus($0.id) })
+    }
+
+    /// 사이드바 분포 아이콘 클릭 — 그 프로젝트의 **해당 상태 다음 탭으로 순환 점프**한다(여럿이면 누를 때마다
+    /// 다음). 매칭 탭이 없으면 무동작. 분리 창에 있으면 그 창을 앞으로만(revealActivity와 같은 분기).
+    func jumpToProjectTab(_ projectId: String, matching states: Set<AgentActivity>) {
+        guard let ws = workspace(containing: projectId), let store = stores[projectId] else { return }
+        guard store.revealNextTab(matching: states) else { return } // 탭 선택은 소유 창과 무관하게 먼저
+        guard !routeToOwner(projectId) else { return }               // 분리 창이면 그 창만 앞으로
+        setActiveId(ws.id)
+        setActiveProject(projectId)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// 프로젝트 탭을 **상태별로 집계**한다(작업중·대기·유휴 각 몇 탭) — 사이드바가 분포를 아이콘+개수로 그린다.
+    /// **이미 만들어진 스토어만** 본다(트리를 그리는 것만으로 PTY 스폰 금지). 안 연 프로젝트는 전부 0.
+    /// 판정은 탭별 `agentActivity(for:)` 한 출처 — done은 유휴로 접는다(조용한 상태).
+    func projectTabStatus(_ projectId: String) -> (working: Int, waiting: Int, idle: Int) {
+        guard let store = stores[projectId] else { return (0, 0, 0) }
+        var working = 0, waiting = 0, idle = 0
+        for tabId in store.controller.allTabIds {
+            switch store.agentActivity(for: tabId) {
+            case .working: working += 1
+            case .waiting: waiting += 1
+            case .idle, .done: idle += 1
+            }
+        }
+        return (working, waiting, idle)
     }
 
     /// 프로젝트 서비스들의 현재 상태.
@@ -937,8 +989,7 @@ final class AppState {
         openServiceDock(serviceId: located.service.id, projectId: located.projectId)
     }
 
-    /// 도크를 열면서 곧바로 추가 시트를 띄운다 — 팝오버의 "서비스 추가"가 두 번 클릭이 되지 않게.
-    /// 도크가 소비하고 내린다(원샷 요청).
+    /// 도크를 열면서 곧바로 추가 시트를 띄운다(원샷 요청 — 도크가 소비하고 내린다).
     var serviceAddRequested = false
 
     func requestAddService() {
@@ -1061,6 +1112,8 @@ final class AppState {
         // 이 워크스페이스로 넘어와 그 활성 프로젝트를 보게 됐으니 해당 배지 해제.
         if let ws = workspaces.first(where: { $0.id == id }), let pid = ws.activeProject?.id {
             clearBadge(pid)
+            // 도크가 열려 있으면 새 워크스페이스의 활성 프로젝트로 따라간다(setActiveProject와 같은 이유).
+            if showServiceDock { dockProjectId = pid }
         }
         save()
     }
@@ -1103,6 +1156,7 @@ final class AppState {
     /// (프로세스의 cwd는 밖에서 못 바꾼다 — 호출부가 사용자에게 이 사실을 알린다).
     /// 이름이 옛 폴더명 그대로였다면(=사용자가 따로 이름을 안 지었다면) 새 폴더명으로 함께 갱신한다.
     func setWorkspacePath(_ id: String, path: String) {
+        let pathChanged = workspaces.first(where: { $0.id == id })?.path != path
         updateWorkspace(id) { ws in
             var next = ws
             let wasDefaultName = ws.path.map { ws.name == basename($0) } ?? false
@@ -1122,6 +1176,16 @@ final class AppState {
         guard let ws = workspaces.first(where: { $0.id == id }) else { return }
         for project in ws.projects where project.path == nil {
             stores[project.id]?.updateCwd(path)
+            // **서비스는 프로세스라 살아있는 세션의 cwd를 밖에서 못 바꾼다** — 새 경로에서 다시 띄운다.
+            // 경로가 바뀌면 옛 폴더의 세션은 더는 워크스페이스에 속하지 않는다(예: `/`에서 즉사하던
+            // dev 서버가 올바른 폴더로 옮겨 온다). 터미널 cwd 갱신과 대칭. 재시작은 옛 세션을 죽이고
+            // 새로 만든다(restartService) — 도는 서비스는 잠깐 끊긴다(경로 이전의 불가피한 대가).
+            // 경로가 실제로 바뀔 때만 — 같은 값 재지정으로 서비스를 헛되이 끊지 않는다.
+            if pathChanged {
+                for service in project.services ?? [] {
+                    restartService(service.id, in: project.id, cwd: path)
+                }
+            }
         }
     }
 
@@ -1184,6 +1248,9 @@ final class AppState {
             next.activeProjectId = projectId
             return next
         }
+        // 서비스 도크가 열려 있으면 새 활성 프로젝트로 따라간다 — 안 그러면 도크(`dockTarget`)가 연 시점
+        // 프로젝트에 고정돼, 프로젝트를 바꿔도 서비스 목록·로그·추가 cwd가 예전 경로 그대로다.
+        if showServiceDock { dockProjectId = projectId }
     }
 
     /// 워크스페이스를 지정해 활성 프로젝트를 바꾼다(활성 워크스페이스가 아니어도 된다).
@@ -1326,6 +1393,7 @@ final class AppState {
         var layouts: [String: PaneSnapshot]? // 프로젝트 id → 통합 스냅샷(터미널·문서·diff 전부).
         var explorerWidth: Double? // 도구 패널 폭(리사이즈, 나중에 추가된 필드라 옵셔널 하위호환).
         var gitPanelWidth: Double?
+        var serviceDockWidth: Double? // 서비스 서랍 폭(나중에 추가된 필드라 옵셔널 하위호환).
         var showExplorer: Bool? // 도구 패널 열림 상태(나중에 추가된 필드라 옵셔널 하위호환).
         var showGitPanel: Bool?
         /// 사이드바에서 펼쳐 둔 워크스페이스 id들(나중에 추가된 필드라 옵셔널 하위호환).
@@ -1343,18 +1411,20 @@ final class AppState {
 
         private enum CodingKeys: String, CodingKey {
             case version, workspaces, activeId, sidebarMode, layouts
-            case explorerWidth, gitPanelWidth, showExplorer, showGitPanel
+            case explorerWidth, gitPanelWidth, serviceDockWidth, showExplorer, showGitPanel
             case expandedWorkspaces, windows
         }
 
         init(workspaces: [Workspace], activeId: String, sidebarMode: SidebarMode,
              layouts: [String: PaneSnapshot]?, explorerWidth: Double?, gitPanelWidth: Double?,
+             serviceDockWidth: Double?,
              showExplorer: Bool?, showGitPanel: Bool?, expandedWorkspaces: [String]?,
              windows: [ProjectWindow]? = nil,
              version: Int = currentVersion) {
             self.version = version
             self.workspaces = workspaces; self.activeId = activeId; self.sidebarMode = sidebarMode; self.layouts = layouts
             self.explorerWidth = explorerWidth; self.gitPanelWidth = gitPanelWidth
+            self.serviceDockWidth = serviceDockWidth
             self.showExplorer = showExplorer; self.showGitPanel = showGitPanel
             self.expandedWorkspaces = expandedWorkspaces
             self.windows = windows
@@ -1374,6 +1444,7 @@ final class AppState {
             droppedLayouts = lenient?.dropped ?? []
             explorerWidth = try c.decodeIfPresent(Double.self, forKey: .explorerWidth)
             gitPanelWidth = try c.decodeIfPresent(Double.self, forKey: .gitPanelWidth)
+            serviceDockWidth = try c.decodeIfPresent(Double.self, forKey: .serviceDockWidth)
             showExplorer = try c.decodeIfPresent(Bool.self, forKey: .showExplorer)
             showGitPanel = try c.decodeIfPresent(Bool.self, forKey: .showGitPanel)
             expandedWorkspaces = try c.decodeIfPresent([String].self, forKey: .expandedWorkspaces)
@@ -1399,6 +1470,7 @@ final class AppState {
         let snapshot = Persisted(workspaces: workspaces, activeId: activeId, sidebarMode: sidebarMode,
                                  layouts: savedLayouts, explorerWidth: Double(explorerWidth),
                                  gitPanelWidth: Double(gitPanelWidth),
+                                 serviceDockWidth: Double(serviceDockWidth),
                                  showExplorer: showExplorer, showGitPanel: showGitPanel,
                                  expandedWorkspaces: expandedWorkspaces.sorted(),
                                  windows: projectWindows)
@@ -1478,6 +1550,7 @@ final class AppState {
                                                  workspaceIds: snapshot.workspaces.map(\.id))
         if let w = snapshot.explorerWidth { explorerWidth = Self.clampPanelWidth(CGFloat(w)) }
         if let w = snapshot.gitPanelWidth { gitPanelWidth = Self.clampGitPanelWidth(CGFloat(w)) }
+        if let w = snapshot.serviceDockWidth { serviceDockWidth = Self.clampServiceDockWidth(CGFloat(w)) }
         if let open = snapshot.showExplorer { showExplorer = open }
         if let open = snapshot.showGitPanel { showGitPanel = open }
         // 저장분이 어떤 모양이든(유령 프로젝트·중복·빈 창) 신뢰 가능한 배치로 되돌린다 — clampAll과 같은 성격.

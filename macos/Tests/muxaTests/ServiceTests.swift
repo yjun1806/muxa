@@ -14,6 +14,24 @@ final class ServiceTests: XCTestCase {
         XCTAssertEqual(parsed?.serviceId, "S1")
     }
 
+    // MARK: 워크스페이스 스코프 그룹핑 — 팝오버가 현재/타 워크스페이스를 가른다
+
+    func testGroupByWorkspacePutsCurrentFirst() {
+        func loc(_ id: String, ws: String, proj: String) -> LocatedService {
+            LocatedService(service: Service(id: id, name: id, command: "c"),
+                           workspaceId: ws, workspaceName: ws.uppercased(),
+                           projectId: proj, projectName: proj, cwd: nil)
+        }
+        // 선언 순서로는 w2가 먼저 나오지만, 현재(w1)가 맨 앞으로 와야 한다.
+        let items = [loc("a", ws: "w2", proj: "p2"), loc("b", ws: "w1", proj: "p1")]
+        let scopes = groupByWorkspace(items, currentWorkspaceId: "w1", currentProjectId: "p1")
+        XCTAssertEqual(scopes.map(\.workspaceId), ["w1", "w2"]) // 현재 먼저
+        XCTAssertEqual(scopes.first?.isCurrent, true)
+        XCTAssertEqual(scopes.last?.isCurrent, false)
+        XCTAssertEqual(scopes.first?.workspaceName, "W1")
+        XCTAssertEqual(scopes.first?.groups.first?.services.first?.id, "b")
+    }
+
     /// UUID(하이픈 포함, 언더스코어 없음)를 써도 왕복이 깨지지 않는다.
     func testSessionNameRoundTripWithUUID() {
         let pid = "3F2504E0-4F89-11D3-9A0C-0305E82C3301"

@@ -22,8 +22,13 @@ struct SidebarWorkspaceRow: View {
         let rollup = state.workspaceStatus(workspace)
         HStack(spacing: Space.xs) {
             disclosure
+            // 레이어 글리프 = "이건 컨테이너다" — 프로젝트 행의 상태 점과 **다른 시각 어휘**라
+            // 워크스페이스↔프로젝트가 한눈에 갈린다(색이 아니라 모양으로).
+            Image(systemName: "square.stack")
+                .font(.muxa(.body, weight: .medium))
+                .foregroundStyle(active ? Color.pFg : Color.pMuted)
             Text(workspace.name)
-                .font(.muxaLabel)
+                .font(.muxa(.title, weight: .semibold))
                 .tracking(Tracking.label)
                 .textCase(.uppercase)
                 .foregroundStyle(active ? Color.pFg : Color.pMuted)

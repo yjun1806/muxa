@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// 푸터의 서비스 칩 — **접혀 있을 때의 유일한 상시 신호**. 칩은 "문제가 있나 없나"만 말하고,
-/// 무엇이 왜 그런지는 hover 팝오버(`ServicePopover`)가, 실제 로그는 도크(`ServiceDock`)가 맡는다.
+/// 클릭하면 서비스 도크(`ServiceDock`)가 열려 목록·로그를 다 보여준다(⌘J와 같은 토글).
 ///
 /// **두 세그먼트로 나뉜다** — 사용량 칩과 같은 문법(하나의 알약 + 얇은 세로선):
 ///  - 앞 [**지금**] = 활성 프로젝트의 서비스. 클릭 → 그 로그(도크). 도크가 보여주는 것과 정확히 같다.
@@ -16,7 +16,6 @@ struct ServiceStrip: View {
     let project: Project
 
     @State private var hovered = false
-    @State private var showPopover = false
 
     /// 지금 보고 있는 프로젝트의 서비스 — **도크가 보여주는 것과 같은 집합**.
     private var current: [Service] { state.services(of: project.id) }
@@ -42,34 +41,30 @@ struct ServiceStrip: View {
         .padding(.horizontal, Space.sm)
         .frame(height: RowHeight.tight)
         .background(chipColor, in: RoundedRectangle(cornerRadius: Radius.md))
-        .onHover { hovered = $0 } // hover는 배경색까지만 — 스치기만 해도 팝오버가 뜨면 성가시다
+        .onHover { hovered = $0 } // hover는 배경색까지만
         .animation(Motion.fast, value: hovered)
-        .muxaPopover(isPresented: $showPopover) {
-            ServicePopover(state: state, currentProjectId: project.id) { located in
-                showPopover = false
-                state.revealService(located) // 다른 프로젝트 것이면 그리로 데려간다
-            } onAdd: {
-                showPopover = false
-                state.requestAddService()
-            }
-        }
+    }
+
+    /// 칩 클릭 = 서비스 도크 토글(⌘J와 같은 동작). 목록·로그가 도크에 다 있어 중간 팝오버가 필요 없다.
+    private func toggleDock() {
+        if state.showServiceDock { state.closeServiceDock() } else { state.openServiceDock(serviceId: nil) }
     }
 
     // MARK: 앞 — 지금 이 프로젝트 (클릭 = 도크 열기)
 
     private var currentSegment: some View {
         Button {
-            showPopover.toggle() // 클릭 = 상세(팝오버). 도크는 팝오버의 행·헤더에서 연다.
+            toggleDock() // 클릭 = 서비스 도크 토글.
         } label: {
             HStack(alignment: .center, spacing: Space.xs) {
                 if current.isEmpty {
                     // 창 어딘가엔 서비스가 있지만 **여기엔 없다** — 그 사실을 말한다(0을 띄우지 않는다).
                     Image(systemName: "circle.dotted")
                         .font(.muxa(.micro))
-                        .foregroundStyle(Color.pMuted.opacity(0.6))
+                        .foregroundStyle(Color.pMuted)
                     Text("없음")
                         .font(.muxa(.caption))
-                        .foregroundStyle(Color.pMuted.opacity(0.6))
+                        .foregroundStyle(Color.pMuted)
                 } else {
                     let summary = ServiceStatusStyle.summarize(statuses(of: current.map(\.id)))
                     Image(systemName: ServiceStatusStyle.glyph(summary))
@@ -96,7 +91,7 @@ struct ServiceStrip: View {
     // MARK: 뒤 — 창 전체 (클릭 = 전역 목록)
 
     private var globalSegment: some View {
-        Button { showPopover.toggle() } label: {
+        Button { toggleDock() } label: {
             HStack(alignment: .center, spacing: Space.xs) {
                 Image(systemName: "square.stack.3d.up")
                     .font(.muxa(.micro))
@@ -121,8 +116,7 @@ struct ServiceStrip: View {
 
     private var placeholder: some View {
         Button {
-            showPopover = false
-            state.openServiceDock(serviceId: nil)
+            toggleDock() // 다시 누르면 닫힌다(⌘J와 같은 토글).
         } label: {
             HStack(alignment: .center, spacing: Space.xs) {
                 Image(systemName: "square.stack.3d.up").font(.muxa(.micro))
@@ -151,7 +145,7 @@ struct ServiceStrip: View {
 
     private var globalDead: Int { deadCount(of: all.map(\.service.id)) }
 
-    private var chipColor: Color { .footerChip(isOpen: showPopover, hovered: hovered) }
+    private var chipColor: Color { .footerChip(isOpen: state.showServiceDock, hovered: hovered) }
 
     private var currentHelp: String {
         if current.isEmpty { return "이 프로젝트엔 서비스가 없습니다 — 클릭해 추가" }

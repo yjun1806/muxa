@@ -39,6 +39,9 @@ struct LocatedService: Identifiable {
     let workspaceName: String
     let projectId: String
     let projectName: String
+    /// 이 서비스가 도는 폴더 — 도크가 **활성 프로젝트 전환 없이** 그 자리에서 로그/터미널을 열 때 쓴다.
+    /// 프로젝트 자체 경로(워크트리)가 있으면 그것, 없으면 워크스페이스 경로 상속(서비스 시작 cwd와 같은 규칙).
+    let cwd: String?
 }
 
 /// 모든 워크스페이스·프로젝트의 서비스를 소속과 함께 한 목록으로 편다(선언 순서 유지).
@@ -48,7 +51,8 @@ func collectAllServices(in workspaces: [Workspace]) -> [LocatedService] {
             (project.services ?? []).map {
                 LocatedService(service: $0,
                                workspaceId: ws.id, workspaceName: ws.name,
-                               projectId: project.id, projectName: project.name)
+                               projectId: project.id, projectName: project.name,
+                               cwd: project.path ?? ws.path)
             }
         }
     }
@@ -90,6 +94,36 @@ func groupServices(_ items: [LocatedService], current: String, showWorkspace: Bo
             guard let group = byProject[pid], let first = group.first else { return nil }
             let title = showWorkspace ? "\(first.workspaceName) › \(first.projectName)" : first.projectName
             return ServiceGroup(projectId: pid, title: title, services: group)
+        }
+}
+
+/// 한 워크스페이스에 속한 서비스 묶음 — 팝오버가 "현재 vs 다른 워크스페이스"를 가르는 단위.
+/// 워크스페이스가 컨테이너, 그 안이 프로젝트 그룹(`ServiceGroup`)이다(사이드바 2단 트리와 같은 위계).
+struct ServiceScope: Identifiable {
+    var id: String { workspaceId }
+    let workspaceId: String
+    let workspaceName: String
+    let isCurrent: Bool
+    let groups: [ServiceGroup]
+}
+
+/// 서비스를 **워크스페이스**로 묶는다 — 현재 워크스페이스가 맨 앞, 그 안은 `groupServices` 규칙
+/// (현재 프로젝트 먼저). 순수. 정렬이 아니라 분할(filter 두 번)을 쓰는 이유는 `groupServices`와 같다.
+func groupByWorkspace(_ items: [LocatedService],
+                      currentWorkspaceId: String, currentProjectId: String) -> [ServiceScope] {
+    var order: [String] = []
+    var byWorkspace: [String: [LocatedService]] = [:]
+    for item in items {
+        if byWorkspace[item.workspaceId] == nil { order.append(item.workspaceId) }
+        byWorkspace[item.workspaceId, default: []].append(item)
+    }
+    return (order.filter { $0 == currentWorkspaceId } + order.filter { $0 != currentWorkspaceId })
+        .compactMap { wsId in
+            guard let group = byWorkspace[wsId], let first = group.first else { return nil }
+            // 워크스페이스 이름은 스코프 헤더가 말하므로 프로젝트 그룹은 showWorkspace=false.
+            return ServiceScope(workspaceId: wsId, workspaceName: first.workspaceName,
+                                isCurrent: wsId == currentWorkspaceId,
+                                groups: groupServices(group, current: currentProjectId, showWorkspace: false))
         }
 }
 

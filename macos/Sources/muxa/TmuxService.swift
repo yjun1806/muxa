@@ -185,6 +185,13 @@ enum TmuxService {
     ///   구분이 안 돼 침묵으로 사라진다. 명령이 즉사하는 쪽(exited)만 알림을 받던 비대칭을 메운다.
     @discardableResult
     static func start(_ service: Service, projectId: String, cwd: String) async -> String? {
+        // **루트(/)·빈 폴더에서는 시작하지 않는다.** 워크스페이스 경로가 `/`로 잘못 잡히면(초기 경로
+        // 해석 구멍·유령 워크스페이스) pnpm 등이 그 폴더의 package.json을 못 찾아 즉사한다
+        // (ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND). 시트 가드가 못 막는 재시작·자동기동까지 여기서 덮고,
+        // 암호 같은 셸 에러 대신 원인(경로)을 짚어 준다. 판정은 경계에 둔다(파괴적·오작동 방지).
+        guard cwd != "/", !cwd.trimmingCharacters(in: .whitespaces).isEmpty else {
+            return "서비스를 루트(/)에서 시작할 수 없습니다 — 워크스페이스/프로젝트 경로를 프로젝트 폴더로 바꾸세요."
+        }
         guard let session = ServiceSession.name(projectId: projectId, serviceId: service.id) else {
             return "서비스 id가 세션명 규약을 벗어납니다 (\(service.id))"
         }

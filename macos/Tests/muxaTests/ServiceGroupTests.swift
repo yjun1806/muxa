@@ -10,7 +10,7 @@ struct ServiceGroupTests {
                          workspace: String = "W", workspaceName: String = "front") -> LocatedService {
         LocatedService(service: Service(id: serviceId, name: serviceId, command: "pnpm dev"),
                        workspaceId: workspace, workspaceName: workspaceName,
-                       projectId: project, projectName: projectName ?? project)
+                       projectId: project, projectName: projectName ?? project, cwd: nil)
     }
 
     @Test("현재 프로젝트가 맨 앞에 온다")

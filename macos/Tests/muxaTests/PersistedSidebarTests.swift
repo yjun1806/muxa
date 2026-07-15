@@ -7,7 +7,8 @@ import Testing
 struct PersistedSidebarTests {
     private func snapshot(expanded: [String]? = nil, windows: [ProjectWindow]? = nil) -> AppState.Persisted {
         AppState.Persisted(workspaces: [], activeId: "a", sidebarMode: .expanded, layouts: nil,
-                           explorerWidth: nil, gitPanelWidth: nil, showExplorer: nil, showGitPanel: nil,
+                           explorerWidth: nil, gitPanelWidth: nil, serviceDockWidth: nil,
+                           showExplorer: nil, showGitPanel: nil,
                            expandedWorkspaces: expanded, windows: windows)
     }
 

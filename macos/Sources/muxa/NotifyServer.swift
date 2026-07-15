@@ -49,18 +49,22 @@ struct HookMessage {
 /// 부작용(소켓·fd·DispatchSource)을 이 경계 타입에 격리한다(순수 라우팅은 AppState). 소켓
 /// 처리는 백그라운드 큐에서 돌고, 콜백(onMessage)만 메인 큐로 넘긴다 — UI 갱신은 상위가 한다.
 final class NotifyServer {
-    /// **이 프로세스 전용** 소켓 경로 — `…/muxa/sockets/muxa-<pid>.sock`.
+    /// **이 인스턴스 전용** 소켓 경로 — `…/<instance>/sockets/notify.sock` (재시작해도 **같은 경로**).
     ///
-    /// 경로를 하나로 고정하면 안 된다. 창을 두 개 띄우면(개발 빌드 + 설치된 앱, 또는 워크트리별 빌드)
-    /// 나중에 뜬 인스턴스가 `unlink` 후 재바인드해 **소켓을 강탈**하고, 먼저 뜬 창은 살아 있지만 훅 신호를
-    /// 하나도 못 받는다. 인스턴스마다 자기 소켓을 갖고, 그 경로를 탭 env(`MUXA_SOCK`)로 심어 보내면
-    /// 훅은 **자기 창으로 정확히** 돌아온다 — 여러 창이 각각 자기 알림을 받는다.
+    /// 인스턴스를 가르는 건 pid가 아니라 **지원 디렉터리**다 — release는 `muxa`, 개발 빌드는
+    /// `muxa-dev-<slug>`로 이미 격리돼 있다(여러 창이 각각 자기 소켓을 갖는다는 목표는 그것이 달성한다).
+    /// 그래서 디렉터리 **안에서는 고정 이름**이면 충분하다.
     ///
-    /// pid가 들어가므로 프로세스마다 다른 경로다(서버는 프로세스당 하나라 static이어도 인스턴스가 갈린다).
-    /// sun_path 길이 제한(104B) 안에 드는 짧은 경로다.
+    /// **pid를 넣으면 안 된다**(예전 방식): 소켓 경로가 재시작마다 바뀌는데, tmux 영속 세션의 셸 env
+    /// (`MUXA_SOCK`)는 세션 생성 시 한 번만 박히므로 — 재시작을 넘긴 영속 세션이 **죽은 소켓**을 가리켜
+    /// 훅 신호가 전멸했다(`resolveTab`은 stale TAB_ID만 고치지 SOCK은 못 고친다). 고정 경로면 재시작해도
+    /// 같은 소켓이라 영속 세션이 살아남는다. sun_path 길이 제한(104B) 안에 드는 짧은 경로다.
+    ///
+    /// 같은 인스턴스가 동시에 두 번 뜨는 비정상 상황에선 나중 프로세스가 `setup()`에서 unlink 후 재바인드해
+    /// 소켓을 가져간다(단일 인스턴스 앱이라 정상 경로에선 일어나지 않는다).
     static let socketPath: String = {
         let dir = MuxaSupportDir.subdirectory("sockets")
-        return dir.appendingPathComponent("muxa-\(getpid()).sock").path
+        return dir.appendingPathComponent("notify.sock").path
     }()
 
     /// sockaddr_un.sun_path 용량(macOS).

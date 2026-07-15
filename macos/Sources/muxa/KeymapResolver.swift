@@ -107,7 +107,7 @@ struct KeymapResolver {
             Binding(keyCode: kVK_ANSI_A, mods: cmdShift): .jumpToNextWaiting,
             Binding(keyCode: kVK_ANSI_K, mods: cmd): .quickSwitch,
             // ⌘J — 서비스 도크. Xcode의 디버그 영역(⌘⇧Y)과 성격이 같지만, VS Code 패널(⌘J) 쪽이
-            // "하단에서 올라오는 로그 서랍"이라는 이 UI의 정체와 더 가깝다.
+            // "본문을 밀어내는 우측 로그 도킹 패널"이라는 이 UI의 정체와 더 가깝다.
             Binding(keyCode: kVK_ANSI_J, mods: cmd): .toggleServiceDock,
         ]
         // 칸 방향 포커스 이동(⌘⌥) — 화살표와 vim hjkl 둘 다 받아 근육기억에 맞춘다.

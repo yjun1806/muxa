@@ -1,34 +1,24 @@
 import SwiftUI
 
-/// 하단 푸터 — [활성 터미널 pwd] ····· [git 브랜치] [claude 사용량].
+/// 하단 푸터 — [claude 사용량] [에이전트 활동] ····· [백그라운드 세션] [서비스].
 ///
-/// 상단바의 경로는 *프로젝트 경로*(고정)지만, 여기 pwd는 포커스된 칸의 셸이 실제로 있는 곳(OSC 7)이라
-/// `cd`를 따라 움직인다. 에이전트가 어디서 돌고 있는지를 항상 한 줄로 보여주는 게 이 바의 목적이다.
+/// 경로·브랜치는 여기 있지 않다 — **브랜치는 사이드바 행**(프로젝트 이름=브랜치), **경로는 상단바
+/// 브레드크럼 옆**(선택한 프로젝트의 경로, `ContentView.topBar`)으로 옮겨 "어디에 있나"를 위로 모았다.
+/// 이 바는 이제 **상태**(사용량·에이전트 활동)와 **떠 있는 것들**(백그라운드·서비스)만 말한다.
 struct StatusBar: View {
     let state: AppState
-    let home: String
 
     /// @Observable 싱글턴 — body에서 읽는 프로퍼티만 관측된다(조회 중·실패·값 변화에 자동 재렌더).
     private let usage = ClaudeUsageService.shared
 
-    @State private var branch: String?
     @State private var showUsage = false
     /// 리셋 카운트다운("3h 38m")이 굳지 않도록 1분마다 흐르는 현재 시각.
     @State private var now = Date()
 
-    /// 활성 프로젝트의 실효 경로 — 브랜치 조회 기준이자 pwd 폴백.
+    /// 활성 프로젝트의 실효 경로 — 프로젝트를 바꾸면 사용량을 다시 조회하는 `.task`의 트리거.
     private var projectDir: String? {
         guard let ws = state.activeWorkspace else { return nil }
         return ws.activeProject?.path ?? ws.path
-    }
-
-    /// 포커스된 칸의 셸 pwd(OSC 7). 모르면 nil — **프로젝트 경로로 폴백하지 않는다.**
-    /// 폴백하면 셸이 OSC 7을 안 쏘는 경우(shell integration 없는 bash 등)에 프로젝트 경로를
-    /// "터미널이 있는 곳"인 양 보여주게 되고, 사용자가 `cd` 해도 안 움직이니 고장으로 읽힌다.
-    /// 모르면 침묵하는 편이 거짓말보다 낫다.
-    private var pwd: String? {
-        guard let ws = state.activeWorkspace, let project = ws.activeProject else { return nil }
-        return state.store(for: project, in: ws).focusedPwd
     }
 
     /// 포커스된 칸의 에이전트가 지금 뭘 하고 있나("편집 중: TermView.swift") — 훅의 도구 이벤트에서 온다.
@@ -42,30 +32,9 @@ struct StatusBar: View {
         // 아이콘·텍스트·막대가 섞이는 줄이라 정렬을 명시한다. 아이콘 글꼴을 옆 텍스트와 같은 스케일로
         // 맞춰야(둘 다 .label) 시각 중심이 어긋나지 않는다 — 크기가 다르면 center 정렬도 삐뚤어 보인다.
         HStack(alignment: .center, spacing: Space.md) {
-            // 경로와 브랜치는 "지금 어디서 작업 중인가"라는 한 가지 사실이라 왼쪽에 붙여 둔다.
-            // (사용량은 성격이 다른 정보라 반대쪽 끝으로 밀어낸다.)
-            if let pwd {
-                HStack(alignment: .center, spacing: Space.xs) {
-                    Image(systemName: "folder").font(.muxa(.label))
-                    Text(displayPath(pwd, home: home))
-                        .font(.muxa(.label))
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                }
-                .foregroundStyle(Color.pMuted)
-                .help(pwd)
-            }
-            if let branch {
-                HStack(alignment: .center, spacing: Space.xs) {
-                    Image(systemName: "arrow.triangle.branch").font(.muxa(.label))
-                    Text(branch).font(.muxa(.label)).lineLimit(1)
-                }
-                .foregroundStyle(Color.pMuted)
-                .fixedSize() // 경로가 길어도 브랜치는 안 잘린다(잘려야 할 건 경로 쪽)
-                .help("현재 브랜치")
-            }
-            // 에이전트가 지금 하는 일 — 있을 때만 뜨고, 턴이 끝나면 사라진다.
-            // 경로·브랜치("어디서")와 성격이 이어지는 정보라("무엇을") 같은 왼쪽 묶음에 둔다.
+            // 사용량은 이제 **왼쪽 주인공**이다 — pwd·브랜치가 위로 올라가 이 자리를 비웠다.
+            usageView
+            // 에이전트가 지금 하는 일 — 있을 때만 뜨고, 턴이 끝나면 사라진다("무엇을 하는가").
             if let agentDetail {
                 HStack(alignment: .center, spacing: Space.xs) {
                     Image(systemName: "bolt.fill").font(.muxa(.label))
@@ -76,10 +45,7 @@ struct StatusBar: View {
                 .help("에이전트 진행 상황(Claude 훅)")
             }
             Spacer(minLength: Space.md)
-            usageView
-            // 서비스 칩 — 도크가 접혀 있을 때의 유일한 상시 신호라 항상 자리를 지킨다.
-            // 사용량 칩과 같은 문법(칩 + 상세 팝오버)이라 나란히 두고, 폭이 고정된 요약이므로
-            // 오른쪽 끝에 붙여도 경로·브랜치를 밀어내지 않는다.
+            // 오른쪽 = **떠 있는 것들**(닫아도 도는 백그라운드 세션·서비스). 폭이 고정된 요약칩이다.
             if let ws = state.activeWorkspace, let project = ws.activeProject {
                 // 닫았지만 살아 있는 터미널 세션 — 있을 때만 나타난다(없으면 자리도 안 차지한다).
                 // 안 보여주면 "뭔가 돌고 있는데 어디 있는지 모르는" 유령이 된다.
@@ -90,8 +56,7 @@ struct StatusBar: View {
         .panelBar(height: RowHeight.toolbar) // 내용이 세로 중앙에 오도록 여유를 준다(24는 빡빡해 아래로 붙어 보인다)
         .background(Color.pPanel)
         .task(id: projectDir) {
-            branch = if let dir = projectDir { await GitService.currentBranch(in: dir) } else { nil }
-            await usage.refreshIfStale()
+            await usage.refreshIfStale() // 프로젝트를 바꾸면 캐시가 만료됐는지 다시 본다
         }
         .tick(every: 60, into: $now) // 리셋 카운트다운이 굳지 않게
         .onChange(of: now) { _, _ in

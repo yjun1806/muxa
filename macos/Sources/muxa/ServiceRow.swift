@@ -32,7 +32,7 @@ struct ServiceRow: View {
                     if let subtitle {
                         Text(subtitle)
                             .font(.muxaMono(.caption))
-                            .foregroundStyle(Color.pMuted.opacity(0.8))
+                            .foregroundStyle(Color.pMuted)
                             .lineLimit(1)
                             // **`.tail`이다(`.middle` 아님)** — 가운데를 접으면 긴 명령의 뒷부분(진짜 실행되는 것)이
                             // 사라져 악의적인 명령이 평범해 보인다. 앞부터 보이고 뒤가 잘리는 편이 정직하다.
@@ -49,7 +49,15 @@ struct ServiceRow: View {
             .padding(.horizontal, Space.sm)
             .padding(.vertical, Space.xs)
             .frame(minHeight: RowHeight.row)
-            .background(selected ? Color.pBtnActive.opacity(0.6) : Color.clear)
+            // 선택 채움은 **둥근+좌우 인셋**이다 — 행 폭을 꽉 채우면 감싸는 카드(현재 워크스페이스)의
+            // 둥근 모서리와 부딪힌다. 안쪽으로 띄워 카드 안에 알약처럼 앉힌다.
+            .background {
+                if selected {
+                    RoundedRectangle(cornerRadius: Radius.sm)
+                        .fill(Color.pBtnActive)
+                        .padding(.horizontal, Space.xs)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

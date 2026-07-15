@@ -22,7 +22,7 @@ struct ContentView: View {
                 SidebarSUI(state: state)
             }
             // 푸터도 크롬이라 창 가장자리에 딱 붙이지 않는다 — 카드와 같은 여백 안에 놓는다.
-            StatusBar(state: state, home: home)
+            StatusBar(state: state)
                 .padding(.trailing, Space.sm)
                 .padding(.bottom, Space.xs)
         }
@@ -56,14 +56,10 @@ struct ContentView: View {
     /// 그려진다(`contentCard(radius:)` → `ContentCard`). 카드 테두리 선은 그보다 아래에 깔아,
     /// 활성 칸의 테두리가 닿는 변에선 그 위를 덮게 한다.
     private var contentCard: some View {
+        // 서비스 서랍은 **카드 안쪽 도킹 패널**이다(탐색기·Git과 같은 층) — 콘텐츠를 밀어내고,
+        // 좌측 경계 드래그로 너비를 조절한다(`workspaceColumn`이 HStack으로 나란히 놓는다).
         workspaceColumn
             .contentCard(radius: Radius.lg, border: Color.pBorder)
-            // 서비스 도크는 카드 위에 겹친다(이유는 `ServiceDock` 주석 · ARCHITECTURE §4.7).
-            //
-            // **contentCard 뒤에 얹는 이유**: 카드는 칸 강조 테두리를 클립 바깥 맨 위 레이어에 그린다
-            // (ContentCard 주석 참조). 카드 *안쪽* 오버레이로 두면 그 테두리가 도크를 뚫고 지나간다.
-            // 여기 두면 테두리보다 위에 온다. 대신 카드 클립을 못 받으므로 하단 모서리는 직접 깎는다.
-            .overlay(alignment: .bottom) { serviceDock }
             // 왼쪽에 틈을 두지 않는다 — 사이드바가 카드에 **직접 그림자를 드리운다**(`SidebarSUI`).
             // 카드 앞을 비워 카드의 그림자를 보이게 하는 방법도 있었지만, 그러면 보이는 크롬 띠가
             // "사이드바 폭 + 틈"이 되어 항목의 좌우 대칭이 영영 안 맞는다(실측). 위 레이어가 아래로
@@ -72,16 +68,18 @@ struct ContentView: View {
             .padding(.bottom, Space.xs)
     }
 
+    /// 서비스 서랍 — 탐색기·Git과 **같은 도킹 패널**(콘텐츠를 밀어내고 좌측 경계로 너비 리사이즈·영속).
+    /// 스코프는 **도크를 연 프로젝트**다(`state.dockTarget`) — 분리 창의 서비스를 클릭해도 로그는 메인의
+    /// 이 서랍에서 열리므로 메인의 활성 프로젝트와 다를 수 있다.
     @ViewBuilder
     private var serviceDock: some View {
-        // 도크 스코프는 **도크를 연 프로젝트**다(state.dockTarget) — 메인의 활성 프로젝트가 아니다.
-        // 분리 창의 서비스를 클릭해도 로그는 여기(메인 전용 도크)서 열리기 때문이다.
-        if state.showServiceDock, let target = state.dockTarget {
-            ServiceDock(state: state, project: target.project,
-                        cwd: target.project.path ?? target.workspace.path)
-                // 카드의 라운드 클립 바깥이라 하단 모서리를 직접 맞춰 깎는다(카드 밖으로 삐져나오지 않게).
-                .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: Radius.lg,
-                                                  bottomTrailingRadius: Radius.lg))
+        if state.showServiceDock {
+            // 도크는 이제 **창 전체** 서비스를 스스로 그린다 — 특정 프로젝트에 매이지 않는다.
+            ResizablePanel(width: state.serviceDockWidth, range: AppState.serviceDockWidthRange) { w in
+                state.setServiceDockWidth(w, persist: true)
+            } content: {
+                ServiceDock(state: state)
+            }
         }
     }
 
@@ -97,6 +95,19 @@ struct ContentView: View {
                 // 좌측(앱·워크스페이스 관리)과 우측(현재 위치 + 패널 토글)은 성격이 다른 영역이라 선으로 가른다.
                 VDivider(height: 18)
                 Breadcrumb(workspace: ws) // 표시 전용 — 전환은 사이드바 트리가 유일한 경로다
+                // **선택한 프로젝트의 경로**(라이브 셸 pwd가 아니다) — 기본은 워크스페이스 경로,
+                // 프로젝트(워크트리)를 바꾸면 그 워크트리 경로로 바뀐다. 브레드크럼(정체) 옆에 **조용히** 둔다:
+                // 세로선 없이(HStack 간격만), 한 단 작고 더 흐리게(mono). 워크스페이스명은 사용자가 자유
+                // 수정하므로 경로 꼬리와 겹칠 수도 안 겹칠 수도 있어, 전체경로를 접지 않고 그대로 보여준다.
+                if let path = ws.activeProject?.path ?? ws.path {
+                    Text(displayPath(path, home: home))
+                        .font(.muxaMono(.caption))
+                        .foregroundStyle(Color.pMuted.opacity(0.7))
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                        .layoutPriority(-1) // 길면 여기부터 줄인다(벨·토글은 끝까지 남는다)
+                        .help(path)
+                }
                 Spacer(minLength: Space.lg)
                 AttentionBell(state: state)
                 explorerToggle
@@ -145,8 +156,17 @@ struct ContentView: View {
     ///
     /// **소유권 가드**: 그 프로젝트가 분리 창에 있으면 여기선 그리지 않는다(I3 — 한 스토어는 정확히
     /// 한 창의 뷰 트리에서만 렌더된다). 대신 되돌릴 길을 주는 플레이스홀더를 그린다.
-    @ViewBuilder
     private var workspaceColumn: some View {
+        // 서비스 서랍은 본문 오른쪽에 도킹 사이블링으로 붙어 본문을 밀어낸다(탐색기·Git과 같은 층).
+        // `mainColumn`(본문)이 프로젝트 열이든 되돌리기 카드든, 서랍은 그 오른쪽에 동일하게 붙는다.
+        HStack(spacing: 0) {
+            mainColumn
+            serviceDock
+        }
+    }
+
+    @ViewBuilder
+    private var mainColumn: some View {
         if let ws = state.activeWorkspace, let project = ws.activeProject {
             if state.owner(of: project.id).isMain {
                 projectColumn(ws, project)
