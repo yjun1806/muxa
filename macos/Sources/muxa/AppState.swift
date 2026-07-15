@@ -656,6 +656,13 @@ final class AppState {
         return (working, waiting, done, idle)
     }
 
+    /// 프로젝트 행을 펼쳤을 때의 **에이전트 목록** — 이미 만들어진 스토어의 탭을 긴급도순으로 정렬해 돌려준다.
+    /// 안 연 프로젝트는 빈 배열(조회가 PTY를 스폰하지 않는다). 정렬은 순수 함수 `AgentRow.ordered`.
+    func agentRows(_ projectId: String) -> [AgentRow] {
+        guard let store = stores[projectId] else { return [] }
+        return AgentRow.ordered(store.agentRows())
+    }
+
     /// 프로젝트 서비스들의 현재 상태.
     func serviceStatuses(of projectId: String) -> [ServiceState] {
         services(of: projectId).map { serviceMonitor.state(of: $0.id) }

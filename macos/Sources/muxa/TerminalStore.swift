@@ -1198,6 +1198,26 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         agentActivity[tabId] ?? .idle
     }
 
+    /// 사이드바 에이전트 목록용 — 이 스토어의 **모든 탭**을 표시 스냅샷으로 수확한다(순수 정렬은 뷰 밖 `AgentRow.ordered`).
+    ///
+    /// 분포 pill(`projectTabStatus`)과 **같은 모집단**(모든 탭)을 다룬다 — hooked(Claude) 탭만 추리면 pill 개수와
+    /// 어긋난다. 라이브 도구 한 줄은 hooked 탭에만 있어 없으면 상태 라벨로 폴백한다(계획 #3).
+    /// 대기 경과는 `lastOutputAt`(단조시간) 기준으로 **수확 시점에** 계산해 값으로 넘긴다(뷰에 타이머를 두지 않는다, #1).
+    func agentRows(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> [AgentRow] {
+        controller.allTabIds.map { tabId in
+            let state = agentActivity[tabId] ?? .idle
+            let waitingSeconds: TimeInterval?
+            if state == .waiting, let last = estimators[tabId]?.lastOutputAt {
+                waitingSeconds = now - last
+            } else {
+                waitingSeconds = nil
+            }
+            return AgentRow(tabId: tabId, title: tabTitle(tabId), state: state,
+                            detail: state == .working ? agentDetail[tabId] : nil,
+                            waitingSeconds: waitingSeconds)
+        }
+    }
+
     /// 이 탭이 지금 사용자에게 보이나 — 그 뷰의 창이 실제로 눈에 들어와 있고, 자기 칸의 선택 탭일 때
     /// (줌이면 줌된 칸만). firstResponder가 아니라 selectedTab 기준이라 비포커스지만 보이는 분할 칸을 오판하지 않는다.
     ///
