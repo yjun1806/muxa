@@ -6,33 +6,29 @@ import Testing
 struct SidebarTreeTests {
     // MARK: 펼침
 
-    @Test func 활성_워크스페이스는_집합에_없어도_펼쳐진다() {
-        #expect(SidebarTree.isExpanded(wsId: "a", activeId: "a", expanded: []))
+    @Test func 집합에_있으면_펼쳐진다() {
+        #expect(SidebarTree.isExpanded(wsId: "b", expanded: ["b"]))
+        #expect(!SidebarTree.isExpanded(wsId: "b", expanded: []))
     }
 
-    @Test func 비활성은_집합에_있을_때만_펼쳐진다() {
-        #expect(SidebarTree.isExpanded(wsId: "b", activeId: "a", expanded: ["b"]))
-        #expect(!SidebarTree.isExpanded(wsId: "b", activeId: "a", expanded: []))
-    }
-
-    @Test func 활성_워크스페이스는_접히지_않는다() {
-        // 디스클로저를 눌러도 집합이 그대로 — 거짓 어포던스를 만들지 않기 위해 뷰에선 비활성으로 둔다.
-        #expect(SidebarTree.toggled([], wsId: "a", activeId: "a") == [])
-        #expect(SidebarTree.toggled(["b"], wsId: "a", activeId: "a") == ["b"])
-    }
-
-    @Test func 비활성_토글은_넣고_빼기를_반복한다() {
-        let opened = SidebarTree.toggled([], wsId: "b", activeId: "a")
-        #expect(opened == ["b"])
-        #expect(SidebarTree.toggled(opened, wsId: "b", activeId: "a") == [])
+    @Test func 토글은_그_하나만_넣고_뺀다() {
+        // 활성이든 아니든 특례 없이 순수 토글 — 다른 워크스페이스는 건드리지 않는다(아코디언 아님).
+        let opened = SidebarTree.toggled(["c"], wsId: "b")
+        #expect(opened == ["b", "c"]) // 기존 펼침(c)은 그대로
+        #expect(SidebarTree.toggled(opened, wsId: "b") == ["c"])
     }
 
     @Test func 저장값이_없으면_활성만_펼친다() {
-        #expect(SidebarTree.restore(saved: nil, workspaceIds: ["a", "b"]) == [])
+        #expect(SidebarTree.restore(saved: nil, activeId: "a", workspaceIds: ["a", "b"]) == ["a"])
+    }
+
+    @Test func 활성은_저장분에_없어도_펼친_채_복원된다() {
+        // 구 저장분 마이그레이션 — 활성 a는 집합에 없지만 로드 시 보태진다.
+        #expect(SidebarTree.restore(saved: ["b"], activeId: "a", workspaceIds: ["a", "b"]) == ["a", "b"])
     }
 
     @Test func 사라진_워크스페이스_id는_복원에서_버린다() {
-        #expect(SidebarTree.restore(saved: ["a", "zombie"], workspaceIds: ["a"]) == ["a"])
+        #expect(SidebarTree.restore(saved: ["a", "zombie"], activeId: "a", workspaceIds: ["a"]) == ["a"])
     }
 
     @Test func prune은_존재하는_id만_남긴다() {

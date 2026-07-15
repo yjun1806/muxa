@@ -16,9 +16,9 @@ final class AppState {
     private(set) var activeId: String = "" // 활성 워크스페이스
     private(set) var sidebarMode: SidebarMode = .expanded
 
-    /// 사용자가 명시적으로 펼쳐 둔 워크스페이스 id(사이드바 2단 트리). **활성 워크스페이스는 여기 없어도
-    /// 항상 펼쳐진다**(파생 규칙 — `SidebarTree.isExpanded`). 그래야 전환할 때마다 집합이 오염되지 않고,
-    /// "다른 워크스페이스도 열어 둔 상태"만 사용자 의도로 남는다.
+    /// 지금 펼쳐져 있는 워크스페이스 id들(사이드바 2단 트리) — **유일한 진실**. 각 워크스페이스는
+    /// 독립적으로 여닫힌다(아코디언 아님 — `SidebarTree.toggled`는 하나만 건드린다). 활성 워크스페이스도
+    /// 여기에 들어간다(전환·생성·로드 시 삽입) — 포커스한 곳은 프로젝트가 보여야 하기 때문.
     private(set) var expandedWorkspaces: Set<String> = []
 
     /// 백그라운드 활동(●)이 있는 프로젝트 id들(A). 사이드바 프로젝트 행이 관측해 상태 글리프를 그린다.
@@ -532,9 +532,9 @@ final class AppState {
 
     // MARK: 사이드바 2단 트리 (판정은 SidebarTree(순수) — 여기선 신호만 모아 넘긴다)
 
-    /// 디스클로저 클릭 — 전환 없이 접기/펼치기. 활성 워크스페이스는 무동작(항상 펼침).
+    /// 디스클로저 클릭 — 전환 없이 그 워크스페이스 하나만 접기/펼치기(다른 건 그대로).
     func toggleWorkspaceExpansion(_ id: String) {
-        let next = SidebarTree.toggled(expandedWorkspaces, wsId: id, activeId: activeId)
+        let next = SidebarTree.toggled(expandedWorkspaces, wsId: id)
         guard next != expandedWorkspaces else { return } // 무의미한 저장 방지
         expandedWorkspaces = next
         save()
@@ -542,7 +542,7 @@ final class AppState {
 
     /// 뷰 편의(파생 조회) — 규칙을 뷰가 재구현하지 않게.
     func isExpanded(_ wsId: String) -> Bool {
-        SidebarTree.isExpanded(wsId: wsId, activeId: activeId, expanded: expandedWorkspaces)
+        SidebarTree.isExpanded(wsId: wsId, expanded: expandedWorkspaces)
     }
 
     /// 프로젝트 행의 상태 — **이미 만들어진 스토어만** 본다.
@@ -1047,9 +1047,17 @@ final class AppState {
 
     // MARK: 워크스페이스 액션
 
+    /// **불변: 활성 워크스페이스는 항상 펼쳐진 채로 있다**(포커스한 곳은 프로젝트가 보여야 한다). activeId를
+    /// 바꾸는 모든 경로가 이 문 하나로 지나가 펼침 집합에 넣는다 — 어느 한 곳이 빠뜨리는 일이 없게.
+    /// **다른 워크스페이스는 접지 않는다**(아코디언 아님 — 여럿이 동시에 펼쳐진 채 유지된다).
+    private func focus(_ id: String) {
+        activeId = id
+        expandedWorkspaces.insert(id)
+    }
+
     func setActiveId(_ id: String) {
         guard activeId != id else { return }
-        activeId = id
+        focus(id)
         // 이 워크스페이스로 넘어와 그 활성 프로젝트를 보게 됐으니 해당 배지 해제.
         if let ws = workspaces.first(where: { $0.id == id }), let pid = ws.activeProject?.id {
             clearBadge(pid)
@@ -1066,7 +1074,7 @@ final class AppState {
     func addWorkspace(path: String?) -> Workspace {
         let ws = createWorkspace(path: path)
         workspaces.append(ws)
-        activeId = ws.id
+        focus(ws.id) // 새 워크스페이스는 활성 + 펼침
         save()
         return ws
     }
@@ -1075,7 +1083,7 @@ final class AppState {
         guard workspaces.isEmpty else { return }
         let ws = createWorkspace(path: path)
         workspaces = [ws]
-        activeId = ws.id
+        focus(ws.id) // 첫 워크스페이스도 활성 + 펼침
         save()
     }
 
@@ -1127,7 +1135,7 @@ final class AppState {
         let copy = Workspace(id: newId(), path: source.path, name: "\(source.name) 복사본",
                              projects: projects, activeProjectId: first.id)
         workspaces.append(copy)
-        activeId = copy.id
+        focus(copy.id) // 복제본도 활성 + 펼침
         save()
         return copy
     }
@@ -1151,7 +1159,8 @@ final class AppState {
         // 사라진 프로젝트를 품고 있던 분리 창도 함께 정리 — 빈 창이 남으면 고아 창이 된다(I5).
         projectWindows = WindowLayout.normalize(projectWindows, projectIds: allProjectIds)
         syncWindows()
-        if activeId == id { activeId = next[min(idx, next.count - 1)].id }
+        // 활성을 닫았으면 이웃으로 넘어가되 그 이웃도 펼쳐 보여준다(안 그러면 접힌 워크스페이스로 떨어진다).
+        if activeId == id { focus(next[min(idx, next.count - 1)].id) }
         save()
     }
 
@@ -1462,9 +1471,10 @@ final class AppState {
         workspaces = snapshot.workspaces
         activeId = snapshot.activeId
         sidebarMode = snapshot.sidebarMode
-        // nil(구 저장분)이면 빈 집합 = 활성 워크스페이스만 펼침. 사라진 id는 여기서 걸러낸다.
-        // (workspaces 대입 **뒤에** 와야 한다 — 유효 id 목록에 의존한다.)
+        // 활성은 펼친 채로 시작(구 저장분엔 활성이 집합에 없으므로 마이그레이션 겸함). 사라진 id는 걸러낸다.
+        // (workspaces·activeId 대입 **뒤에** 와야 한다 — 유효 id 목록·활성에 의존한다.)
         expandedWorkspaces = SidebarTree.restore(saved: snapshot.expandedWorkspaces,
+                                                 activeId: activeId,
                                                  workspaceIds: snapshot.workspaces.map(\.id))
         if let w = snapshot.explorerWidth { explorerWidth = Self.clampPanelWidth(CGFloat(w)) }
         if let w = snapshot.gitPanelWidth { gitPanelWidth = Self.clampGitPanelWidth(CGFloat(w)) }
