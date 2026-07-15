@@ -35,6 +35,45 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 - **뷰어 라이브 리로드** ✅ — 열린 코드/md가 디스크에서 바뀌면 자동 재로드
 - **세션 복원 정합성** ✅ — 트리는 터미널만(`layoutSnapshot`), 문서/diff는 `SavedViewer`로 별도 복원
 
+## 최근 완료 (2026-07-15) — 상태값 통일 (STATUS-UNIFY)
+
+에이전트·서비스 상태가 **5개 어휘·4개 매핑 테이블에 흩어져** 한 사실이 화면마다 다른 색·모양으로 그려지던 걸,
+**표시 어휘를 `StatusTone`/`StatusStyle` 한 곳(SSOT)으로** 모았다. 도메인 타입 3층(`AgentActivity`(탭)·
+`SidebarTree.ProjectStatus`(롤업)·`ServiceState`(서비스))은 의미가 달라 그대로 두고, "화면에 어떤 톤으로
+그릴까"만 통일했다. 감사·계획은 세션 중 Fable 아키텍트가 낸 status-unification-plan(C1~C3·I1~I6).
+
+- **SSOT 신설** — `StatusTone`(quiet·active·attention·success·failure·inert) + `StatusStyle`(톤→색·글리프·
+  점크기·라벨 단일 매핑). `ProjectStatusStyle`은 그 위 **얇은 어댑터**로 축소. 회귀 앵커
+  `StatusMappingSnapshotTests`가 매핑을 못 박아, 이후 단계의 **의도된 변경만 diff로** 드러난다.
+- **완료의 3중 인격 해소** (C2) — 같은 done 탭이 패인 테두리=초록·분포=유휴 링·롤업=호박으로 셋이 달랐다.
+  분포에 **완료 = 초록 체크(success)**를 별도 표기 → 패인 테두리 초록과 일치. done 탭은 보면 acknowledge로 사라짐.
+- **글리프 충돌 해소** (I1) — 작업중 ●(틸)과 서비스 실행중 ●(초록)이 한 행에 같은 `circle.fill`. 서비스 실행중을
+  **▶(`play.circle.fill`)**로 분리(정상종료 `stop.circle`과 play/stop 짝). active 색은 **틸 유지** 결정.
+- **두 초록 겹침 해소** — 에이전트 완료 ✓(초록)와 서비스 실행중 ▶이 둘 다 초록 → 서비스 실행중을 **파랑**(`serviceRunning`
+  =`gitRenamed`)으로. 완료=초록 유지(`StatusStyle.success`=신설 `pGitAdded`). 서비스 팔레트: 파랑=live·빨강=죽음·무채=정상종료.
+- **주의(attention)가 에러처럼 빨갛던 문제** — 글리프 느낌표→**…(`ellipsis.circle.fill`)**, 색 `B45309`(적갈색)→
+  **`A16207`(앰버, 4.9:1)**. 느낌표는 이제 **failure(죽은 서비스)에만** — "느낌표=실패, …=대기"로 갈림.
+- **추정 waiting 탭 전파** (C1) — 훅 없는 에이전트 대기가 사이드바만 호박이고 탭엔 무표식이던 걸, `reflectTabActivity`가
+  **탭 점(isDirty)**도 켜서 어느 탭인지 탭바에 보이게. `markBadge`는 안 부름(추정 오탐은 인박스·알림 없이 탭 점만, 보면 사라짐).
+- **⌘K 대기 판정 일원화** (C3) — ⌘K가 배지만 보던 걸 사이드바와 같은 `projectStatus/workspaceStatus == .attention`로.
+  죽은 `badgedWorkspaces` 제거.
+- **우회 3곳 흡수** — 큐 헤더 생 색, ⌘K **7×7 하드코딩**, 분리창 스트립 점을 전부 `StatusStyle` 글리프로. notify 색 틸→앰버.
+- **탭 제목·클릭 점프** (Q1·Q2) — 작업중이면 Bonsplit 스피너(`isLoading`), 분포 아이콘 클릭 = 그 상태 다음 탭으로 순환 점프.
+- **tmux 상태 죽던 버그** — notify 소켓이 `muxa-<pid>.sock`(재시작마다 바뀜)이라 재시작을 넘긴 tmux 영속 세션의
+  `MUXA_SOCK`이 죽은 소켓을 가리켜 상태·알림이 전멸했다. **`notify.sock` 고정 경로**로(인스턴스 격리는 지원 디렉터리가 함).
+
+**최종 톤→표시:** quiet ○muted · active ●틸 · attention …앰버 · success ✓초록 · failure ⚠▲빨강 · inert ◌muted.
+서비스 실행중은 ▶파랑(별도). **색+모양 둘 다**로 갈려 색맹 안전.
+
+### ★ 육안 검증 필요 (상태값 통일)
+- 서비스 실행중 **▶파랑** vs 완료 **✓초록** 구분 · 죽은 서비스 **빨간 ⚠▲** 확실
+- 주의가 **차분한 앰버 …**(빨강·에러 아님) · 패인 테두리도 앰버
+- 훅 없는 명령 조용해지면 **탭 점**, 그 탭 보면 사라짐 · 탭 점이 **너무 자주** 뜨진 않는지(오탐)
+- 앞으로 상태 색·글리프는 **`Design/StatusStyle.swift` 한 곳**만 고치면 전 화면 전파
+
+**남은 별건:** I6(안 보이는 탭의 working 미감지 — 렌더 heartbeat가 가시 서피스만; 포그라운드 프로세스 폴링 필요)·
+S2(푸터 전역 waiting/working 카운트 칩). ServiceStatusStyle 완전 흡수(어댑터→StatusStyle)는 선택.
+
 ## 최근 완료 (2026-07-14) — 서비스 코드 리뷰 마감 (SERVICE-REVIEW)
 
 서비스(장수 프로세스) 기능 전체 리뷰의 **Critical·Required·Nit 전부와 Optional 대부분을 해결**했다.
@@ -417,6 +456,7 @@ dev 서버를 **탭 트리 밖 "서비스"**로 두고 실행을 muxa 전용 tmu
 - **상태머신 튜닝 미검증**: RENDER가 포커스 칸 커서 깜빡임에도 오는지 실기기 확인(오면 포커스 칸 idle 추정 불가·비포커스는 정상). `idleThreshold`(4s)·throttle(1s) 실사용 조정.
 - **세션 미영속**: 수동 탭 이름(`manualTitles`)·알림 인박스 이력은 재시작 시 비워짐 — 영속하려면 `TabSnapshot` 스키마 확장.
 - **저심각 잔여**: dedup cooldown·`MUXA_SURFACE_ID` 실 라우팅은 설정/구조 확장 시 · discard `--cached` hunk unstage · 전체 diff 파일 헤더 클릭 점프 · 탭 순환 ⌃Tab 이론적 충돌 · rename NSAlert 모달(인라인 아님) · 탭 점 색 상태화(Bonsplit `isDirty`가 bool뿐) · 종료 감지 foreground_pid 휘발성(셸 종료 위주).
+- **워크트리 세션 귀속 (M4 후속 · 계획·근거 = [ARCHITECTURE D31](ARCHITECTURE.md))**: 에이전트에게 "워크트리 만들어 작업해"를 시키면 cc가 옛 탭 안에서 `git worktree add` 후 그 안으로 cd한다 → **워크트리가 사이드바에 안 뜨고**(`worktreeList`는 현재 WorktreePicker 열 때만 호출, 폴링 아님) **살아있는 cc가 옛 탭에 갇힌다**(cwd만 OSC 7로 이미 추적됨). 3단계로 — (1) **감지·승격(순수 먼저)**: `worktree list`를 주기/FSEvents로 읽어 새 워크트리를 Project 승격, "목록+기존 Project → 신규" 판정을 순수 함수로 뽑아 테스트(중복 승격·규약 밖 경로 처리). (2) **이동 배지 판정(순수)**: "탭 cwd + 워크트리 루트들 → 어느 워크트리(있으면)" 순수 매칭 → 그 **칸 상단바**에 `⤴ <branch>` 배지. (3) **이동 실행(경계·육안)**: 배지 클릭 → 서피스 살린 채 소속만 재부모화(**D28 영역 — 블라인드 금지**, `make relaunch` 육안). `cd`로는 소속 불변.
 
 ## cmux 대조 — 흡수할 개선 (2026-07-10 · GPL이라 구조·아이디어만)
 
