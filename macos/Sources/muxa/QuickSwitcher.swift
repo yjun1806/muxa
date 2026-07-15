@@ -117,7 +117,10 @@ struct QuickSwitcher: View {
             }
             Spacer(minLength: 6)
             if item.waiting {
-                Circle().fill(Color.pBorderActivity).frame(width: 7, height: 7)
+                // 사이드바와 같은 attention 신호(색+모양) — 하드코딩 대신 StatusStyle 한 출처.
+                Image(systemName: StatusStyle.glyph(.attention))
+                    .font(.muxa(.micro, weight: .semibold))
+                    .foregroundStyle(StatusStyle.color(.attention))
             }
             if let hint = item.shortcutHint {
                 Text(hint)

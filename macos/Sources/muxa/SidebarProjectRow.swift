@@ -117,9 +117,9 @@ struct SidebarProjectRow: View {
         // **긴급도순**: 대기 → 작업중 → 유휴. 왼쪽 끝만 훑으면 "나를 기다리나"가 판정된다.
         // 각 항목은 클릭하면 그 상태의 다음 탭으로 순환 점프한다(done은 유휴에 접어 함께 순회).
         HStack(spacing: Space.md) {
-            if tabs.waiting > 0 { tabStat(.attention, tabs.waiting, jump: [.waiting], label: "대기 중") }
-            if tabs.working > 0 { tabStat(.working, tabs.working, jump: [.working], label: "작업 중") }
-            if tabs.idle > 0 { tabStat(.idle, tabs.idle, jump: [.idle, .done], label: "유휴") }
+            if tabs.waiting > 0 { tabStat(.attention, tabs.waiting, jump: [.waiting]) }
+            if tabs.working > 0 { tabStat(.working, tabs.working, jump: [.working]) }
+            if tabs.idle > 0 { tabStat(.idle, tabs.idle, jump: [.idle, .done]) }
         }
         .padding(.leading, IconSize.statusGlyph + Space.sm) // 이름 아래에 정렬(상태 아이콘 슬롯 + 간격)
     }
@@ -127,8 +127,9 @@ struct SidebarProjectRow: View {
     /// 상태 하나의 아이콘 + 탭 개수 — 색·글리프는 상태가 정한다(색+모양 둘 다, 색맹 안전).
     /// **클릭 = 그 상태의 다음 탭으로 순환 점프**(`jumpToProjectTab`). 히트 영역은 글리프+숫자 전체.
     private func tabStat(_ status: SidebarTree.ProjectStatus, _ count: Int,
-                         jump states: Set<AgentActivity>, label: String) -> some View {
-        Button { state.jumpToProjectTab(project.id, matching: states) } label: {
+                         jump states: Set<AgentActivity>) -> some View {
+        let label = StatusStyle.label(status.tone) // 라벨 어휘 단일 출처(유휴/작업 중/입력 대기)
+        return Button { state.jumpToProjectTab(project.id, matching: states) } label: {
             HStack(spacing: Space.xs) {
                 Image(systemName: ProjectStatusStyle.glyph(status))
                     .font(.muxa(.micro, weight: .semibold))

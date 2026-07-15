@@ -80,6 +80,15 @@ final class AppState {
     /// 메인의 활성 프로젝트로 고정돼 있으면 사용자가 클릭한 서비스가 아니라 **엉뚱한 프로젝트의 로그**가 뜬다.
     private(set) var dockProjectId: String?
 
+    /// 서비스 도크에서 **펼쳐 둔 타 워크스페이스** 스코프들(id). 현재 워크스페이스는 늘 펼침이라 여기 없어도 된다.
+    /// 기본은 접힘 — 다른 워크스페이스는 한 줄(개수+롤업 상태)로 조용히 두고, 필요할 때만 펼친다. 세션 내 상태(비영속).
+    private(set) var expandedServiceScopes: Set<String> = []
+
+    func toggleServiceScope(_ id: String) {
+        if expandedServiceScopes.contains(id) { expandedServiceScopes.remove(id) }
+        else { expandedServiceScopes.insert(id) }
+    }
+
     /// 도구 패널 표시 상태(B). 재시작 시 마지막 열림/닫힘을 복원(Persisted에 저장) — 매번 다시 열 필요 없이.
     /// 상단바 토글 버튼·단축키(⌘⇧E/⌘⇧G)·알림이 이 상태를 연다.
     var showExplorer = false
@@ -329,14 +338,16 @@ final class AppState {
     func quickSwitchItems() -> [QuickSwitchItem] {
         var items: [QuickSwitchItem] = []
         for ws in workspaces {
+            // 대기 판정을 **사이드바와 한 출처로**(projectStatus/workspaceStatus == .attention) — 배지뿐 아니라
+            // 보이는 대기 탭·죽은 서비스도 포함해야 "사이드바는 호박인데 ⌘K엔 표식 없음"(C3)이 안 생긴다.
             items.append(QuickSwitchItem(
                 id: "ws:\(ws.id)", kind: .workspace, title: ws.name, subtitle: "워크스페이스",
-                icon: "square.stack", waiting: badgedWorkspaces.contains(ws.id),
+                icon: "square.stack", waiting: workspaceStatus(ws) == .attention,
                 workspaceId: ws.id, projectId: nil, tabId: nil, subItemId: nil))
             for project in ws.projects {
                 items.append(QuickSwitchItem(
                     id: "pj:\(project.id)", kind: .project, title: project.name, subtitle: ws.name,
-                    icon: "folder", waiting: badgedProjects.contains(project.id),
+                    icon: "folder", waiting: projectStatus(project.id) == .attention,
                     workspaceId: ws.id, projectId: project.id, tabId: nil, subItemId: nil))
                 guard let store = stores[project.id] else { continue }
                 let loc = "\(ws.name) · \(project.name)"
@@ -345,7 +356,8 @@ final class AppState {
                     let uuid = qt.tabId.uuid.uuidString
                     items.append(QuickSwitchItem(
                         id: "tab:\(uuid)", kind: .tab, title: tabTitle, subtitle: loc,
-                        icon: qt.icon ?? "terminal", waiting: qt.badged,
+                        icon: qt.icon ?? "terminal",
+                        waiting: qt.badged || store.agentActivity(for: qt.tabId) == .waiting,
                         workspaceId: ws.id, projectId: project.id, tabId: qt.tabId, subItemId: nil))
                     for sub in qt.subItems {
                         items.append(QuickSwitchItem(
@@ -534,15 +546,6 @@ final class AppState {
         workspaces.first { $0.id == activeId }
     }
 
-    /// 백그라운드 활동(●)이 있는 워크스페이스 id 집합. badgedProjects에서 파생 —
-    /// 프로젝트 하나라도 배지면 그 워크스페이스가 배지(사이드바 ●). 사이드바가 관측해 그린다.
-    var badgedWorkspaces: Set<String> {
-        var result: Set<String> = []
-        for ws in workspaces where ws.projects.contains(where: { badgedProjects.contains($0.id) }) {
-            result.insert(ws.id)
-        }
-        return result
-    }
 
     /// 활성 워크스페이스의 활성 프로젝트.
     var activeProject: Project? {

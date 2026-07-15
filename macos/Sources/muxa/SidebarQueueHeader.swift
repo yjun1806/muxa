@@ -11,9 +11,10 @@ struct SidebarQueueHeader: View {
     var body: some View {
         if let target = state.nextWaiting {
             HStack(spacing: Space.sm) {
-                Circle()
-                    .fill(Color.pBorderActivity)
-                    .frame(width: IconSize.dot, height: IconSize.dot)
+                // 주의 신호도 사이드바 행과 같은 어휘(StatusStyle) — 생 색·점 대신 attention 글리프.
+                Image(systemName: StatusStyle.glyph(.attention))
+                    .font(.muxa(.caption, weight: .semibold))
+                    .foregroundStyle(StatusStyle.color(.attention))
                     .frame(width: IconSize.statusSlot, height: IconSize.statusSlot)
                 Text(text(target))
                     .font(.muxa(.body))

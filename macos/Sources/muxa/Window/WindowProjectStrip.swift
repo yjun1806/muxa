@@ -31,10 +31,10 @@ struct WindowProjectStrip: View {
             state.setActiveProject(project.id, inWindow: window.id)
         } label: {
             HStack(spacing: Space.sm) {
-                Circle()
-                    .fill(ProjectStatusStyle.color(status))
-                    .frame(width: ProjectStatusStyle.dotSize(status),
-                           height: ProjectStatusStyle.dotSize(status))
+                // 상태 **글리프**(점 아님) — 사이드바 프로젝트 행과 같은 어휘(색+모양). "같은 신호 문법" 자기 선언 준수.
+                Image(systemName: ProjectStatusStyle.glyph(status))
+                    .font(.muxa(.micro, weight: .semibold))
+                    .foregroundStyle(ProjectStatusStyle.color(status))
                     .frame(width: IconSize.statusSlot)
                 Text(project.name)
                     .font(project.path == nil ? .muxa(.label, weight: active ? .semibold : .regular)
