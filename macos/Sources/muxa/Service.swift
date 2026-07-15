@@ -105,6 +105,10 @@ struct ServiceScope: Identifiable {
     let workspaceName: String
     let isCurrent: Bool
     let groups: [ServiceGroup]
+    /// 이 워크스페이스의 서비스 총 개수 — 접힌 줄이 "⚠ 3"처럼 요약할 때 쓴다.
+    var serviceCount: Int { groups.reduce(0) { $0 + $1.services.count } }
+    /// 접힌 줄의 롤업 대상 — 모든 서비스를 편평하게(상태는 뷰가 monitor로 채운다).
+    var allServices: [LocatedService] { groups.flatMap(\.services) }
 }
 
 /// 서비스를 **워크스페이스**로 묶는다 — 현재 워크스페이스가 맨 앞, 그 안은 `groupServices` 규칙

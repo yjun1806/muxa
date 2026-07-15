@@ -71,7 +71,9 @@ struct ServiceDock: View {
             HDivider()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Space.groupGap) {
-                    ForEach(scopes) { scopeSection($0) }
+                    ForEach(scopes) { scope in
+                        if scope.isCurrent { currentScope(scope) } else { otherScope(scope) }
+                    }
                 }
                 .padding(.vertical, Space.xs)
             }
@@ -93,49 +95,90 @@ struct ServiceDock: View {
         .panelBar(height: RowHeight.panelHeader)
     }
 
-    /// 워크스페이스 한 묶음 — 컨테이너 머리글(사이드바와 같은 `square.stack` + 대문자 라벨) 아래
-    /// 프로젝트/서비스를 편다. 타 워크스페이스는 muted로 강등(색이 아니라 명도 — 색맹 안전, DESIGN §2·§5).
-    private func scopeSection(_ scope: ServiceScope) -> some View {
+    /// 현재 워크스페이스 — pPanel(크롬) 위에 pBg **콘텐츠 카드**로 묶어 "여기/내 것" 영역을 만든다
+    /// (색이 아니라 명도·경계 — 색맹 안전, DESIGN §2 "콘텐츠는 그 위에 카드로 떠 있다"). 늘 펼침.
+    private func currentScope(_ scope: ServiceScope) -> some View {
         VStack(alignment: .leading, spacing: Space.tight) {
-            HStack(spacing: Space.xs) {
-                // 채운 글리프 = "여기/내 것"(현재), 빈 글리프 = 다른 워크스페이스 — 색이 아니라 **모양**으로도
-                // 갈라 색맹에 안전하다(DESIGN §2). 색은 pFg/pMuted 명도차로 한 번 더 말한다.
-                Image(systemName: scope.isCurrent ? "square.stack.fill" : "square.stack")
-                    .font(.muxa(.micro))
-                    .foregroundStyle(scope.isCurrent ? Color.pFg : Color.pMuted)
-                Text(scope.workspaceName)
-                    .font(.muxaLabel).tracking(Tracking.label).textCase(.uppercase)
-                    .foregroundStyle(scope.isCurrent ? Color.pFg : Color.pMuted)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, Space.sm)
-            ForEach(scope.groups) { group in
-                // 프로젝트가 여럿일 때만 프로젝트 소제목 — 하나면 헤더 아래 바로 행(중복 방지).
-                if scope.groups.count > 1 {
-                    Text(group.title)
-                        .font(.muxa(.caption, weight: .semibold))
-                        .foregroundStyle(Color.pMuted)
-                        .lineLimit(1)
-                        .padding(.horizontal, Space.sm)
-                        .padding(.top, Space.tight)
-                }
-                ForEach(group.services) { item in row(item) }
-            }
+            scopeHeader(scope, chevron: nil, collapsed: false)
+            scopeItems(scope)
         }
-        // 현재 워크스페이스는 pPanel(크롬) 위에 pBg **콘텐츠 카드**로 묶어 "여기/내 것" 영역을 만든다
-        // (색이 아니라 명도·경계 — 색맹 안전, DESIGN §2 "콘텐츠는 그 위에 카드로 떠 있다"). 1px pBorder로
-        // 경계를 못박는다. 타 워크스페이스는 크롬 위에 그대로 평평하게 둔다(같은 인셋으로 정렬만 맞춘다).
-        .padding(.vertical, scope.isCurrent ? Space.sm : 0)
+        .padding(.vertical, Space.sm)
+        .padding(.horizontal, Space.sm) // 카드 안 선택이 테두리에서 숨 쉴 만큼만(과하지 않게)
         .background {
-            if scope.isCurrent {
-                RoundedRectangle(cornerRadius: Radius.md)
-                    .fill(Color.pBg)
-                    .overlay(RoundedRectangle(cornerRadius: Radius.md)
-                        .stroke(Color.pBorder, lineWidth: RowHeight.hairline))
+            RoundedRectangle(cornerRadius: Radius.md)
+                .fill(Color.pBg)
+                .overlay(RoundedRectangle(cornerRadius: Radius.md)
+                    .stroke(Color.pBorder, lineWidth: RowHeight.hairline))
+        }
+        .padding(.horizontal, Space.xs) // 카드가 도크 벽에서 뜨는 자리
+    }
+
+    /// 다른 워크스페이스 — 기본은 **접힘**(한 줄: chevron · 개수 · 롤업 상태). 펼치면 카드 없이 목록을 편다.
+    /// 접어도 "다른 워크스페이스 죽음을 바로 본다"는 도크 취지가 안 죽게, 접힌 줄이 **롤업 글리프**를 문다
+    /// (죽은 게 있으면 빨간 느낌표로 승격 — `ServiceStatusStyle.summarize` 규칙).
+    @ViewBuilder
+    private func otherScope(_ scope: ServiceScope) -> some View {
+        let expanded = state.expandedServiceScopes.contains(scope.id)
+        VStack(alignment: .leading, spacing: Space.tight) {
+            Button { state.toggleServiceScope(scope.id) } label: {
+                scopeHeader(scope, chevron: expanded ? "chevron.down" : "chevron.right", collapsed: !expanded)
+            }
+            .buttonStyle(.plain)
+            .clickCursor()
+            if expanded { scopeItems(scope) }
+        }
+        .padding(.horizontal, Space.xs) // 카드 없는 스코프는 벽에 가깝게 — 바깥 여백을 넓히지 않는다
+    }
+
+    /// 스코프 머리글 — (옵션 chevron) · 레이어 글리프 · 대문자 이름 · (접혔으면 롤업 글리프+개수).
+    private func scopeHeader(_ scope: ServiceScope, chevron: String?, collapsed: Bool) -> some View {
+        HStack(spacing: Space.xs) {
+            if let chevron {
+                Image(systemName: chevron).font(.muxa(.micro))
+                    .foregroundStyle(Color.pMuted).frame(width: IconSize.statusSlot)
+            }
+            // 채운 글리프 = "여기/내 것"(현재), 빈 글리프 = 다른 워크스페이스 — 모양으로도 갈라 색맹에 안전(§2).
+            Image(systemName: scope.isCurrent ? "square.stack.fill" : "square.stack")
+                .font(.muxa(.micro))
+                .foregroundStyle(scope.isCurrent ? Color.pFg : Color.pMuted)
+            Text(scope.workspaceName)
+                .font(.muxaLabel).tracking(Tracking.label).textCase(.uppercase)
+                .foregroundStyle(scope.isCurrent ? Color.pFg : Color.pMuted)
+                .lineLimit(1)
+            Spacer(minLength: Space.xs)
+            if collapsed {
+                let st = rollup(scope)
+                Image(systemName: ServiceStatusStyle.glyph(st))
+                    .font(.muxa(.micro)).foregroundStyle(ServiceStatusStyle.color(st))
+                Text("\(scope.serviceCount)")
+                    .font(.muxaMono(.caption)).foregroundStyle(Color.pMuted)
             }
         }
-        .padding(.horizontal, Space.xs)
+        .padding(.horizontal, Space.sm) // 아래 행(ServiceRow 내부 인셋)과 글리프 시작선을 맞춘다
+        .frame(minHeight: RowHeight.tight)
+        .contentShape(Rectangle())
+    }
+
+    /// 스코프의 프로젝트 그룹 + 서비스 행.
+    @ViewBuilder
+    private func scopeItems(_ scope: ServiceScope) -> some View {
+        ForEach(scope.groups) { group in
+            // 프로젝트가 여럿일 때만 프로젝트 소제목 — 하나면 헤더 아래 바로 행(중복 방지).
+            if scope.groups.count > 1 {
+                Text(group.title)
+                    .font(.muxa(.caption, weight: .semibold))
+                    .foregroundStyle(Color.pMuted)
+                    .lineLimit(1)
+                    .padding(.horizontal, Space.sm)
+                    .padding(.top, Space.tight)
+            }
+            ForEach(group.services) { item in row(item) }
+        }
+    }
+
+    /// 접힌 스코프의 롤업 상태 — 죽은 게 하나라도 있으면 그게 이긴다(칩 요약과 같은 규칙).
+    private func rollup(_ scope: ServiceScope) -> ServiceState {
+        ServiceStatusStyle.summarize(scope.allServices.map { state.serviceMonitor.state(of: $0.service.id) })
     }
 
     /// 목록 행 — 팝오버와 같던 `ServiceRow`. 클릭하면 **전환 없이** 상세를 이 서비스로 바꾼다.

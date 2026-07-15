@@ -49,14 +49,10 @@ struct ServiceRow: View {
             .padding(.horizontal, Space.sm)
             .padding(.vertical, Space.xs)
             .frame(minHeight: RowHeight.row)
-            // 선택 채움은 **둥근+좌우 인셋**이다 — 행 폭을 꽉 채우면 감싸는 카드(현재 워크스페이스)의
-            // 둥근 모서리와 부딪힌다. 안쪽으로 띄워 카드 안에 알약처럼 앉힌다.
+            // 선택 채움은 둥근 알약이다(각지지 않게). 좌우 여백은 **감싸는 스코프**가 준다
+            // (카드/스코프의 가로 인셋) — 여기선 행 폭을 채우되 모서리만 둥글린다.
             .background {
-                if selected {
-                    RoundedRectangle(cornerRadius: Radius.sm)
-                        .fill(Color.pBtnActive)
-                        .padding(.horizontal, Space.xs)
-                }
+                if selected { RoundedRectangle(cornerRadius: Radius.sm).fill(Color.pBtnActive) }
             }
             .contentShape(Rectangle())
         }
