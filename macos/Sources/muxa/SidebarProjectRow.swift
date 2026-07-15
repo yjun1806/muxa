@@ -10,7 +10,8 @@ struct SidebarProjectRow: View {
     let project: Project
     @Binding var hoveredId: String?
     @Binding var menuOpenId: String?
-
+    /// 분포 pill 펼침 여부(행 로컬) — 기본 접힘. 카테고리 >2일 때만 의미가 있다.
+    @State private var pillExpanded = false
 
     /// 다른 창이 그리고 있는 프로젝트 — 메인의 활성 표시(채움)를 주지 않는다(여긴 그 프로젝트가 없다).
     private var separated: Bool { !state.owner(of: project.id).isMain }
@@ -20,19 +21,18 @@ struct SidebarProjectRow: View {
     private var hovered: Bool { hoveredId == project.id || menuOpenId == project.id }
 
     var body: some View {
-        let status = state.projectStatus(project.id)
+        let leadingTone = state.projectLeadingTone(project.id)
         let services = state.services(of: project.id)
-        // 에이전트 큐: 탭 분포(작업중·대기·유휴 몇 탭)를 아이콘+개수로. 조용한 유휴(단일 탭·미개봉)는 1줄.
-        let tabs = state.projectTabStatus(project.id)
-        let showBreakdown = tabs.working > 0 || tabs.waiting > 0 || tabs.done > 0
-            || (tabs.working + tabs.waiting + tabs.done + tabs.idle) > 1
+        let buckets = pillBuckets(state.projectTabStatus(project.id))
+        // 침묵 규칙: 신호(작업중·대기·완료) 하나도 없고 탭도 1개뿐이면 pill 없이 1줄로 가라앉는다.
+        let showPill = buckets.contains { $0.tone != .quiet } || buckets.reduce(0) { $0 + $1.count } > 1
         VStack(alignment: .leading, spacing: Space.tight) {
-            topRow(status: status, services: services)
-            if showBreakdown { breakdown(tabs) }
+            topRow(leadingTone: leadingTone, services: services)
+            if showPill { pill(buckets) }
         }
         .padding(.leading, Space.treeIndent) // 2단 트리의 들여쓰기 = 위계
         .padding(.trailing, Space.sm)
-        .padding(.vertical, showBreakdown ? Space.tight : 0) // 2줄일 때만 위아래 숨을 준다
+        .padding(.vertical, showPill ? Space.tight : 0) // 2줄일 때만 위아래 숨을 준다
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(minHeight: RowHeight.row)
         .background(active ? Color.pBtnActive : (hovered ? Color.pBtnHover : Color.clear))
@@ -46,14 +46,14 @@ struct SidebarProjectRow: View {
         .help(displayPath(project.path ?? workspace.path, home: SystemPaths.home))
     }
 
-    /// 이름 줄 — 상태 점 · 이름 · (분리 글리프) · 서비스 요약/닫기. 2줄일 땐 이게 위, 상태 라인이 아래.
-    private func topRow(status: SidebarTree.ProjectStatus, services: [Service]) -> some View {
+    /// 이름 줄 — **리딩 상태 아이콘**(경보 헤드라인) · 이름 · (분리 글리프) · 서비스 요약/닫기.
+    private func topRow(leadingTone: StatusTone, services: [Service]) -> some View {
         HStack(spacing: Space.sm) {
-            // 상태 **아이콘**(점이 아니라 글리프) — 색만이 아니라 모양으로 상태를 말한다. 슬롯을 고정해
-            // 아이콘 모양이 상태마다 달라도(링·원·느낌표) 이름의 시작선이 흔들리지 않는다.
-            Image(systemName: ProjectStatusStyle.glyph(status))
+            // 리딩 = 프로젝트 경보 헤드라인(가장 센 신호 하나 — 죽은 서비스 빨강 ⚠ · 대기 호박 … · 작업중 틸 ●).
+            // 탭별 상세는 아래 분포 pill이 맡아 **겹치지 않는다**. 슬롯 고정으로 이름 시작선이 안 흔들린다.
+            Image(systemName: StatusStyle.glyph(leadingTone))
                 .font(.muxa(.micro, weight: .semibold))
-                .foregroundStyle(ProjectStatusStyle.color(status))
+                .foregroundStyle(StatusStyle.color(leadingTone))
                 .frame(width: IconSize.statusGlyph, height: IconSize.statusGlyph)
             Text(displayName)
                 .font(nameFont)
@@ -61,17 +61,14 @@ struct SidebarProjectRow: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
             // 분리된 프로젝트도 **트리에 그대로 남는다** — 숨기면 어디로 갔는지 알 수 없다.
-            // 이름 뒤 마이크로 글리프가 "다른 창에 있다"만 말하고, 클릭하면 그 창이 앞으로 온다.
             if separated {
                 Image(systemName: "macwindow")
                     .font(.muxa(.micro))
                     .foregroundStyle(Color.pMuted)
             }
             Spacer(minLength: Space.xs)
-            // ✕는 서비스 요약과 **같은 자리**를 쓴다(hover 시 교체 → 행 폭이 흔들리지 않는다).
-            // 교체를 `if hovered`(존재)가 아니라 opacity(보임)로 한다 — hover가 없는 사용자에게
-            // ✕가 접근성 트리에서 사라지면 "프로젝트 닫기"에 도달할 길이 우클릭 메뉴뿐이고,
-            // 그 메뉴도 마우스 전용이다. 마우스 히트만 hover로 가른다(안 보이는 ✕가 눌리지 않게).
+            // ✕는 서비스 요약과 **같은 자리**(hover 시 교체 → 행 폭 불변). 교체는 존재가 아니라 opacity로
+            // (hover 없는 사용자의 접근성 트리에서 ✕가 사라지지 않게). 마우스 히트만 hover로 가른다.
             ZStack(alignment: .trailing) {
                 if !services.isEmpty {
                     serviceSummary(services)
@@ -88,38 +85,89 @@ struct SidebarProjectRow: View {
         .frame(height: RowHeight.row)
     }
 
-    /// 2번째 줄 = **상태별 탭 분포**를 아이콘 + 개수로(긴급도순, 0인 상태는 생략).
-    /// 색·글리프·라벨은 `StatusStyle`(SSOT) — 톤으로 직접 그린다. **done은 유휴에 접지 않고 success(초록 체크)로**
-    /// 별도 표기해 패인 테두리의 done 초록과 일치시킨다(C2 — 한 상태, 한 얼굴).
-    private func breakdown(_ tabs: (working: Int, waiting: Int, done: Int, idle: Int)) -> some View {
-        // **긴급도순**: 대기 → 작업중 → 완료 → 유휴. 왼쪽 끝만 훑으면 "나를 기다리나"가 판정된다.
-        HStack(spacing: Space.md) {
-            if tabs.waiting > 0 { tabStat(.attention, tabs.waiting, jump: [.waiting]) }
-            if tabs.working > 0 { tabStat(.active, tabs.working, jump: [.working]) }
-            if tabs.done > 0 { tabStat(.success, tabs.done, jump: [.done]) }
-            if tabs.idle > 0 { tabStat(.quiet, tabs.idle, jump: [.idle]) }
-        }
-        .padding(.leading, IconSize.statusGlyph + Space.sm) // 이름 아래에 정렬(상태 아이콘 슬롯 + 간격)
+    // MARK: 분포 pill — 리딩과 안 싸우게 **접힘이 기본**, `+N`이 곧 확장
+
+    private typealias Bucket = (tone: StatusTone, count: Int, jump: Set<AgentActivity>)
+
+    /// 탭 분포를 **긴급도순**(대기→작업중→완료→유휴) 버킷으로. 0인 톤은 뺀다.
+    private func pillBuckets(_ t: (working: Int, waiting: Int, done: Int, idle: Int)) -> [Bucket] {
+        var b: [Bucket] = []
+        if t.waiting > 0 { b.append((.attention, t.waiting, [.waiting])) }
+        if t.working > 0 { b.append((.active, t.working, [.working])) }
+        if t.done > 0 { b.append((.success, t.done, [.done])) }
+        if t.idle > 0 { b.append((.quiet, t.idle, [.idle])) }
+        return b
     }
 
-    /// 톤 하나의 아이콘 + 탭 개수 — 색·글리프·라벨은 `StatusStyle`(SSOT)이 정한다(색+모양 둘 다, 색맹 안전).
-    /// **클릭 = 그 상태의 다음 탭으로 순환 점프**(`jumpToProjectTab`). 히트 영역은 글리프+숫자 전체.
-    private func tabStat(_ tone: StatusTone, _ count: Int, jump states: Set<AgentActivity>) -> some View {
-        let label = StatusStyle.label(tone)
-        return Button { state.jumpToProjectTab(project.id, matching: states) } label: {
+    /// 2번째 줄 = **탭 분포 pill**. 평소엔 접혀 요약만, `+N›`으로 펼친다(리딩 헤드라인과 안 싸우게).
+    /// 카테고리 ≤2면 전부 노출·확장 없음(숨길 게 없다). >2면 접힘=앞 2개+`+N›`(나머지 탭 수), 펼침=전부+접기.
+    private func pill(_ buckets: [Bucket]) -> some View {
+        HStack(spacing: Space.sm) { pillContent(buckets) }
+            .padding(.horizontal, Space.sm)
+            .padding(.vertical, Space.tight)
+            .overlay(Capsule().stroke(Color.pBorder, lineWidth: RowHeight.hairline)) // 어느 행 상태에서도 읽히는 pill 윤곽
+            .padding(.leading, IconSize.statusGlyph + Space.sm) // 이름 아래에 정렬
+    }
+
+    @ViewBuilder
+    private func pillContent(_ buckets: [Bucket]) -> some View {
+        if buckets.count <= 2 {
+            ForEach(buckets.indices, id: \.self) { chip(buckets[$0], expanded: false) }
+        } else if pillExpanded {
+            ForEach(buckets.indices, id: \.self) { chip(buckets[$0], expanded: true) }
+            pillCollapse
+        } else {
+            chip(buckets[0], expanded: false)
+            chip(buckets[1], expanded: false)
+            pillMore(hidden: buckets[2...].reduce(0) { $0 + $1.count })
+        }
+    }
+
+    /// 톤 하나의 칩 — 접힘: 글리프 + 개수(**>1일 때만**). 펼침: 글리프 + 라벨 + 개수.
+    /// **클릭 = 그 상태의 다음 탭으로 순환 점프**(`jumpToProjectTab`).
+    private func chip(_ b: Bucket, expanded: Bool) -> some View {
+        Button { state.jumpToProjectTab(project.id, matching: b.jump) } label: {
             HStack(spacing: Space.xs) {
-                Image(systemName: StatusStyle.glyph(tone))
-                    .font(.muxa(.micro, weight: .semibold))
-                Text("\(count)")
-                    .font(.muxaMono(.caption))
+                Image(systemName: StatusStyle.glyph(b.tone)).font(.muxa(.micro, weight: .semibold))
+                if expanded { Text(StatusStyle.label(b.tone)).font(.muxa(.caption)) }
+                if expanded || b.count > 1 { Text("\(b.count)").font(.muxaMono(.caption)) }
             }
-            .foregroundStyle(StatusStyle.color(tone))
-            .contentShape(Rectangle()) // 글리프 사이 여백도 눌리게(작은 타깃 보정)
+            .foregroundStyle(StatusStyle.color(b.tone))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .clickCursor()
-        .help("\(label) 탭 \(count)개 — 클릭해 이동")
-        .accessibilityLabel("\(project.name) \(label) 탭 \(count)개로 이동")
+        .help("\(StatusStyle.label(b.tone)) 탭 \(b.count)개 — 클릭해 이동")
+        .accessibilityLabel("\(project.name) \(StatusStyle.label(b.tone)) 탭 \(b.count)개로 이동")
+    }
+
+    /// `+N›` — 나머지 버킷을 펼친다(오버플로 표시가 곧 확장 버튼 = 요소 하나 절약 + 큰 타깃).
+    private func pillMore(hidden: Int) -> some View {
+        Button { pillExpanded = true } label: {
+            HStack(spacing: 1) {
+                Text("+\(hidden)").font(.muxaMono(.caption))
+                Image(systemName: "chevron.right").font(.muxa(.micro))
+            }
+            .foregroundStyle(Color.pMuted)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .clickCursor()
+        .help("나머지 탭 \(hidden)개 — 펼치기")
+        .accessibilityLabel("탭 분포 \(hidden)개 더 펼치기")
+    }
+
+    /// 접기 셰브론(펼친 pill 끝).
+    private var pillCollapse: some View {
+        Button { pillExpanded = false } label: {
+            Image(systemName: "chevron.down").font(.muxa(.micro))
+                .foregroundStyle(Color.pMuted)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .clickCursor()
+        .help("접기")
+        .accessibilityLabel("탭 분포 접기")
     }
 
     /// 행 클릭 = 이 프로젝트로 이동(마우스·VoiceOver가 같은 동작을 쓴다).

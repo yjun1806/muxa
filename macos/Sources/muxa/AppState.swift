@@ -69,6 +69,9 @@ final class AppState {
 
     /// 서비스(장수 프로세스) 상태 관측 — 접혀 있어도 tmux에 물어 돈다. 앱 전체에 하나(Service.swift).
     let serviceMonitor = ServiceMonitor()
+    /// 워크트리 감지(경계) — 각 워크스페이스 repo의 공통 `.git`을 FSEvents로 감시한다. 승격은 안 하고
+    /// 감지만 값으로 노출한다(D31). "추가?" 제안·baseline은 이 타입(AppState)이 소유한다.
+    let worktreeMonitor = WorktreeMonitor()
 
     /// 서비스 도크(하단 오버레이) 표시 상태와 선택된 서비스.
     /// 오버레이인 이유는 `ServiceDock` 주석과 ARCHITECTURE §4.7(D19)에 한 번만 적는다.
@@ -610,6 +613,18 @@ final class AppState {
     /// 워크스페이스 롤업 — 자식 중 가장 센 신호(접힌 그룹·icon·slim 막대가 쓴다).
     func workspaceStatus(_ workspace: Workspace) -> SidebarTree.ProjectStatus {
         SidebarTree.rollup(workspace.projects.map { projectStatus($0.id) })
+    }
+
+    /// 프로젝트 행 **리딩 아이콘**의 톤 = 경보 헤드라인. `projectStatus`(3값)보다 잘게 —
+    /// **죽은 서비스는 실패(빨강 ⚠)**로, 대기/배지는 주의(호박 …), 작업중은 active(틸 ●), 그 외 유휴.
+    /// 죽음을 대기와 구분해 "무엇이 났나"가 리딩에서 바로 읽힌다. 서비스 **정상 실행중**(파랑)은 리딩을 올리지
+    /// 않는다 — 그건 오른쪽 서비스 요약이 따로 말한다. 우선순위: 실패 > 주의 > 작업중 > 유휴.
+    func projectLeadingTone(_ projectId: String) -> StatusTone {
+        if hasDeadService(projectId) { return .failure }
+        let store = stores[projectId]
+        if badgedProjects.contains(projectId) || store?.hasWaitingAgent == true { return .attention }
+        if store?.hasWorkingAgent == true { return .active }
+        return .quiet
     }
 
     /// 사이드바 분포 아이콘 클릭 — 그 프로젝트의 **해당 상태 다음 탭으로 순환 점프**한다(여럿이면 누를 때마다
@@ -1155,6 +1170,7 @@ final class AppState {
         workspaces.append(ws)
         focus(ws.id) // 새 워크스페이스는 활성 + 펼침
         save()
+        syncWorktreeMonitor() // 새 repo에 워크트리 감시자를 붙인다
         return ws
     }
 
@@ -1164,6 +1180,7 @@ final class AppState {
         workspaces = [ws]
         focus(ws.id) // 첫 워크스페이스도 활성 + 펼침
         save()
+        syncWorktreeMonitor()
     }
 
     /// 워크스페이스 표시 이름 변경. 빈 이름은 무시(이름 없는 항목은 사이드바에서 식별 불가).
@@ -1252,6 +1269,7 @@ final class AppState {
         // 활성을 닫았으면 이웃으로 넘어가되 그 이웃도 펼쳐 보여준다(안 그러면 접힌 워크스페이스로 떨어진다).
         if activeId == id { focus(next[min(idx, next.count - 1)].id) }
         save()
+        syncWorktreeMonitor() // 사라진 repo의 감시자를 뗀다
     }
 
     /// 워크스페이스 하나를 불변 갱신한다(id로 지정 — 활성이 아니어도 된다).
@@ -1300,6 +1318,43 @@ final class AppState {
             return next
         }
         return activeWorkspace == nil ? nil : project
+    }
+
+    // MARK: 워크트리 감지 → "추가?" 제안 (D31 · orca 인박스 경량 이식)
+    // 감지는 WorktreeMonitor(경계), 제안·baseline·승격은 여기(AppState)가 소유한다.
+
+    /// 워크스페이스 집합이 바뀌면 감시자를 맞춘다(멱등). 세션 변경(add/remove)·startup(뷰 onAppear)에서 부른다.
+    func syncWorktreeMonitor() { worktreeMonitor.sync(workspaces) }
+
+    /// 인박스에 "추가?"로 띄울 워크트리 — 감지됨 − (기존 Project ∪ baseline). 뷰가 관측해 렌더한다.
+    func worktreeOffers(for workspace: Workspace) -> [GitWorktree] {
+        WorktreePromotion.offers(worktrees: worktreeMonitor.detected[workspace.id] ?? [], in: workspace)
+    }
+
+    /// "추가" — 워크트리를 Project로 승격하고(포커스는 안 뺏는다 — 조용히 추가) baseline에 적재한다.
+    func importWorktree(_ wt: GitWorktree, in workspaceId: String) {
+        let project = createProject(name: wt.displayName, path: wt.path)
+        updateWorkspace(workspaceId) { ws in
+            var next = ws
+            next.projects.append(project)
+            next.acknowledgedWorktreePaths = Self.acknowledging(ws, path: wt.path)
+            return next
+        }
+    }
+
+    /// "무시" — 승격하지 않고 baseline에만 적재한다(이 워크트리는 다시 제안하지 않는다).
+    func dismissWorktree(_ wt: GitWorktree, in workspaceId: String) {
+        updateWorkspace(workspaceId) { ws in
+            var next = ws
+            next.acknowledgedWorktreePaths = Self.acknowledging(ws, path: wt.path)
+            return next
+        }
+    }
+
+    /// baseline에 경로를 더한다(중복 없이 — offer는 Set으로 걸러지지만 저장분을 깔끔히 유지).
+    private static func acknowledging(_ ws: Workspace, path: String) -> [String] {
+        let current = ws.acknowledgedWorktreePaths ?? []
+        return current.contains(path) ? current : current + [path]
     }
 
     /// 프로젝트 표시 이름 변경(어느 워크스페이스든). 빈 이름은 무시.
