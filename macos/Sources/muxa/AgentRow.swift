@@ -15,6 +15,9 @@ struct AgentRow: Equatable, Identifiable {
     /// waiting 경과(초, 단조시간 기준). 상태 한정 시간("입력 대기 19m째")에만 쓴다.
     /// working/done/idle은 시간을 붙이지 않아(무게·시계 혼선 회피) nil.
     let waitingSeconds: TimeInterval?
+    /// 이 탭이 **확정 Claude 세션**인가(muxa 훅을 보낸 탭). 참이면 행에 Claude 마크를 단다 —
+    /// "진짜 에이전트"와 "로그만 흐르는 터미널"을 가른다(훅 미설정 Claude는 놓칠 수 있음).
+    let isAgent: Bool
 
     var id: TabID { tabId }
 

@@ -175,6 +175,7 @@ struct SidebarProjectRow: View {
                 Image(systemName: StatusStyle.glyph(tone)).font(.muxa(.micro, weight: .semibold))
                     .foregroundStyle(StatusStyle.color(tone))
                     .frame(width: IconSize.statusGlyph)
+                typeMark(r) // Claude 세션이면 마크, 아니면 슬롯 고정(제목 시작선 불변)
                 Text(r.title).font(.muxa(.caption)).foregroundStyle(Color.pFg)
                     .lineLimit(1).truncationMode(.tail)
                 Text("·").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
@@ -188,6 +189,18 @@ struct SidebarProjectRow: View {
         .clickCursor()
         .help("\(r.title) — \(r.subtitle). 클릭해 이동")
         .accessibilityLabel("\(r.title) \(r.subtitle) 탭으로 이동")
+    }
+
+    /// 타입 마크 — Claude 세션(hooked)이면 공식 Claude 마크, 아니면 **빈 슬롯**(같은 폭)으로 제목 시작선을 맞춘다.
+    /// 로고라 톤색으로 물들이지 않는다(`ClaudeMark`가 원본 주황 유지). 비-Claude에 다른 글리프를 안 붙이는 건
+    /// "에이전트냐 아니냐"만 마크 유무로 즉독하게 하기 위함(소음 최소).
+    @ViewBuilder
+    private func typeMark(_ r: AgentRow) -> some View {
+        if r.isAgent {
+            ClaudeMark(size: IconSize.statusGlyph)
+        } else {
+            Color.clear.frame(width: IconSize.statusGlyph, height: IconSize.statusGlyph)
+        }
     }
 
     /// 유휴 접기 행 — "○ 유휴 N". 클릭=유휴 탭 순환 점프(펼쳐도 개별 나열은 안 함, 소음이라).

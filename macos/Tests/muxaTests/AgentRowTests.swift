@@ -6,8 +6,10 @@ import XCTest
 /// AgentRow 순수층 — 긴급도 정렬(그룹 내 안정)·상태 한정 본문·경과 시간 압축.
 final class AgentRowTests: XCTestCase {
     private func row(_ state: AgentActivity, title: String = "claude",
-                     detail: String? = nil, waiting: TimeInterval? = nil) -> AgentRow {
-        AgentRow(tabId: TabID(), title: title, state: state, detail: detail, waitingSeconds: waiting)
+                     detail: String? = nil, waiting: TimeInterval? = nil,
+                     isAgent: Bool = false) -> AgentRow {
+        AgentRow(tabId: TabID(), title: title, state: state, detail: detail,
+                 waitingSeconds: waiting, isAgent: isAgent)
     }
 
     // MARK: 정렬 — 긴급도 그룹 순서

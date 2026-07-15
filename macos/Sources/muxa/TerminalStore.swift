@@ -1214,7 +1214,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             }
             return AgentRow(tabId: tabId, title: tabTitle(tabId), state: state,
                             detail: state == .working ? agentDetail[tabId] : nil,
-                            waitingSeconds: waitingSeconds)
+                            waitingSeconds: waitingSeconds,
+                            isAgent: hookedTabs.contains(tabId))
         }
     }
 
