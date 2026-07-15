@@ -13,6 +13,10 @@ final class FileWatcher {
     /// 마지막 변경 경로들(리로드 대상 디렉토리 판별용).
     @ObservationIgnored private(set) var lastPaths: [String] = []
 
+    /// flush 시 부르는 콜백(옵셔널) — changeSeq 관측을 안 쓰는 비-SwiftUI 소비자용(WorktreeMonitor).
+    /// 기존 소비자(익스플로러·git 패널)는 changeSeq를 .onChange로 보므로 영향 없다.
+    @ObservationIgnored var onFlush: (() -> Void)?
+
     @ObservationIgnored private var stream: FSEventStreamRef?
 
     /// 소비 측 재갱신 디바운스(트레일링). FSEvents 자체 latency(0.3s)는 배치를 묶을 뿐, `npm install`처럼
@@ -83,6 +87,7 @@ final class FileWatcher {
         pending = []
         firstSignal = nil
         changeSeq &+= 1
+        onFlush?()
     }
 
     /// 디바운스 예약 시각 계산(순수) — 부작용 없는 판정이라 여기서 떼어내 테스트한다.

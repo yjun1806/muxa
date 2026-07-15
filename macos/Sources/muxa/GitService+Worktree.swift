@@ -57,6 +57,15 @@ extension GitService {
         return parent.isEmpty ? nil : parent
     }
 
+    /// 공통 `.git` 디렉토리(절대경로) — 워크트리 add/remove 메타가 여기(`.git/worktrees/`)에 쓰인다.
+    /// 링크 워크트리에선 `.git`이 파일(포인터)이라 감시해도 소용없다 — 공통 dir을 감시해야 한다(WorktreeMonitor).
+    static func gitCommonDir(in dir: String) async -> String? {
+        let r = await run(["rev-parse", "--path-format=absolute", "--git-common-dir"], in: dir)
+        guard r.exitCode == 0 else { return nil }
+        let gitDir = r.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return gitDir.isEmpty ? nil : gitDir
+    }
+
     /// 이 저장소의 워크트리 목록.
     static func worktreeList(in dir: String) async -> [GitWorktree] {
         guard let root = await repoRoot(in: dir) else { return [] }

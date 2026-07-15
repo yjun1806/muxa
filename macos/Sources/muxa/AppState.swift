@@ -1230,6 +1230,7 @@ final class AppState {
                 }
             }
         }
+        syncWorktreeMonitor() // 경로가 바뀌면 감시 대상 repo도 바뀐다 — 옛 감시자를 떼고 새 repo에 붙인다
     }
 
     /// 워크스페이스 복제 — 경로·프로젝트 구성만 복제한다(새 id). 터미널 세션·스크롤백은 프로세스라 복제 불가라
@@ -1244,6 +1245,7 @@ final class AppState {
         workspaces.append(copy)
         focus(copy.id) // 복제본도 활성 + 펼침
         save()
+        syncWorktreeMonitor() // 복제본 repo에도 감시자를 붙인다
         return copy
     }
 
@@ -1354,7 +1356,8 @@ final class AppState {
     /// baseline에 경로를 더한다(중복 없이 — offer는 Set으로 걸러지지만 저장분을 깔끔히 유지).
     private static func acknowledging(_ ws: Workspace, path: String) -> [String] {
         let current = ws.acknowledgedWorktreePaths ?? []
-        return current.contains(path) ? current : current + [path]
+        let norm = normalizePath(path) // offers가 정규화 비교하므로 여기서도 정규화로 중복 판정(뒤슬래시 변형 누적 방지)
+        return current.contains { normalizePath($0) == norm } ? current : current + [path]
     }
 
     /// 프로젝트 표시 이름 변경(어느 워크스페이스든). 빈 이름은 무시.

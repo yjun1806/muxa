@@ -29,6 +29,8 @@ struct ContentView: View {
         .background(Color.pPanel)
         // ⌘K 빠른 전환기 — 크롬 전체 위에 뜨는 오버레이(닫혀 있으면 아무것도 안 그린다).
         .overlay { QuickSwitcher(state: state) }
+        // 복원 후(워크스페이스가 디스크에서 로드된 뒤) 워크트리 감시자를 붙인다 — 첫 실행은 ensureInitial이 건다.
+        .onAppear { state.syncWorktreeMonitor() }
         // 워크트리 피커 — 시트는 **여기가** 소유한다. 여는 버튼(사이드바 행의 +)은 hover에서만 존재해서,
         // 시트를 그 행에 달면 마우스가 떠나 행이 사라지는 순간 시트도 함께 죽는다(AppState가 요청만 나른다).
         // 대상 워크스페이스가 없으면 아예 띄우지 않는다 — 내용도 닫기 버튼도 없는 빈 시트가 뜬다.
