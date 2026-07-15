@@ -30,12 +30,13 @@ enum AttentionKind: String, Codable {
         }
     }
 
-    /// 종류색 — 팔레트 재사용(신규 색 없음). 완료=초록, 벨=주황, 알림=청록, 시스템=주황빨강(경고).
+    /// 종류색 — 팔레트 재사용(신규 색 없음). 완료=초록, 벨·알림=앰버(주의), 시스템=주황빨강(경고).
     var color: NSColor {
         switch self {
         case .done: return Palette.gitAdded
-        case .bell: return Palette.borderActivity
-        case .notify: return Palette.brand // 콘텐츠(글리프)는 텍스트 등급(4.5:1)인 brand로 칠한다
+        // 알림도 "사람을 부르는" 주의 신호라 벨과 같은 앰버(borderActivity)로 — brand(틸)는 "작업 중"의
+        // 색이라 "틸=알림"이 "틸=돌고 있다"와 충돌했다. 어휘를 attention 한쪽으로 모은다.
+        case .bell, .notify: return Palette.borderActivity
         case .system: return Palette.gitConflict
         }
     }

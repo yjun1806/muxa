@@ -1038,10 +1038,17 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     }
 
     /// 에이전트 상태를 **탭 크롬**에 잇는다(사이드바 분포와 같은 신호가 탭에도) — Bonsplit 기존 플래그만 쓴다.
-    /// working이면 로딩 스피너를 켠다. **대기는 이미 패인 테두리(`AgentActivity.borderColor`)·notify 배지가
-    /// 말하므로** 여기선 working만 반영해 배지 시스템과 신호가 겹치지 않게 한다.
+    /// - working → 로딩 스피너.
+    /// - waiting → **탭 점**(C1: 사이드바 attention을 탭에도 잇는다 — 안 보이는 탭이라도 "어느 탭이 기다리나"가
+    ///   탭바에 보인다). 추정 waiting은 오탐이 있어(vim·조용한 빌드) **markBadge는 안 부른다** — 인박스·데스크톱
+    ///   알림 없이 **탭 점만**. 사용자가 그 탭을 보면 acknowledge로 사라진다.
+    ///
+    /// isDirty의 두 주인(배지 ∪ 추정 waiting)을 **OR로 합친다** — 상태가 waiting에서 벗어나도 훅 배지가
+    /// 남아 있으면 점을 유지한다(reflect가 배지 점을 지우지 않게).
     private func reflectTabActivity(_ tabId: TabID, _ state: AgentActivity) {
-        controller.updateTab(tabId, isLoading: state == .working)
+        controller.updateTab(tabId,
+                             isDirty: badgedTabs.contains(tabId) || state == .waiting,
+                             isLoading: state == .working)
     }
 
     /// working 추정 중인 탭이 하나라도 있으면 타이머를 켜고, 없으면 끈다.
