@@ -74,6 +74,23 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// **어느 탭이 그것인지 눈에 보이게 고르는 게 맞다** — 잠깐 `ls` 치는 탭까지 tmux로 감쌀 이유는 없다.
     @ObservationIgnored private var persistentIntent: [TabID: Bool] = [:]
 
+    /// ∞ 탭을 닫을 때 확인 배너를 거친(=결정이 끝난) 닫기 — `shouldCloseTab`이 다시 막지 않게 통과시킨다.
+    /// 배너를 띄우려면 tmux를 비동기로 조회해야 하는데 `shouldCloseTab`은 동기라, 훅에서 일단 거부(veto)하고
+    /// 판정·확인 뒤 **같은 탭을 다시 닫는다**. 재진입한 닫기는 여기 있으므로 통과한다.
+    @ObservationIgnored private var confirmedCloses: Set<TabID> = []
+    /// 확인 배너의 결정 — `releaseTmuxSession`이 자동 판정 대신 이대로 따른다. 없으면(nil) 기존 자동 판정.
+    /// keep은 표시 이름을 함께 실어, 세션을 놓는 시점에 foreground를 다시 조회하지 않아도 되게 한다.
+    @ObservationIgnored private var closeOverride: [TabID: TmuxReleaseDecision] = [:]
+    /// 지금 확인 배너를 띄워야 하는 탭 → 실행 중인 작업 이름. CloseConfirmOverlay가 관측해 칸 상단에 배너를 그린다.
+    /// 앱 전역 모달(NSAlert) 대신 이 칸에서만 조용히 물어, "탭 닫기"가 "앱 닫기"처럼 느껴지지 않게 한다.
+    private(set) var closeConfirmations: [TabID: String] = [:]
+
+    /// ∞ 세션을 놓을 때의 결정. 셸 종료·tmux 이탈 등 자동 경로는 이 값 없이(nil) 기존 판정을 그대로 탄다.
+    private enum TmuxReleaseDecision {
+        case kill
+        case keep(label: String)
+    }
+
     /// 이 스토어의 살아있는 터미널 탭이 쓰는 tmux 세션명 전부 — 프로젝트를 닫을 때 이 세션들을
     /// 명시적으로 죽여 유령화를 막는다(닫힌 프로젝트는 GC의 "모르는 프로젝트" 가드에 걸려 영영 정리 불가).
     var liveTmuxSessionNames: Set<String> { Set(tmuxSessions.values) }
@@ -195,7 +212,22 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     private func releaseTmuxSession(of tabId: TabID, title: String) {
         guard let session = tmuxSessions.removeValue(forKey: tabId) else { return }
         let cwd = pwds[tabId]
+        // 확인 다이얼로그가 이미 결정했으면 그대로 따른다(foreground 재조회 없음). 없으면 기존 자동 판정.
+        let decision = closeOverride.removeValue(forKey: tabId)
         Task { [weak self] in
+            switch decision {
+            case .kill:
+                await TmuxService.kill(session: session)
+                return
+            case .keep(let label):
+                await MainActor.run {
+                    self?.onDetachSession?(DetachedSession(session: session, command: label, cwd: cwd,
+                                                           title: title, detachedAt: Date()))
+                }
+                return
+            case nil:
+                break // 자동 판정으로 떨어진다(셸 종료·tmux 이탈·셸만인 ∞).
+            }
             let foreground = await TmuxService.paneForeground(session: session)
             guard TerminalSession.shouldDetach(foreground: foreground) else {
                 await TmuxService.kill(session: session)
@@ -416,6 +448,53 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     }
 
     /// 탭이 닫히면 그 터미널(PTY·서피스)·뷰어 상태를 해제한다.
+    /// ∞ 지속 세션 탭을 **안에서 작업이 돌고 있는데** 닫으려 하면 확인을 받는다(자동으로 백그라운드에
+    /// 남기지 않고 사용자가 고르게 한다). 배너를 띄우려면 tmux를 비동기로 조회해야 하는데 이 훅은 동기라,
+    /// **일단 거부(veto)하고** 판정 뒤 칸 상단에 배너를 띄운다. 결정은 버튼 콜백(confirmClose*/cancelClose)이 한다.
+    ///
+    /// 개입 대상이 아니면(일반 탭·tmux 없음·셸만 있는 ∞·이미 확인된 닫기) 곧장 통과시켜 흐름을 바꾸지 않는다.
+    func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Tab, inPane pane: PaneID) -> Bool {
+        if confirmedCloses.remove(tab.id) != nil { return true } // 재진입한 닫기 — 결정 끝, 통과
+        guard let session = tmuxSessions[tab.id] else { return true } // ∞ 세션이 아니면 평소대로
+        Task { [weak self] in
+            let foreground = await TmuxService.paneForeground(session: session)
+            guard let self else { return }
+            // 셸만 있으면 되찾을 것이 없다 — 묻지 않고 기존 경로로 닫는다(releaseTmuxSession이 kill).
+            guard TerminalSession.shouldDetach(foreground: foreground) else {
+                self.confirmedCloses.insert(tab.id)
+                _ = self.controller.closeTab(tab.id, inPane: pane)
+                return
+            }
+            // 작업이 돈다 — 칸 상단에 확인 배너를 띄운다(관측 상태를 채우면 CloseConfirmOverlay가 그린다).
+            self.closeConfirmations[tab.id] = TerminalSession.workLabel(foreground: foreground) ?? "작업"
+        }
+        return false // 배너에서 결정한 뒤 다시 닫는다(confirmedCloses 재진입)
+    }
+
+    /// 확인 배너 "백그라운드로 유지" — 세션을 남기고(detach) 탭을 닫는다. 표시 이름은 배너 상태에서 이어받는다.
+    func confirmCloseKeeping(_ tabId: TabID) {
+        let label = closeConfirmations.removeValue(forKey: tabId) ?? "작업"
+        closeOverride[tabId] = .keep(label: label)
+        confirmedCloses.insert(tabId)
+        _ = controller.closeTab(tabId)
+    }
+
+    /// 확인 배너 "완전 종료" — tmux 세션을 죽이고 탭을 닫는다(돌던 작업이 사라진다).
+    func confirmCloseKilling(_ tabId: TabID) {
+        closeConfirmations[tabId] = nil
+        closeOverride[tabId] = .kill
+        confirmedCloses.insert(tabId)
+        _ = controller.closeTab(tabId)
+    }
+
+    /// 확인 배너 "취소" — 배너만 걷고 탭은 그대로 둔다(닫기 자체를 무른다).
+    func cancelClose(_ tabId: TabID) {
+        closeConfirmations[tabId] = nil
+    }
+
+    /// 이 탭에 확인 배너를 띄워야 하면 실행 중인 작업 이름, 아니면 nil — CloseConfirmOverlay가 읽는다.
+    func closeConfirmation(for tabId: TabID) -> String? { closeConfirmations[tabId] }
+
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         terms[tabId] = nil // TermView deinit이 서피스 free
         pendingCwd[tabId] = nil // 시작 cwd 힌트 해제
@@ -441,6 +520,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         resetCoalescers(for: tabId) // 배지·알림 병합 이력 해제(맵 누수 방지)
         manualTitles[tabId] = nil // 수동 지정 제목 해제
         persistentIntent[tabId] = nil
+        confirmedCloses.remove(tabId) // 확인 게이트 잔여 정리(취소 후 재닫기 등 — 멱등)
+        closeConfirmations[tabId] = nil // 확인 배너 상태 정리(멱등)
+        // closeOverride는 releaseTmuxSession이 소비하므로 여기선 건드리지 않는다(그 뒤 호출된다).
         // 탭 이름은 **닫히기 전에** 읽어야 한다(맵이 이미 비워지는 중이다).
         releaseTmuxSession(of: tabId, title: tabTitle(tabId))
         tmuxMisses[tabId] = nil
@@ -966,6 +1048,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             map[tabId] = nil
             agentActivity = map
         }
+        // 추정 waiting이 켠 **탭 점**을 여기서 지운다 — 이 탭은 badgedTabs에 없어 clearTabBadge의 정리 경로를
+        // 못 타므로(조기 반환), 상태가 idle이 됐음을 탭 점에도 반영해야 "보면 사라진다"가 성립한다.
+        // (배지 탭이면 isDirty=badged로 유지 → 뒤이어 clearTabBadge가 배지를 지우며 함께 끈다.)
+        reflectTabActivity(tabId, .idle)
         syncIdleTimer()
     }
 
