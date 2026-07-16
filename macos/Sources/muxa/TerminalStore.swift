@@ -280,7 +280,6 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     var revealSeq = 0
     /// 지금 활동 테두리가 깜빡이는 칸들 — 그 칸의 선택 탭 TabID 기준. BonsplitWorkspaceView가 관측해 overlay를 그린다.
     /// 보이는 칸에서 활동(완료·벨·알림)이 나면 잠깐 켰다 페이드로 끈다. 배지(안 보이는 탭)와 상호배타적 신호.
-    private(set) var flashingTabs: Set<TabID> = []
     /// 탭별 추정 에이전트 활동 상태(작업중/대기/완료/idle) — BonsplitWorkspaceView가 관측해 상시 상태 테두리를 그린다.
     /// idle은 담지 않는다(없음=idle) — 상태가 바뀔 때만 immutable 교체해 SwiftUI 갱신을 최소화한다.
     private(set) var agentActivity: [TabID: AgentActivity] = [:]
@@ -368,6 +367,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         // 안 주면 Bonsplit이 시스템 색을 쓰는데, 거기선 **활성 탭 배경과 탭바 배경이 같은 색**이라
         // (windowBackground == controlBackground) 활성 탭의 면이 시각적으로 존재하지 않는다.
         config.appearance.chromeColors = BonsplitChrome.colors
+        // 칸 사이 틈 제거 — 분할 divider를 0으로(칸이 딱 붙는다). 드래그 리사이즈는 dividerHitExpansion이
+        // 별도로 히트 영역을 잡아 유지된다(그린 폭 0이어도 잡을 수 있다).
+        config.appearance.dividerThickness = 0
         // 다른 칸을 보고 오면 활성 탭이 스크롤 밖에 남을 수 있다 — 포커스가 돌아오면 가운데로 데려온다.
         config.appearance.keepsSelectedTabVisible = true
         // 탭·활성 탭 스타일(패딩·반경·지시선·pill…)은 설정에서 온다. 라이브 변경은 AppState.reapplyTabAppearance.
@@ -514,8 +516,6 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         tabContent[tabId] = nil
         groups[tabId] = nil // 그룹 탭이면 서브탭 상태도 해제
         badgedTabs.remove(tabId)
-        flashingTabs.remove(tabId) // 활동 테두리 상태 해제
-        flashSeq[tabId] = nil
         clearAgentActivity(tabId) // 에이전트 추정 상태·추정기 해제(+ idle 타이머 재동기화)
         hookSessions[tabId] = nil // 훅 세션 상태(배경작업·서브에이전트 로스터) 해제 — 맵 누수 방지
         hookedTabs.remove(tabId)
@@ -772,6 +772,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                                  category: category ?? state.defaultCategory, kind: .notify)
             case .working:
                 clearTabBadge(tabId)
+            case .idle:
+                break // 유휴는 조용 — 알림도, 배지 변경도 없다(안 본 완료 배지는 "봐야 사라진다"라 그대로 둔다)
             }
         }
         return true
@@ -1046,12 +1048,19 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         notifyCoalescer = notifyCoalescer.resetting { $0 == tabId }
     }
 
-    /// 사용자가 탭을 봤다 — waiting/done 상시 테두리를 지운다(추정기를 idle로 리셋해 고정도 푼다).
-    /// 에이전트가 실제로 아직 작업 중이면 다음 출력 heartbeat가 곧 working으로 되세운다(working은 테두리 없음).
+    /// 사용자가 탭을 봤다 — 상시 상태 테두리를 지운다(추정기를 idle로 리셋해 고정도 푼다).
+    /// **완료는 항상** 지우고(끝난 걸 확인함), **대기는 설정 조건부**(clearOnFocus), 작업중·유휴는 그대로 둔다.
     private func acknowledgeAgent(_ tabId: TabID) {
-        // 사용자 설정이 "포커스해도 유지"(기본)면 봐도 안 지운다 — 다음 실제 활동(출력→working)에만 바뀐다.
-        guard PaneIndicatorSettings.shared.clearOnFocus else { return }
-        guard let est = estimators[tabId], est.state == .waiting || est.state == .done else { return }
+        guard let est = estimators[tabId] else { return }
+        // 완료는 **보면 항상 해제**(끝난 걸 확인함). 대기는 사용자 설정 따름(기본 유지 — 다음 활동에만 바뀜).
+        // 작업중·유휴는 acknowledge로 지우지 않는다(진행 중이면 계속 표시).
+        let shouldClear: Bool
+        switch est.state {
+        case .done: shouldClear = true
+        case .waiting: shouldClear = PaneIndicatorSettings.shared.clearOnFocus
+        case .working, .idle: return
+        }
+        guard shouldClear else { return }
         estimators[tabId] = AgentActivityEstimator(idleThreshold: est.idleThreshold)
         if agentActivity[tabId] != nil {
             var map = agentActivity
@@ -1100,11 +1109,6 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 시스템 알림 병합기(순수 값, 탭 단위) — fireNotification의 systemNotification 채널에서만 태운다.
     @ObservationIgnored private var notifyCoalescer = SignalCoalescer<TabID>(cooldown: TerminalStore.notifyCoalesceCooldown)
 
-    /// 활동 테두리 유지 시간(ns) — 짧은 플래시로 충분(상시 테두리는 focus와 혼동). 1.2초.
-    private static let flashDurationNs: UInt64 = 1_200_000_000
-    /// 재-트리거 시 이전 해제 타이머를 무효화하려는 탭별 세대값 — 연속 활동이면 페이드가 리셋된다.
-    @ObservationIgnored private var flashSeq: [TabID: Int] = [:]
-
     // MARK: 에이전트 상태 추정 (ARCHITECTURE 4.5) — 순수 추정기 + 신호 배선
     //
     // 탭별 AgentActivityEstimator(순수 값)에 신호(heartbeat·완료·명시 notify·tick)를 넣어 상태를 굴린다.
@@ -1133,18 +1137,17 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         syncIdleTimer()
     }
 
-    /// 에이전트 상태를 **탭 크롬**에 잇는다(사이드바 분포와 같은 신호가 탭에도) — Bonsplit 기존 플래그만 쓴다.
-    /// - working → 로딩 스피너.
-    /// - waiting → **탭 점**(C1: 사이드바 attention을 탭에도 잇는다 — 안 보이는 탭이라도 "어느 탭이 기다리나"가
-    ///   탭바에 보인다). 추정 waiting은 오탐이 있어(vim·조용한 빌드) **markBadge는 안 부른다** — 인박스·데스크톱
-    ///   알림 없이 **탭 점만**. 사용자가 그 탭을 보면 acknowledge로 사라진다.
+    /// 에이전트 상태를 **탭 좌측 status 마크**로 잇는다 — 사이드바 `StatusMark`와 **같은 어휘·색·모션**
+    /// (작업중 인디고 스피너 · 대기 ⏸ 로즈 펄스 · 완료 ✓ 세이지 · 유휴 무표시). `TabStatusMapping`이 매핑하고
+    /// Bonsplit의 `Tab.status`가 그 슬롯에 그린다(→ 포크). 유휴는 nil이라 탭이 타입 아이콘으로 폴백한다.
     ///
-    /// isDirty의 두 주인(배지 ∪ 추정 waiting)을 **OR로 합친다** — 상태가 waiting에서 벗어나도 훅 배지가
-    /// 남아 있으면 점을 유지한다(reflect가 배지 점을 지우지 않게).
+    /// `isDirty`는 이제 **배지(읽지 않음)만** 진다 — 상태는 status 마크가 표현하므로 여기서 waiting을 OR하지 않는다.
+    /// `isLoading`은 status(.spin)가 대신하므로 끈다.
     private func reflectTabActivity(_ tabId: TabID, _ state: AgentActivity) {
         controller.updateTab(tabId,
-                             isDirty: badgedTabs.contains(tabId) || state == .waiting,
-                             isLoading: state == .working)
+                             isDirty: badgedTabs.contains(tabId),
+                             isLoading: false,
+                             status: TabStatusMapping.status(for: state))
     }
 
     /// working 추정 중인 탭이 하나라도 있으면 타이머를 켜고, 없으면 끈다.
@@ -1289,9 +1292,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         }
     }
 
-    /// 보이면 칸 테두리 플래시, 안 보이면 배지(+인박스 이력). 벨·명령 완료 등 시스템 알림 없는 신호용.
+    /// 안 보이면 배지(+인박스 이력). 보이면 아무것도 안 한다(상태 테두리가 이미 짚는다).
+    /// 벨·명령 완료 등 시스템 알림 없는 신호용.
     private func fireActivity(_ tabId: TabID, kind: AttentionKind, title: String, visible: Bool) {
-        if visible { flashPane(tabId) } else { markBadge(tabId, kind: kind, title: title) }
+        if !visible { markBadge(tabId, kind: kind, title: title) }
     }
 
     /// 알림 발사의 단일 경로 — 순수 게이트(NotificationGate)로 배달 방식을 정하고 채널별로 실행한다.
@@ -1300,7 +1304,6 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     private func fireNotification(_ tabId: TabID, title: String, body: String,
                                  category: NotifyCategory?, kind: AttentionKind) {
         let delivery = NotificationGate.shouldDeliver(category: category, isVisibleToUser: isTabVisible(tabId))
-        if delivery.flashPane { flashPane(tabId) }
         if delivery.systemNotification {
             // 같은 탭 연속 시스템 알림은 병합(억제) — 가장 시끄러운 채널이라 연타를 접는다. 배지·인박스는 아래에서 별도 병합.
             let (admit, next) = notifyCoalescer.admitting(tabId, now: ProcessInfo.processInfo.systemUptime)
@@ -1312,19 +1315,6 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         if delivery.badge { markBadge(tabId, kind: kind, title: title.isEmpty ? tabTitle(tabId) : title) }
     }
 
-    /// 보이는 칸에 활동 테두리를 잠깐 켠다 — 3~4분할에서 "어느 칸이 울렸나"를 즉시 짚게. 일정 시간 뒤 페이드 해제.
-    /// 연속 활동이면 세대값을 올려 이전 해제 타이머를 무효화(테두리가 유지된다).
-    private func flashPane(_ tabId: TabID) {
-        flashingTabs.insert(tabId)
-        let gen = (flashSeq[tabId] ?? 0) + 1
-        flashSeq[tabId] = gen
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: Self.flashDurationNs)
-            guard let self, self.flashSeq[tabId] == gen else { return }
-            self.flashingTabs.remove(tabId)
-            self.flashSeq[tabId] = nil
-        }
-    }
 
     /// **분할할 때** 새 셸이 물려받을 작업 디렉터리 — 원본 칸의 현재 pwd(OSC 7). 없으면 nil.
     ///

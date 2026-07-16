@@ -65,8 +65,8 @@ struct PaneIndicatorControls: View {
     private var focusToggle: some View {
         Toggle(isOn: $settings.clearOnFocus) {
             VStack(alignment: .leading, spacing: 1) {
-                Text("포커싱하면 상태표시 지우기").font(.muxa(.caption)).foregroundStyle(Color.pFg)
-                Text("끄면(기본) 칸을 봐도 안 사라진다 — 다음 활동에만 바뀐다")
+                Text("입력 대기 표시를 포커싱하면 지우기").font(.muxa(.caption)).foregroundStyle(Color.pFg)
+                Text("끄면(기본) 대기 칸을 봐도 안 사라진다. 완료는 봤을 때 항상 해제")
                     .font(.muxa(.micro)).foregroundStyle(Color.pMuted)
             }
         }

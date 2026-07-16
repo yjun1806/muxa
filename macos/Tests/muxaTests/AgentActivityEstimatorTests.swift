@@ -47,6 +47,16 @@ final class AgentActivityEstimatorTests: XCTestCase {
         XCTAssertEqual(working.applying(.explicit(.done), now: 101).state, .done)
     }
 
+    /// 명시 유휴(idle_prompt)는 idle로 **고정**한다 — 끝나고 앉아 있는 걸 "대기"로 오판하지 않게,
+    /// 커서 깜빡임 heartbeat로 working으로 되돌지도 않게. 다음 명시 신호(userPromptSubmit→working)만 바꾼다.
+    func testExplicitIdlePinsAndIgnoresHeartbeat() {
+        let idle = AgentActivityEstimator().applying(.explicit(.working), now: 100).applying(.explicit(.idle), now: 105)
+        XCTAssertEqual(idle.state, .idle)
+        XCTAssertEqual(idle.applying(.outputHeartbeat, now: 106).state, .idle) // 노이즈 heartbeat 무시
+        XCTAssertFalse(idle.needsIdleTick)
+        XCTAssertEqual(idle.applying(.explicit(.working), now: 107).state, .working) // 새 턴은 되살린다
+    }
+
     func testCommandFinishedGoesDoneAndUnpins() {
         let done = AgentActivityEstimator().applying(.explicit(.waiting), now: 100).applying(.commandFinished, now: 101)
         XCTAssertEqual(done.state, .done)

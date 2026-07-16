@@ -5,17 +5,18 @@ import Foundation
 /// (뒤쪽 필드는 전부 선택 — 옛 훅/CLI는 안 보낸다. category 없으면 state에서 파생,
 ///  resumeCommand 없으면 바인딩 등록 없음. resumeCommand 단독이면 state 필드가 비어 상태 신호는 없다).
 enum NotifyState: String {
-    case waiting // 에이전트가 승인/입력 대기 — 세션 내내 OSC 133이 안 오는 그 순간을 명시 신호로.
+    case waiting // 에이전트가 **승인/입력 대기**(권한 프롬프트·질문) — 사람이 결정해야 나아간다.
     case done    // 작업 완료.
     case working // 작업 재개 — 주의 해소(배지 클리어).
+    case idle    // **유휴** — 끝나고 프롬프트에 앉아 있을 뿐(대기 아님). 표시·알림 없음.
 
     /// category 미지정 시 state에서 파생하는 기본 배달 카테고리(하위호환).
-    /// waiting=입력/권한 대기(긴급), done=턴 완료, working=알림 없음(배지 클리어라 nil).
+    /// waiting=입력/권한 대기(긴급), done=턴 완료, working·idle=알림 없음(nil).
     var defaultCategory: NotifyCategory? {
         switch self {
         case .waiting: return .needsPermission
         case .done: return .turnComplete
-        case .working: return nil
+        case .working, .idle: return nil
         }
     }
 }

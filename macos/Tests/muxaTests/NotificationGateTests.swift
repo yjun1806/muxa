@@ -7,10 +7,11 @@ final class NotificationGateTests: XCTestCase {
         XCTAssertEqual(NotificationGate.shouldDeliver(category: .idleReminder, isVisibleToUser: true), .suppressed)
     }
 
-    func testVisibleOtherFlashOnly() {
-        XCTAssertEqual(NotificationGate.shouldDeliver(category: .needsPermission, isVisibleToUser: true), .flashOnly)
-        XCTAssertEqual(NotificationGate.shouldDeliver(category: .turnComplete, isVisibleToUser: true), .flashOnly)
-        XCTAssertEqual(NotificationGate.shouldDeliver(category: nil, isVisibleToUser: true), .flashOnly)
+    func testVisibleAllSuppressed() {
+        // 보이는 칸은 전부 억제 — 상태 테두리가 이미 상태를 말한다(플래시 채널 제거).
+        XCTAssertEqual(NotificationGate.shouldDeliver(category: .needsPermission, isVisibleToUser: true), .suppressed)
+        XCTAssertEqual(NotificationGate.shouldDeliver(category: .turnComplete, isVisibleToUser: true), .suppressed)
+        XCTAssertEqual(NotificationGate.shouldDeliver(category: nil, isVisibleToUser: true), .suppressed)
     }
 
     func testHiddenIdleReminderBadgeOnly() {

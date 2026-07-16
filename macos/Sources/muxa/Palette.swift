@@ -48,12 +48,20 @@ enum Palette {
     // 상태는 색 + **모양 + 움직임** 3채널로 말한다(색맹 안전): 작업중=스피너 회전, 대기=펄스, 완료=체크, 유휴=무표시.
     // 색은 서로 확실히 갈리되(작업 쿨 인디고 ↔ 완료 세이지, 대기 로즈는 앰버 아님) 브랜드 버밀리언과 같은 저채도 톤.
     //
+    /// 상태색 hex(SSOT) — 사이드바 마크·칸 테두리·**탭 status 마크**가 같은 값을 쓰게 한다.
+    /// 아래 NSColor와 `TabStatusMapping`이 전부 여기서 파생한다(값 하나만 고치면 셋 다 따라온다 — 드리프트 방지).
+    enum StatusHex {
+        static let work = (light: "3A5FD0", dark: "7C9BF0")     // 인디고
+        static let waiting = (light: "A8506A", dark: "D68DA3")  // 더스티 로즈
+        static let done = (light: "4E8A52", dark: "86C486")     // 세이지 그린
+    }
+
     /// **작업 중(active) — 인디고.** `StatusStyle.active`. 완료 세이지·git 초록과 확실히 갈리는 쿨톤("처리중").
-    static let work = NSColor.dynamic(light: 0x3A5FD0, dark: 0x7C9BF0)
+    static let work = NSColor.dynamic(lightHex: StatusHex.work.light, darkHex: StatusHex.work.dark)
     /// **입력 대기(attention) — 더스티 로즈.** 앰버(`borderActivity`)와 분리한 상태 전용색(경보 아님 — 사람을 기다린다).
-    static let waiting = NSColor.dynamic(light: 0xA8506A, dark: 0xD68DA3)
+    static let waiting = NSColor.dynamic(lightHex: StatusHex.waiting.light, darkHex: StatusHex.waiting.dark)
     /// **완료(success) — 세이지 그린.** git 초록(`gitAdded`)과 분리 — "끝났다"의 차분한 초록.
-    static let done = NSColor.dynamic(light: 0x4E8A52, dark: 0x86C486)
+    static let done = NSColor.dynamic(lightHex: StatusHex.done.light, darkHex: StatusHex.done.dark)
     /// 옅은 강조 배경 틴트(버밀리언). **목록 선택에는 쓰지 않는다**(선택은 중립 `btnActive`가 macOS 규약).
     /// 팝오버·안내 배너 같은 데만. 웜 크롬에 묻히지 않게 반 톤 벌렸다.
     static let brandSubtle = NSColor.dynamic(light: 0xF6E8E3, dark: 0x3A2018)
@@ -165,6 +173,11 @@ extension NSColor {
             let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             return NSColor(hex: isDark ? dark : light)
         }
+    }
+
+    /// hex 문자열("RRGGBB") 버전 — 상태색 hex SSOT(`StatusHex`)가 NSColor로 흐르는 통로.
+    static func dynamic(lightHex: String, darkHex: String) -> NSColor {
+        dynamic(light: UInt32(lightHex, radix: 16) ?? 0, dark: UInt32(darkHex, radix: 16) ?? 0)
     }
 }
 

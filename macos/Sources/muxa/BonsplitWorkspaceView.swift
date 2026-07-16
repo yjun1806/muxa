@@ -141,8 +141,8 @@ private struct EmptyProjectView: View {
 /// 테두리는 직접 그리지 않고 **카드 레이어로 위치·색만 올려보낸다**. 칸 안에서 그리면 카드의
 /// 라운드 클립에 모서리가 깎이므로, `paneBorder`(→ `ContentCard`)가 클립 바깥에서 대신 그린다.
 ///
-/// - agent(주황=나를 기다림·초록=완료): "지금 이 칸의 추정 상태"를 지속 표시. 그 칸을 보면 해제된다.
-/// - flash(주황): 활동 순간 잠깐 켰다가 페이드아웃(켤 땐 빠르게, 끌 땐 천천히).
+/// - agent: "지금 이 칸의 상태"(작업중 인디고·대기 로즈·완료 세이지)를 상태별 형태·모션으로 지속 표시.
+///   유휴는 안 그린다. (예전의 순간 '활동 플래시'는 제거 — 상태 테두리가 이미 상태를 말한다.)
 ///
 /// Bonsplit은 `keepAllAlive`로 **안 보이는 탭의 뷰도 살려둔다** — preference는 opacity와 무관하게
 /// 수집되므로 선택된 탭만 올린다. 안 그러면 숨은 탭의 상태 테두리가 보이는 칸 위에 그려진다.
@@ -160,7 +160,6 @@ private struct PaneBorders: View {
             let focused = store.controller.focusedPaneId == paneId
             let activity = store.agentActivity(for: tabId)
             let agent = activity.borderColor.map { Color(nsColor: $0) }
-            let flashing = store.flashingTabs.contains(tabId)
             // 상태별 스타일(라이브) — 작업중·대기·완료 각각 형태·모션·치수가 다르다. idle이면 style=nil(색도 nil이라 안 그림).
             let style = activity.indicatorState.map { PaneIndicatorSettings.shared.style(for: $0) }
 
@@ -174,9 +173,6 @@ private struct PaneBorders: View {
                             speed: style?.speed ?? 1.6,
                             glowSpread: CGFloat(style?.glowSpread ?? 18),
                             animation: .easeInOut(duration: 0.25))
-                .paneBorder(id: "flash-\(tabId)",
-                            color: flashing ? Color.pBorderActivity : nil,
-                            animation: .easeOut(duration: flashing ? 0.12 : 0.5))
                 // 포커스 없는 칸을 살짝 눌러 둔다. 칸을 나란히 놓고 대조하는 게 이 앱의 일상이라
                 // **약하게** 잡았다 — 안 보이는 칸을 만들면 분할의 의미가 없다.
                 .overlay {

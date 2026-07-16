@@ -131,11 +131,11 @@ enum ClaudeHookInterpreter {
             // 그래서 아는 것만 통과시키고 모르는 건 무시한다(allowlist).
             switch payload.notificationType {
             case idleNotificationType:
-                // 유휴 리마인더인데 배경 작업이 돌고 있으면 침묵한다 — idle_prompt payload에는
-                // background_tasks가 없으므로 Stop에서 캐시한 값이 유일한 근거다.
+                // **유휴는 대기가 아니다.** 에이전트가 턴을 끝내고 프롬프트에 앉아 있을 뿐 —
+                // 사람이 결정해야 나아가는 waiting(권한·질문)과 다르다. idle 상태로, 알림·배지 없이 조용히.
+                // 배경 작업이 돌고 있으면 상태를 건드리지 않는다(idle_prompt엔 background_tasks가 없어 Stop 캐시가 근거).
                 guard !next.pendingBackgroundWork else { return (HookOutcome(), next) }
-                return (HookOutcome(state: .waiting, category: .idleReminder, title: "유휴",
-                                    body: clamp(payload.message ?? "에이전트가 손을 놓고 있다")), next)
+                return (HookOutcome(state: .idle), next)
             case let type? where waitingNotificationTypes.contains(type):
                 return (HookOutcome(state: .waiting, category: .needsPermission, title: "입력 대기",
                                     body: clamp(payload.message ?? "에이전트가 기다린다")), next)

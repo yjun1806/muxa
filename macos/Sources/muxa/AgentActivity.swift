@@ -100,6 +100,9 @@ struct AgentActivityEstimator: Equatable {
             case .done:
                 next.state = .done
                 next.pinned = true
+            case .idle:
+                next.state = .idle
+                next.pinned = true // 명시 유휴 — 커서 깜빡임 heartbeat로 working 되돌지 않게(다음 명시 신호까지 고정)
             }
         case .tick:
             // 추정 경로: 고정이 아니고 working이며 출력이 임계값 넘게 멎었으면 waiting으로.

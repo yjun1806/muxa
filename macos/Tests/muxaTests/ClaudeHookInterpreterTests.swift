@@ -136,10 +136,11 @@ final class ClaudeHookInterpreterTests: XCTestCase {
         XCTAssertNil(idle.outcome.state)
     }
 
-    func testIdleReminderDeliveredWhenNothingPending() {
+    func testIdlePromptIsIdleNotWaiting() {
+        // 유휴 프롬프트는 대기가 아니라 **idle** — 알림·배지 없이 조용히 상태만 바꾼다.
         let r = interpret(.notification, #"{"notification_type": "idle_prompt"}"#)
-        XCTAssertEqual(r.outcome.category, .idleReminder)
-        XCTAssertEqual(r.outcome.state, .waiting)
+        XCTAssertEqual(r.outcome.state, .idle)
+        XCTAssertNil(r.outcome.category, "유휴는 알림·배지를 내지 않는다")
     }
 
     /// 권한 요청은 배경 작업과 무관하게 항상 뜬다 — 사용자가 막고 있는 유일한 알림이다.
