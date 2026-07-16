@@ -34,7 +34,7 @@ struct SettingsPanel: View {
             Image(systemName: "gearshape").font(.muxa(.body)).foregroundStyle(Color.pMuted)
             Text("설정").font(.muxa(.body, weight: .semibold)).foregroundStyle(Color.pFg)
             Spacer(minLength: Space.md)
-            IconButton(icon: "xmark", help: "설정 닫기") { state.showSettings = false }
+            IconButton(icon: "xmark", help: "설정 닫기") { state.toggleSettings() }
         }
         .panelBar(height: RowHeight.panelHeader)
     }

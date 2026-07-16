@@ -36,7 +36,7 @@ final class AppState {
     /// 상태가 창을 **직접** 만들지 않고 이 경계에만 위임한다(부작용 격리).
     @ObservationIgnored weak var windowHost: WindowHost?
 
-    /// 분리 창 프레임 저장을 미뤄 두는 예약(디바운스 — `saveFramesDebounced`). 새 이동이 오면 취소·재예약된다.
+    /// 분리 창 프레임 저장을 미뤄 두는 예약(디바운스 — `saveDebounced`). 새 이동이 오면 취소·재예약된다.
     @ObservationIgnored private var frameSaveWork: DispatchWorkItem?
     private static let frameSaveDelay: TimeInterval = 0.5
 
@@ -96,19 +96,17 @@ final class AppState {
     /// 상단바 토글 버튼·단축키(⌘⇧E/⌘⇧G)·알림이 이 상태를 연다.
     var showExplorer = false
     var showGitPanel = false
-    /// 설정 사이드 패널(사용량 표시·탭 스타일) — 상단바 톱니가 연다. 세션 내 UI라 영속하지 않는다.
+    /// 인스펙터 탭 — 익스플로러·Git·설정·알림이 **한 슬롯**을 공유한다(하나만 보임, 통일 폭). 서비스 서랍은 별개.
     var showSettings = false
-    /// 우측 도구 패널(익스플로러·Git) 폭 — 좌측 경계 드래그로 리사이즈, 영속. 드래그 중엔 ResizablePanel의
-    /// 로컬 상태로만 움직이고(전역 재렌더 방지), 손을 뗀 순간에만 여기로 커밋해 저장한다.
-    private(set) var explorerWidth: CGFloat = AppState.defaultPanelWidth
-    private(set) var gitPanelWidth: CGFloat = AppState.defaultGitPanelWidth
+    var showAttention = false
+    /// **인스펙터 폭** — 어느 탭이든 공유(통일). 좌측 경계 드래그로 리사이즈·영속(`explorerWidth` 필드 재사용).
+    /// 드래그 중엔 ResizablePanel 로컬 상태로만 움직이고, 손 뗀 순간에만 여기로 커밋해 저장한다.
+    private(set) var explorerWidth: CGFloat = 340
     /// 서비스 서랍 폭 — 탐색기·Git과 같은 좌측 경계 드래그 리사이즈·영속. 좌(목록)+우(터미널)를 나란히
     /// 담으므로 로그가 읽히려면 하한이 넓다.
     private(set) var serviceDockWidth: CGFloat = AppState.defaultServiceDockWidth
     /// 서비스 도크 안 **목록 칼럼** 폭 — [좌: 목록 | 우: 터미널] 분할의 왼쪽. 세션 내 조절(비영속).
     private(set) var serviceListWidth: CGFloat = 200
-    /// 설정 사이드 패널 폭 — 세션 내 좌측 경계 드래그로 조절(비영속).
-    private(set) var settingsPanelWidth: CGFloat = 340
 
     static let defaultPanelWidth: CGFloat = 280
     static let panelWidthRange: ClosedRange<CGFloat> = 180 ... 720
@@ -119,7 +117,6 @@ final class AppState {
     static let defaultServiceDockWidth: CGFloat = 560
     static let serviceDockWidthRange: ClosedRange<CGFloat> = 420 ... 900
     static let serviceListWidthRange: ClosedRange<CGFloat> = 150 ... 360
-    static let settingsPanelWidthRange: ClosedRange<CGFloat> = 300 ... 560
     static func clampPanelWidth(_ w: CGFloat) -> CGFloat { clamp(w, to: panelWidthRange) }
     static func clampGitPanelWidth(_ w: CGFloat) -> CGFloat { clamp(w, to: gitPanelWidthRange) }
     static func clampServiceDockWidth(_ w: CGFloat) -> CGFloat { clamp(w, to: serviceDockWidthRange) }
@@ -132,11 +129,6 @@ final class AppState {
         if persist { save() }
     }
 
-    func setGitPanelWidth(_ w: CGFloat, persist: Bool = true) {
-        gitPanelWidth = Self.clampGitPanelWidth(w)
-        if persist { save() }
-    }
-
     func setServiceDockWidth(_ w: CGFloat, persist: Bool = true) {
         serviceDockWidth = Self.clampServiceDockWidth(w)
         if persist { save() }
@@ -146,11 +138,51 @@ final class AppState {
         serviceListWidth = Self.clamp(w, to: Self.serviceListWidthRange)
     }
 
-    func setSettingsPanelWidth(_ w: CGFloat, persist: Bool = true) {
-        settingsPanelWidth = Self.clamp(w, to: Self.settingsPanelWidthRange)
+    // MARK: - 인스펙터(단일 슬롯 탭 — 익스플로러·Git·설정·알림)
+
+    /// 지금 열린 인스펙터 탭 — bool들의 상호배타를 하나의 값으로 읽는다(닫혔으면 nil). 설정은 탭이 아니다.
+    var inspectorTab: InspectorTab? {
+        if showExplorer { return .explorer }
+        if showGitPanel { return .git }
+        if showAttention { return .attention }
+        return nil
     }
 
-    func toggleSettings() { showSettings.toggle() }
+    /// 인스펙터 열기 버튼이 다시 열 때 돌아갈 마지막 탭(닫아도 기억). 상단바 "사이드 패널" 버튼용.
+    @ObservationIgnored private(set) var lastInspectorTab: InspectorTab = .explorer
+
+    /// 닫혀 있으면 마지막 탭으로 열고, 열려 있으면 닫는다 — 상단바 사이드 패널 버튼.
+    func toggleInspector() { setInspector(inspectorTab == nil ? lastInspectorTab : nil) }
+    /// 탭 선택 — 같은 탭을 다시 누르면 닫는다(토글). 항상 하나만 켠다.
+    func selectInspector(_ tab: InspectorTab) { setInspector(inspectorTab == tab ? nil : tab) }
+    /// 특정 탭을 **강제로 연다**(토글 아님) — 알림·검토 클릭 같은 "이걸 보여줘" 동선.
+    func openInspector(_ tab: InspectorTab) { setInspector(tab) }
+    func closeInspector() { setInspector(nil) }
+    /// 설정 패널 토글 — **인스펙터와 같은 우측 슬롯**을 쓰므로 열면 인스펙터를 닫는다(스택 방지).
+    func toggleSettings() {
+        let open = !showSettings
+        showExplorer = false; showGitPanel = false; showAttention = false
+        showSettings = open
+        saveDebounced()
+    }
+
+    private func setInspector(_ tab: InspectorTab?) {
+        if let tab { lastInspectorTab = tab }
+        showSettings = false // 인스펙터를 열면 설정 패널을 닫는다(우측 슬롯은 하나)
+        showExplorer = tab == .explorer
+        showGitPanel = tab == .git
+        showAttention = tab == .attention
+        // 탭 전환마다 동기 디스크 I/O(save)를 피한다 — 그게 클릭이 가끔 씹히던 원인(메인스레드 히치).
+        // 디바운스로 합쳐 저장한다(빠른 연속 전환은 마지막 한 번만 기록).
+        saveDebounced()
+    }
+
+    /// 알림 배지 수 = 안 읽은 이력 + 처리 안 한 워크트리 제안. **상단바 벨과 인스펙터 알림 탭이 공유**한다
+    /// (같은 계산을 두 곳에 복붙하지 않는다). 경로 유니크로 세어 공유 repo의 이중 카운트를 막는다.
+    var attentionBadgeCount: Int {
+        let offers = Set(workspaces.flatMap { worktreeOffers(for: $0).map(\.path) }).count
+        return attention.unreadCount + offers
+    }
 
     /// ⌘K 빠른 전환기(명령 팔레트) 표시 상태 — 세션 영속 대상 아님. 단축키가 토글한다.
     var showQuickSwitch = false
@@ -317,7 +349,9 @@ final class AppState {
     /// 인박스 항목 클릭 → 그 칸으로 점프(원클릭 검토 동선 재사용). 소속이 사라진 항목이면 무동작.
     /// 시스템 항목(빈 컨텍스트)도 revealActivity가 소속 프로젝트를 못 찾아 안전하게 무동작한다.
     func revealAttention(_ entry: AttentionEntry) {
-        revealActivity(projectId: entry.projectId, tabId: entry.tabId)
+        // 인박스 항목 클릭 = 그 칸으로 점프. Git 탭을 자동으로 열지 않는다(단일 슬롯이라 열면 인박스가
+        // 사라지고, onClose가 다시 닫아 충돌한다 — diff는 어차피 탭으로 열린다).
+        revealActivity(projectId: entry.projectId, tabId: entry.tabId, openGitPanel: false)
     }
 
     /// 인박스 항목 위치 라벨 — "워크스페이스 · 프로젝트". 소속을 못 찾으면 빈 문자열.
@@ -351,7 +385,7 @@ final class AppState {
         guard !routeToOwner(projectId) else { return } // 분리 창이면 그 창만 앞으로 + 그 창의 좌표만
         setActiveId(ws.id)        // 대상 워크스페이스로
         setActiveProject(projectId) // 그 안의 프로젝트로
-        if openGitPanel { showGitPanel = true } // 명시적 검토 동선에서만 Git 패널 자동 오픈
+        if openGitPanel { openInspector(.git) } // 명시적 검토 동선에서만 Git 탭 자동 오픈
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -1159,8 +1193,8 @@ final class AppState {
 
     // MARK: 도구 패널 액션 (익스플로러·Git — 영속 없음)
 
-    func toggleExplorer() { showExplorer.toggle(); save() }
-    func toggleGitPanel() { showGitPanel.toggle(); save() }
+    func toggleExplorer() { selectInspector(.explorer) }
+    func toggleGitPanel() { selectInspector(.git) }
 
     /// 단축키(⌘⇧E/⌘⇧G)가 부르는 창 지역 토글 — 크롬 값의 주인이 창마다 다르다(명세 §6의 비대칭):
     /// 메인은 AppState의 필드, 분리 창은 자기 `ProjectWindow`. 창을 안 보면 분리 창에서 누른 키가
@@ -1176,8 +1210,8 @@ final class AppState {
             return next
         }
     }
-    func setExplorer(_ open: Bool) { showExplorer = open; save() }
-    func setGitPanel(_ open: Bool) { showGitPanel = open; save() }
+    func setExplorer(_ open: Bool) { if open { openInspector(.explorer) } else if showExplorer { closeInspector() } }
+    func setGitPanel(_ open: Bool) { if open { openInspector(.git) } else if showGitPanel { closeInspector() } }
 
     // MARK: 워크스페이스 액션
 
@@ -1595,7 +1629,7 @@ final class AppState {
         }
         let snapshot = Persisted(workspaces: workspaces, activeId: activeId, sidebarMode: sidebarMode,
                                  layouts: savedLayouts, explorerWidth: Double(explorerWidth),
-                                 gitPanelWidth: Double(gitPanelWidth),
+                                 gitPanelWidth: nil, // 인스펙터가 폭을 통일(explorerWidth) — 레거시 필드는 안 쓴다
                                  serviceDockWidth: Double(serviceDockWidth),
                                  showExplorer: showExplorer, showGitPanel: showGitPanel,
                                  expandedWorkspaces: expandedWorkspaces.sorted(),
@@ -1623,7 +1657,7 @@ final class AppState {
     ///
     /// **leading-edge 억제(`SignalCoalescer`)를 쓰면 안 된다** — 그건 첫 신호만 통과시키므로
     /// 드래그가 **끝난 자리**(사용자가 원한 좌표)가 버려진다. 마지막 신호가 이겨야 한다.
-    func saveFramesDebounced() {
+    func saveDebounced() {
         frameSaveWork?.cancel()
         let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.save() } }
         frameSaveWork = work
@@ -1675,10 +1709,12 @@ final class AppState {
                                                  activeId: activeId,
                                                  workspaceIds: snapshot.workspaces.map(\.id))
         if let w = snapshot.explorerWidth { explorerWidth = Self.clampPanelWidth(CGFloat(w)) }
-        if let w = snapshot.gitPanelWidth { gitPanelWidth = Self.clampGitPanelWidth(CGFloat(w)) }
         if let w = snapshot.serviceDockWidth { serviceDockWidth = Self.clampServiceDockWidth(CGFloat(w)) }
         if let open = snapshot.showExplorer { showExplorer = open }
         if let open = snapshot.showGitPanel { showGitPanel = open }
+        // 우측 슬롯은 하나(단일 슬롯 인스펙터) — 구버전 스냅샷은 탐색기+Git을 동시에 열어 뒀을 수 있으니
+        // 상호배타로 정규화한다(탐색기 우선). 알림·설정 탭은 영속하지 않아 재시작 시 항상 닫힘.
+        if showExplorer && showGitPanel { showGitPanel = false }
         // 저장분이 어떤 모양이든(유령 프로젝트·중복·빈 창) 신뢰 가능한 배치로 되돌린다 — clampAll과 같은 성격.
         // (workspaces 대입 **뒤에** 와야 한다 — 아는 프로젝트 id 목록에 의존한다.)
         projectWindows = WindowLayout.normalize(snapshot.windows, projectIds: allProjectIds)
