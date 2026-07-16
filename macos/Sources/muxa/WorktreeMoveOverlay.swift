@@ -23,6 +23,8 @@ struct WorktreeMoveOverlay: View {
                 .paneBannerTransition()
             }
         }
+        // 등장(제안 도착)과 퇴장(무시·이동) 모두 transition이 발동하도록 두 축을 다 바인딩한다.
+        .animation(Motion.medium, value: store.moveSuggestion?(tabId) != nil)
         .animation(Motion.medium, value: store.dismissedMove[tabId])
     }
 }

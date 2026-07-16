@@ -792,8 +792,13 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         }
         t.onPwd = { [weak self] pwd in
             MainActor.assumeIsolated {
-                self?.pwds[tabId] = pwd
-                self?.onPwdChange?() // cd로 새 워크트리에 들어간 세션 → AppState가 자동 승격을 판정한다
+                guard let self else { return }
+                self.pwds[tabId] = pwd
+                // OSC 7은 **셸이 화면을 쥘 때**(프롬프트)만 나온다 — 도착 자체가 "에이전트가 물러났다"는 신호라
+                // 훅 cwd 미러는 스테일로 보고 버린다(안 버리면 cc 종료 후에도 이동 배너·링크 탭이 유령으로 남는다).
+                // cc가 다시 돌면 다음 훅이 다시 채운다. ∞(tmux) 탭은 바깥 OSC 7이 안 와 이 정리가 닿지 않는다(알려진 한계).
+                if self.agentCwds[tabId] != nil { self.agentCwds[tabId] = nil }
+                self.onPwdChange?() // cd로 새 워크트리에 들어간 세션 → AppState가 자동 승격을 판정한다
             }
         }
         terms[tabId] = t

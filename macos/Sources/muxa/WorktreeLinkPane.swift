@@ -13,8 +13,9 @@ enum WorktreeLinkAction {
 /// (터미널이 아니다 — 셸을 띄우지 않는다). 대상·액션은 스토어에 꽂힌 위임(`worktreeLink`/`onWorktreeLinkAction`)을
 /// 통해 AppState가 맡는다 — 스토어·이 뷰는 다른 프로젝트의 탭을 모른다.
 ///
-/// **가서 보기** = 원본 탭 점프(탭 유지 — 돌아올 수 있다). **가져오기** = 영속(∞ tmux) 세션만, 이식 후
-/// 이 링크 탭은 스스로 닫힌다(안내가 소임을 다했다). 일반 터미널은 프로세스가 로컬 서피스에 묶여 못 옮긴다.
+/// **가서 보기** = 원본 탭 점프(탭 유지 — 돌아올 수 있다). **가져오기** = 영속(∞ tmux) 세션만 — 이식되면
+/// `bringPersistentTab`이 이 스토어의 링크 탭을 일괄 정리한다(안내가 소임을 다했다).
+/// 일반 터미널은 프로세스가 로컬 서피스에 묶여 못 옮긴다.
 struct WorktreeLinkPane: View {
     let store: TerminalStore
     let tabId: TabID
@@ -47,9 +48,8 @@ struct WorktreeLinkPane: View {
                 .help("작업이 도는 원본 탭으로 이동합니다")
                 if link.isPersistent {
                     actionButton("가져오기", icon: "square.and.arrow.down") {
+                        // 링크 탭 정리는 이식 쪽(`bringPersistentTab` → `closeWorktreeLinkTabs`)이 맡는다 — 단일 메커니즘.
                         store.onWorktreeLinkAction?(link, .bring)
-                        // 이식이 끝나면 안내는 소임을 다했다 — 새 ∞ 탭이 생긴 뒤 스스로 닫는다.
-                        _ = store.controller.closeTab(tabId)
                     }
                     .help("지속 세션을 이 프로젝트의 새 탭으로 가져옵니다(안에서 돌던 작업 그대로)")
                 }
