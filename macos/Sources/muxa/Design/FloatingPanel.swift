@@ -91,28 +91,64 @@ final class FloatingPanelHost {
 
         reposition()
         previousKey = NSApp.keyWindow
-        panel.makeKeyAndOrderFront(nil)
+        if Self.animates {
+            // 페이드 + 6pt 위로 솟아오르며 등장 — 판이 "칩에서 떠올랐다"는 인상을 준다.
+            // 자리(target)는 reposition이 이미 정했다. 살짝 아래에서 시작해 제자리로 민다.
+            let target = panel.frame.origin
+            panel.alphaValue = 0
+            panel.setFrameOrigin(NSPoint(x: target.x, y: target.y - Self.enterSlide))
+            panel.makeKeyAndOrderFront(nil)
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = Self.enterDuration
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().alphaValue = 1
+                panel.animator().setFrameOrigin(target)
+            }
+        } else {
+            panel.makeKeyAndOrderFront(nil)
+        }
         installMonitors(for: panel)
     }
 
     func dismiss() {
         guard let panel else { return }
+        // 상호작용은 즉시 끊는다(닫히는 중 클릭이 판에 먹히지 않게).
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
         if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
         resignObserver = nil
-        panel.orderOut(nil)
         self.panel = nil
+
         // 포커스 복원은 우리가 아직 활성 앱일 때만. 다른 앱을 클릭해 닫힌 경우에 orderFront를 부르면
         // 방금 클릭한 앱 위로 muxa 창이 솟아오른다.
-        if NSApp.isActive { previousKey?.makeKeyAndOrderFront(nil) }
+        let prev = previousKey
+        let close = onClose
         previousKey = nil
-        onClose?()
         onClose = nil
-        // 항목 탭 처리는 이 패널의 이벤트 디스패치 안에서 돈다 — 마지막 참조를 지금 놓으면 자기 이벤트를
-        // 처리하는 도중 창이 해제될 수 있다. 해제를 다음 런루프로 미룬다.
-        DispatchQueue.main.async { _ = panel }
+        let finish = {
+            panel.orderOut(nil)
+            if NSApp.isActive { prev?.makeKeyAndOrderFront(nil) }
+            close?()
+            // 항목 탭 처리는 이 패널의 이벤트 디스패치 안에서 돈다 — 마지막 참조를 지금 놓으면 자기
+            // 이벤트를 처리하는 도중 창이 해제될 수 있다. 해제를 다음 런루프로 미룬다.
+            DispatchQueue.main.async { _ = panel }
+        }
+        if Self.animates {
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = Self.exitDuration
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                panel.animator().alphaValue = 0
+            }, completionHandler: finish)
+        } else {
+            finish()
+        }
     }
+
+    /// 시스템이 "동작 줄이기"를 켰으면 애니메이션을 끈다(접근성).
+    private static var animates: Bool { !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    private static let enterDuration: Double = 0.14
+    private static let exitDuration: Double = 0.10
+    private static let enterSlide: CGFloat = 6
 
     private func resize(to size: NSSize) {
         guard let panel, panel.frame.size != size else { return }

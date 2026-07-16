@@ -33,7 +33,9 @@ struct AttentionBell: View {
         .help("알림 인박스")
         // 인박스를 여는 순간 다 봤음 처리(벨 배지 0으로) — 여는 즉시 읽음이 표준 인박스 UX.
         .onChange(of: open) { _, isOpen in if isOpen { state.attention.markAllRead() } }
-        .popover(isPresented: $open, arrowEdge: .bottom) {
+        // 푸터 팝오버(사용량·서비스)와 **같은 떠 있는 판**을 쓴다 — 시스템 `.popover`의 화살표·재질을
+        // 버리고 muxa 표면·애니메이션으로 통일한다(어느 벨에서 나왔는지는 벨이 눌린 채 남는 것이 말한다).
+        .muxaPopover(isPresented: $open) {
             AttentionInbox(state: state) { open = false }
         }
     }
@@ -78,8 +80,9 @@ struct AttentionInbox: View {
             HDivider()
             hookFooter
         }
-        .frame(width: 320, height: 380)
-        .background(Color.pPanel)
+        // 폭은 푸터 팝오버와 같은 값으로 통일한다 — 같은 판 계열로 읽히게. 표면(배경·모서리·그림자)은
+        // 띄우는 쪽(`floatingPanel()`)이 입힌다.
+        .frame(width: PopoverWidth.footer, height: 380)
     }
 
     /// 훅 상태 푸터 — 알림 품질의 근원을 정직하게 드러낸다.
