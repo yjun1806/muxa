@@ -10,7 +10,7 @@ enum SidebarMode: String, Codable, CaseIterable {
     /// hover peek 확장을 제외한 기본 레이아웃 폭 — 콘텐츠는 이만큼만 예약된다(단일 진실원천).
     var baseWidth: CGFloat {
         switch self {
-        case .expanded: return 208
+        case .expanded: return 240
         case .icon, .hover: return 52
         case .slim: return 14
         }

@@ -28,7 +28,7 @@ struct SidebarWorkspaceRow: View {
                 .font(.muxa(.body, weight: .medium))
                 .foregroundStyle(active ? Color.pFg : Color.pMuted)
             Text(workspace.name)
-                .font(.muxa(.title, weight: .semibold))
+                .font(.muxa(.body, weight: .semibold))
                 .tracking(Tracking.label)
                 .textCase(.uppercase)
                 .foregroundStyle(active ? Color.pFg : Color.pMuted)
