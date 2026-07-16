@@ -59,4 +59,16 @@ struct LayoutDecodeTests {
         #expect(tabs.count == 1)
         #expect(focused)
     }
+
+    /// 탭 개수 집계 — 분할 트리 전체의 최상위 탭 합(사이드바 개수 배지의 lazy 프로젝트 출처).
+    @Test func 탭_개수는_분할_양쪽을_합산() {
+        let term = TabSnapshot(group: nil, items: [], selectedItem: 0)
+        let viewer = TabSnapshot(group: "documents", items: [], selectedItem: 0)
+        let snap = PaneSnapshot.split(
+            vertical: false, divider: 0.5,
+            first: .leaf(tabs: [term, viewer], selected: 0, focused: true),
+            second: .leaf(tabs: [term], selected: 0, focused: false)
+        )
+        #expect(snap.tabCount() == 3) // 터미널+뷰어 구분 없이 최상위 탭 전부
+    }
 }

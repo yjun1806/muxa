@@ -17,8 +17,9 @@ struct SidebarProjectRow: View {
     let project: Project
     @Binding var hoveredId: String?
     @Binding var menuOpenId: String?
-    /// 에이전트 목록 펼침 여부(행 로컬) — 기본 접힘.
-    @State private var expanded = false
+    /// 에이전트 목록 펼침 여부 — AppState 소유(영속). 기본 펼침, **접은 것만** 기억한다
+    /// (행 로컬 @State였을 땐 재시작·뷰 재생성마다 접혀 시작해 매번 다시 펼쳐야 했다).
+    private var expanded: Bool { state.isAgentListExpanded(project.id) }
 
     /// 다른 창이 그리고 있는 프로젝트 — 메인의 활성 표시(채움)를 주지 않는다(여긴 그 프로젝트가 없다).
     private var separated: Bool { !state.owner(of: project.id).isMain }
@@ -76,6 +77,13 @@ struct SidebarProjectRow: View {
                 .strikethrough(worktreeGone, color: Color.pMuted) // 폴더 사라짐 = "묘비"(상태색 안 빌리고 취소선으로)
                 .lineLimit(1)
                 .truncationMode(.tail)
+            // 열린 탭 개수 배지 — 워크스페이스 헤더(프로젝트 수)와 같은 문법. 안 연 프로젝트는
+            // 복원 스냅샷을 세고(`projectTabCount`), 탭이 없으면 숨긴다(0은 소음).
+            let tabCount = state.projectTabCount(project.id)
+            if tabCount > 0 {
+                CountBadge(count: tabCount)
+                    .accessibilityLabel("열린 탭 \(tabCount)개")
+            }
             // 워크트리 폴더가 사라진 프로젝트 — 닫지 않고 표시만(사용자가 정리). 서비스-빨강·에이전트-앰버와
             // 헷갈리지 않게 무채 글리프 + 취소선으로 조용히 알린다.
             if worktreeGone {
@@ -120,7 +128,7 @@ struct SidebarProjectRow: View {
 
     /// 목록 펼침/접힘 셰브론 — hover에서만 보인다(보임은 opacity, 히트는 hover가 가른다).
     private var expandToggle: some View {
-        Button { expanded.toggle() } label: {
+        Button { state.toggleAgentList(project.id) } label: {
             Image(systemName: "chevron.down")
                 .font(.muxa(.micro))
                 .foregroundStyle(Color.pMuted)
@@ -259,10 +267,10 @@ struct SidebarProjectRow: View {
     /// - **이미 활성**인 프로젝트를 다시 누르면 펼침/접힘 토글(그때만 접을 수 있다. 셰브론도 언제든 토글).
     private func activate() {
         if active {
-            if expandable { expanded.toggle() }
+            if expandable { state.toggleAgentList(project.id) }
         } else {
             select()
-            if expandable { expanded = true }
+            if expandable { state.expandAgentList(project.id) }
         }
     }
 

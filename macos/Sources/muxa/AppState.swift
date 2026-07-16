@@ -21,6 +21,11 @@ final class AppState {
     /// 여기에 들어간다(전환·생성·로드 시 삽입) — 포커스한 곳은 프로젝트가 보여야 하기 때문.
     private(set) var expandedWorkspaces: Set<String> = []
 
+    /// **접어 둔** 에이전트 목록의 프로젝트 id들 — 기본이 펼침이라 접은 것만 기억한다
+    /// (새 프로젝트·구 저장분은 집합에 없음 = 펼침, 마이그레이션 불필요). 프로젝트 전환 시 자동 펼침은
+    /// 여기서 제거로 구현된다(`expandAgentList`).
+    private(set) var collapsedAgentLists: Set<String> = []
+
     /// 백그라운드 활동(●)이 있는 프로젝트 id들(A). 사이드바 프로젝트 행이 관측해 상태 글리프를 그린다.
     private(set) var badgedProjects: Set<String> = []
 
@@ -678,6 +683,26 @@ final class AppState {
         SidebarTree.isExpanded(wsId: wsId, expanded: expandedWorkspaces)
     }
 
+    // MARK: 프로젝트 행 에이전트 목록 펼침 (기본 펼침 — 접은 것만 영속)
+
+    func isAgentListExpanded(_ projectId: String) -> Bool {
+        !collapsedAgentLists.contains(projectId)
+    }
+
+    /// 셰브론/활성 행 재클릭 — 이 프로젝트의 에이전트 목록만 접기/펼치기.
+    func toggleAgentList(_ projectId: String) {
+        if collapsedAgentLists.contains(projectId) { collapsedAgentLists.remove(projectId) }
+        else { collapsedAgentLists.insert(projectId) }
+        save()
+    }
+
+    /// 프로젝트 전환 시 자동 펼침 — 접혀 있을 때만 상태를 바꾼다(무의미한 저장 방지).
+    func expandAgentList(_ projectId: String) {
+        guard collapsedAgentLists.contains(projectId) else { return }
+        collapsedAgentLists.remove(projectId)
+        save()
+    }
+
     /// 프로젝트 행의 상태 — **이미 만들어진 스토어만** 본다.
     /// `store(for:in:)`은 없으면 만든다(= PTY 스폰)이라, 트리를 그리는 것만으로 안 보고 있는 프로젝트의
     /// 터미널이 전부 떠 버린다. 아직 안 연 프로젝트는 "신호 없음"(유휴)으로 둔다 — 지어내지 않는다.
@@ -749,6 +774,14 @@ final class AppState {
             }
         }
         return (working, waiting, done, idle)
+    }
+
+    /// 프로젝트의 열린 탭 개수(터미널+뷰어) — 사이드바 프로젝트 행의 개수 배지가 쓴다.
+    /// 연 프로젝트는 라이브 탭을, **아직 안 연(lazy) 프로젝트는 복원 스냅샷**을 센다
+    /// (스토어를 만들지 않는다 — 조회가 PTY를 스폰하면 안 된다). 둘 다 없으면 0(배지 숨김).
+    func projectTabCount(_ projectId: String) -> Int {
+        if let store = stores[projectId] { return store.controller.allTabIds.count }
+        return savedLayouts[projectId]?.tabCount() ?? 0
     }
 
     /// 프로젝트 행을 펼쳤을 때의 **에이전트 목록** — 이미 만들어진 스토어의 탭을 긴급도순으로 정렬해 돌려준다.
@@ -1744,6 +1777,9 @@ final class AppState {
         /// 사이드바에서 펼쳐 둔 워크스페이스 id들(나중에 추가된 필드라 옵셔널 하위호환).
         /// **Set이 아니라 정렬된 배열로 저장한다** — Set은 JSON 순서가 매번 달라져 파일이 무의미하게 뒤바뀐다.
         var expandedWorkspaces: [String]?
+        /// **접어 둔** 에이전트 목록의 프로젝트 id들(나중에 추가된 필드라 옵셔널 하위호환 —
+        /// 기본이 펼침이라 접은 것만 저장한다. 정렬 배열 저장 이유는 expandedWorkspaces와 동일).
+        var collapsedAgentLists: [String]?
         /// 분리 창 목록(나중에 추가된 필드라 옵셔널 하위호환 — 구 저장분은 nil = 분리 창 없음).
         ///
         /// **currentVersion을 올리지 않는다**: version은 지금 디코드만 되고 `apply()`가 읽지 않으며,
@@ -1757,13 +1793,14 @@ final class AppState {
         private enum CodingKeys: String, CodingKey {
             case version, workspaces, activeId, sidebarMode, layouts
             case explorerWidth, gitPanelWidth, serviceDockWidth, showExplorer, showGitPanel
-            case expandedWorkspaces, windows
+            case expandedWorkspaces, collapsedAgentLists, windows
         }
 
         init(workspaces: [Workspace], activeId: String, sidebarMode: SidebarMode,
              layouts: [String: PaneSnapshot]?, explorerWidth: Double?, gitPanelWidth: Double?,
              serviceDockWidth: Double?,
              showExplorer: Bool?, showGitPanel: Bool?, expandedWorkspaces: [String]?,
+             collapsedAgentLists: [String]? = nil,
              windows: [ProjectWindow]? = nil,
              version: Int = currentVersion) {
             self.version = version
@@ -1772,6 +1809,7 @@ final class AppState {
             self.serviceDockWidth = serviceDockWidth
             self.showExplorer = showExplorer; self.showGitPanel = showGitPanel
             self.expandedWorkspaces = expandedWorkspaces
+            self.collapsedAgentLists = collapsedAgentLists
             self.windows = windows
         }
 
@@ -1793,6 +1831,7 @@ final class AppState {
             showExplorer = try c.decodeIfPresent(Bool.self, forKey: .showExplorer)
             showGitPanel = try c.decodeIfPresent(Bool.self, forKey: .showGitPanel)
             expandedWorkspaces = try c.decodeIfPresent([String].self, forKey: .expandedWorkspaces)
+            collapsedAgentLists = try c.decodeIfPresent([String].self, forKey: .collapsedAgentLists)
             windows = try c.decodeIfPresent([ProjectWindow].self, forKey: .windows)
         }
     }
@@ -1818,6 +1857,7 @@ final class AppState {
                                  serviceDockWidth: Double(serviceDockWidth),
                                  showExplorer: showExplorer, showGitPanel: showGitPanel,
                                  expandedWorkspaces: expandedWorkspaces.sorted(),
+                                 collapsedAgentLists: collapsedAgentLists.sorted(),
                                  windows: projectWindows)
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         // **저장 실패를 삼키지 않는다.** 디스크가 가득 차거나(원자적 쓰기는 임시 파일을 쓰므로 용량을
@@ -1893,6 +1933,8 @@ final class AppState {
         expandedWorkspaces = SidebarTree.restore(saved: snapshot.expandedWorkspaces,
                                                  activeId: activeId,
                                                  workspaceIds: snapshot.workspaces.map(\.id))
+        // 접힌 에이전트 목록 — 사라진 프로젝트 id는 걸러낸다(유령 누적 방지). nil(구 저장분)=전부 펼침.
+        collapsedAgentLists = Set(snapshot.collapsedAgentLists ?? []).intersection(allProjectIds)
         if let w = snapshot.explorerWidth { explorerWidth = Self.clampPanelWidth(CGFloat(w)) }
         if let w = snapshot.serviceDockWidth { serviceDockWidth = Self.clampServiceDockWidth(CGFloat(w)) }
         if let open = snapshot.showExplorer { showExplorer = open }

@@ -86,15 +86,9 @@ struct SidebarWorkspaceRow: View {
         .task(id: workspace.id) { await state.loadRepoAvatar(for: workspace) } // 판정 1회(캐시) — 셸아웃 반복 없음
     }
 
-    /// 프로젝트 개수 배지 — 접혀 있어도 "안에 몇 개"가 보인다(orca SectionMetricsBadge).
+    /// 프로젝트 개수 배지 — 접혀 있어도 "안에 몇 개"가 보인다(스타일은 `CountBadge` 공용).
     private var countBadge: some View {
-        Text("\(workspace.projects.count)")
-            .font(.muxaMono(.micro))
-            .foregroundStyle(Color.pMuted)
-            .padding(.horizontal, Space.xs)
-            .padding(.vertical, Space.tight)
-            .background(Capsule().fill(Color.pBtnHover))
-            .overlay(Capsule().stroke(Color.pBorder, lineWidth: RowHeight.hairline))
+        CountBadge(count: workspace.projects.count)
             .accessibilityLabel("프로젝트 \(workspace.projects.count)개")
     }
 

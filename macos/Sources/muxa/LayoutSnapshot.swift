@@ -49,6 +49,17 @@ indirect enum PaneSnapshot: Codable {
         }
     }
 
+    /// 이 스냅샷 트리의 최상위 탭 개수(터미널+뷰어) — 아직 안 연(lazy) 프로젝트의
+    /// 사이드바 "열린 탭 N" 배지가 쓴다(스토어를 만들지 않고 센다 — PTY 스폰 금지).
+    func tabCount() -> Int {
+        switch self {
+        case .leaf(let tabs, _, _):
+            return tabs.count
+        case .split(_, _, let first, let second):
+            return first.tabCount() + second.tabCount()
+        }
+    }
+
     /// 이 스냅샷이 참조하는 tmux 세션명 전부(L3 고아 정리의 보존 목록).
     /// **아직 안 연 프로젝트의 세션도 여기 들어와야 한다** — 열린 탭만 세면 lazy 프로젝트의 셸이
     /// 고아로 몰려 죽는다.
