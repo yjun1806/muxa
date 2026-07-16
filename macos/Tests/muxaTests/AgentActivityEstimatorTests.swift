@@ -61,10 +61,11 @@ final class AgentActivityEstimatorTests: XCTestCase {
         XCTAssertEqual(exited.applying(.outputHeartbeat, now: 102).state, .done)
     }
 
-    func testBorderColorOnlyForWaitingAndDone() {
+    func testBorderColorForAllButIdle() {
+        // 진행중도 이제 상시 표시(칸 테두리 계속 켜짐) — idle만 표시 없음.
+        XCTAssertNotNil(AgentActivity.working.borderColor)
         XCTAssertNotNil(AgentActivity.waiting.borderColor)
         XCTAssertNotNil(AgentActivity.done.borderColor)
-        XCTAssertNil(AgentActivity.working.borderColor)
         XCTAssertNil(AgentActivity.idle.borderColor)
     }
 }

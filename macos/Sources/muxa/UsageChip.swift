@@ -31,15 +31,14 @@ struct UsageChip: View {
                         .font(.muxa(.label))
                         .foregroundStyle(Color.pMuted.opacity(0.7))
                 } else {
-                    // 막대 먼저(5h · wk · fable), 그다음 리셋 시각(5h · wk)을 모아서 —
-                    // fable(시간 없음)이 막대들과 붙어 "주간 | 페이블 | 주간시간" 순이 되도록.
+                    // 한도마다 [막대 | 리셋시각]이 한 묶음 — 5h 시각이 5h 막대 바로 옆에 온다.
+                    // 구분선은 묶음 사이에만(막대와 그 시각 사이엔 없다): "5h ▬ 9% ⏲3h | wk ▬ 54% ⏲2d".
                     ForEach(meters) { limit in
                         VDivider(height: 12)
                         meterView(limit)
-                    }
-                    ForEach(resetTimes, id: \.limit.id) { item in
-                        VDivider(height: 12)
-                        timeView(item.text)
+                        if let t = resetTime(for: limit) {
+                            timeView(t)
+                        }
                     }
                     if usage.failed {
                         // 값은 있지만 마지막 갱신이 실패 — 지금 보이는 건 이전 조회 결과다.
@@ -55,7 +54,10 @@ struct UsageChip: View {
             }
         }
         .muxaPopover(isPresented: $showUsage) {
-            UsagePopover()
+            UsagePopover(onOpenSettings: {
+                showUsage = false
+                state.openSettings(focus: .usage)
+            })
         }
         .task(id: projectDir) {
             await usage.refreshIfStale() // 프로젝트를 바꾸면 캐시가 만료됐는지 다시 본다
@@ -75,16 +77,13 @@ struct UsageChip: View {
         return [session, weekly, fable].compactMap { $0 }
     }
 
-    /// 리셋 시각은 **막대들 뒤에** 모은다 — fable(시간 없음)이 막대들과 붙어 있게(주간|페이블|주간시간).
-    /// 각자 토글(세션·주간), 순서는 세션 → 주간. fable은 시간을 표시하지 않는다.
-    private var resetTimes: [(limit: UsageLimit, text: String)] {
-        let all = usage.limits
-        var out: [(UsageLimit, String)] = []
-        if settings.showSessionReset, let s = all.first(where: \.isSession),
-           let t = ClaudeUsage.resetShort(s.resetsAt, now: now) { out.append((s, t)) }
-        if settings.showWeeklyReset, let w = all.first(where: { !$0.isSession && !$0.isModelScoped }),
-           let t = ClaudeUsage.resetShort(w.resetsAt, now: now) { out.append((w, t)) }
-        return out
+    /// 이 한도의 리셋 시각(축약) — 설정 토글이 켜졌고 시간이 있을 때만. fable(모델 스코프)은 시간이 없다.
+    /// 막대 바로 뒤에 붙여, 5h 시각이 5h 옆에 오게 한다.
+    private func resetTime(for limit: UsageLimit) -> String? {
+        guard !limit.isModelScoped else { return nil }
+        let enabled = limit.isSession ? settings.showSessionReset : settings.showWeeklyReset
+        guard enabled else { return nil }
+        return ClaudeUsage.resetShort(limit.resetsAt, now: now)
     }
 
     /// 보여줄 한도가 없을 때의 문구 — 조회 전·실패·빈 응답을 구분한다.

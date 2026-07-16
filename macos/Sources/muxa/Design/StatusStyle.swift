@@ -14,7 +14,7 @@ enum StatusStyle {
         switch tone {
         case .quiet: return "circle"                          // 빈 링 — 조용함
         case .active: return "circle.fill"                    // 채운 원 — 돌고 있다
-        case .attention: return "ellipsis.circle.fill"        // … — 기다린다(느낌표는 에러처럼 읽혀 뺐다)
+        case .attention: return "pause.fill"                  // ⏸ 정지 바 — 기다린다(최종안 C, 느낌표·… 아님)
         case .success: return "checkmark.circle"              // 체크 — 끝났다
         case .failure: return "exclamationmark.triangle.fill" // 경고 삼각 — 실패(느낌표는 여기에만)
         case .inert: return "circle.dotted"                   // 점선 링 — 아직 안 돎

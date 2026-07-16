@@ -13,7 +13,7 @@ struct StatusMappingSnapshotTests {
     @Test func 프로젝트_상태_글리프() {
         #expect(ProjectStatusStyle.glyph(.idle) == "circle")
         #expect(ProjectStatusStyle.glyph(.working) == "circle.fill")
-        #expect(ProjectStatusStyle.glyph(.attention) == "ellipsis.circle.fill") // 느낌표는 failure로 옮김(에러 오독 방지)
+        #expect(ProjectStatusStyle.glyph(.attention) == "pause.fill") // ⏸ 정지 바(최종안 C) — 느낌표는 failure로
     }
 
     @Test func 프로젝트_상태_점크기는_유휴만_작다() {
@@ -47,11 +47,11 @@ struct StatusMappingSnapshotTests {
         #expect(AgentActivity.done.label == "완료")
     }
 
-    @Test func 에이전트_테두리색은_대기와_완료에만_있다() {
-        // 상시 테두리는 "사람을 기다린다/끝났다"만 — working·idle은 조용(nil).
+    @Test func 에이전트_테두리색은_유휴만_없다() {
+        // 진행중도 이제 상시 표시(계속 켜짐) — "돌고 있다/기다린다/끝났다" 모두 색, idle만 nil.
+        #expect(AgentActivity.working.borderColor != nil)
         #expect(AgentActivity.waiting.borderColor != nil)
         #expect(AgentActivity.done.borderColor != nil)
-        #expect(AgentActivity.working.borderColor == nil)
         #expect(AgentActivity.idle.borderColor == nil)
     }
 

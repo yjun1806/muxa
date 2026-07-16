@@ -5,7 +5,7 @@ import SwiftUI
 /// 순수 값이다(라벨·rawValue만). 실제 그리기는 `ContentCard`의 테두리 레이어가, 칸에 얹는 일은
 /// `BonsplitWorkspaceView`가 맡는다(경계 분리). `.ring`이 기존 기본(전체 링)이라 하위호환된다.
 enum PaneIndicatorForm: String, CaseIterable, Identifiable {
-    case ring       // 전체 링 — 네 변 다(현재 기본)
+    case ring       // 전체 링 — 네 변 다
     case top        // 상단 바
     case bottom     // 하단 바
     case left       // 좌측 레일
@@ -57,27 +57,63 @@ enum PaneMotion: String, CaseIterable, Identifiable {
     }
 }
 
-/// 칸 상태 표시의 사용자 설정 — 종합 설정 패널에서 바꾸고 UserDefaults에 즉시 영속한다.
+/// 한 상태(작업중·대기·완료)의 칸 표시 스타일 — 형태 + 모션 + 치수. 순수 값(부작용 없음).
+/// 색은 여기 없다 — 상태가 정한다(`PaneIndicatorState.color`, 상태색 시스템 불변).
+struct PaneIndicatorStyle: Equatable {
+    var form: PaneIndicatorForm
+    var motion: PaneMotion
+    var thickness: Double
+    var bracketInset: Double
+    var speed: Double
+    var glowSpread: Double
+}
+
+/// 칸 표시를 가르는 상태 — **유휴는 여기 없다**(표시 안 함). 색은 상태 고정(작업=인디고·대기=로즈·완료=세이지).
+enum PaneIndicatorState: String, CaseIterable, Identifiable {
+    case working, waiting, done
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .working: return "작업 중"
+        case .waiting: return "입력 대기"
+        case .done: return "완료"
+        }
+    }
+
+    var color: NSColor {
+        switch self {
+        case .working: return Palette.work
+        case .waiting: return Palette.waiting
+        case .done: return Palette.done
+        }
+    }
+
+    /// 상태별 기본 스타일 — 작업중은 "진행 중"이 읽히게 상단 진행바(흐름), 대기는 시선 끌 펄스 링,
+    /// 완료는 조용한 정적 링. 사용자가 설정에서 각각 바꾼다.
+    var defaultStyle: PaneIndicatorStyle {
+        switch self {
+        case .working: return PaneIndicatorStyle(form: .top, motion: .flow, thickness: 2, bracketInset: 7, speed: 1.6, glowSpread: 18)
+        case .waiting: return PaneIndicatorStyle(form: .ring, motion: .pulse, thickness: 2, bracketInset: 7, speed: 1.6, glowSpread: 18)
+        case .done: return PaneIndicatorStyle(form: .ring, motion: .none, thickness: 2, bracketInset: 7, speed: 1.6, glowSpread: 18)
+        }
+    }
+}
+
+/// 칸 상태 표시의 사용자 설정 — **상태별(working/waiting/done)** 스타일을 각각 담고 UserDefaults에 즉시 영속한다.
 ///
-/// 값은 순수하다(형태 enum·치수·불리언). `TabStyleSettings`와 같은 패턴 —
-/// 소비는 경계(`ContentCard` 렌더·`TerminalStore.acknowledgeAgent`)가 맡는다.
+/// 값은 순수하다(스타일 값 타입·불리언). 소비는 경계(`ContentCard` 렌더·`TerminalStore.acknowledgeAgent`)가 맡는다.
 @Observable
 final class PaneIndicatorSettings {
     @MainActor static let shared = PaneIndicatorSettings()
 
-    var form: PaneIndicatorForm { didSet { defaults.set(form.rawValue, forKey: Self.key("form")) } }
-    var motion: PaneMotion { didSet { defaults.set(motion.rawValue, forKey: Self.key("motion")) } }
-    /// 선·링 두께(1~5).
-    var thickness: Double { didSet { defaults.set(thickness, forKey: Self.key("thickness")) } }
-    /// 브래킷 모서리 여백(2~16) — 브래킷 형태에만 유효.
-    var bracketInset: Double { didSet { defaults.set(bracketInset, forKey: Self.key("bracketInset")) } }
-    /// 모션 한 사이클 시간(초, 0.5~3.0) — 작을수록 빠르다. 없음 형태엔 무의미.
-    var speed: Double { didSet { defaults.set(speed, forKey: Self.key("speed")) } }
-    /// 글로우 번짐 반경(6~36) — 글로우 모션에만 유효.
-    var glowSpread: Double { didSet { defaults.set(glowSpread, forKey: Self.key("glowSpread")) } }
+    var working: PaneIndicatorStyle { didSet { Self.persist(defaults, .working, working) } }
+    var waiting: PaneIndicatorStyle { didSet { Self.persist(defaults, .waiting, waiting) } }
+    var done: PaneIndicatorStyle { didSet { Self.persist(defaults, .done, done) } }
     /// 포커싱(탭 열람) 시 waiting/done 칸 테두리를 지울지. **기본 false = 유지**(봐도 안 사라진다).
-    /// false여도 다음 실제 활동(출력→working)엔 자연히 바뀐다 — "본다고 끄지 않을 뿐".
-    var clearOnFocus: Bool { didSet { defaults.set(clearOnFocus, forKey: Self.key("clearOnFocus")) } }
+    /// false여도 다음 실제 활동(출력→working)엔 자연히 바뀐다 — "본다고 끄지 않을 뿐". (작업중은 원래 안 지운다.)
+    var clearOnFocus: Bool { didSet { defaults.set(clearOnFocus, forKey: Self.focusKey) } }
 
     /// 슬라이더 범위(뷰와 클램프가 한 출처를 쓰게).
     static let thicknessRange: ClosedRange<Double> = 1...5
@@ -89,20 +125,63 @@ final class PaneIndicatorSettings {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        form = defaults.string(forKey: Self.key("form")).flatMap(PaneIndicatorForm.init(rawValue:)) ?? .ring
-        motion = defaults.string(forKey: Self.key("motion")).flatMap(PaneMotion.init(rawValue:)) ?? .none
-        thickness = Self.stored(defaults, "thickness", default: 2, in: Self.thicknessRange)
-        bracketInset = Self.stored(defaults, "bracketInset", default: 7, in: Self.bracketInsetRange)
-        speed = Self.stored(defaults, "speed", default: 1.6, in: Self.speedRange)
-        glowSpread = Self.stored(defaults, "glowSpread", default: 18, in: Self.glowSpreadRange)
-        clearOnFocus = defaults.object(forKey: Self.key("clearOnFocus")) != nil
-            ? defaults.bool(forKey: Self.key("clearOnFocus")) : false
+        working = Self.load(defaults, .working)
+        waiting = Self.load(defaults, .waiting)
+        done = Self.load(defaults, .done)
+        clearOnFocus = defaults.object(forKey: Self.focusKey) != nil ? defaults.bool(forKey: Self.focusKey) : false
     }
 
-    private static func stored(_ d: UserDefaults, _ name: String, default def: Double, in range: ClosedRange<Double>) -> Double {
-        guard d.object(forKey: key(name)) != nil else { return def }
-        return min(max(d.double(forKey: key(name)), range.lowerBound), range.upperBound)
+    /// 상태의 현재 스타일.
+    func style(for state: PaneIndicatorState) -> PaneIndicatorStyle {
+        switch state {
+        case .working: return working
+        case .waiting: return waiting
+        case .done: return done
+        }
     }
 
-    private static func key(_ name: String) -> String { "muxa.paneindicator.\(name)" }
+    /// 상태의 스타일을 통째로 갱신(뷰 바인딩용) — 해당 didSet가 영속한다.
+    func setStyle(_ style: PaneIndicatorStyle, for state: PaneIndicatorState) {
+        switch state {
+        case .working: working = style
+        case .waiting: waiting = style
+        case .done: done = style
+        }
+    }
+
+    // MARK: 영속(상태 × 필드 별 키)
+
+    private static func load(_ d: UserDefaults, _ state: PaneIndicatorState) -> PaneIndicatorStyle {
+        let def = state.defaultStyle
+        let form = d.string(forKey: key(state, "form")).flatMap(PaneIndicatorForm.init(rawValue:)) ?? def.form
+        let motion = d.string(forKey: key(state, "motion")).flatMap(PaneMotion.init(rawValue:)) ?? def.motion
+        return PaneIndicatorStyle(
+            form: form,
+            motion: motion,
+            thickness: stored(d, state, "thickness", default: def.thickness, in: thicknessRange),
+            bracketInset: stored(d, state, "bracketInset", default: def.bracketInset, in: bracketInsetRange),
+            speed: stored(d, state, "speed", default: def.speed, in: speedRange),
+            glowSpread: stored(d, state, "glowSpread", default: def.glowSpread, in: glowSpreadRange)
+        )
+    }
+
+    private static func persist(_ d: UserDefaults, _ state: PaneIndicatorState, _ s: PaneIndicatorStyle) {
+        d.set(s.form.rawValue, forKey: key(state, "form"))
+        d.set(s.motion.rawValue, forKey: key(state, "motion"))
+        d.set(s.thickness, forKey: key(state, "thickness"))
+        d.set(s.bracketInset, forKey: key(state, "bracketInset"))
+        d.set(s.speed, forKey: key(state, "speed"))
+        d.set(s.glowSpread, forKey: key(state, "glowSpread"))
+    }
+
+    private static func stored(_ d: UserDefaults, _ state: PaneIndicatorState, _ field: String,
+                               default def: Double, in range: ClosedRange<Double>) -> Double {
+        guard d.object(forKey: key(state, field)) != nil else { return def }
+        return min(max(d.double(forKey: key(state, field)), range.lowerBound), range.upperBound)
+    }
+
+    private static func key(_ state: PaneIndicatorState, _ field: String) -> String {
+        "muxa.paneindicator.\(state.rawValue).\(field)"
+    }
+    private static let focusKey = "muxa.paneindicator.clearOnFocus"
 }

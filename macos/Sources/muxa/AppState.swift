@@ -158,11 +158,24 @@ final class AppState {
     /// 특정 탭을 **강제로 연다**(토글 아님) — 알림·검토 클릭 같은 "이걸 보여줘" 동선.
     func openInspector(_ tab: InspectorTab) { setInspector(tab) }
     func closeInspector() { setInspector(nil) }
+    /// 설정 진입 시 "이 섹션 보여줘" 요청 — 사용량 팝오버 톱니 등 외부 동선이 싣는다.
+    /// 패널이 스크롤·강조에 한 번 쓰고 nil로 비운다(재요청이 같은 섹션이어도 다시 트리거되게). 세션 전용(비영속).
+    var settingsFocus: SettingsSection?
+
     /// 설정 패널 토글 — **인스펙터와 같은 우측 슬롯**을 쓰므로 열면 인스펙터를 닫는다(스택 방지).
     func toggleSettings() {
         let open = !showSettings
         showExplorer = false; showGitPanel = false; showAttention = false
         showSettings = open
+        saveDebounced()
+    }
+
+    /// 설정을 열고 특정 섹션으로 스크롤·강조한다("여기 설정 보여줘" 동선). 이미 열려 있어도 focus만 다시 실어
+    /// 재-스크롤/플래시를 트리거한다(패널이 `settingsFocus`를 소비한다).
+    func openSettings(focus: SettingsSection) {
+        showExplorer = false; showGitPanel = false; showAttention = false
+        showSettings = true
+        settingsFocus = focus
         saveDebounced()
     }
 

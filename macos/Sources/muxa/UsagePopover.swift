@@ -5,6 +5,9 @@ import SwiftUI
 ///
 /// 셸(헤더·구분선·폭)은 `FooterPopover`가 맡는다 — 서비스·백그라운드 팝오버와 같은 틀.
 struct UsagePopover: View {
+    /// 톱니 클릭 — 팝오버를 닫고 설정 사이드 패널의 "사용량 표시" 섹션을 연다(호출자가 배선).
+    let onOpenSettings: () -> Void
+
     private let usage = ClaudeUsageService.shared
 
     /// 팝오버가 떠 있는 동안 "N분 전 갱신"이 굳지 않도록 1분마다 흐르는 현재 시각.
@@ -19,12 +22,15 @@ struct UsagePopover: View {
         FooterPopover(title: "Claude", subtitle: updatedText) {
             ClaudeMark(size: IconSize.mark)
         } accessory: {
-            if usage.loading {
-                ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 14, height: 14)
-            } else {
-                FooterAction(icon: "arrow.clockwise", help: "새로고침") {
-                    Task { await usage.refresh(); now = Date() }
+            HStack(spacing: Space.xs) {
+                if usage.loading {
+                    ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 14, height: 14)
+                } else {
+                    FooterAction(icon: "arrow.clockwise", help: "새로고침") {
+                        Task { await usage.refresh(); now = Date() }
+                    }
                 }
+                FooterAction(icon: "gearshape", help: "사용량 표시 설정") { onOpenSettings() }
             }
         } content: {
             if usage.limits.isEmpty {

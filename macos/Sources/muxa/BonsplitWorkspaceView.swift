@@ -158,20 +158,21 @@ private struct PaneBorders: View {
             ?? store.controller.tabs(inPane: paneId).first?.id
         if visible == tabId {
             let focused = store.controller.focusedPaneId == paneId
-            let agent = store.agentActivity(for: tabId).borderColor.map { Color(nsColor: $0) }
+            let activity = store.agentActivity(for: tabId)
+            let agent = activity.borderColor.map { Color(nsColor: $0) }
             let flashing = store.flashingTabs.contains(tabId)
-            // 형태·두께·브래킷여백은 사용자 설정(라이브) — 바꾸면 열린 칸에 즉시 반영된다.
-            let ind = PaneIndicatorSettings.shared
+            // 상태별 스타일(라이브) — 작업중·대기·완료 각각 형태·모션·치수가 다르다. idle이면 style=nil(색도 nil이라 안 그림).
+            let style = activity.indicatorState.map { PaneIndicatorSettings.shared.style(for: $0) }
 
             Color.clear
                 .paneBorder(id: "agent-\(tabId)",
                             color: agent,
-                            lineWidth: CGFloat(ind.thickness),
-                            form: ind.form,
-                            bracketInset: CGFloat(ind.bracketInset),
-                            motion: ind.motion,
-                            speed: ind.speed,
-                            glowSpread: CGFloat(ind.glowSpread),
+                            lineWidth: CGFloat(style?.thickness ?? 2),
+                            form: style?.form ?? .ring,
+                            bracketInset: CGFloat(style?.bracketInset ?? 7),
+                            motion: style?.motion ?? .none,
+                            speed: style?.speed ?? 1.6,
+                            glowSpread: CGFloat(style?.glowSpread ?? 18),
                             animation: .easeInOut(duration: 0.25))
                 .paneBorder(id: "flash-\(tabId)",
                             color: flashing ? Color.pBorderActivity : nil,

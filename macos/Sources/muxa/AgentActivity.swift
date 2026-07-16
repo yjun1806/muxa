@@ -10,13 +10,25 @@ enum AgentActivity: String, Equatable {
     case waiting
     case done
 
-    /// 패인 테두리로 지속 표시할 상태색 — 없으면(working·idle) 상시 테두리를 그리지 않는다(작업 중엔 조용히).
-    /// waiting=로즈, done=세이지(사이드바 상태 점과 같은 색). 순간 이벤트(벨·플래시)와 달리 "지금 이 칸의 상태"를 짚는다.
+    /// 패인 테두리로 지속 표시할 상태색 — idle만 없다(표시 안 함). 작업중=인디고·대기=로즈·완료=세이지
+    /// (사이드바 상태 점과 같은 색). 순간 이벤트(벨·플래시)와 달리 "지금 이 칸의 상태"를 짚는다.
+    /// **작업중도 이제 상시 표시**한다(진행 중이면 칸 테두리가 계속 켜져 있어야 한다).
     var borderColor: NSColor? {
         switch self {
+        case .working: return Palette.work           // 인디고 — 진행 중(상시 표시)
         case .waiting: return Palette.waiting        // 로즈 — "나를 기다린다"(앰버 아님)
         case .done: return Palette.done              // 세이지 — 완료(git 초록과 분리)
-        case .working, .idle: return nil             // 은은 = 상시 표시 없음
+        case .idle: return nil                       // 유휴 = 표시 없음
+        }
+    }
+
+    /// 칸 표시 설정에서 쓸 상태 축 — idle은 표시 안 하므로 nil.
+    var indicatorState: PaneIndicatorState? {
+        switch self {
+        case .working: return .working
+        case .waiting: return .waiting
+        case .done: return .done
+        case .idle: return nil
         }
     }
 

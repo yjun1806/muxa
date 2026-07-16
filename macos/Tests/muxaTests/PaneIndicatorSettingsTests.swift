@@ -1,7 +1,7 @@
 import XCTest
 @testable import muxa
 
-/// 칸 상태 표시 설정 — 로드/클램프/영속. 뷰 없이 못 박는다(순수 로직).
+/// 칸 상태 표시 설정 — 상태별(working/waiting/done) 로드/클램프/영속 + 모션 유효성. 뷰 없이 못 박는다.
 final class PaneIndicatorSettingsTests: XCTestCase {
 
     private func suite(_ name: String = #function) -> UserDefaults {
@@ -10,52 +10,60 @@ final class PaneIndicatorSettingsTests: XCTestCase {
         return d
     }
 
-    func testDefaultsAreBackwardCompatible() {
+    // MARK: - 상태별 기본값
+
+    func testDefaultsPerState() {
         let s = PaneIndicatorSettings(defaults: suite())
-        XCTAssertEqual(s.form, .ring)          // 기존 룩(전체 링) 유지
-        XCTAssertEqual(s.thickness, 2)
-        XCTAssertEqual(s.bracketInset, 7)
-        XCTAssertFalse(s.clearOnFocus)         // 기본 = 포커스해도 유지
+        XCTAssertEqual(s.working.form, .top)       // 진행중 = 상단 진행바
+        XCTAssertEqual(s.working.motion, .flow)
+        XCTAssertEqual(s.waiting.form, .ring)      // 대기 = 펄스 링
+        XCTAssertEqual(s.waiting.motion, .pulse)
+        XCTAssertEqual(s.done.form, .ring)         // 완료 = 정적 링
+        XCTAssertEqual(s.done.motion, .none)
+        XCTAssertFalse(s.clearOnFocus)             // 기본 = 포커스해도 유지
     }
 
-    func testOutOfRangeStoredValuesClampOnLoad() {
-        let d = suite()
-        d.set(999, forKey: "muxa.paneindicator.thickness")
-        d.set(-5, forKey: "muxa.paneindicator.bracketInset")
-        let s = PaneIndicatorSettings(defaults: d)
-        XCTAssertEqual(s.thickness, PaneIndicatorSettings.thicknessRange.upperBound)
-        XCTAssertEqual(s.bracketInset, PaneIndicatorSettings.bracketInsetRange.lowerBound)
-    }
-
-    func testUnknownFormFallsBackToRing() {
-        let d = suite()
-        d.set("nonsense", forKey: "muxa.paneindicator.form")
-        XCTAssertEqual(PaneIndicatorSettings(defaults: d).form, .ring)
-    }
-
-    func testWritePersistsAndReloads() {
-        let d = suite()
-        let s = PaneIndicatorSettings(defaults: d)
-        s.form = .bracket
-        s.thickness = 4
-        s.clearOnFocus = true
-        let reloaded = PaneIndicatorSettings(defaults: d)
-        XCTAssertEqual(reloaded.form, .bracket)
-        XCTAssertEqual(reloaded.thickness, 4)
-        XCTAssertTrue(reloaded.clearOnFocus)
-    }
-
-    func testEveryFormHasLabel() {
-        for form in PaneIndicatorForm.allCases {
-            XCTAssertFalse(form.label.isEmpty, "\(form.rawValue) 라벨 누락")
+    func testEveryStateHasDefaultStyleAndColor() {
+        for state in PaneIndicatorState.allCases {
+            XCTAssertFalse(state.label.isEmpty, "\(state.rawValue) 라벨 누락")
+            _ = state.color // 크래시 없이 색을 낸다
         }
     }
 
-    // MARK: - 모션 resolved(형태별 유효성) — 순수 판정
+    // MARK: - 로드 / 클램프 / 영속
 
-    func testMotionDefaultsToNone() {
-        XCTAssertEqual(PaneIndicatorSettings(defaults: suite()).motion, .none)
+    func testOutOfRangeStoredValuesClampOnLoad() {
+        let d = suite()
+        d.set(999, forKey: "muxa.paneindicator.working.thickness")
+        d.set(-5, forKey: "muxa.paneindicator.working.glowSpread")
+        let s = PaneIndicatorSettings(defaults: d)
+        XCTAssertEqual(s.working.thickness, PaneIndicatorSettings.thicknessRange.upperBound)
+        XCTAssertEqual(s.working.glowSpread, PaneIndicatorSettings.glowSpreadRange.lowerBound)
     }
+
+    func testUnknownFormFallsBackToStateDefault() {
+        let d = suite()
+        d.set("nonsense", forKey: "muxa.paneindicator.waiting.form")
+        XCTAssertEqual(PaneIndicatorSettings(defaults: d).waiting.form, PaneIndicatorState.waiting.defaultStyle.form)
+    }
+
+    func testWritePersistsPerStateIndependently() {
+        let d = suite()
+        let s = PaneIndicatorSettings(defaults: d)
+        s.setStyle(PaneIndicatorStyle(form: .bracket, motion: .glow, thickness: 4,
+                                      bracketInset: 10, speed: 2.4, glowSpread: 30), for: .done)
+        s.clearOnFocus = true
+        let reloaded = PaneIndicatorSettings(defaults: d)
+        XCTAssertEqual(reloaded.done.form, .bracket)
+        XCTAssertEqual(reloaded.done.motion, .glow)
+        XCTAssertEqual(reloaded.done.thickness, 4)
+        XCTAssertEqual(reloaded.done.speed, 2.4, accuracy: 0.001)
+        XCTAssertTrue(reloaded.clearOnFocus)
+        // 다른 상태는 안 건드려진다.
+        XCTAssertEqual(reloaded.working.form, PaneIndicatorState.working.defaultStyle.form)
+    }
+
+    // MARK: - 모션 resolved(형태별 유효성) — 순수 판정
 
     func testFlowStaysOnBars() {
         for form in [PaneIndicatorForm.top, .bottom, .left] {
@@ -77,15 +85,8 @@ final class PaneIndicatorSettingsTests: XCTestCase {
         }
     }
 
-    func testMotionAndTuningPersist() {
-        let d = suite()
-        let s = PaneIndicatorSettings(defaults: d)
-        s.motion = .glow
-        s.speed = 2.4
-        s.glowSpread = 30
-        let reloaded = PaneIndicatorSettings(defaults: d)
-        XCTAssertEqual(reloaded.motion, .glow)
-        XCTAssertEqual(reloaded.speed, 2.4, accuracy: 0.001)
-        XCTAssertEqual(reloaded.glowSpread, 30)
+    func testEveryFormAndMotionHasLabel() {
+        for form in PaneIndicatorForm.allCases { XCTAssertFalse(form.label.isEmpty) }
+        for motion in PaneMotion.allCases { XCTAssertFalse(motion.label.isEmpty) }
     }
 }
