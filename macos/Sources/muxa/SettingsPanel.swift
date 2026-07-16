@@ -48,13 +48,16 @@ struct SettingsPanel: View {
     }
 
     /// 요청된 섹션으로 스크롤 + 잠깐 플래시. 요청은 한 번 쓰고 비운다(같은 섹션 재요청도 다시 트리거되게).
+    /// 스크롤은 한 런루프 미룬다 — onAppear(톱니로 새로 여는 주 경로) 시점엔 ScrollView 콘텐츠가 아직
+    /// 배치 전이라 즉시 `scrollTo`가 씹힌다. defer는 "onAppear 안에서 공유 상태 변경" 경고도 함께 피한다.
     private func consumeFocus(_ proxy: ScrollViewProxy) {
         guard let target = state.settingsFocus else { return }
-        state.settingsFocus = nil
-        withAnimation(Motion.fast) { proxy.scrollTo(target, anchor: .top) }
         flash = target
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_400_000_000)
+            state.settingsFocus = nil
+            try? await Task.sleep(nanoseconds: 40_000_000) // 레이아웃 확정 후 스크롤
+            withAnimation(Motion.fast) { proxy.scrollTo(target, anchor: .top) }
+            try? await Task.sleep(nanoseconds: 1_360_000_000)
             withAnimation(Motion.fast) { if flash == target { flash = nil } }
         }
     }
