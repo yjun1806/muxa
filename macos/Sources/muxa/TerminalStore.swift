@@ -1362,6 +1362,22 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         return id
     }
 
+    /// 영속(∞) 탭을 **다른 스토어로 넘기려고 이 스토어에서 놓는다** — tmux 세션을 kill/record 없이 조용히 놓고
+    /// 탭을 닫는다. 세션명을 맵에서 **먼저** 떼어, `didCloseTab`의 `releaseTmuxSession`이 early-return하게 만든다
+    /// (그래야 죽이지도, 이 프로젝트의 detached 목록에 남기지도 않는다). tmux 세션은 서버에 detach 상태로 살아 있어
+    /// 대상 스토어가 `reattach`로 되찾는다 — **라이브 서피스를 옮기지 않아** 안전하다(프로세스는 tmux 서버에 산다).
+    /// 영속 탭이 아니면 nil(일반 터미널은 프로세스가 로컬 서피스에 묶여 옮길 수 없다 — 링크 카드는 "가서 보기"만 준다).
+    func handOffPersistentTab(_ tabId: TabID) -> DetachedSession? {
+        guard persistentIntent[tabId] == true, let session = tmuxSessions[tabId] else { return nil }
+        let detached = DetachedSession(session: session, command: tabTitle(tabId), cwd: pwds[tabId],
+                                       title: tabTitle(tabId), detachedAt: Date())
+        tmuxSessions[tabId] = nil        // 놓기 전에 잊는다 → releaseTmuxSession이 kill/record 없이 반환
+        persistentIntent[tabId] = nil
+        syncAttachTimer()
+        _ = controller.closeTab(tabId)   // 서피스는 free되지만 tmux 세션은 detach 상태로 살아 있다
+        return detached
+    }
+
     /// 새 터미널 탭 생성(분할 후 빈 패인 채우기·⌘T 등).
     /// `inheritingFrom`은 작업 디렉터리를 물려받을 원본 칸(분할이면 분할된 칸). 없으면 탭이 생길 칸에서 상속한다.
     /// - Parameter persistent: 이 탭을 tmux 지속 세션(∞)으로 열지.

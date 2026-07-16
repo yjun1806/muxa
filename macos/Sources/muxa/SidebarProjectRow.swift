@@ -24,6 +24,8 @@ struct SidebarProjectRow: View {
         project.id == workspace.activeProjectId && workspace.id == state.activeId && !separated
     }
     private var hovered: Bool { hoveredId == project.id || menuOpenId == project.id }
+    /// 이 프로젝트의 워크트리 폴더가 디스크에서 사라졌나(닫지 않고 배지로만 표시 — D31).
+    private var worktreeGone: Bool { state.deadWorktreeProjectIds.contains(project.id) }
     /// 펼칠 값이 있나 — 신호(작업중·대기·완료)가 있거나 탭이 여럿(뷰어 포함)이면. 유휴 1개뿐이면 접어 둔다.
     private var expandable: Bool {
         let s = state.projectTabStatus(project.id)
@@ -64,8 +66,18 @@ struct SidebarProjectRow: View {
             Text(displayName)
                 .font(nameFont)
                 .foregroundStyle(active || hovered ? Color.pFg : Color.pMuted)
+                .strikethrough(worktreeGone, color: Color.pMuted) // 폴더 사라짐 = "묘비"(상태색 안 빌리고 취소선으로)
                 .lineLimit(1)
                 .truncationMode(.tail)
+            // 워크트리 폴더가 사라진 프로젝트 — 닫지 않고 표시만(사용자가 정리). 서비스-빨강·에이전트-앰버와
+            // 헷갈리지 않게 무채 글리프 + 취소선으로 조용히 알린다.
+            if worktreeGone {
+                Image(systemName: "folder.badge.minus")
+                    .font(.muxa(.micro))
+                    .foregroundStyle(Color.pMuted)
+                    .help("워크트리 폴더가 사라졌습니다 — 정리하려면 프로젝트를 닫으세요")
+                    .accessibilityLabel("\(project.name) 워크트리 폴더 사라짐")
+            }
             // 분리된 프로젝트도 **트리에 그대로 남는다** — 숨기면 어디로 갔는지 알 수 없다.
             if separated {
                 Image(systemName: "macwindow")

@@ -1,3 +1,4 @@
+import Bonsplit
 import Foundation
 
 /// 워크트리 ↔ 프로젝트 소속 판정(순수). 결정·근거는 ARCHITECTURE D31.
@@ -24,6 +25,37 @@ enum WorktreePromotion {
     static func offers(worktrees: [GitWorktree], in workspace: Workspace) -> [GitWorktree] {
         let ack = Set((workspace.acknowledgedWorktreePaths ?? []).map(normalizePath))
         return pending(worktrees: worktrees, in: workspace).filter { !ack.contains(normalizePath($0.path)) }
+    }
+}
+
+/// 워크트리에서 도는 작업이 살아 있는 **다른 프로젝트의 탭** — 링크 카드가 지목한다(D31). 판정은 `AppState.externalLiveSession`.
+struct ExternalWorktreeSession {
+    let originProjectId: String
+    let tabId: TabID
+    /// 영속(∞ tmux) 탭인가 — 그렇다면 "가져오기"(이식)가 가능하다. 일반 터미널은 "가서 보기"만.
+    let isPersistent: Bool
+}
+
+/// 워크트리 프로젝트에서 도는 작업이 **다른 프로젝트의 탭**에 살아 있는지 판정(순수) — 링크 카드(D31)의 재료.
+///
+/// 에이전트가 옛 탭 안에서 `git worktree add` 후 그 안으로 `cd`하면, 새 워크트리가 프로젝트로 승격돼도
+/// 살아있는 세션은 옛 프로젝트 탭에 갇힌다. 그 탭의 cwd(OSC 7)가 이 워크트리 경로 안이면 링크 카드로 이어준다
+/// ("가서 보기"/영속탭이면 "가져오기"). cwd 스캔·이식은 경계(AppState·TerminalStore), 매칭만 여기서 순수하게.
+enum WorktreeLink {
+    /// 이 cwd를 담는 프로젝트 중 **경로가 가장 긴(가장 구체적인)** 프로젝트의 인덱스 = 그 세션의 "임자". 없으면 nil.
+    /// 워크트리는 보통 레포 루트 하위(`<repo>/.worktrees/<b>`)에 살아, **루트 프로젝트가 하위 워크트리 세션을
+    /// 가로채는 것**을 막는다 — 링크 카드는 임자 프로젝트에만 뜨게 한다. 루트(`/`)·빈 경로는 임자가 될 수 없다.
+    static func owner(pwd: String, projectPaths: [String]) -> Int? {
+        let target = normalizePath(pwd)
+        guard !target.isEmpty else { return nil }
+        var best: Int?
+        var bestLen = -1
+        for (i, raw) in projectPaths.enumerated() {
+            let p = normalizePath(raw)
+            guard !p.isEmpty, p != "/", target == p || target.hasPrefix(p + "/") else { continue }
+            if p.count > bestLen { bestLen = p.count; best = i }
+        }
+        return best
     }
 }
 

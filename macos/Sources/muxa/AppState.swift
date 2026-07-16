@@ -24,6 +24,10 @@ final class AppState {
     /// 백그라운드 활동(●)이 있는 프로젝트 id들(A). 사이드바 프로젝트 행이 관측해 상태 글리프를 그린다.
     private(set) var badgedProjects: Set<String> = []
 
+    /// 워크트리 폴더가 사라진 프로젝트 id들 — **닫지 않고 배지("묘비")로만 표시**한다(사용자가 직접 정리). 판정은
+    /// 순수(`DeadWorktree`), 갱신은 `reconcileDeadWorktrees`. 디스크가 진실인 런타임 파생 상태라 영속 모델에 안 넣는다.
+    private(set) var deadWorktreeProjectIds: Set<String> = []
+
     /// 분리 창 목록(SSOT). **메인 창은 여기 없다** — 어느 창에도 없는 프로젝트가 메인 소유다(D29, 여집합).
     /// 조회·이동·정리는 전부 `AppState+Windows`에.
     private(set) var projectWindows: [ProjectWindow] = []
@@ -236,6 +240,8 @@ final class AppState {
         self.config = config
         // 설정의 사이드바 기본 모드를 초기값으로. 저장된 세션이 있으면 load()가 사용자의 마지막 선택으로 덮는다.
         self.sidebarMode = config.sidebarMode
+        // 공통 .git이 움직이면(cc가 git worktree add/remove) 배지를 다시 판정한다 — **닫지 않고** 표시만(D31).
+        worktreeMonitor.onChange = { [weak self] in self?.reconcileDeadWorktrees() }
     }
 
     /// 설정 파일 저장이 감지됐을 때 새 설정을 반영한다(ConfigWatcher → AppDelegate가 호출). (ARCHITECTURE 4.6)
@@ -1417,6 +1423,61 @@ final class AppState {
     /// 워크스페이스 집합이 바뀌면 감시자를 맞춘다(멱등). 세션 변경(add/remove)·startup(뷰 onAppear)에서 부른다.
     func syncWorktreeMonitor() { worktreeMonitor.sync(workspaces) }
 
+    /// 이 워크트리 프로젝트에서 도는 작업이 살아 있는 **다른 프로젝트의 탭**(옛 탭에 갇힌 세션) — 링크 카드(D31)가 읽는다.
+    /// 다른 스토어들의 셸 cwd(OSC 7 `pwds`)를 훑어, 이 프로젝트 경로 안에서 도는 가장 깊은 것을 고른다(매칭은 순수 `WorktreeLink`).
+    func externalLiveSession(for projectId: String) -> ExternalWorktreeSession? {
+        guard let ws = workspace(containing: projectId),
+              let project = ws.projects.first(where: { $0.id == projectId }),
+              let path = project.path ?? ws.path, !path.isEmpty else { return nil }
+        // 전 프로젝트의 실효 경로(임자 판정용) — 세션 cwd를 담는 **가장 구체적인** 프로젝트만 그 세션을 소유한다
+        // (레포 루트 프로젝트가 하위 워크트리 세션을 가로채지 않게).
+        let allPaths: [(id: String, path: String)] = workspaces.flatMap { w in
+            w.projects.compactMap { p in (p.path ?? w.path).map { (p.id, $0) } }
+        }
+        // 다른 프로젝트에 살아 있는 (tab, pwd) 중 **임자가 이 프로젝트인** 것만 후보로. 임자 판정을 통과했으면
+        // 이미 이 경로 안이므로, 여러 개면 **cwd가 가장 깊은** 것(가장 구체적으로 이 워크트리를 파고든 세션)을 고른다.
+        let paths = allPaths.map(\.path)
+        var best: (originProjectId: String, tabId: TabID, persistent: Bool, depth: Int)?
+        for (pid, store) in stores where pid != projectId {
+            for (tabId, pwd) in store.pwds {
+                guard let oi = WorktreeLink.owner(pwd: pwd, projectPaths: paths),
+                      allPaths[oi].id == projectId else { continue }
+                let depth = normalizePath(pwd).count
+                if depth > (best?.depth ?? -1) {
+                    best = (pid, tabId, store.isPersistent(tabId), depth)
+                }
+            }
+        }
+        guard let b = best else { return nil }
+        return ExternalWorktreeSession(originProjectId: b.originProjectId, tabId: b.tabId, isPersistent: b.persistent)
+    }
+
+    /// 링크 카드 "가져오기" — 영속(∞) 세션을 원본 프로젝트에서 이 워크트리 프로젝트로 이식한다. A에서 tmux 세션을
+    /// detach(kill/record 없이)하고 B에서 같은 세션에 attach — **라이브 서피스를 옮기지 않아** 안전(프로세스는 tmux 서버에 산다).
+    /// 일반 터미널은 `handOffPersistentTab`이 nil을 줘 무동작(가서 보기만 가능). 가져온 뒤 그 프로젝트로 데려간다.
+    func bringPersistentTab(from originId: String, tabId: TabID, to targetId: String) {
+        guard let origin = stores[originId], let target = stores[targetId],
+              let handed = origin.handOffPersistentTab(tabId) else { return }
+        target.reattach(handed)
+        if let ws = workspace(containing: targetId) {
+            setActiveId(ws.id)
+            setActiveProject(targetId)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// 워크트리 폴더가 사라진 프로젝트를 다시 판정한다(존재 확인=경계, 판정=순수 `DeadWorktree`).
+    /// **닫지 않는다** — 살아있는 cc·미저장 작업을 지키려 배지만 갱신하고, 정리는 사용자에게 맡긴다.
+    /// FSEvents 변화(`worktreeMonitor.onChange`)·startup·피커 제거에서 부른다.
+    func reconcileDeadWorktrees() {
+        let fm = FileManager.default
+        let next = DeadWorktree.projectIds(in: workspaces) { path in
+            var isDir: ObjCBool = false
+            return fm.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
+        }
+        if next != deadWorktreeProjectIds { deadWorktreeProjectIds = next }
+    }
+
     /// 인박스에 "추가?"로 띄울 워크트리 — 감지됨 − (기존 Project ∪ baseline). 뷰가 관측해 렌더한다.
     func worktreeOffers(for workspace: Workspace) -> [GitWorktree] {
         WorktreePromotion.offers(worktrees: worktreeMonitor.detected[workspace.id] ?? [], in: workspace)
@@ -1516,15 +1577,6 @@ final class AppState {
         syncWindows()
         // 닫힌 뒤 새로 활성화된 프로젝트도 배지 클리어(사용자가 보게 됐으니) — 유령 배지 방지.
         if let newActive = activeProject?.id { clearBadge(newActive) }
-    }
-
-    /// 워크트리가 제거돼(remove·병합 후 정리) **경로가 사라진 프로젝트들**을 닫는다.
-    /// 판정은 순수(WorktreeOrphans), 파괴(서비스·tmux 세션 종료)는 기존 동선(closeProject)에 태운다.
-    /// 워크스페이스의 마지막 프로젝트는 closeProject가 보존한다(고아로 남더라도 화면을 비우지 않는다).
-    func closeProjects(underPath path: String) {
-        for id in WorktreeOrphans.projectIds(in: workspaces, removedPath: path) {
-            closeProject(id)
-        }
     }
 
     /// 프로젝트 하나를 불변 갱신한다(어느 워크스페이스든 — 소속을 id로 찾는다). 새 배열로 교체.

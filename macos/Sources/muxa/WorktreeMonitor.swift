@@ -13,6 +13,10 @@ final class WorktreeMonitor {
     /// workspaceId → 현재 디스크의 워크트리 목록. 인박스 offer 계산의 원천(관측 대상 — 뷰가 반응).
     private(set) var detected: [String: [GitWorktree]] = [:]
 
+    /// 공통 `.git`이 움직일 때마다(디바운스 후) 부른다 — 목록 변화 여부와 무관하게 1회.
+    /// 승격은 여전히 안 한다(감지만). "폴더가 사라졌나" 같은 **디스크 파생 재판정**을 AppState가 걸 훅일 뿐이다.
+    @ObservationIgnored var onChange: (() -> Void)?
+
     private struct Entry {
         let watcher: FileWatcher
         let listDir: String   // repo 루트(worktree list 실행 기준)
@@ -62,7 +66,11 @@ final class WorktreeMonitor {
         guard entries[id] != nil else { return }
         // path+branch로 비교 — 경로 그대로 브랜치만 바뀐 워크트리도 갱신한다(offer 라벨=브랜치).
         func key(_ list: [GitWorktree]) -> [String] { list.map { $0.path + "\u{0}" + ($0.branch ?? "") } }
-        if let prev = detected[id], key(prev) == key(trees) { return } // 변화 없으면 조용히
-        detected[id] = trees
+        if detected[id].map({ key($0) }) != key(trees) {
+            detected[id] = trees   // 목록이 실제로 바뀐 경우만 관측 상태 갱신(뷰 반응)
+        }
+        // 목록 불변이어도 .git이 움직였으니 배지 재판정은 돌린다 — git 없이 폴더만 지워졌을 때(worktree list엔
+        // 아직 남지만 실폴더는 사라진 경우)까지 잡는다. reconcile은 stat 몇 번이라 값싸고 디바운스로 묶인다.
+        onChange?()
     }
 }

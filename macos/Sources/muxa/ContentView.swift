@@ -32,8 +32,9 @@ struct ContentView: View {
         .background(Color.pPanel)
         // ⌘K 빠른 전환기 — 크롬 전체 위에 뜨는 오버레이(닫혀 있으면 아무것도 안 그린다).
         .overlay { QuickSwitcher(state: state) }
-        // 복원 후(워크스페이스가 디스크에서 로드된 뒤) 워크트리 감시자를 붙인다 — 첫 실행은 ensureInitial이 건다.
-        .onAppear { state.syncWorktreeMonitor() }
+        // 복원 후(워크스페이스가 디스크에서 로드된 뒤) 워크트리 감시자를 붙이고, 사라진 폴더 배지도 한 번 판정한다
+        // (재시작 사이에 워크트리가 지워졌을 수 있다 — 첫 실행은 ensureInitial이 감시자를 건다).
+        .onAppear { state.syncWorktreeMonitor(); state.reconcileDeadWorktrees() }
         // 워크트리 피커 — 시트는 **여기가** 소유한다. 여는 버튼(사이드바 행의 +)은 hover에서만 존재해서,
         // 시트를 그 행에 달면 마우스가 떠나 행이 사라지는 순간 시트도 함께 죽는다(AppState가 요청만 나른다).
         // 대상 워크스페이스가 없으면 아예 띄우지 않는다 — 내용도 닫기 버튼도 없는 빈 시트가 뜬다.
@@ -44,9 +45,10 @@ struct ContentView: View {
                 WorktreePicker(dir: ws.path ?? SystemPaths.home) { name, path in
                     state.addProject(name: name, path: path)
                     state.worktreePickerRequested = false
-                } onRemoved: { path in
-                    // 워크트리 폴더가 사라졌다 — 그 폴더를 쓰던 프로젝트를 닫는다(죽은 경로·좀비 dev 서버 방지).
-                    state.closeProjects(underPath: path)
+                } onRemoved: { _ in
+                    // 워크트리 폴더가 사라졌다 — **닫지 않고** 그 폴더를 쓰던 프로젝트에 "제거됨" 배지만 단다
+                    // (안에 살아있는 cc·미저장 작업을 지킨다). 정리는 사용자가 직접(D31 · 배지 정책).
+                    state.reconcileDeadWorktrees()
                 } onCancel: {
                     state.worktreePickerRequested = false
                 }
@@ -221,6 +223,8 @@ struct ContentView: View {
         BonsplitWorkspaceView(store: state.store(for: project, in: ws),
                               windowId: WindowID.main.rawValue)
             .id(project.id)
+            // 이 워크트리의 작업이 다른 프로젝트 탭에 갇혀 있으면 상단에 링크 카드(가서 보기/가져오기 — D31). 없으면 안 그린다.
+            .overlay(alignment: .top) { WorktreeLinkBanner(state: state, project: project) }
     }
 
     /// 인스펙터 = [탭 스트립] / [활성 탭 본문]. 탭 전환은 스트립·상단바 아이콘·벨이 한다.
