@@ -23,6 +23,12 @@ struct UsageSettingsView: View {
                                      isOn: $settings.showFable)
                 }
             }
+            group("막대 색") {
+                SegmentedPills(
+                    options: StatusBarSettings.MeterColorMode.allCases.map { ($0, $0.label) },
+                    selection: $settings.meterColorMode
+                )
+            }
             group("갱신 주기") {
                 SegmentedPills(
                     options: StatusBarSettings.refreshChoices.map { ($0, intervalLabel($0)) },

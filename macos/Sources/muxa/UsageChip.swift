@@ -102,7 +102,7 @@ struct UsageChip: View {
             Text(limit.label)
                 .font(.muxa(.caption))
                 .foregroundStyle(Color.pMuted)
-            Meter(value: Double(limit.percent) / 100, color: UsageColor.meter(limit), width: 28, height: 4)
+            Meter(value: Double(limit.percent) / 100, color: UsageColor.meter(limit, mode: settings.meterColorMode), width: 28, height: 4)
             Text("\(limit.percent)%")
                 .font(.muxaMono(.label, weight: .semibold))
                 .foregroundStyle(UsageColor.text(limit))

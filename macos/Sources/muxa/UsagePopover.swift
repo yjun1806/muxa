@@ -79,7 +79,8 @@ struct UsagePopover: View {
                         .foregroundStyle(Color.pMuted)
                 }
             }
-            Meter(value: Double(limit.percent) / 100, color: UsageColor.meter(limit),
+            Meter(value: Double(limit.percent) / 100,
+                  color: UsageColor.meter(limit, mode: StatusBarSettings.shared.meterColorMode),
                   width: barWidth, height: 6)
             HStack(alignment: .firstTextBaseline, spacing: Space.md) {
                 Text("\(limit.percent)% 사용")

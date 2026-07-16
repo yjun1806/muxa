@@ -29,6 +29,21 @@ final class StatusBarSettings {
         var isLeading: Bool { self == .footerLeft || self == .headerLeft }
     }
 
+    /// 사용량 막대의 % 대비 색 규칙 — 사용자가 고른다.
+    enum MeterColorMode: String, CaseIterable, Identifiable {
+        /// 그린·옐로·레드 정석 게이지 — 낮으면 초록(여유), 70%+ 노랑, 90%+ 빨강.
+        case gauge
+        /// 브랜드색 기반 — 평시 브랜드색(버밀리언), 70%+ 노랑, 90%+ 빨강.
+        case brand
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .gauge: return "그린·옐로·레드"
+            case .brand: return "브랜드색"
+            }
+        }
+    }
+
     /// 갱신 주기 선택지(초) — 상태바가 이 간격으로 캐시 만료를 다시 본다.
     static let refreshChoices: [Double] = [30, 60, 120, 300]
 
@@ -42,6 +57,8 @@ final class StatusBarSettings {
     var position: Position { didSet { defaults.set(position.rawValue, forKey: Self.key("position")) } }
     /// 갱신 주기(초).
     var refreshIntervalSec: Double { didSet { defaults.set(refreshIntervalSec, forKey: Self.key("refreshInterval")) } }
+    /// 사용량 막대의 색 모드(정석 게이지 vs 브랜드색).
+    var meterColorMode: MeterColorMode { didSet { defaults.set(meterColorMode.rawValue, forKey: Self.key("meterColorMode")) } }
 
     private let defaults: UserDefaults
 
@@ -54,6 +71,8 @@ final class StatusBarSettings {
         position = (defaults.string(forKey: Self.key("position")).flatMap(Position.init(rawValue:))) ?? .footerLeft
         let stored = defaults.double(forKey: Self.key("refreshInterval"))
         refreshIntervalSec = Self.refreshChoices.contains(stored) ? stored : 60
+        // 기본값: 정석 게이지(브랜드가 버밀리언이라 낮은 %가 빨강으로 읽히는 걸 피한다).
+        meterColorMode = (defaults.string(forKey: Self.key("meterColorMode")).flatMap(MeterColorMode.init(rawValue:))) ?? .gauge
     }
 
     private static func key(_ name: String) -> String { "muxa.statusbar.\(name)" }

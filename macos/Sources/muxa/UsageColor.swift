@@ -10,8 +10,16 @@ enum UsageColor {
         return nil
     }
 
-    /// 막대 — 평시엔 브랜드 키 컬러(teal).
-    static func meter(_ limit: UsageLimit) -> Color { warn(limit) ?? Color.pBrand }
+    /// 막대 — 경고(70%+ 노랑·90%+ 빨강)는 두 모드 공통, 평시 색만 모드가 정한다.
+    /// - gauge: 낮으면 초록(정석 그린·옐로·레드 게이지) — 낮은 %가 "여유"로 읽힌다.
+    /// - brand: 평시 브랜드색(버밀리언).
+    static func meter(_ limit: UsageLimit, mode: StatusBarSettings.MeterColorMode) -> Color {
+        if let w = warn(limit) { return w }
+        switch mode {
+        case .gauge: return Color.pGitAdded // 초록
+        case .brand: return Color.pBrand
+        }
+    }
 
     /// 숫자 — 평시엔 읽기 쉬운 전경색, 경고일 때만 물든다(평소에 시끄럽지 않게).
     static func text(_ limit: UsageLimit) -> Color { warn(limit) ?? Color.pFg }
