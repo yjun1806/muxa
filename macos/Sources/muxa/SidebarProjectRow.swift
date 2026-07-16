@@ -177,18 +177,10 @@ struct SidebarProjectRow: View {
         .accessibilityLabel("\(project.name) 유휴 탭 \(count)개로 이동")
     }
 
-    /// 상태 글리프 슬롯 — **유휴(quiet)면 아무것도 안 그린다**(빈 슬롯으로 폭만 유지해 이름 시작선 불변).
-    /// 나머지 톤만 색+모양으로 말한다.
-    @ViewBuilder
+    /// 상태 글리프 슬롯 — `StatusMark`에 위임한다(작업중=스피너·대기=펄스·완료=체크, 유휴=빈 슬롯).
+    /// 빈 슬롯도 폭을 유지해 이름 시작선이 안 흔들린다.
     private func statusGlyph(_ tone: StatusTone) -> some View {
-        if tone == .quiet {
-            Color.clear.frame(width: IconSize.statusGlyph, height: IconSize.statusGlyph)
-        } else {
-            Image(systemName: StatusStyle.glyph(tone))
-                .font(.muxa(.micro, weight: .semibold))
-                .foregroundStyle(StatusStyle.color(tone))
-                .frame(width: IconSize.statusGlyph, height: IconSize.statusGlyph)
-        }
+        StatusMark(tone: tone, size: IconSize.statusGlyph)
     }
 
     /// 행/제목 클릭. **전환과 접힘이 안 겹치게** 한다:
