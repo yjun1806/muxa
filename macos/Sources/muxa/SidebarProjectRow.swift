@@ -4,14 +4,19 @@ import SwiftUI
 ///
 /// 선택 표시는 브랜드색 wash가 아니라 **중립 채움**(btnActive) — 크롬은 무채, 색은 신호다.
 /// 워크트리 프로젝트(path != nil)의 이름은 모노스페이스다(브랜치는 식별자다).
+///
+/// **상태는 두 축으로 나뉜다**(Orca 본받아 축소): 에이전트 축(작업중·주의·유휴+완료)은 **롤업 점 하나**
+/// (`projectLeadingTone` — 가장 센 신호)로 요약하고, 상세는 셰브론으로 펼치는 에이전트 목록이 맡는다.
+/// 예전의 4-way 분포 pill(작업중·대기·완료·유휴 칩을 한 줄에)은 폐기했다 — 한 행에 네 색을 다는 게 소음이었다.
+/// 실패(빨강)는 에이전트가 아니라 **서비스 죽음**에만 뜬다(`hasDeadService` → 서비스 요약이 맡는다).
 struct SidebarProjectRow: View {
     let state: AppState
     let workspace: Workspace
     let project: Project
     @Binding var hoveredId: String?
     @Binding var menuOpenId: String?
-    /// 분포 pill 펼침 여부(행 로컬) — 기본 접힘. 카테고리 >2일 때만 의미가 있다.
-    @State private var pillExpanded = false
+    /// 에이전트 목록 펼침 여부(행 로컬) — 기본 접힘.
+    @State private var expanded = false
 
     /// 다른 창이 그리고 있는 프로젝트 — 메인의 활성 표시(채움)를 주지 않는다(여긴 그 프로젝트가 없다).
     private var separated: Bool { !state.owner(of: project.id).isMain }
@@ -23,16 +28,19 @@ struct SidebarProjectRow: View {
     var body: some View {
         let leadingTone = state.projectLeadingTone(project.id)
         let services = state.services(of: project.id)
-        let buckets = pillBuckets(state.projectTabStatus(project.id))
-        // 침묵 규칙: 신호(작업중·대기·완료) 하나도 없고 탭도 1개뿐이면 pill 없이 1줄로 가라앉는다.
-        let showPill = buckets.contains { $0.tone != .quiet } || buckets.reduce(0) { $0 + $1.count } > 1
+        let s = state.projectTabStatus(project.id)
+        let total = s.working + s.waiting + s.done + s.idle
+        // 펼칠 값이 있나 — 신호(작업중·대기·완료)가 있거나 탭이 여럿이면. 유휴 1개뿐이면 접어 둔다.
+        let expandable = (s.working + s.waiting + s.done > 0) || total > 1
         VStack(alignment: .leading, spacing: Space.tight) {
-            topRow(leadingTone: leadingTone, services: services)
-            if showPill { pill(buckets) }
+            topRow(leadingTone: leadingTone, services: services, expandable: expandable)
+            if expandable && expanded {
+                agentList().padding(.leading, IconSize.statusGlyph + Space.sm) // 이름 아래 정렬
+            }
         }
         .padding(.leading, Space.treeIndent) // 2단 트리의 들여쓰기 = 위계
         .padding(.trailing, Space.sm)
-        .padding(.vertical, showPill ? Space.tight : 0) // 2줄일 때만 위아래 숨을 준다
+        .padding(.vertical, (expandable && expanded) ? Space.tight : 0) // 2줄일 때만 위아래 숨을 준다
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(minHeight: RowHeight.row)
         .background(active ? Color.pBtnActive : (hovered ? Color.pBtnHover : Color.clear))
@@ -46,11 +54,11 @@ struct SidebarProjectRow: View {
         .help(displayPath(project.path ?? workspace.path, home: SystemPaths.home))
     }
 
-    /// 이름 줄 — **리딩 상태 아이콘**(경보 헤드라인) · 이름 · (분리 글리프) · 서비스 요약/닫기.
-    private func topRow(leadingTone: StatusTone, services: [Service]) -> some View {
+    /// 이름 줄 — **리딩 롤업 점**(가장 센 신호 하나) · 이름 · (분리 글리프) · 서비스 요약/닫기 · 펼침 셰브론.
+    private func topRow(leadingTone: StatusTone, services: [Service], expandable: Bool) -> some View {
         HStack(spacing: Space.sm) {
-            // 리딩 = 프로젝트 경보 헤드라인(가장 센 신호 하나 — 죽은 서비스 빨강 ⚠ · 대기 호박 … · 작업중 틸 ●).
-            // 탭별 상세는 아래 분포 pill이 맡아 **겹치지 않는다**. 슬롯 고정으로 이름 시작선이 안 흔들린다.
+            // 리딩 = 프로젝트 롤업(가장 센 신호 하나 — 죽은 서비스 빨강 ⚠ · 대기 호박 … · 작업중 틸 ●).
+            // 상세는 셰브론으로 펼치는 목록이 맡는다. 슬롯 고정으로 이름 시작선이 안 흔들린다.
             Image(systemName: StatusStyle.glyph(leadingTone))
                 .font(.muxa(.micro, weight: .semibold))
                 .foregroundStyle(StatusStyle.color(leadingTone))
@@ -81,74 +89,24 @@ struct SidebarProjectRow: View {
                         .allowsHitTesting(hovered)
                 }
             }
+            // 펼침 셰브론 — 펼칠 값이 있을 때만. 클릭=목록 토글(행 클릭 전환보다 먼저 자기 히트를 가져간다).
+            if expandable { expandToggle }
         }
         .frame(height: RowHeight.row)
     }
 
-    // MARK: 분포 pill — 리딩과 안 싸우게 **접힘이 기본**, `+N`이 곧 확장
-
-    private typealias Bucket = (tone: StatusTone, count: Int, jump: Set<AgentActivity>)
-
-    /// 탭 분포를 **긴급도순**(대기→작업중→완료→유휴) 버킷으로. 0인 톤은 뺀다.
-    private func pillBuckets(_ t: (working: Int, waiting: Int, done: Int, idle: Int)) -> [Bucket] {
-        var b: [Bucket] = []
-        if t.waiting > 0 { b.append((.attention, t.waiting, [.waiting])) }
-        if t.working > 0 { b.append((.active, t.working, [.working])) }
-        if t.done > 0 { b.append((.success, t.done, [.done])) }
-        if t.idle > 0 { b.append((.quiet, t.idle, [.idle])) }
-        return b
-    }
-
-    /// 2번째 줄 = **탭 분포 pill**(요약 칩) + 펼치면 **에이전트 목록**(탭별 상세).
-    /// 칩 = 상태별 색·모양·개수(색맹 안전한 즉독 요약). 셰브론으로 펼치면 각 에이전트가 무엇을 하는지 한 줄씩.
-    /// 유휴만 있으면(펼칠 게 없으면) 셰브론을 그리지 않는다 — 접힘 칩만.
-    private func pill(_ buckets: [Bucket]) -> some View {
-        let expandable = buckets.contains { $0.tone != .quiet } // 대기·작업·완료 하나라도 있으면 펼칠 값이 있다
-        return VStack(alignment: .leading, spacing: Space.tight) {
-            chipRow(buckets, expandable: expandable)
-            if expandable && pillExpanded { agentList() }
-        }
-        .padding(.leading, IconSize.statusGlyph + Space.sm) // 이름 아래에 정렬
-    }
-
-    /// 접힘 칩 행 — 버킷 요약 칩들 + (펼칠 게 있으면) 셰브론. 칩 클릭=그 상태 순환 점프, 셰브론=목록 토글.
-    private func chipRow(_ buckets: [Bucket], expandable: Bool) -> some View {
-        HStack(spacing: Space.sm) {
-            ForEach(buckets.indices, id: \.self) { chip(buckets[$0]) }
-            if expandable { expandToggle }
-        }
-        .padding(.horizontal, Space.sm)
-        .padding(.vertical, Space.tight)
-        .overlay(Capsule().stroke(Color.pBorder, lineWidth: RowHeight.hairline)) // 어느 행 상태에서도 읽히는 pill 윤곽
-    }
-
-    /// 톤 하나의 칩 — 글리프 + 개수(**>1일 때만**). **클릭 = 그 상태의 다음 탭으로 순환 점프**.
-    private func chip(_ b: Bucket) -> some View {
-        Button { state.jumpToProjectTab(project.id, matching: b.jump) } label: {
-            HStack(spacing: Space.xs) {
-                Image(systemName: StatusStyle.glyph(b.tone)).font(.muxa(.micro, weight: .semibold))
-                if b.count > 1 { Text("\(b.count)").font(.muxaMono(.caption)) }
-            }
-            .foregroundStyle(StatusStyle.color(b.tone))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .clickCursor()
-        .help("\(StatusStyle.label(b.tone)) 탭 \(b.count)개 — 클릭해 이동")
-        .accessibilityLabel("\(project.name) \(StatusStyle.label(b.tone)) 탭 \(b.count)개로 이동")
-    }
-
     /// 목록 펼침/접힘 셰브론.
     private var expandToggle: some View {
-        Button { pillExpanded.toggle() } label: {
-            Image(systemName: pillExpanded ? "chevron.down" : "chevron.right").font(.muxa(.micro))
+        Button { expanded.toggle() } label: {
+            Image(systemName: expanded ? "chevron.down" : "chevron.right").font(.muxa(.micro))
                 .foregroundStyle(Color.pMuted)
+                .frame(width: IconSize.statusSlot, height: IconSize.statusSlot)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .clickCursor()
-        .help(pillExpanded ? "에이전트 목록 접기" : "에이전트 목록 펼치기")
-        .accessibilityLabel(pillExpanded ? "에이전트 목록 접기" : "에이전트 목록 펼치기")
+        .help(expanded ? "에이전트 목록 접기" : "에이전트 목록 펼치기")
+        .accessibilityLabel(expanded ? "에이전트 목록 접기" : "에이전트 목록 펼치기")
     }
 
     // MARK: 에이전트 목록 — 펼쳤을 때 탭별 상세(무엇을 하는지 한 줄씩)
@@ -157,7 +115,7 @@ struct SidebarProjectRow: View {
     @ViewBuilder
     private func agentList() -> some View {
         let rows = state.agentRows(project.id)
-        let visible = rows.filter { $0.state != .idle } // 유휴는 접어 소음 제거(#3 개선)
+        let visible = rows.filter { $0.state != .idle } // 유휴는 접어 소음 제거
         let idleCount = rows.count - visible.count
         VStack(alignment: .leading, spacing: Space.tight) {
             ForEach(visible) { agentRowView($0) }
@@ -252,6 +210,7 @@ struct SidebarProjectRow: View {
     }
 
     /// 서비스 요약 — 색·글리프 규칙은 `ServiceStatusStyle` 재사용(새 규칙을 만들지 않는다).
+    /// **실패(빨강)가 뜨는 유일한 자리** — 서비스가 죽으면 여기가 경고 글리프로 바뀐다(에이전트 축엔 실패 없음).
     private func serviceSummary(_ services: [Service]) -> some View {
         let summary = ServiceStatusStyle.summarize(state.serviceStatuses(of: project.id))
         return HStack(spacing: Space.tight) {
