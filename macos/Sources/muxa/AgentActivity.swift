@@ -11,11 +11,11 @@ enum AgentActivity: String, Equatable {
     case done
 
     /// 패인 테두리로 지속 표시할 상태색 — 없으면(working·idle) 상시 테두리를 그리지 않는다(작업 중엔 조용히).
-    /// waiting=주의색(주황), done=완료색(초록). 순간 이벤트(벨·완료 플래시)와 달리 "지금 이 칸의 상태"를 짚는다.
+    /// waiting=로즈, done=세이지(사이드바 상태 점과 같은 색). 순간 이벤트(벨·플래시)와 달리 "지금 이 칸의 상태"를 짚는다.
     var borderColor: NSColor? {
         switch self {
-        case .waiting: return Palette.borderActivity // 주의 환기(주황) — "나를 기다린다"
-        case .done: return Palette.gitAdded          // 완료(초록)
+        case .waiting: return Palette.waiting        // 로즈 — "나를 기다린다"(앰버 아님)
+        case .done: return Palette.done              // 세이지 — 완료(git 초록과 분리)
         case .working, .idle: return nil             // 은은 = 상시 표시 없음
         }
     }
@@ -34,9 +34,10 @@ enum AgentActivity: String, Equatable {
 /// 에이전트 상태 추정기 — 신호를 받아 상태를 전이하는 순수 값 타입(테스트 가능, 부작용 없음).
 ///
 /// 설계 원칙(ARCHITECTURE 4.5, 보수적 버전):
-/// - **명시 신호(muxa notify) 우선.** 훅이 보낸 waiting/done은 ground truth라 추정을 덮고 고정(pin)한다.
-///   고정 중엔 출력 heartbeat(RENDER)를 무시한다 — 커서 깜빡임 같은 노이즈 RENDER가 상태를 되돌리지 못하게.
-///   훅의 명시 working(작업 재개)만 고정을 푼다.
+/// - **명시 신호(muxa notify) 우선.** 훅이 보낸 working/waiting/done은 ground truth라 추정을 덮고 고정(pin)한다.
+///   고정 중엔 출력 heartbeat(RENDER)와 idle tick을 무시한다 — 커서 깜빡임 같은 노이즈 RENDER나
+///   조용한 도구 실행이 상태를 되돌리거나 waiting으로 뒤집지 못하게. 상태는 다음 명시 훅으로만 바뀐다.
+///   고정은 OSC 133 명령 완료(commandFinished)에서만 풀려 다음 명령을 새로 추정한다.
 /// - **명시 신호가 없으면 idle 타이머로 추정.** 출력이 흐르면 working, `idleThreshold` 넘게 멎으면 waiting,
 ///   명령 완료(OSC 133)면 done. 이 추정 경로는 RENDER heartbeat + 주기적 tick으로 굴러간다.
 ///
@@ -80,7 +81,7 @@ struct AgentActivityEstimator: Equatable {
             case .working:
                 next.state = .working
                 next.lastOutputAt = now
-                next.pinned = false // 작업 재개 — 이후 idle 추정을 다시 켠다
+                next.pinned = true // 훅이 working이라 확언 — 조용한 도구 실행/생각 중 tick이 "입력 대기"로 오판하지 못하게 고정한다. 다음 명시 훅(waiting/done)만 이 상태를 바꾼다.
             case .waiting:
                 next.state = .waiting
                 next.pinned = true  // ground truth 고정

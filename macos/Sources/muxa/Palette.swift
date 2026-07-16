@@ -43,9 +43,17 @@ enum Palette {
     /// 다크는 어둠 위에서 읽히게 한 단 밝힌 #EE6B44(≈5.5:1). **면이 아니라 선·글리프로만** 써서
     /// 크롬 픽셀의 1% 미만으로 묶는다 — 그래야 가장 뜨거운 색인데도 잔상·피로가 안 생긴다.
     static let brand = NSColor.dynamic(light: 0xC13A1B, dark: 0xEE6B44)
-    /// **작업 중(active) 상태 전용 — 예전 `brand`(딥틸)에서 분리한 틸.** `StatusStyle.active`가 이걸 쓴다.
-    /// 값은 옛 brand 그대로라 재학습 비용 0. 버밀리언 brand와 hue가 정반대(보색)라 나란히 떠도 안 싸운다.
-    static let work = NSColor.dynamic(light: 0x0F766E, dark: 0x5FB8AB)
+    // MARK: 에이전트 상태색 — 브랜드·git과 별개, 저채도 조화 세트 (작업중 인디고 · 대기 로즈 · 완료 세이지)
+    //
+    // 상태는 색 + **모양 + 움직임** 3채널로 말한다(색맹 안전): 작업중=스피너 회전, 대기=펄스, 완료=체크, 유휴=무표시.
+    // 색은 서로 확실히 갈리되(작업 쿨 인디고 ↔ 완료 세이지, 대기 로즈는 앰버 아님) 브랜드 버밀리언과 같은 저채도 톤.
+    //
+    /// **작업 중(active) — 인디고.** `StatusStyle.active`. 완료 세이지·git 초록과 확실히 갈리는 쿨톤("처리중").
+    static let work = NSColor.dynamic(light: 0x3A5FD0, dark: 0x7C9BF0)
+    /// **입력 대기(attention) — 더스티 로즈.** 앰버(`borderActivity`)와 분리한 상태 전용색(경보 아님 — 사람을 기다린다).
+    static let waiting = NSColor.dynamic(light: 0xA8506A, dark: 0xD68DA3)
+    /// **완료(success) — 세이지 그린.** git 초록(`gitAdded`)과 분리 — "끝났다"의 차분한 초록.
+    static let done = NSColor.dynamic(light: 0x4E8A52, dark: 0x86C486)
     /// 옅은 강조 배경 틴트(버밀리언). **목록 선택에는 쓰지 않는다**(선택은 중립 `btnActive`가 macOS 규약).
     /// 팝오버·안내 배너 같은 데만. 웜 크롬에 묻히지 않게 반 톤 벌렸다.
     static let brandSubtle = NSColor.dynamic(light: 0xF6E8E3, dark: 0x3A2018)
@@ -167,7 +175,9 @@ extension Color {
     static let pBorder = Color(nsColor: Palette.border)
     static let pGuide = Color(nsColor: Palette.guide)
     static let pBrand = Color(nsColor: Palette.brand)
-    static let pWork = Color(nsColor: Palette.work) // 작업 중(active) 상태 틸 — brand(버밀리언)와 분리
+    static let pWork = Color(nsColor: Palette.work) // 작업 중(active) — 인디고
+    static let pWaiting = Color(nsColor: Palette.waiting) // 입력 대기(attention) — 로즈
+    static let pDone = Color(nsColor: Palette.done) // 완료(success) — 세이지
     static let pBrandSubtle = Color(nsColor: Palette.brandSubtle)
     static let pBrandHover = Color(nsColor: Palette.brandHover)
     static let pOnBrand = Color(nsColor: Palette.onBrand)
