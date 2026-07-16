@@ -125,10 +125,13 @@ final class FloatingPanelHost {
         let close = onClose
         previousKey = nil
         onClose = nil
+        // 열림 플래그는 **즉시** 내린다(페이드를 기다리지 않는다) — 안 그러면 exit 애니메이션(100ms) 사이
+        // 같은 칩을 다시 열었을 때, 사라지던 판의 onClose가 새로 연 판의 바인딩을 꺼버린다.
+        // 재진입 dismiss(바인딩 false → onChange → dismiss)는 panel이 이미 nil이라 곧바로 반환한다.
+        close?()
         let finish = {
             panel.orderOut(nil)
             if NSApp.isActive { prev?.makeKeyAndOrderFront(nil) }
-            close?()
             // 항목 탭 처리는 이 패널의 이벤트 디스패치 안에서 돈다 — 마지막 참조를 지금 놓으면 자기
             // 이벤트를 처리하는 도중 창이 해제될 수 있다. 해제를 다음 런루프로 미룬다.
             DispatchQueue.main.async { _ = panel }
