@@ -18,6 +18,10 @@ struct SettingsPanel: View {
                                          onApply: { state.reapplyTabAppearance() })
                     }
                     HDivider()
+                    category("칸 상태 표시", "칸 테두리 형태·두께·포커스 동작") {
+                        PaneIndicatorControls(settings: .shared)
+                    }
+                    HDivider()
                     category("사용량 표시", "하단·상단 Claude 칩") {
                         UsageSettingsView(settings: .shared)
                     }

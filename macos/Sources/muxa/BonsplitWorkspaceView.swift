@@ -160,10 +160,15 @@ private struct PaneBorders: View {
             let focused = store.controller.focusedPaneId == paneId
             let agent = store.agentActivity(for: tabId).borderColor.map { Color(nsColor: $0) }
             let flashing = store.flashingTabs.contains(tabId)
+            // 형태·두께·브래킷여백은 사용자 설정(라이브) — 바꾸면 열린 칸에 즉시 반영된다.
+            let ind = PaneIndicatorSettings.shared
 
             Color.clear
                 .paneBorder(id: "agent-\(tabId)",
                             color: agent,
+                            lineWidth: CGFloat(ind.thickness),
+                            form: ind.form,
+                            bracketInset: CGFloat(ind.bracketInset),
                             animation: .easeInOut(duration: 0.25))
                 .paneBorder(id: "flash-\(tabId)",
                             color: flashing ? Color.pBorderActivity : nil,

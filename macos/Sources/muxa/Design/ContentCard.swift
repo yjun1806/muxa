@@ -32,6 +32,10 @@ struct PaneBorderSpec: Identifiable, Equatable {
     let globalRect: CGRect
     let color: Color?
     let lineWidth: CGFloat
+    /// 표시 형태(링·상단바·좌측레일·브래킷·코너 등) — 색과 직교.
+    let form: PaneIndicatorForm
+    /// 브래킷·코너의 모서리 여백(형태가 그 둘일 때만 쓰인다).
+    let bracketInset: CGFloat
     let animation: Animation
 }
 
@@ -45,14 +49,17 @@ struct PaneBorderPreference: PreferenceKey {
 
 extension View {
     /// 이 칸의 테두리 한 겹을 카드 레이어에 올려보낸다(직접 그리지 않는다 — 클립에 깎이므로).
-    func paneBorder(id: String, color: Color?, lineWidth: CGFloat = 2, animation: Animation) -> some View {
+    func paneBorder(id: String, color: Color?, lineWidth: CGFloat = 2,
+                    form: PaneIndicatorForm = .ring, bracketInset: CGFloat = 7,
+                    animation: Animation) -> some View {
         overlay {
             GeometryReader { geo in
                 Color.clear.preference(
                     key: PaneBorderPreference.self,
                     value: [PaneBorderSpec(
                         id: id, globalRect: geo.frame(in: .global),
-                        color: color, lineWidth: lineWidth, animation: animation
+                        color: color, lineWidth: lineWidth,
+                        form: form, bracketInset: bracketInset, animation: animation
                     )]
                 )
             }
@@ -143,16 +150,61 @@ private struct PaneBorderShape: View {
         let maxX = (right ? card.maxX : r.maxX) - card.minX
         let maxY = (bottom ? card.maxY : r.maxY) - card.minY
         let rect = CGRect(x: minX, y: minY, width: max(maxX - minX, 0), height: max(maxY - minY, 0))
+        let color = spec.color ?? .clear
+        let w = spec.lineWidth
 
-        UnevenRoundedRectangle(
-            topLeadingRadius: left && top ? radius : 0,
-            bottomLeadingRadius: left && bottom ? radius : 0,
-            bottomTrailingRadius: right && bottom ? radius : 0,
-            topTrailingRadius: right && top ? radius : 0
-        )
-        .strokeBorder(spec.color ?? .clear, lineWidth: spec.lineWidth)
+        // 형태별로 다르게 그린다 — 색(신호)과 형태(표현)는 직교(PaneIndicatorForm).
+        // 링만 카드 모서리에 닿은 변을 카드 반경으로 둥글린다(나머지 형태는 부분 스트로크라 해당 없음).
+        Group {
+            switch spec.form {
+            case .ring:
+                UnevenRoundedRectangle(
+                    topLeadingRadius: left && top ? radius : 0,
+                    bottomLeadingRadius: left && bottom ? radius : 0,
+                    bottomTrailingRadius: right && bottom ? radius : 0,
+                    topTrailingRadius: right && top ? radius : 0
+                ).strokeBorder(color, lineWidth: w)
+            case .top:
+                Rectangle().fill(color)
+                    .frame(height: w).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            case .bottom:
+                Rectangle().fill(color)
+                    .frame(height: w).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            case .left:
+                Rectangle().fill(color)
+                    .frame(width: w).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            case .bracket:
+                BracketShape(inset: spec.bracketInset, arm: 16)
+                    .stroke(color, style: StrokeStyle(lineWidth: w, lineCap: .round, lineJoin: .round))
+            case .corner:
+                Circle().fill(color)
+                    .frame(width: max(w * 2.5, 5), height: max(w * 2.5, 5))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(max(spec.bracketInset, 6))
+            }
+        }
         .frame(width: rect.width, height: rect.height)
         .position(x: rect.midX, y: rect.midY)
         .animation(spec.animation, value: spec.color)
+    }
+}
+
+/// 네 모서리 브래킷(ㄱ자 4개) — rect 안쪽으로 `inset`만큼 물러난 자리에 팔길이 `arm`으로 그린다.
+/// 칸이 작으면 팔이 겹치지 않게 절반 크기로 클램프한다. (설정 프리뷰도 이 도형을 재사용한다.)
+struct BracketShape: Shape {
+    let inset: CGFloat
+    let arm: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let x0 = rect.minX + inset, y0 = rect.minY + inset
+        let x1 = rect.maxX - inset, y1 = rect.maxY - inset
+        let a = min(arm, min(x1 - x0, y1 - y0) / 2)
+        guard a > 0 else { return p }
+        p.move(to: CGPoint(x: x0, y: y0 + a)); p.addLine(to: CGPoint(x: x0, y: y0)); p.addLine(to: CGPoint(x: x0 + a, y: y0))       // ┌
+        p.move(to: CGPoint(x: x1 - a, y: y0)); p.addLine(to: CGPoint(x: x1, y: y0)); p.addLine(to: CGPoint(x: x1, y: y0 + a))       // ┐
+        p.move(to: CGPoint(x: x1, y: y1 - a)); p.addLine(to: CGPoint(x: x1, y: y1)); p.addLine(to: CGPoint(x: x1 - a, y: y1))       // ┘
+        p.move(to: CGPoint(x: x0 + a, y: y1)); p.addLine(to: CGPoint(x: x0, y: y1)); p.addLine(to: CGPoint(x: x0, y: y1 - a))       // └
+        return p
     }
 }
