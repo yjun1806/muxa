@@ -30,12 +30,21 @@ final class AgentActivityEstimatorTests: XCTestCase {
         XCTAssertFalse(waiting.needsIdleTick)
     }
 
-    func testExplicitWorkingUnpins() {
+    func testExplicitWorkingPinsAndIgnoresTick() {
         let waiting = AgentActivityEstimator().applying(.explicit(.waiting), now: 100)
         let resumed = waiting.applying(.explicit(.working), now: 102)
         XCTAssertEqual(resumed.state, .working)
-        // 재개 후엔 idle 추정이 다시 작동
-        XCTAssertEqual(resumed.applying(.tick, now: 110).state, .waiting)
+        // 훅이 working이라 확언했으면 조용한 도구 실행 중 tick이 "입력 대기"로 뒤집지 못한다(고정).
+        XCTAssertEqual(resumed.applying(.tick, now: 110).state, .working)
+        XCTAssertFalse(resumed.needsIdleTick)
+    }
+
+    /// working이 고정돼도 다음 명시 훅은 상태를 바꾼다 — A안이 의존하는 핵심 불변식.
+    /// (누가 .explicit에 `guard !pinned`를 붙이면 상태가 working에 영구 고착되므로 여기서 못 박는다.)
+    func testHooksOverrideWorkingPin() {
+        let working = AgentActivityEstimator().applying(.explicit(.working), now: 100)
+        XCTAssertEqual(working.applying(.explicit(.waiting), now: 101).state, .waiting)
+        XCTAssertEqual(working.applying(.explicit(.done), now: 101).state, .done)
     }
 
     func testCommandFinishedGoesDoneAndUnpins() {

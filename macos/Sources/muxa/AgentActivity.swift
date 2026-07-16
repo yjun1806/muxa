@@ -64,7 +64,7 @@ struct AgentActivityEstimator: Equatable {
         var next = self
         switch signal {
         case .outputHeartbeat:
-            // 고정(명시 waiting/done) 중엔 노이즈 RENDER를 무시 — 훅의 명시 working만 재개를 알린다.
+            // 고정(명시 working/waiting/done) 중엔 노이즈 RENDER를 무시. 고정을 푸는 건 OSC133 명령 완료(commandFinished)뿐 — 그 뒤 새 출력이 오면 다시 working으로 추정한다.
             if pinned { break }
             next.lastOutputAt = now
             next.state = .working
