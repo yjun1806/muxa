@@ -1,6 +1,8 @@
 import AppKit
 
-// muxa 아이콘 revH2 — 색반전(청록 bg + 차콜 심볼) 베이스에 muxa 정체성 결합.
+// muxa 아이콘.
+//  x: ✕    다크 그래파이트 bg + 버밀리언 손그림 X — "muXa"의 X를 아이가 크레용으로 그린 낙서체 (현행)
+//  ── 아래는 옛 청록 베이스(색반전 bg + 차콜 심볼) 안, a~e로 재생성 가능 ──
 //  a: ❯ _  차콜 chevron + 차콜 언더바 커서 — "명령을 기다리는 프롬프트" (전부 차콜, 가장 절제)
 //  b: ❯ ●  차콜 chevron + 주황 점(중앙 높이) — "세션이 나를 기다림" 상태점
 //  c: ≫    이중 chevron (뒤쪽 반투명) — 다중 세션 감시, 깊이감
@@ -17,6 +19,7 @@ func pt(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: x, y: y) }
 
 let charcoal = hex(0x1B1B1D)
 let amber = hex(0xFBBF24)
+let vermilion = hex(0xE24A20) // 선셋 버밀리언(키컬러) — 낙서 X variant "x" 전용
 
 let variant = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "a"
 let out = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "revH2_\(variant).png"
@@ -33,10 +36,14 @@ let shape = CGRect(x: margin, y: margin, width: S - 2 * margin, height: S - 2 * 
 let corner = shape.width * 0.2237
 let squircle = NSBezierPath(roundedRect: shape, xRadius: corner, yRadius: corner)
 squircle.addClip()
-NSGradient(colors: [hex(0x35DECA), hex(0x27C4B1)])!.draw(in: shape, angle: -90)
+// variant "x"(낙서 X)는 다크 그래파이트 배경, 나머지는 기존 청록.
+let bgColors: [NSColor] = variant == "x"
+    ? [hex(0x2C2825), hex(0x151312)]   // 다크 그래파이트(위 명·아래 암)
+    : [hex(0x35DECA), hex(0x27C4B1)]   // 청록(기존 아이콘)
+NSGradient(colors: bgColors)!.draw(in: shape, angle: -90)
 let inset = squircle.copy() as! NSBezierPath
 inset.lineWidth = 3
-hex(0xFFFFFF, 0.10).setStroke()
+hex(0xFFFFFF, variant == "x" ? 0.06 : 0.10).setStroke()
 inset.stroke()
 
 // ── 프리미티브 ────────────────────────────────────────────────
@@ -61,9 +68,40 @@ func dot(cx: CGFloat, cy: CGFloat, d: CGFloat, color: NSColor) {
     color.setFill()
     NSBezierPath(ovalIn: CGRect(x: cx - d / 2, y: cy - d / 2, width: d, height: d)).fill()
 }
+/// 아이가 크레용으로 그린 듯한 삐뚤빼뚤 X (muXa의 X). 두 획이 흔들리며 교차한다.
+/// 직선 대신 컨트롤 포인트를 대각선에서 밀어내 손그림 waver를, 굵은 라운드 캡으로 크레용 질감을 낸다.
+/// AppKit 좌표는 y가 위로 갈수록 크다(하단 원점).
+func doodleX(color: NSColor, w: CGFloat = 94) {
+    NSGraphicsContext.saveGraphicsState()
+    // 살짝 기울여 "반듯하지 않은" 손맛(-4°, 캔버스 중심 기준).
+    let t = NSAffineTransform()
+    t.translateX(by: 512, yBy: 512); t.rotate(byDegrees: -4); t.translateX(by: -512, yBy: -512)
+    t.concat()
+    color.setStroke()
+    func stroke(_ p: NSBezierPath) {
+        p.lineWidth = w; p.lineCapStyle = .round; p.lineJoinStyle = .round; p.stroke()
+    }
+    // 획 1: 좌상 → 우하
+    let a = NSBezierPath()
+    a.move(to: pt(322, 700))
+    a.curve(to: pt(516, 512), controlPoint1: pt(438, 636), controlPoint2: pt(452, 556))
+    a.curve(to: pt(706, 320), controlPoint1: pt(578, 470), controlPoint2: pt(602, 398))
+    stroke(a)
+    // 획 2: 우상 → 좌하 (좌우 비대칭으로 더 사람 손 느낌)
+    let b = NSBezierPath()
+    b.move(to: pt(704, 702))
+    b.curve(to: pt(508, 510), controlPoint1: pt(598, 632), controlPoint2: pt(560, 556))
+    b.curve(to: pt(320, 320), controlPoint1: pt(452, 460), controlPoint2: pt(410, 392))
+    stroke(b)
+    NSGraphicsContext.restoreGraphicsState()
+}
 
 // ── variant 레이아웃 ──────────────────────────────────────────
 switch variant {
+case "x":
+    // 낙서 X — 다크 그래파이트 배경 위 버밀리언 손그림 X("muXa"의 X). 가장 가볍고 사람 냄새.
+    doodleX(color: vermilion)
+
 case "b":
     // ❯ ● — chevron + 주황 상태점(중앙 높이). 점은 커서 아님, "대기 중 세션".
     let w: CGFloat = 138, rise: CGFloat = 226, K: CGFloat = 244

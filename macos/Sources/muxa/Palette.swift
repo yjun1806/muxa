@@ -30,11 +30,11 @@ enum Palette {
     // 그 파일과 여기를 함께 고친다. 여기 남겨두는 이유는 "UI teal ≠ 아이콘 teal"을 팔레트에서
     // 곧바로 읽히게 하기 위해서다.
     enum Brand {
-        /// 서비스 키 컬러 = 앱 아이콘 배경(Tailwind teal-400). L*78.5 · 고채도 — UI에 쓰면 네온이 된다.
-        static let key: UInt32 = 0x2DD4BF
-        /// 아이콘 배경 squircle 그라디언트 양 끝 — 키 컬러 주변 명(위)·암(아래).
-        static let gradTop: UInt32 = 0x35DECA
-        static let gradBottom: UInt32 = 0x27C4B1
+        /// 아이콘 심볼(낙서 X) 색 = 선셋 버밀리언(고채도). 아이콘은 Dock 격리라 UI accent(`brand`)보다 진해도 된다.
+        static let key: UInt32 = 0xE24A20
+        /// 아이콘 배경 squircle 그라디언트 양 끝 — 다크 그래파이트 명(위)·암(아래).
+        static let gradTop: UInt32 = 0x2C2825
+        static let gradBottom: UInt32 = 0x151312
     }
 
     // MARK: 강조 semantic 토큰 (선셋 버밀리언 — 강조 지점에만 조금씩)
