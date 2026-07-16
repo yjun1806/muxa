@@ -1488,14 +1488,20 @@ final class AppState {
     /// 안전(프로세스는 tmux 서버에 산다). 일반 터미널은 `handOffPersistentTab`이 nil을 줘 무동작.
     /// 가져온 뒤 그 프로젝트로 데려가고, 대상의 링크 탭(안내)은 치운다 — 실물이 도착했다.
     func bringPersistentTab(from originId: String, tabId: TabID, to targetId: String) {
-        guard let origin = stores[originId], let target = stores[targetId],
-              let handed = origin.handOffPersistentTab(tabId) else { return }
+        guard let origin = stores[originId],
+              let ws = workspace(containing: targetId),
+              let targetProject = ws.projects.first(where: { $0.id == targetId }) else { return }
+        // 대상 스토어는 lazy라 **한 번도 안 연 프로젝트면 아직 없다** — 만들어서 받는다(배너에서 바로 옮기는
+        // 주 시나리오가 정확히 이 경우다. 없다고 조용히 무시하면 "옮기기가 안 눌린다"로 보인다 — 실측).
+        let target = store(for: targetProject, in: ws)
+        // 부트스트랩 정리를 이식 **전에** 끝낸다 — ensureInitialTerminal은 자기 시점의 탭 전부를 부트스트랩으로
+        // 보고 닫으므로, 이식이 먼저면 방금 옮긴 ∞ 탭이 그 청소에 쓸려 나간다(세션까지 놓친다).
+        target.ensureInitialTerminal()
+        guard let handed = origin.handOffPersistentTab(tabId) else { return }
         target.reattach(handed)
         target.closeWorktreeLinkTabs()
-        if let ws = workspace(containing: targetId) {
-            setActiveId(ws.id)
-            setActiveProject(targetId)
-        }
+        setActiveId(ws.id)
+        setActiveProject(targetId)
         NSApp.activate(ignoringOtherApps: true)
     }
 
