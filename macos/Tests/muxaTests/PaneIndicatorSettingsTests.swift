@@ -50,4 +50,42 @@ final class PaneIndicatorSettingsTests: XCTestCase {
             XCTAssertFalse(form.label.isEmpty, "\(form.rawValue) 라벨 누락")
         }
     }
+
+    // MARK: - 모션 resolved(형태별 유효성) — 순수 판정
+
+    func testMotionDefaultsToNone() {
+        XCTAssertEqual(PaneIndicatorSettings(defaults: suite()).motion, .none)
+    }
+
+    func testFlowStaysOnBars() {
+        for form in [PaneIndicatorForm.top, .bottom, .left] {
+            XCTAssertEqual(PaneMotion.flow.resolved(for: form), .flow, "\(form.rawValue)엔 흐름이 있어야 한다")
+        }
+    }
+
+    func testFlowFallsBackToPulseOffBars() {
+        for form in [PaneIndicatorForm.ring, .bracket, .corner] {
+            XCTAssertEqual(PaneMotion.flow.resolved(for: form), .pulse, "\(form.rawValue)에선 흐름→펄스")
+        }
+    }
+
+    func testNonFlowMotionsPassThroughUnchanged() {
+        for motion in [PaneMotion.none, .pulse, .glow] {
+            for form in PaneIndicatorForm.allCases {
+                XCTAssertEqual(motion.resolved(for: form), motion)
+            }
+        }
+    }
+
+    func testMotionAndTuningPersist() {
+        let d = suite()
+        let s = PaneIndicatorSettings(defaults: d)
+        s.motion = .glow
+        s.speed = 2.4
+        s.glowSpread = 30
+        let reloaded = PaneIndicatorSettings(defaults: d)
+        XCTAssertEqual(reloaded.motion, .glow)
+        XCTAssertEqual(reloaded.speed, 2.4, accuracy: 0.001)
+        XCTAssertEqual(reloaded.glowSpread, 30)
+    }
 }

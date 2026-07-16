@@ -36,6 +36,11 @@ struct PaneBorderSpec: Identifiable, Equatable {
     let form: PaneIndicatorForm
     /// 브래킷·코너의 모서리 여백(형태가 그 둘일 때만 쓰인다).
     let bracketInset: CGFloat
+    /// 모션(정적·펄스·흐름·글로우) — 이미 형태에 맞게 resolved된 값을 넣는다.
+    let motion: PaneMotion
+    /// 모션 한 사이클 시간(초)·글로우 번짐 반경.
+    let speed: Double
+    let glowSpread: CGFloat
     let animation: Animation
 }
 
@@ -51,6 +56,7 @@ extension View {
     /// 이 칸의 테두리 한 겹을 카드 레이어에 올려보낸다(직접 그리지 않는다 — 클립에 깎이므로).
     func paneBorder(id: String, color: Color?, lineWidth: CGFloat = 2,
                     form: PaneIndicatorForm = .ring, bracketInset: CGFloat = 7,
+                    motion: PaneMotion = .none, speed: Double = 1.6, glowSpread: CGFloat = 18,
                     animation: Animation) -> some View {
         overlay {
             GeometryReader { geo in
@@ -59,7 +65,9 @@ extension View {
                     value: [PaneBorderSpec(
                         id: id, globalRect: geo.frame(in: .global),
                         color: color, lineWidth: lineWidth,
-                        form: form, bracketInset: bracketInset, animation: animation
+                        form: form, bracketInset: bracketInset,
+                        motion: motion.resolved(for: form), speed: speed, glowSpread: glowSpread,
+                        animation: animation
                     )]
                 )
             }
@@ -153,39 +161,141 @@ private struct PaneBorderShape: View {
         let color = spec.color ?? .clear
         let w = spec.lineWidth
 
-        // 형태별로 다르게 그린다 — 색(신호)과 형태(표현)는 직교(PaneIndicatorForm).
-        // 링만 카드 모서리에 닿은 변을 카드 반경으로 둥글린다(나머지 형태는 부분 스트로크라 해당 없음).
-        Group {
-            switch spec.form {
-            case .ring:
-                UnevenRoundedRectangle(
-                    topLeadingRadius: left && top ? radius : 0,
-                    bottomLeadingRadius: left && bottom ? radius : 0,
-                    bottomTrailingRadius: right && bottom ? radius : 0,
-                    topTrailingRadius: right && top ? radius : 0
-                ).strokeBorder(color, lineWidth: w)
-            case .top:
-                Rectangle().fill(color)
-                    .frame(height: w).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            case .bottom:
-                Rectangle().fill(color)
-                    .frame(height: w).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-            case .left:
-                Rectangle().fill(color)
-                    .frame(width: w).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            case .bracket:
-                BracketShape(inset: spec.bracketInset, arm: 16)
-                    .stroke(color, style: StrokeStyle(lineWidth: w, lineCap: .round, lineJoin: .round))
-            case .corner:
-                Circle().fill(color)
-                    .frame(width: max(w * 2.5, 5), height: max(w * 2.5, 5))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(max(spec.bracketInset, 6))
-            }
+        content(color: color, w: w, left: left, top: top, right: right, bottom: bottom)
+            .frame(width: rect.width, height: rect.height)
+            .clipShape(Rectangle()) // 글로우·흐름이 옆 칸으로 새지 않게 칸 안으로 가둔다(분할 안전)
+            .position(x: rect.midX, y: rect.midY)
+            .animation(spec.animation, value: spec.color)
+    }
+
+    /// 형태 + 모션. 흐름(바 전용)만 형태별 특수 렌더, 나머지 모션(펄스·글로우)은 정적 형태 위에 얹는다.
+    @ViewBuilder
+    private func content(color: Color, w: CGFloat, left: Bool, top: Bool, right: Bool, bottom: Bool) -> some View {
+        if spec.motion == .flow {
+            FlowBar(form: spec.form, color: color, w: w, speed: spec.speed)
+        } else {
+            staticForm(color: color, w: w, left: left, top: top, right: right, bottom: bottom)
+                .modifier(PaneMotionEffect(motion: spec.motion, speed: spec.speed,
+                                           glowSpread: spec.glowSpread, color: color))
         }
-        .frame(width: rect.width, height: rect.height)
-        .position(x: rect.midX, y: rect.midY)
-        .animation(spec.animation, value: spec.color)
+    }
+
+    /// 정적 형태 한 겹(모션 없음). 색(신호)과 형태(표현)는 직교 — 링만 카드 모서리에 닿은 변을 카드 반경으로 둥글린다.
+    @ViewBuilder
+    private func staticForm(color: Color, w: CGFloat, left: Bool, top: Bool, right: Bool, bottom: Bool) -> some View {
+        switch spec.form {
+        case .ring:
+            UnevenRoundedRectangle(
+                topLeadingRadius: left && top ? radius : 0,
+                bottomLeadingRadius: left && bottom ? radius : 0,
+                bottomTrailingRadius: right && bottom ? radius : 0,
+                topTrailingRadius: right && top ? radius : 0
+            ).strokeBorder(color, lineWidth: w)
+        case .top:
+            Rectangle().fill(color)
+                .frame(height: w).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        case .bottom:
+            Rectangle().fill(color)
+                .frame(height: w).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        case .left:
+            Rectangle().fill(color)
+                .frame(width: w).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        case .bracket:
+            BracketShape(inset: spec.bracketInset, arm: 16)
+                .stroke(color, style: StrokeStyle(lineWidth: w, lineCap: .round, lineJoin: .round))
+        case .corner:
+            Circle().fill(color)
+                .frame(width: max(w * 2.5, 5), height: max(w * 2.5, 5))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(max(spec.bracketInset, 6))
+        }
+    }
+}
+
+/// 형태에 얹는 모션 — 펄스(불투명도 호흡)·글로우(이너 글로우 호흡). 정적은 그대로 통과.
+///
+/// `TimelineView` 시간구동이라 칸 테두리 레이어의 애니메이션 차단막(`transaction{animation=nil}`)에
+/// 안 죽고, 위치는 바깥 `.position`이 여전히 순간이동한다(리사이즈·분할에 테두리가 안 미끄러진다).
+/// reduce-motion이면 움직임 없이 정적으로 떨어진다(글로우는 은은한 상시 그림자만). (설정 프리뷰도 재사용한다.)
+struct PaneMotionEffect: ViewModifier {
+    let motion: PaneMotion
+    let speed: Double
+    let glowSpread: CGFloat
+    let color: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        switch motion {
+        case .pulse:
+            if reduceMotion { content } else {
+                TimelineView(.animation) { ctx in
+                    content.opacity(0.4 + 0.6 * Self.wave(ctx.date, speed))
+                }
+            }
+        case .glow:
+            if reduceMotion {
+                content.shadow(color: color.opacity(0.6), radius: glowSpread * 0.45)
+            } else {
+                TimelineView(.animation) { ctx in
+                    let b = Self.wave(ctx.date, speed)
+                    content.shadow(color: color.opacity(0.3 + 0.6 * b), radius: glowSpread * (0.35 + 0.5 * b))
+                }
+            }
+        case .none, .flow:
+            content // flow는 여기 안 온다(content()에서 갈라짐), none은 정적
+        }
+    }
+
+    /// 0~1 사인파(한 사이클 = speed초).
+    static func wave(_ date: Date, _ speed: Double) -> Double {
+        let t = date.timeIntervalSinceReferenceDate
+        return (sin(2 * .pi * t / max(speed, 0.1)) + 1) / 2
+    }
+}
+
+/// 진행 하이라이트가 바를 따라 흐른다 — 흐린 트랙 위로 밝은 조각이 슬라이드(펄스 진행바).
+/// 상·하는 가로로, 좌는 세로로. 바 전용(`PaneMotion.resolved`가 그렇게 보장한다). (설정 프리뷰도 재사용한다.)
+struct FlowBar: View {
+    let form: PaneIndicatorForm
+    let color: Color
+    let w: CGFloat
+    let speed: Double
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let vertical = form == .left
+        GeometryReader { g in
+            let len = vertical ? g.size.height : g.size.width
+            let seg = max(len * 0.34, 12)
+            ZStack(alignment: .topLeading) {
+                bar(color.opacity(0.25), len: len, vertical: vertical) // 트랙
+                if reduceMotion {
+                    bar(color, len: len, vertical: vertical) // 정적: 밝은 바
+                } else {
+                    TimelineView(.animation) { ctx in
+                        let off = FlowBar.phase(ctx.date, speed) * (len + seg) - seg
+                        Rectangle().fill(color)
+                            .frame(width: vertical ? w : seg, height: vertical ? seg : w)
+                            .offset(x: vertical ? 0 : off, y: vertical ? off : 0)
+                    }
+                }
+            }
+            .frame(width: g.size.width, height: g.size.height, alignment: edgeAlignment)
+        }
+    }
+
+    /// 바 스트립을 그 변에 붙인다(상=위, 하=아래, 좌=왼쪽).
+    private var edgeAlignment: Alignment {
+        form == .bottom ? .bottomLeading : .topLeading // 상·좌는 위/왼쪽 기준, 하는 아래 기준
+    }
+
+    private func bar(_ c: Color, len: CGFloat, vertical: Bool) -> some View {
+        Rectangle().fill(c).frame(width: vertical ? w : len, height: vertical ? len : w)
+    }
+
+    /// 0~1 위상(한 사이클 = speed초).
+    static func phase(_ date: Date, _ speed: Double) -> Double {
+        (date.timeIntervalSinceReferenceDate / max(speed, 0.1)).truncatingRemainder(dividingBy: 1)
     }
 }
 

@@ -8,6 +8,12 @@ struct PaneIndicatorControls: View {
     @Bindable var settings: PaneIndicatorSettings
 
     private let formColumns = Array(repeating: GridItem(.flexible(), spacing: Space.xs), count: 3)
+    private let motionColumns = Array(repeating: GridItem(.flexible(), spacing: Space.xs), count: 4)
+
+    /// 흐름은 바(상·하·좌)에만 유효 — 링·브래킷·코너면 선택해도 펄스로 내려간다.
+    private var formSupportsFlow: Bool {
+        settings.form == .top || settings.form == .bottom || settings.form == .left
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.lg) {
@@ -17,6 +23,18 @@ struct PaneIndicatorControls: View {
                 LazyVGrid(columns: formColumns, spacing: Space.xs) {
                     ForEach(PaneIndicatorForm.allCases) { formChip($0) }
                 }
+            }
+
+            group("모션") {
+                LazyVGrid(columns: motionColumns, spacing: Space.xs) {
+                    ForEach(PaneMotion.allCases) { motionChip($0) }
+                }
+                sliderRow("속도", value: $settings.speed, range: PaneIndicatorSettings.speedRange,
+                          step: 0.1, format: { String(format: "%.1f초", $0) })
+                    .opacity(settings.motion == .none ? 0.35 : 1)
+                sliderRow("글로우 번짐", value: $settings.glowSpread,
+                          range: PaneIndicatorSettings.glowSpreadRange)
+                    .opacity(settings.motion == .glow ? 1 : 0.35)
             }
 
             group("치수") {
@@ -59,14 +77,34 @@ struct PaneIndicatorControls: View {
         .clickCursor()
     }
 
-    private func sliderRow(_ title: String, value: Binding<Double>, range: ClosedRange<Double>) -> some View {
+    /// 흐름을 못 쓰는 형태에선 흐름 칩을 흐리게 — 눌러도 펄스로 내려간다는 걸 시각적으로.
+    private func motionChip(_ motion: PaneMotion) -> some View {
+        let selected = settings.motion == motion
+        let dimmed = motion == .flow && !formSupportsFlow
+        return Button { settings.motion = motion } label: {
+            Text(motion.label)
+                .font(.muxa(.caption, weight: selected ? .semibold : .regular))
+                .foregroundStyle(selected ? Color(nsColor: Palette.onBrand) : Color.pFg)
+                .frame(maxWidth: .infinity)
+                .frame(height: 24)
+                .background(selected ? Color(nsColor: Palette.brand) : Color.pBtnActive.opacity(0.5),
+                            in: RoundedRectangle(cornerRadius: Radius.sm))
+                .contentShape(RoundedRectangle(cornerRadius: Radius.sm))
+        }
+        .buttonStyle(.plain)
+        .clickCursor()
+        .opacity(dimmed ? 0.4 : 1)
+    }
+
+    private func sliderRow(_ title: String, value: Binding<Double>, range: ClosedRange<Double>,
+                           step: Double = 1, format: @escaping (Double) -> String = { "\(Int($0))" }) -> some View {
         VStack(alignment: .leading, spacing: Space.tight) {
             HStack {
                 Text(title).font(.muxa(.caption)).foregroundStyle(Color.pMuted)
                 Spacer(minLength: Space.md)
-                Text("\(Int(value.wrappedValue))").font(.muxaMono(.caption)).foregroundStyle(Color.pFg)
+                Text(format(value.wrappedValue)).font(.muxaMono(.caption)).foregroundStyle(Color.pFg)
             }
-            Slider(value: value, in: range, step: 1).controlSize(.mini).tint(Color(nsColor: Palette.brand))
+            Slider(value: value, in: range, step: step).controlSize(.mini).tint(Color(nsColor: Palette.brand))
         }
     }
 
@@ -93,9 +131,22 @@ private struct PaneFormPreview: View {
         RoundedRectangle(cornerRadius: Radius.lg)
             .fill(Color.pBg)
             .frame(height: 64)
-            .overlay { formOverlay(color: color, w: w, inset: inset) }
+            .overlay { decorated(color: color, w: w, inset: inset).clipShape(RoundedRectangle(cornerRadius: Radius.lg)) }
             .overlay(RoundedRectangle(cornerRadius: Radius.lg).stroke(Color.pBorder, lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+    }
+
+    /// 형태 + 모션 — 실제 칸 테두리와 같은 런타임 타입(FlowBar·PaneMotionEffect)을 재사용해 그대로 미리 본다.
+    @ViewBuilder
+    private func decorated(color: Color, w: CGFloat, inset: CGFloat) -> some View {
+        let motion = settings.motion.resolved(for: settings.form)
+        if motion == .flow {
+            FlowBar(form: settings.form, color: color, w: w, speed: settings.speed)
+        } else {
+            formOverlay(color: color, w: w, inset: inset)
+                .modifier(PaneMotionEffect(motion: motion, speed: settings.speed,
+                                           glowSpread: CGFloat(settings.glowSpread), color: color))
+        }
     }
 
     @ViewBuilder

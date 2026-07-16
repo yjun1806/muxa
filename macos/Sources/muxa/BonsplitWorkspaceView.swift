@@ -169,6 +169,9 @@ private struct PaneBorders: View {
                             lineWidth: CGFloat(ind.thickness),
                             form: ind.form,
                             bracketInset: CGFloat(ind.bracketInset),
+                            motion: ind.motion,
+                            speed: ind.speed,
+                            glowSpread: CGFloat(ind.glowSpread),
                             animation: .easeInOut(duration: 0.25))
                 .paneBorder(id: "flash-\(tabId)",
                             color: flashing ? Color.pBorderActivity : nil,
