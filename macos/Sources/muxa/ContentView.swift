@@ -118,10 +118,10 @@ struct ContentView: View {
                 Spacer(minLength: Space.lg)
                 // 사용량 칩이 헤더 오른쪽 설정이면 벨·토글 앞에 둔다.
                 if statusBarSettings.position == .headerRight { UsageChip(state: state) }
+                // 상단바는 **알림 벨 + 사이드 패널 열기**만 — 탐색기·Git·설정은 인스펙터 탭 스트립에서 전환한다.
                 AttentionBell(state: state)
-                explorerToggle
-                gitToggle
-                settingsButton
+                settingsIcon
+                inspectorToggle
             } else {
                 Spacer(minLength: 0)
             }
@@ -149,23 +149,17 @@ struct ContentView: View {
     }
 
     /// 파일 익스플로러 토글 버튼(상단바 우측).
-    private var explorerToggle: some View {
-        PanelToggle(icon: "folder", on: state.showExplorer, help: "파일 익스플로러") {
-            state.toggleExplorer()
-        }
-    }
-
-    /// Git 패널 토글 버튼(상단바 우측).
-    private var gitToggle: some View {
-        PanelToggle(icon: "arrow.triangle.branch", on: state.showGitPanel, help: "Git 패널") {
-            state.toggleGitPanel()
-        }
-    }
-
-    /// 설정 사이드 패널 토글 — 탭 스타일·사용량 표시를 담은 도킹 패널을 연다/닫는다.
-    private var settingsButton: some View {
+    /// 설정 패널 열기/닫기(별도) — 인스펙터와 같은 우측 슬롯을 쓴다(상호배타).
+    private var settingsIcon: some View {
         PanelToggle(icon: "gearshape", on: state.showSettings, help: "설정") {
             state.toggleSettings()
+        }
+    }
+
+    /// 사이드 패널(인스펙터) 열기/닫기 — 마지막 탭으로 연다. 탭 전환은 인스펙터 안 스트립에서.
+    private var inspectorToggle: some View {
+        PanelToggle(icon: "sidebar.right", on: state.inspectorTab != nil, help: "사이드 패널") {
+            state.toggleInspector()
         }
     }
 
@@ -174,26 +168,38 @@ struct ContentView: View {
     /// **소유권 가드**: 그 프로젝트가 분리 창에 있으면 여기선 그리지 않는다(I3 — 한 스토어는 정확히
     /// 한 창의 뷰 트리에서만 렌더된다). 대신 되돌릴 길을 주는 플레이스홀더를 그린다.
     private var workspaceColumn: some View {
-        // 서비스 서랍은 본문 오른쪽에 도킹 사이블링으로 붙어 본문을 밀어낸다(탐색기·Git과 같은 층).
-        // `mainColumn`(본문)이 프로젝트 열이든 되돌리기 카드든, 서랍은 그 오른쪽에 동일하게 붙는다.
+        // 서비스 서랍·인스펙터는 본문 오른쪽에 도킹 사이블링으로 붙어 본문을 밀어낸다.
         HStack(spacing: 0) {
             mainColumn
             serviceDock
-            settingsDock
+            rightSlot
         }
     }
 
-    /// 설정 서랍 — 탐색기·Git·서비스와 같은 도킹 패널(콘텐츠를 밀어내고 좌측 경계로 폭 조절).
-    /// 앱 전역 설정이라 프로젝트와 무관하게 뜬다(workspaceColumn 오른쪽 끝).
+    /// 우측 슬롯은 하나 — 설정 패널 또는 인스펙터(탐색기·Git·알림 탭). 통일 폭, 좌측 경계로 리사이즈.
+    /// **프로젝트와 무관하게** 이 레벨에서 렌더한다 — 설정·알림은 전역이라, 활성 프로젝트가 없어도 아이콘을
+    /// 눌렀는데 아무것도 안 뜨는 죽은 상태가 없어야 한다. 탐색기·Git은 대상 프로젝트가 없으면 빈 상태를 그린다.
     @ViewBuilder
-    private var settingsDock: some View {
-        if state.showSettings {
-            ResizablePanel(width: state.settingsPanelWidth, range: AppState.settingsPanelWidthRange) { w in
-                state.setSettingsPanelWidth(w, persist: true)
+    private var rightSlot: some View {
+        if state.showSettings || state.inspectorTab != nil {
+            ResizablePanel(width: state.explorerWidth, range: AppState.panelWidthRange) { w in
+                state.setExplorerWidth(w, persist: true)
             } content: {
-                SettingsPanel(state: state)
+                if state.showSettings {
+                    SettingsPanel(state: state)
+                } else {
+                    inspectorPanel
+                }
             }
         }
+    }
+
+    /// 인스펙터의 탐색기·Git이 대상으로 삼을 (ws, project) — **메인 창이 소유한** 활성 프로젝트만.
+    /// 분리 창의 프로젝트거나 활성 프로젝트가 없으면 nil → 그 탭은 빈 상태를 그린다.
+    private var mainOwnedProject: (ws: Workspace, project: Project)? {
+        guard let ws = state.activeWorkspace, let project = ws.activeProject,
+              state.owner(of: project.id).isMain else { return nil }
+        return (ws, project)
     }
 
     @ViewBuilder
@@ -209,40 +215,23 @@ struct ContentView: View {
         }
     }
 
-    /// 메인 창이 소유한 프로젝트의 본문.
+    /// 메인 창이 소유한 프로젝트의 본문(터미널 탭·분할). 우측 슬롯(인스펙터·설정)은 workspaceColumn이 붙인다.
     private func projectColumn(_ ws: Workspace, _ project: Project) -> some View {
-        HStack(spacing: 0) {
-            // 프로젝트별 안정 identity — 전환해도 store(터미널들)는 AppState가 유지한다.
-            BonsplitWorkspaceView(store: state.store(for: project, in: ws),
-                                  windowId: WindowID.main.rawValue)
-                .id(project.id)
-            if state.showExplorer {
-                // 좌측 경계 드래그로 폭 조절(손 뗄 때 영속). 파일 클릭 → 뷰어 탭. 우클릭 "여기에서 터미널 열기".
-                ResizablePanel(width: state.explorerWidth, range: AppState.panelWidthRange) { w in
-                    state.setExplorerWidth(w, persist: true)
-                } content: {
-                    FileExplorerPanel(
-                        root: project.path ?? ws.path,
-                        revealPath: state.store(for: project, in: ws).lastOpenedFilePath,
-                        revealSeq: state.store(for: project, in: ws).revealSeq,
-                        onOpenFile: { state.store(for: project, in: ws).openFile($0) },
-                        onOpenTerminal: { dir in state.addProject(name: basename(dir), path: dir) }
-                    )
-                }
-            }
-            if state.showGitPanel {
-                // 파일/커밋 클릭 → 활성 프로젝트의 새 탭으로 diff를 연다(모달 아님). 좌측 경계로 폭 조절.
-                ResizablePanel(width: state.gitPanelWidth, range: AppState.gitPanelWidthRange) { w in
-                    state.setGitPanelWidth(w, persist: true)
-                } content: {
-                    GitPanel(
-                        dir: project.path ?? ws.path,
-                        sessionBase: project.sessionBaseHead,
-                        onResetBaseline: { state.resetSessionBaseline(projectId: project.id, cwd: project.path ?? ws.path) },
-                        onSendReview: { state.store(for: project, in: ws).injectToTerminal($0) }
-                    ) { state.store(for: project, in: ws).openDiff($0) }
-                }
-            }
+        // 프로젝트별 안정 identity — 전환해도 store(터미널들)는 AppState가 유지한다.
+        BonsplitWorkspaceView(store: state.store(for: project, in: ws),
+                              windowId: WindowID.main.rawValue)
+            .id(project.id)
+    }
+
+    /// 인스펙터 = [탭 스트립] / [활성 탭 본문]. 탭 전환은 스트립·상단바 아이콘·벨이 한다.
+    private var inspectorPanel: some View {
+        VStack(spacing: 0) {
+            InspectorTabStrip(state: state)
+            HDivider()
+            // 방문한 탭을 살려둔다(keep-alive) — 재생성 flash 없이 즉시 전환·스크롤 보존.
+            InspectorContent(state: state, target: mainOwnedProject)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.pPanel)
     }
 }

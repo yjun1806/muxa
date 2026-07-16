@@ -46,7 +46,7 @@ struct ProjectWindowView: View {
             PanelToggle(icon: "folder", on: model.showExplorer, help: "파일 익스플로러") {
                 state.togglePanel(explorer: true, in: windowId)
             }
-            PanelToggle(icon: "arrow.triangle.branch", on: model.showGitPanel, help: "Git 패널") {
+            PanelToggle(icon: "arrow.triangle.merge", on: model.showGitPanel, help: "Git 패널") {
                 state.togglePanel(explorer: false, in: windowId)
             }
         }

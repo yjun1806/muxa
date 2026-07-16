@@ -151,7 +151,7 @@ extension AppState {
         guard let current = projectWindows.first(where: { $0.id == id }) else { return }
         guard (pendingFrames[id] ?? current.frame) != frame else { return }
         pendingFrames[id] = frame
-        saveFramesDebounced()
+        saveDebounced()
     }
 
     /// 분리 창 제목 = 그 창이 그리는 프로젝트 이름.

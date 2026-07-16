@@ -4,50 +4,46 @@ import SwiftUI
 /// 배지("지금 상태")와 달리 인박스는 "자리 비웠다 돌아왔을 때의 복구 동선"이라 전역(모든 워크스페이스)이다.
 struct AttentionBell: View {
     let state: AppState
-    @State private var open = false
+
+    /// 벨은 상단바에 남는다 — 인스펙터가 닫혀 있어도 배지가 "놓친 게 있다"를 계속 말해야 하기 때문.
+    /// 누르면 인스펙터 알림 탭을 연다(같은 탭이면 닫힘).
+    private var active: Bool { state.showAttention }
 
     var body: some View {
-        Button { open.toggle() } label: {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: unread > 0 ? "bell.badge" : "bell")
-                    .font(.muxa(.body))
-                    .foregroundStyle(open || unread > 0 ? Color.pFg : Color.pMuted)
-                if unread > 0 {
-                    Text(unread > 99 ? "99+" : "\(unread)")
-                        .font(.muxaMono(.nano, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 3)
-                        .frame(minWidth: 12)
-                        .frame(height: 12)
-                        .background(Color(nsColor: Palette.borderActivity), in: Capsule())
-                        .offset(x: 7, y: -6)
-                        .fixedSize()
+        Button {
+            state.selectInspector(.attention)
+            if state.showAttention { state.attention.markAllRead() } // 여는 즉시 읽음(표준 인박스 UX)
+        } label: {
+            Image(systemName: "bell")
+                .font(.muxa(.body))
+                .foregroundStyle(active || unread > 0 ? Color.pFg : Color.pMuted)
+                .frame(width: IconSize.control, height: IconSize.control)
+                // 배경·클립은 **아이콘 칸에만** 건다(`in:`). 예전엔 버튼 전체에 clipShape를 걸어서
+                // 밖으로 튀어나온 숫자 배지가 잘렸다 — 배지는 클립 밖 overlay라 이제 안 잘린다.
+                .background(active ? Color.pBtnActive.opacity(0.6) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: Radius.sm))
+                .overlay(alignment: .topTrailing) {
+                    if unread > 0 {
+                        Text(unread > 99 ? "99+" : "\(unread)")
+                            .font(.muxaMono(.nano, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 3)
+                            .frame(minWidth: 12)
+                            .frame(height: 12)
+                            .background(Color(nsColor: Palette.borderActivity), in: Capsule())
+                            .fixedSize()
+                            .offset(x: 5, y: -3)
+                    }
                 }
-            }
         }
         .buttonStyle(.plain)
         .clickCursor()
-        .frame(width: IconSize.control, height: IconSize.control)
-        .background(open ? Color.pBtnActive.opacity(0.6) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
         .help("알림 인박스")
-        // 인박스를 여는 순간 다 봤음 처리(벨 배지 0으로) — 여는 즉시 읽음이 표준 인박스 UX.
-        .onChange(of: open) { _, isOpen in if isOpen { state.attention.markAllRead() } }
-        // 푸터 팝오버(사용량·서비스)와 **같은 떠 있는 판**을 쓴다 — 시스템 `.popover`의 화살표·재질을
-        // 버리고 muxa 표면·애니메이션으로 통일한다(어느 벨에서 나왔는지는 벨이 눌린 채 남는 것이 말한다).
-        .muxaPopover(isPresented: $open) {
-            AttentionInbox(state: state) { open = false }
-        }
     }
 
-    // 놓친 알림 + 처리 안 한 워크트리 제안. 인박스를 열면 알림은 읽음 처리되지만 제안은 추가/무시할 때까지
-    // 남아 배지를 유지한다 — "아직 결정할 워크트리가 있다"는 지속 넛지(orca 인박스와 같은 취지).
-    private var unread: Int { state.attention.unreadCount + offerCount }
-
-    private var offerCount: Int {
-        // 공유 repo에서 같은 워크트리가 두 워크스페이스로 나올 수 있으니 경로 유니크로 센다(이중 카운트 방지).
-        Set(state.workspaces.flatMap { ws in state.worktreeOffers(for: ws).map(\.path) }).count
-    }
+    // 놓친 알림 + 처리 안 한 워크트리 제안(공유 계산). 인박스를 열면 알림은 읽음 처리되지만 제안은
+    // 추가/무시할 때까지 남아 배지를 유지한다 — "아직 결정할 워크트리가 있다"는 지속 넛지(orca 인박스 취지).
+    private var unread: Int { state.attentionBadgeCount }
 }
 
 /// 인박스 팝오버 본문 — 놓친 주의 이력 목록(최신 우선). 항목 클릭 → 그 칸으로 점프.
@@ -80,9 +76,8 @@ struct AttentionInbox: View {
             HDivider()
             hookFooter
         }
-        // 폭은 푸터 팝오버와 같은 값으로 통일한다 — 같은 판 계열로 읽히게. 표면(배경·모서리·그림자)은
-        // 띄우는 쪽(`floatingPanel()`)이 입힌다.
-        .frame(width: PopoverWidth.footer, height: 380)
+        // 인스펙터 슬롯을 채운다(폭·높이 유연) — 예전 팝오버의 고정 크기가 아니다.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// 훅 상태 푸터 — 알림 품질의 근원을 정직하게 드러낸다.
@@ -199,11 +194,10 @@ struct AttentionInbox: View {
     }
 
     private var header: some View {
+        // 제목("알림 인박스")은 뺐다 — 위 탭 스트립이 이미 "알림"이라 중복. 개수·"모두 지우기"만 남긴다.
         HStack(spacing: 6) {
-            Image(systemName: "bell").font(.muxa(.label)).foregroundStyle(Color.pMuted)
-            Text("알림 인박스").font(.muxa(.body, weight: .semibold)).foregroundStyle(Color.pFg)
-            Text("\(state.attention.entries.count)")
-                .font(.muxaMono(.caption)).foregroundStyle(Color.pMuted.opacity(0.7))
+            Text("놓친 알림 \(state.attention.entries.count)")
+                .font(.muxa(.caption)).foregroundStyle(Color.pMuted)
             Spacer(minLength: 0)
             if !entries.isEmpty {
                 Button { state.attention.clear() } label: {

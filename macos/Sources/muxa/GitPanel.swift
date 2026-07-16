@@ -82,7 +82,7 @@ struct GitPanel: View {
 
     private var header: some View {
         HStack(spacing: Space.sm) {
-            Image(systemName: "arrow.triangle.branch").font(.muxa(.body)).foregroundStyle(Color.pMuted)
+            Image(systemName: "arrow.triangle.merge").font(.muxa(.body)).foregroundStyle(Color.pMuted)
             branchLabel
             if let status {
                 if status.ahead > 0 { counter("arrow.up", status.ahead) }
