@@ -1049,6 +1049,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 사용자가 탭을 봤다 — waiting/done 상시 테두리를 지운다(추정기를 idle로 리셋해 고정도 푼다).
     /// 에이전트가 실제로 아직 작업 중이면 다음 출력 heartbeat가 곧 working으로 되세운다(working은 테두리 없음).
     private func acknowledgeAgent(_ tabId: TabID) {
+        // 사용자 설정이 "포커스해도 유지"(기본)면 봐도 안 지운다 — 다음 실제 활동(출력→working)에만 바뀐다.
+        guard PaneIndicatorSettings.shared.clearOnFocus else { return }
         guard let est = estimators[tabId], est.state == .waiting || est.state == .done else { return }
         estimators[tabId] = AgentActivityEstimator(idleThreshold: est.idleThreshold)
         if agentActivity[tabId] != nil {
