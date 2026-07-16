@@ -333,6 +333,27 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         persist()
         return id
     }
+
+    /// 이 스토어의 워크트리 링크 탭을 모두 닫는다 — 가져오기/옮기기로 **실물(∞ 탭)이 도착하면** 안내는 치운다.
+    func closeWorktreeLinkTabs() {
+        let links = controller.allTabIds.filter { if case .worktreeLink = content(for: $0) { return true }; return false }
+        for id in links { _ = controller.closeTab(id) }
+    }
+
+    // MARK: 이동 배너 (D31 이동 배지) — 진행 중인 세션이 다른 프로젝트의 워크트리 안에서 작업 중일 때
+
+    /// 이 탭의 이동 대상 — AppState가 `worktreeMoveSuggestion(for:in:)`을 이어 준다(프로젝트를 넘나드는 판정은 상위 몫).
+    @ObservationIgnored var moveSuggestion: ((TabID) -> WorktreeMoveSuggestion?)?
+    /// 이동 실행 위임 — (tabId, 대상 프로젝트 id). 실체는 `AppState.bringPersistentTab`(∞ 세션 이식).
+    @ObservationIgnored var onWorktreeMove: ((TabID, String) -> Void)?
+    /// 사용자가 "여기 둠"으로 무시한 이동 제안(tabId → 대상 프로젝트 id) — 같은 대상이면 다시 조르지 않는다
+    /// (관측 대상 — 배너가 반응). 다른 워크트리로 옮겨 가면 키가 달라져 배너가 다시 뜬다. 세션 한정(영속 안 함).
+    private(set) var dismissedMove: [TabID: String] = [:]
+
+    /// 이동 제안 무시 — 이 탭에 대해 같은 대상으로는 배너를 다시 띄우지 않는다.
+    func dismissMoveSuggestion(_ tabId: TabID, targetId: String) {
+        dismissedMove[tabId] = targetId
+    }
     /// 초기 복원이 끝난 뒤에만 저장을 트리거한다(복원 중 중간 상태 저장 방지).
     @ObservationIgnored private var ready = false
 
@@ -561,6 +582,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         hookSessions[tabId] = nil // 훅 세션 상태(배경작업·서브에이전트 로스터) 해제 — 맵 누수 방지
         hookedTabs.remove(tabId)
         agentCwds[tabId] = nil // 에이전트(훅) cwd 미러 해제(맵 누수 방지)
+        dismissedMove[tabId] = nil // 이동 제안 무시 이력 해제(맵 누수 방지)
         if agentDetail[tabId] != nil { // 진행 표시 해제(관측 맵은 immutable 교체)
             var map = agentDetail
             map[tabId] = nil
@@ -1383,6 +1405,15 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 사이드바 에이전트 목록(L1)이 활성 행(선택 채움)을 표시하는 데 쓴다.
     var currentTabId: TabID? {
         controller.focusedPaneId.flatMap { controller.selectedTabId(inPane: $0) }
+    }
+
+    /// 열려 있는 **터미널** 탭이 하나라도 있나(뷰어·정보 탭은 세션이 아니다) —
+    /// 사이드바 ✕(프로젝트 닫기) 노출 판정용: 터미널이 살아 있으면 실수 클릭 한 번이 세션을 몰살한다.
+    var hasTerminalTabs: Bool {
+        controller.allTabIds.contains {
+            if case .terminal = content(for: $0) { return true }
+            return false
+        }
     }
 
     /// 지금 포커스된 칸의 선택 탭이 있는 디렉터리 — 상태바 표시용.

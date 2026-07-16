@@ -760,6 +760,13 @@ final class AppState {
         stores[projectId]?.currentTabId
     }
 
+    /// 열려 있는 터미널이 하나라도 있나 — 사이드바 ✕(닫기) 노출 판정.
+    /// 터미널이 살아 있으면 ✕를 숨긴다(실수 클릭 한 번이 모든 세션을 죽인다 — 닫기는 우클릭 메뉴로).
+    /// 안 연 프로젝트(store 없음)는 false — 세션이 없으니 ✕가 떠도 안전하다.
+    func hasOpenTerminals(_ projectId: String) -> Bool {
+        stores[projectId]?.hasTerminalTabs ?? false
+    }
+
     /// 프로젝트 서비스들의 현재 상태.
     func serviceStatuses(of projectId: String) -> [ServiceState] {
         services(of: projectId).map { serviceMonitor.state(of: $0.id) }
@@ -827,6 +834,11 @@ final class AppState {
         // 자동 승격된 워크트리(밖에 라이브 세션이 있는) 프로젝트의 첫 화면은 터미널 대신 **링크 탭** —
         // 복원 스냅샷이 있으면 그쪽이 우선이라 힌트는 무시된다(ensureInitialTerminal).
         s.initialWorktreeLink = savedLayouts[project.id] == nil && externalLiveSession(for: pid) != nil
+        // 이동 배너(D31 이동 배지) — 이 프로젝트의 ∞ 탭이 다른 프로젝트의 워크트리 안에서 작업 중이면 "옮길까요?".
+        s.moveSuggestion = { [weak self] tabId in self?.worktreeMoveSuggestion(for: tabId, in: pid) }
+        s.onWorktreeMove = { [weak self] tabId, targetId in
+            self?.bringPersistentTab(from: pid, tabId: tabId, to: targetId)
+        }
         // 늦게 열리는 프로젝트도 자기 창 소유권을 갖고 태어난다 — 분리 창의 프로젝트가 "메인 소유"로
         // 만들어지면 그 안의 TermView는 어느 창에도 붙지 않는다(I3).
         s.setOwnerWindow(owner(of: project.id), focusedTab: nil)
@@ -1452,11 +1464,7 @@ final class AppState {
         guard let ws = workspace(containing: projectId),
               let project = ws.projects.first(where: { $0.id == projectId }),
               let path = project.path ?? ws.path, !path.isEmpty else { return nil }
-        // 전 프로젝트의 실효 경로(임자 판정용) — 세션 cwd를 담는 **가장 구체적인** 프로젝트만 그 세션을 소유한다
-        // (레포 루트 프로젝트가 하위 워크트리 세션을 가로채지 않게).
-        let allPaths: [(id: String, path: String)] = workspaces.flatMap { w in
-            w.projects.compactMap { p in (p.path ?? w.path).map { (p.id, $0) } }
-        }
+        let allPaths = allProjectPaths()
         // 다른 프로젝트에 살아 있는 (tab, pwd) 중 **임자가 이 프로젝트인** 것만 후보로. 임자 판정을 통과했으면
         // 이미 이 경로 안이므로, 여러 개면 **cwd가 가장 깊은** 것(가장 구체적으로 이 워크트리를 파고든 세션)을 고른다.
         let paths = allPaths.map(\.path)
@@ -1475,18 +1483,37 @@ final class AppState {
         return ExternalWorktreeSession(originProjectId: b.originProjectId, tabId: b.tabId, isPersistent: b.persistent)
     }
 
-    /// 링크 카드 "가져오기" — 영속(∞) 세션을 원본 프로젝트에서 이 워크트리 프로젝트로 이식한다. A에서 tmux 세션을
-    /// detach(kill/record 없이)하고 B에서 같은 세션에 attach — **라이브 서피스를 옮기지 않아** 안전(프로세스는 tmux 서버에 산다).
-    /// 일반 터미널은 `handOffPersistentTab`이 nil을 줘 무동작(가서 보기만 가능). 가져온 뒤 그 프로젝트로 데려간다.
+    /// 링크 탭 "가져오기"·이동 배너 "옮기기" — 영속(∞) 세션을 원본 프로젝트에서 워크트리 프로젝트로 이식한다.
+    /// A에서 tmux 세션을 detach(kill/record 없이)하고 B에서 같은 세션에 attach — **라이브 서피스를 옮기지 않아**
+    /// 안전(프로세스는 tmux 서버에 산다). 일반 터미널은 `handOffPersistentTab`이 nil을 줘 무동작.
+    /// 가져온 뒤 그 프로젝트로 데려가고, 대상의 링크 탭(안내)은 치운다 — 실물이 도착했다.
     func bringPersistentTab(from originId: String, tabId: TabID, to targetId: String) {
         guard let origin = stores[originId], let target = stores[targetId],
               let handed = origin.handOffPersistentTab(tabId) else { return }
         target.reattach(handed)
+        target.closeWorktreeLinkTabs()
         if let ws = workspace(containing: targetId) {
             setActiveId(ws.id)
             setActiveProject(targetId)
         }
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// 진행 중인 세션(∞ 탭)이 **다른 프로젝트(워크트리)** 안에서 작업 중이면 그 프로젝트를 이동 대상으로 준다 —
+    /// 원본 칸 상단 "옮길까요?" 배너(D31 이동 배지)의 재료. **영속(∞) 탭만** 대상(일반 터미널은 못 옮긴다 — 배너 자체를 안 띄움).
+    func worktreeMoveSuggestion(for tabId: TabID, in projectId: String) -> WorktreeMoveSuggestion? {
+        guard let store = stores[projectId], store.isPersistent(tabId),
+              let cwd = store.effectiveCwds[tabId] else { return nil }
+        let all = allProjectPaths()
+        guard let oi = WorktreeLink.owner(pwd: cwd, projectPaths: all.map(\.path)),
+              all[oi].id != projectId,
+              let target = project(all[oi].id) else { return nil }
+        return WorktreeMoveSuggestion(targetProjectId: target.id, targetName: target.name)
+    }
+
+    /// 전 워크스페이스 프로젝트의 (id, 실효 경로) — 세션 cwd의 임자 판정(`WorktreeLink.owner`) 입력.
+    private func allProjectPaths() -> [(id: String, path: String)] {
+        workspaces.flatMap { w in w.projects.compactMap { p in (p.path ?? w.path).map { (p.id, $0) } } }
     }
 
     /// 워크트리 폴더가 사라진 프로젝트를 다시 판정한다(존재 확인=경계, 판정=순수 `DeadWorktree`).

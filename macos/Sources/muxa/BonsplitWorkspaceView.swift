@@ -37,6 +37,8 @@ struct BonsplitWorkspaceView: View {
             .overlay(alignment: .top) { ResumeOverlay(store: store, tabId: tabId) }
             // ∞ 탭을 작업이 도는 중에 닫으려 하면 이 칸 상단에 확인 배너를 얹는다(NSAlert 대체). 대상 아니면 안 그린다.
             .overlay(alignment: .top) { CloseConfirmOverlay(store: store, tabId: tabId) }
+            // 이 ∞ 세션이 다른 프로젝트의 워크트리 안에서 작업 중이면 "옮길까요?" 배너(D31 이동 배지). 대상 아니면 안 그린다.
+            .overlay(alignment: .top) { WorktreeMoveOverlay(store: store, tabId: tabId) }
     }
 
     /// ⌘F 검색 바 — active일 때만 우상단에 뜬다. 터미널 탭에만 있다.

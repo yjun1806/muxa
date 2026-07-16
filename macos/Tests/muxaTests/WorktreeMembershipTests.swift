@@ -90,46 +90,6 @@ struct WorktreeMembershipTests {
         #expect(offers.map(\.path) == ["/repo/wt-x"])
     }
 
-    // MARK: - WorktreeMove.target
-
-    @Test("cwd가 소속과 다른 워크트리에 있으면 그 워크트리를 이동 대상으로 준다")
-    func 다른워크트리로이동() {
-        let trees = [wt("/repo", branch: "main"), wt("/repo/.worktrees/feat", branch: "feat")]
-        let target = WorktreeMove.target(cwd: "/repo/.worktrees/feat", projectPath: "/repo", worktrees: trees)
-        #expect(target?.path == "/repo/.worktrees/feat")
-    }
-
-    @Test("cwd가 이미 소속 경로면 이동하지 않는다")
-    func 이미소속이면없음() {
-        let trees = [wt("/repo", branch: "main"), wt("/repo/.worktrees/feat", branch: "feat")]
-        #expect(WorktreeMove.target(cwd: "/repo/.worktrees/feat", projectPath: "/repo/.worktrees/feat", worktrees: trees) == nil)
-    }
-
-    @Test("워크트리 하위 폴더로 cd해도 그 워크트리로 매칭된다")
-    func 하위폴더도매칭() {
-        let trees = [wt("/repo", branch: "main"), wt("/repo/.worktrees/feat", branch: "feat")]
-        let target = WorktreeMove.target(cwd: "/repo/.worktrees/feat/src/app", projectPath: "/repo", worktrees: trees)
-        #expect(target?.path == "/repo/.worktrees/feat")
-    }
-
-    @Test("중첩 워크트리는 가장 깊은 것을 고른다")
-    func 가장깊은워크트리() {
-        let trees = [wt("/repo", branch: "main"), wt("/repo/nested", branch: "n")]
-        let target = WorktreeMove.target(cwd: "/repo/nested/x", projectPath: "/other", worktrees: trees)
-        #expect(target?.path == "/repo/nested")
-    }
-
-    @Test("이름만 겹치는 형제 워크트리로 오판하지 않는다")
-    func 접두사오판방지() {
-        let trees = [wt("/repo/wt/feat", branch: "feat"), wt("/repo/wt/feat-2", branch: "feat-2")]
-        let target = WorktreeMove.target(cwd: "/repo/wt/feat-2/src", projectPath: "/repo", worktrees: trees)
-        #expect(target?.path == "/repo/wt/feat-2")
-    }
-
-    @Test("어느 워크트리에도 없거나 cwd가 없으면 이동 대상이 없다")
-    func 매칭없음() {
-        let trees = [wt("/repo", branch: "main")]
-        #expect(WorktreeMove.target(cwd: "/somewhere/else", projectPath: "/repo", worktrees: trees) == nil)
-        #expect(WorktreeMove.target(cwd: nil, projectPath: "/repo", worktrees: trees) == nil)
-    }
+    // WorktreeMove.target(순수 준비물)은 이동 배지가 `WorktreeLink.owner` 기반(AppState.worktreeMoveSuggestion)으로
+    // 실현되며 superseded — 함수·테스트 모두 제거됨. 임자 판정 커버리지는 WorktreeLinkTests가 진다.
 }

@@ -38,7 +38,11 @@ struct SidebarProjectRow: View {
         let leadingTone = state.projectLeadingTone(project.id)
         let services = state.services(of: project.id)
         VStack(alignment: .leading, spacing: Space.tight) {
+            // 채움(active·hover)은 **이름 줄에만** — 블록 전체에 걸면 에이전트 행의 hover·선택 채움이
+            // 같은 색 위에 그려져 안 보인다(L1 행 문법이 죽는다). 에이전트 행은 레인 위에 직접 앉는다.
             topRow(leadingTone: leadingTone, services: services, expandable: expandable)
+                .background(active ? Color.pBtnActive : (hovered ? Color.pBtnHover : Color.clear))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
             if expandable && expanded {
                 agentList()
             }
@@ -49,8 +53,6 @@ struct SidebarProjectRow: View {
         .padding(.vertical, (expandable && expanded) ? Space.tight : 0) // 2줄일 때만 위아래 숨을 준다
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(minHeight: RowHeight.row)
-        .background(active ? Color.pBtnActive : (hovered ? Color.pBtnHover : Color.clear))
-        .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
         .contentShape(Rectangle())
         .onTapGesture(perform: activate)
         .sidebarRow(id: project.id, label: displayName, selected: active,
@@ -88,15 +90,18 @@ struct SidebarProjectRow: View {
                     .foregroundStyle(Color.pMuted)
             }
             Spacer(minLength: Space.xs)
-            // ✕는 서비스 요약과 **같은 자리**(hover 시 교체 → 행 폭 불변). 교체는 존재가 아니라 opacity로
+            // ✕는 **열려 있는 터미널이 하나도 없을 때만** 노출한다 — 터미널이 살아 있으면 실수 클릭
+            // 한 번이 모든 세션을 죽인다(닫기의 정식 경로는 우클릭 메뉴 → 확인 시트).
+            // 뜰 때는 서비스 요약과 **같은 자리**(hover 시 교체 → 행 폭 불변). 교체는 존재가 아니라 opacity로
             // (hover 없는 사용자의 접근성 트리에서 ✕가 사라지지 않게). 마우스 히트만 hover로 가른다.
+            let showsClose = workspace.projects.count > 1 && !state.hasOpenTerminals(project.id)
             ZStack(alignment: .trailing) {
                 if !services.isEmpty {
                     serviceSummary(services)
-                        .opacity(hovered ? 0 : 1)
+                        .opacity(hovered && showsClose ? 0 : 1) // ✕가 없으면 hover에도 요약을 유지한다
                         .accessibilityHidden(true) // 요약은 행 라벨(이름)에 섞이면 소음이다
                 }
-                if workspace.projects.count > 1 {
+                if showsClose {
                     closeButton
                         .opacity(hovered ? 1 : 0)
                         .allowsHitTesting(hovered)

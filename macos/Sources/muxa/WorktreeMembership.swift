@@ -36,6 +36,13 @@ struct ExternalWorktreeSession {
     let isPersistent: Bool
 }
 
+/// 진행 중인 세션(∞ 탭)이 **다른 프로젝트(워크트리)** 안에서 작업 중일 때의 이동 대상 — 원본 칸 상단
+/// "옮길까요?" 배너(D31 이동 배지)가 그린다. 판정은 `AppState.worktreeMoveSuggestion`.
+struct WorktreeMoveSuggestion: Equatable {
+    let targetProjectId: String
+    let targetName: String
+}
+
 /// 워크트리 프로젝트에서 도는 작업이 **다른 프로젝트의 탭**에 살아 있는지 판정(순수) — 링크 카드(D31)의 재료.
 ///
 /// 에이전트가 옛 탭 안에서 `git worktree add` 후 그 안으로 `cd`하면, 새 워크트리가 프로젝트로 승격돼도
@@ -56,23 +63,5 @@ enum WorktreeLink {
             if p.count > bestLen { bestLen = p.count; best = i }
         }
         return best
-    }
-}
-
-/// 탭의 런타임 cwd가 소속 Project와 **다른** 워크트리에 들어가 있으면, 그 워크트리를 이동 대상으로 준다.
-enum WorktreeMove {
-    /// cwd를 포함하는 워크트리 중 **가장 깊은 것**을 고른다(중첩은 드물지만 안전하게). 매칭이 없으면 nil.
-    /// 그게 이미 소속 경로(`projectPath`)와 같으면 nil — 이미 거기 있으니 옮길 게 없다.
-    /// `projectPath`는 탭이 속한 프로젝트의 실효 경로(`project.path ?? workspace.path`)다.
-    static func target(cwd: String?, projectPath: String?, worktrees: [GitWorktree]) -> GitWorktree? {
-        guard let cwd = cwd.map(normalizePath), !cwd.isEmpty else { return nil }
-        let containing = worktrees.filter {
-            let p = normalizePath($0.path)
-            return cwd == p || cwd.hasPrefix(p + "/")
-        }
-        guard let deepest = containing.max(by: { normalizePath($0.path).count < normalizePath($1.path).count })
-        else { return nil }
-        if let projectPath = projectPath.map(normalizePath), normalizePath(deepest.path) == projectPath { return nil }
-        return deepest
     }
 }
