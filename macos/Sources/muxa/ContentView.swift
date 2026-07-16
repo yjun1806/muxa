@@ -6,6 +6,9 @@ struct ContentView: View {
     let state: AppState
     let home: String
 
+    /// 사용량 칩 위치 설정 — 헤더에 놓을지 여부를 topBar가 이걸 읽어 정한다(@Observable).
+    private let statusBarSettings = StatusBarSettings.shared
+
     var body: some View {
         // 크롬(상단바·사이드바·푸터)은 한 덩어리 배경이고, 그 위에 콘텐츠가 카드로 떠 있다.
         // 크롬끼리는 구분선을 넣지 않는다 — 같은 색으로 이어져야 "창 전체가 하나의 틀"로 읽힌다.
@@ -93,6 +96,8 @@ struct ContentView: View {
             Color.clear.frame(width: TrafficLights.reservedLeadingWidth)
             wordmark
             TopBarControls(state: state, home: home)
+            // 사용량 칩이 헤더 왼쪽 설정이면 앱 컨트롤 옆에 둔다(계정 단위라 워크스페이스와 무관하게 뜬다).
+            if statusBarSettings.position == .headerLeft { UsageChip(state: state) }
             if let ws = state.activeWorkspace {
                 // 좌측(앱·워크스페이스 관리)과 우측(현재 위치 + 패널 토글)은 성격이 다른 영역이라 선으로 가른다.
                 VDivider(height: 18)
@@ -111,6 +116,8 @@ struct ContentView: View {
                         .help(path)
                 }
                 Spacer(minLength: Space.lg)
+                // 사용량 칩이 헤더 오른쪽 설정이면 벨·토글 앞에 둔다.
+                if statusBarSettings.position == .headerRight { UsageChip(state: state) }
                 AttentionBell(state: state)
                 explorerToggle
                 gitToggle

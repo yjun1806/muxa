@@ -3,23 +3,15 @@ import SwiftUI
 /// 하단 푸터 — [claude 사용량] [에이전트 활동] ····· [백그라운드 세션] [서비스].
 ///
 /// 경로·브랜치는 여기 있지 않다 — **경로는 상단바 브레드크럼 옆**(선택한 프로젝트의 경로, `ContentView.topBar`),
-/// **브랜치는 Git 패널**(⎇ 헤더)이 맡는다. 사이드바·상단바는 사람이 붙인 **표시명**을 말한다(git 탐색은 Git 패널로).
-/// 이 바는 이제 **상태**(사용량·에이전트 활동)와 **떠 있는 것들**(백그라운드·서비스)만 말한다.
+/// **브랜치는 Git 패널**(⎇ 헤더)이 맡는다. 이 바는 **상태**(사용량·에이전트 활동)와
+/// **떠 있는 것들**(백그라운드·서비스)만 말한다.
+///
+/// 사용량 칩은 이제 위치가 설정에 따라 바뀐다(`StatusBarSettings.position`) — 푸터 좌/우면 여기,
+/// 헤더 좌/우면 `ContentView.topBar`가 그린다(`UsageChip`은 어디서든 같은 칩).
 struct StatusBar: View {
     let state: AppState
 
-    /// @Observable 싱글턴 — body에서 읽는 프로퍼티만 관측된다(조회 중·실패·값 변화에 자동 재렌더).
-    private let usage = ClaudeUsageService.shared
-
-    @State private var showUsage = false
-    /// 리셋 카운트다운("3h 38m")이 굳지 않도록 1분마다 흐르는 현재 시각.
-    @State private var now = Date()
-
-    /// 활성 프로젝트의 실효 경로 — 프로젝트를 바꾸면 사용량을 다시 조회하는 `.task`의 트리거.
-    private var projectDir: String? {
-        guard let ws = state.activeWorkspace else { return nil }
-        return ws.activeProject?.path ?? ws.path
-    }
+    private let settings = StatusBarSettings.shared
 
     /// 포커스된 칸의 에이전트가 지금 뭘 하고 있나("편집 중: TermView.swift") — 훅의 도구 이벤트에서 온다.
     /// 훅이 없으면 nil이다. 추정(출력 idle)으로는 "작업 중"까지만 알지 "무엇을"은 알 수 없다.
@@ -29,11 +21,10 @@ struct StatusBar: View {
     }
 
     var body: some View {
-        // 아이콘·텍스트·막대가 섞이는 줄이라 정렬을 명시한다. 아이콘 글꼴을 옆 텍스트와 같은 스케일로
-        // 맞춰야(둘 다 .label) 시각 중심이 어긋나지 않는다 — 크기가 다르면 center 정렬도 삐뚤어 보인다.
+        // 아이콘·텍스트·막대가 섞이는 줄이라 정렬을 명시한다.
         HStack(alignment: .center, spacing: Space.md) {
-            // 사용량은 이제 **왼쪽 주인공**이다 — pwd·브랜치가 위로 올라가 이 자리를 비웠다.
-            usageView
+            // 사용량 칩이 푸터 왼쪽에 놓이는 설정이면 여기가 주인공.
+            if settings.position == .footerLeft { UsageChip(state: state) }
             // 에이전트가 지금 하는 일 — 있을 때만 뜨고, 턴이 끝나면 사라진다("무엇을 하는가").
             if let agentDetail {
                 HStack(alignment: .center, spacing: Space.xs) {
@@ -48,118 +39,13 @@ struct StatusBar: View {
             // 오른쪽 = **떠 있는 것들**(닫아도 도는 백그라운드 세션·서비스). 폭이 고정된 요약칩이다.
             if let ws = state.activeWorkspace, let project = ws.activeProject {
                 // 닫았지만 살아 있는 터미널 세션 — 있을 때만 나타난다(없으면 자리도 안 차지한다).
-                // 안 보여주면 "뭔가 돌고 있는데 어디 있는지 모르는" 유령이 된다.
                 DetachedStrip(state: state, project: project)
                 ServiceStrip(state: state, project: project)
             }
+            // 사용량 칩이 푸터 오른쪽 설정이면 떠 있는 것들 뒤(가장 오른쪽)에 둔다.
+            if settings.position == .footerRight { UsageChip(state: state) }
         }
-        .panelBar(height: RowHeight.toolbar) // 내용이 세로 중앙에 오도록 여유를 준다(24는 빡빡해 아래로 붙어 보인다)
+        .panelBar(height: RowHeight.toolbar) // 내용이 세로 중앙에 오도록 여유를 준다
         .background(Color.pPanel)
-        .task(id: projectDir) {
-            await usage.refreshIfStale() // 프로젝트를 바꾸면 캐시가 만료됐는지 다시 본다
-        }
-        .tick(every: 60, into: $now) // 리셋 카운트다운이 굳지 않게
-        .onChange(of: now) { _, _ in
-            Task { await usage.refreshIfStale() } // 캐시가 만료됐으면 조용히 재조회(성공 5분·실패 45초)
-        }
-    }
-
-    /// claude 사용량 — [✳ | 5h ▬▬ 9% | wk ▬▬ 54% | 3h 38m]. 클릭하면 상세 팝오버가 열린다.
-    ///
-    /// **하나의 칩(알약)으로 묶는다.** 로고·막대·숫자·시계가 맨바닥에 흩어져 있으면 (1) 어디까지가
-    /// 한 덩어리인지 안 읽히고 (2) 누를 수 있는 것처럼 보이지 않는다. 칩 배경 + hover/열림 상태로
-    /// "여기가 버튼"임을 드러낸다(`FooterChip` — 서비스·백그라운드 칩과 배경·높이·반경을 공유한다).
-    /// 항목 사이는 여백이 아니라 얇은 세로선으로 가른다 — 여백만으로는 "5h 9%"와 "wk 54%"가 붙어 읽힌다.
-    @ViewBuilder
-    private var usageView: some View {
-        FooterChip(isOpen: $showUsage,
-                   help: "claude 사용량 — 클릭해 상세 보기(모델별 한도 포함)") {
-            HStack(alignment: .center, spacing: Space.sm) {
-                ClaudeMark(size: IconSize.inlineMark)
-                if shown.isEmpty {
-                    Text(placeholder)
-                        .font(.muxa(.label))
-                        .foregroundStyle(Color.pMuted.opacity(0.7))
-                } else {
-                    ForEach(shown) { limit in
-                        VDivider(height: 12)
-                        limitView(limit)
-                    }
-                    if let reset = sessionReset {
-                        // 리셋은 세션 것 하나만 — 주간·모델 리셋까지 늘어놓으면 상태바가 숫자밭이 된다.
-                        VDivider(height: 12)
-                        // 내부 간격은 limitView와 같은 xs — 여기만 tight(2)면 아이콘·글자가 유독 붙어
-                        // 보여서 옆 항목들과 리듬이 어긋난다.
-                        HStack(alignment: .center, spacing: Space.xs) {
-                            // 시계 아이콘이 없으면 "3h 38m"이 또 하나의 사용량 수치처럼 읽힌다 — 남은 시간임을 표시.
-                            Image(systemName: "clock").font(.muxa(.micro))
-                            Text(reset).font(.muxaMono(.caption))
-                        }
-                        .foregroundStyle(Color.pMuted)
-                        .help("5시간 세션 한도가 리셋되기까지")
-                    }
-                    if usage.failed {
-                        // 값은 있지만 마지막 갱신이 실패 — 지금 보이는 건 이전 조회 결과다.
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.muxa(.micro))
-                            .foregroundStyle(UsageColor.stale)
-                            .help("갱신 실패 — 이전 값입니다")
-                    }
-                }
-                if usage.loading {
-                    ProgressView().controlSize(.small).scaleEffect(0.5).frame(width: 12, height: 12)
-                }
-            }
-        }
-        .muxaPopover(isPresented: $showUsage) {
-            UsagePopover()
-        }
-    }
-
-    /// 상태바에 띄울 한도 — 모델 전용(Fable 등)은 뺀다. 상세는 팝오버에서 본다.
-    private var shown: [UsageLimit] { ClaudeUsage.statusBar(usage.limits) }
-
-    /// 세션(5h) 한도의 리셋까지 남은 시간 — 상태바엔 이것 하나만 띄운다.
-    private var sessionReset: String? {
-        guard let session = usage.limits.first(where: \.isSession) else { return nil }
-        return ClaudeUsage.resetShort(session.resetsAt, now: now)
-    }
-
-    /// 보여줄 한도가 없을 때의 문구 — 조회 전·실패·빈 응답을 구분한다.
-    private var placeholder: String {
-        switch usage.state {
-        case .idle: return "사용량 …"
-        case .failed: return "사용량 —"
-        case .empty: return "사용량 없음"
-        case .ok: return "사용량 없음" // 성공했는데 항목이 없다면 표시할 게 없다
-        }
-    }
-
-    /// 한도 하나 — [라벨][막대][%]. 리셋 시각은 세션 것만 따로 한 번 띄운다(위).
-    ///
-    /// 읽는 순서를 만든다: **숫자가 주인공**(굵은 고정폭 + 상태색), 라벨은 그 숫자가 무엇인지 알려주는
-    /// 보조라 한 단 작고 흐리게. 셋이 같은 크기·굵기면 눈이 어디부터 봐야 할지 정하지 못한다.
-    private func limitView(_ limit: UsageLimit) -> some View {
-        HStack(alignment: .center, spacing: Space.xs) {
-            Text(limit.label)
-                .font(.muxa(.caption))
-                .foregroundStyle(Color.pMuted)
-            Meter(value: Double(limit.percent) / 100, color: UsageColor.meter(limit), width: 28, height: 4)
-            Text("\(limit.percent)%")
-                .font(.muxaMono(.label, weight: .semibold))
-                .foregroundStyle(UsageColor.text(limit))
-                // 폭을 고정하지 않는다. 고정하면(width 30, leading) 짧은 값("9%")일 때 오른쪽에 남는
-                // 빈 자리가 칩 spacing에 더해져, **구분선이 항목마다 다른 거리에** 놓인다("9%" 뒤 20pt,
-                // "54%" 뒤 12pt). 고정폭이 지키려던 건 "자릿수가 늘어도 뒤가 안 밀린다"인데, 모노 글꼴이라
-                // 같은 자릿수면 어차피 폭이 같고 자릿수가 바뀌는 일은 드물다. 흔들림보다 간격이 중요하다.
-        }
-        .help(detail(limit))
-    }
-
-    /// 항목 툴팁 — 상태바에서 뺀 정보(리셋 시각)를 hover로 되돌려준다.
-    private func detail(_ limit: UsageLimit) -> String {
-        let base = "\(limit.label) 한도 \(limit.percent)% 사용"
-        guard let reset = ClaudeUsage.resetText(limit.resetsAt, now: now) else { return base }
-        return "\(base) · \(reset) 리셋"
     }
 }
