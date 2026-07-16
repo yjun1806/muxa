@@ -229,9 +229,10 @@ struct SidebarProjectRow: View {
             state.focusWindow(owning: project.id)
             return
         }
-        // 배지(주의) 있는 프로젝트로 이동하면 Git 패널까지 함께 연다(원클릭 검토 동선).
+        // 배지(주의) 있는 프로젝트로 이동 — 대기 탭으로 데려가되 **Git 패널은 강제로 열지 않는다**
+        // (이동마다 git이 열리면 성가시다 — 검토는 알림 인박스·시스템 알림 클릭에서 연다).
         if state.badgedProjects.contains(project.id) {
-            state.revealActivity(projectId: project.id)
+            state.revealActivity(projectId: project.id, openGitPanel: false)
         } else {
             // **setActiveId 먼저** — setActiveProject는 활성 워크스페이스 대상이라,
             // 다른 그룹의 프로젝트를 눌렀을 때 전환 없이 부르면 조용히 씹힌다.

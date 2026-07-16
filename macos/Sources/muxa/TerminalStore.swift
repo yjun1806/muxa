@@ -368,15 +368,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         // 안 주면 Bonsplit이 시스템 색을 쓰는데, 거기선 **활성 탭 배경과 탭바 배경이 같은 색**이라
         // (windowBackground == controlBackground) 활성 탭의 면이 시각적으로 존재하지 않는다.
         config.appearance.chromeColors = BonsplitChrome.colors
-        config.appearance.tabCornerRadius = BonsplitChrome.tabCornerRadius
-        config.appearance.tabTopInset = BonsplitChrome.tabTopInset
-        config.appearance.activeIndicatorAtBottom = BonsplitChrome.activeIndicatorAtBottom
-        // 다른 칸을 보고 오면 활성 탭이 스크롤 밖에 남아 있을 수 있다 — 안 보이는 활성 탭은
-        // 탭바가 존재하는 이유 자체를 부정한다. 포커스가 돌아오면 가운데로 데려온다.
+        // 다른 칸을 보고 오면 활성 탭이 스크롤 밖에 남을 수 있다 — 포커스가 돌아오면 가운데로 데려온다.
         config.appearance.keepsSelectedTabVisible = true
-        config.appearance.activeIndicatorHeight = BonsplitChrome.activeIndicatorHeight
-        config.appearance.inactiveIndicatorHeight = BonsplitChrome.inactiveIndicatorHeight
-        config.appearance.selectedTabTitleWeight = BonsplitChrome.selectedTabTitleWeight
+        // 탭·활성 탭 스타일(패딩·반경·지시선·pill…)은 설정에서 온다. 라이브 변경은 AppState.reapplyTabAppearance.
+        BonsplitChrome.applyTabStyle(TabStyleSettings.shared, to: &config.appearance)
         self.controller = BonsplitController(configuration: config)
         super.init()
         controller.delegate = self

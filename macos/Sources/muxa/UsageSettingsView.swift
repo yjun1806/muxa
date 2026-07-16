@@ -156,6 +156,8 @@ private struct PillToggle: View {
             .overlay(alignment: isOn ? .trailing : .leading) {
                 Circle()
                     .fill(.white)
+                    // off 상태 트랙(밝은 회색) 위 흰 손잡이가 라이트 모드에서 묻히지 않게 얇은 링을 두른다.
+                    .overlay(Circle().strokeBorder(Color.black.opacity(0.12), lineWidth: 0.5))
                     .padding(2)
                     .shadow(color: .black.opacity(0.2), radius: 0.5, y: 0.5)
             }

@@ -96,6 +96,8 @@ final class AppState {
     /// 상단바 토글 버튼·단축키(⌘⇧E/⌘⇧G)·알림이 이 상태를 연다.
     var showExplorer = false
     var showGitPanel = false
+    /// 설정 사이드 패널(사용량 표시·탭 스타일) — 상단바 톱니가 연다. 세션 내 UI라 영속하지 않는다.
+    var showSettings = false
     /// 우측 도구 패널(익스플로러·Git) 폭 — 좌측 경계 드래그로 리사이즈, 영속. 드래그 중엔 ResizablePanel의
     /// 로컬 상태로만 움직이고(전역 재렌더 방지), 손을 뗀 순간에만 여기로 커밋해 저장한다.
     private(set) var explorerWidth: CGFloat = AppState.defaultPanelWidth
@@ -105,6 +107,8 @@ final class AppState {
     private(set) var serviceDockWidth: CGFloat = AppState.defaultServiceDockWidth
     /// 서비스 도크 안 **목록 칼럼** 폭 — [좌: 목록 | 우: 터미널] 분할의 왼쪽. 세션 내 조절(비영속).
     private(set) var serviceListWidth: CGFloat = 200
+    /// 설정 사이드 패널 폭 — 세션 내 좌측 경계 드래그로 조절(비영속).
+    private(set) var settingsPanelWidth: CGFloat = 340
 
     static let defaultPanelWidth: CGFloat = 280
     static let panelWidthRange: ClosedRange<CGFloat> = 180 ... 720
@@ -115,6 +119,7 @@ final class AppState {
     static let defaultServiceDockWidth: CGFloat = 560
     static let serviceDockWidthRange: ClosedRange<CGFloat> = 420 ... 900
     static let serviceListWidthRange: ClosedRange<CGFloat> = 150 ... 360
+    static let settingsPanelWidthRange: ClosedRange<CGFloat> = 300 ... 560
     static func clampPanelWidth(_ w: CGFloat) -> CGFloat { clamp(w, to: panelWidthRange) }
     static func clampGitPanelWidth(_ w: CGFloat) -> CGFloat { clamp(w, to: gitPanelWidthRange) }
     static func clampServiceDockWidth(_ w: CGFloat) -> CGFloat { clamp(w, to: serviceDockWidthRange) }
@@ -140,6 +145,12 @@ final class AppState {
     func setServiceListWidth(_ w: CGFloat) {
         serviceListWidth = Self.clamp(w, to: Self.serviceListWidthRange)
     }
+
+    func setSettingsPanelWidth(_ w: CGFloat, persist: Bool = true) {
+        settingsPanelWidth = Self.clamp(w, to: Self.settingsPanelWidthRange)
+    }
+
+    func toggleSettings() { showSettings.toggle() }
 
     /// ⌘K 빠른 전환기(명령 팔레트) 표시 상태 — 세션 영속 대상 아님. 단축키가 토글한다.
     var showQuickSwitch = false
@@ -193,6 +204,17 @@ final class AppState {
         for store in stores.values {
             store.updateCommandFinishedThreshold(ns)
             store.updateAgentResumeMode(newConfig.agentResume) // 재개 승인 게이트도 실행 중 스토어에 전파(D2)
+        }
+    }
+
+    /// 탭 스타일 설정(`TabStyleSettings`)이 바뀌면 **열린 모든 칸**에 라이브로 민다.
+    /// `BonsplitController`가 @Observable이고 뷰가 `configuration.appearance`를 읽으므로,
+    /// appearance를 갈아끼우면 탭바가 즉시 새 스타일로 다시 그려진다(재시작 불필요).
+    func reapplyTabAppearance() {
+        for store in stores.values {
+            var appearance = store.controller.configuration.appearance
+            BonsplitChrome.applyTabStyle(TabStyleSettings.shared, to: &appearance)
+            store.controller.configuration.appearance = appearance
         }
     }
 
@@ -310,7 +332,9 @@ final class AppState {
     ///
     /// **배지 해제·탭 선택은 소유 창과 무관하게 언제나 먼저 한다**(명세 §5.3) — 창 분기를 진입부에서
     /// early-return으로 하면 정작 주의를 요구한 그 탭이 선택되지 않는다. 창은 "좌표를 어디에 반영할지"만 가른다.
-    func revealActivity(projectId: String, tabId: String? = nil) {
+    /// `openGitPanel` — 명시적 "검토" 동선(시스템 알림·알림 인박스 클릭)만 true. 사이드바 내비게이션은
+    /// false로 불러 **이동만 하고 git 패널을 강제로 열지 않는다**(배지가 잦으면 이동마다 git이 열려 성가시다).
+    func revealActivity(projectId: String, tabId: String? = nil, openGitPanel: Bool = true) {
         guard let ws = workspace(containing: projectId) else { return }
         clearBadge(projectId)
         // **서비스는 탭이 아니다.** 죽음 알림은 tabId 자리에 서비스 id를 담는데(startServices의 onExit),
@@ -327,7 +351,7 @@ final class AppState {
         guard !routeToOwner(projectId) else { return } // 분리 창이면 그 창만 앞으로 + 그 창의 좌표만
         setActiveId(ws.id)        // 대상 워크스페이스로
         setActiveProject(projectId) // 그 안의 프로젝트로
-        showGitPanel = true       // 도구 패널(Git) 자동 오픈 — 무엇이 바뀌었는지 바로 체크
+        if openGitPanel { showGitPanel = true } // 명시적 검토 동선에서만 Git 패널 자동 오픈
         NSApp.activate(ignoringOtherApps: true)
     }
 

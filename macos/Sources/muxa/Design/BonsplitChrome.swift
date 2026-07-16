@@ -74,25 +74,35 @@ enum BonsplitChrome {
         )
     }
 
-    /// 탭 카드의 위 두 모서리. 아래는 각져야 면이 콘텐츠로 흘러내린다.
-    static let tabCornerRadius: CGFloat = Radius.md
+    /// 탭·활성 탭 스타일 knob을 **설정(`TabStyleSettings`)에서** appearance로 옮긴다. 칸 배치·색 팔레트
+    /// (`colors`)·탭바 높이 등은 건드리지 않고, 스타일 관련 knob과 활성 탭 면 색만 덮어쓴다.
+    ///
+    /// fork가 속성만 제공하고 값은 muxa가 정한다 — 그 "값"의 단일 출처가 이제 `TabStyleSettings`다.
+    /// 스타일 프리셋 → knob 매핑은 `TabStyleSettings.knobs(for:radius:thickness:)`(순수)에 있다.
+    /// 활성 탭 면 색: `filled`면 콘텐츠(bg)로 채워 카드처럼, 아니면 탭바 색으로 둬 면이 안 보이게(선·굵기만).
+    static func applyTabStyle(_ s: TabStyleSettings, to a: inout BonsplitConfiguration.Appearance) {
+        a.tabHorizontalPadding = CGFloat(s.horizontalPadding)
+        let k = TabStyleSettings.knobs(for: s.activeStyle,
+                                       radius: CGFloat(s.cornerRadius),
+                                       thickness: CGFloat(s.indicatorThickness))
+        a.tabCornerRadius = k.tabCornerRadius
+        a.tabTopInset = k.tabTopInset
+        a.activeIndicatorAtBottom = k.indicatorAtBottom
+        a.activeIndicatorHeight = k.activeIndicatorHeight
+        a.inactiveIndicatorHeight = k.inactiveIndicatorHeight
+        a.activeIndicatorHorizontalInset = k.indicatorInset
+        a.activeIndicatorCornerRadius = k.indicatorCornerRadius
+        a.activeTabFillCornerRadius = k.fillCornerRadius
+        a.activeTabFillVerticalInset = k.fillVInset
+        a.activeTabFillHorizontalInset = k.fillHInset
+        a.selectedTabTitleWeight = k.bold ? .semibold : .regular
+        // 활성 탭 면 색은 `filled`(=스타일)에만 의존하고 슬라이더(패딩·반경·두께)와 무관하다.
+        // 팔레트 hex는 런타임에 안 바뀌므로 두 값을 **한 번만** 해석해 캐시한다(슬라이더 드래그마다
+        // NSAppearance 그리기 컨텍스트를 2번씩 전환하던 낭비 제거).
+        a.chromeColors.activeTab = k.filled ? Self.filledActiveTab : Self.flatActiveTab
+    }
 
-    /// 카드가 탭바 상단에서 떨어지는 거리. 이게 0이면 카드가 바를 꽉 채워
-    /// **모서리 곡선이 바 경계에 잘려** 라운드가 아니라 잘린 것처럼 보인다.
-    static let tabTopInset: CGFloat = 3
-
-    /// 지시선은 탭 **아래쪽**에 긋는다. 위에 그으면 탭 카드 위로 선이 하나 더 얹혀 시끄럽고,
-    /// 아래는 탭과 콘텐츠가 만나는 자리라 "이 탭이 아래 화면"이라는 말과 같은 방향이다.
-    static let activeIndicatorAtBottom = true
-
-    /// 포커스된 칸의 선택 탭 — teal, 2pt.
-    static let activeIndicatorHeight: CGFloat = 2
-
-    /// 포커스 없는 칸의 선택 탭 — 회색, 얇게. "이 칸에선 이 탭"은 말하되
-    /// "여기로 입력이 간다"는 말하지 않는다. 굵기 차이는 색을 지워도 남는 신호다.
-    static let inactiveIndicatorHeight: CGFloat = 1
-
-    /// 포커스된 칸의 선택 탭 제목 굵기. Bonsplit 기본은 `.regular`(upstream 동작 보존)이라
-    /// 명시하지 않으면 굵기 신호가 사라진다.
-    static let selectedTabTitleWeight: Font.Weight = .semibold
+    /// 활성 탭 면 색(채움/평면) — static let이라 최초 접근 시 1회만 해석된다.
+    private static let filledActiveTab = Palette.bg.bonsplitHexPair       // 콘텐츠색(카드·pill·블록)
+    private static let flatActiveTab = Palette.btnActive.bonsplitHexPair  // 탭바색=면 안 보임(밑줄·미니멀)
 }

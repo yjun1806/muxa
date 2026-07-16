@@ -55,11 +55,11 @@ struct SidebarProjectIcon: View {
         return hoveredId == project.id || menuOpenId == project.id ? .pBtnHover : .clear
     }
 
-    /// 확장 트리의 프로젝트 행과 같은 동작 — 배지가 있으면 Git 패널까지 함께 연다.
+    /// 확장 트리의 프로젝트 행과 같은 동작 — 배지가 있어도 이동만 하고 Git 패널은 강제로 열지 않는다.
     /// `setActiveId`를 **먼저** 부른다(setActiveProject는 활성 워크스페이스 대상이라 조용히 씹힌다).
     private func select() {
         if state.badgedProjects.contains(project.id) {
-            state.revealActivity(projectId: project.id)
+            state.revealActivity(projectId: project.id, openGitPanel: false)
         } else {
             state.setActiveId(workspace.id)
             state.setActiveProject(project.id)

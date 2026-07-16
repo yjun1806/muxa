@@ -121,6 +121,7 @@ struct ContentView: View {
                 AttentionBell(state: state)
                 explorerToggle
                 gitToggle
+                settingsButton
             } else {
                 Spacer(minLength: 0)
             }
@@ -161,6 +162,13 @@ struct ContentView: View {
         }
     }
 
+    /// 설정 사이드 패널 토글 — 탭 스타일·사용량 표시를 담은 도킹 패널을 연다/닫는다.
+    private var settingsButton: some View {
+        PanelToggle(icon: "gearshape", on: state.showSettings, help: "설정") {
+            state.toggleSettings()
+        }
+    }
+
     /// 활성 워크스페이스 열 = 활성 프로젝트의 Bonsplit(터미널 탭·분할) + (옵션) 우측 Git 패널.
     ///
     /// **소유권 가드**: 그 프로젝트가 분리 창에 있으면 여기선 그리지 않는다(I3 — 한 스토어는 정확히
@@ -171,6 +179,20 @@ struct ContentView: View {
         HStack(spacing: 0) {
             mainColumn
             serviceDock
+            settingsDock
+        }
+    }
+
+    /// 설정 서랍 — 탐색기·Git·서비스와 같은 도킹 패널(콘텐츠를 밀어내고 좌측 경계로 폭 조절).
+    /// 앱 전역 설정이라 프로젝트와 무관하게 뜬다(workspaceColumn 오른쪽 끝).
+    @ViewBuilder
+    private var settingsDock: some View {
+        if state.showSettings {
+            ResizablePanel(width: state.settingsPanelWidth, range: AppState.settingsPanelWidthRange) { w in
+                state.setSettingsPanelWidth(w, persist: true)
+            } content: {
+                SettingsPanel(state: state)
+            }
         }
     }
 

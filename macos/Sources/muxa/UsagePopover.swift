@@ -9,22 +9,25 @@ struct UsagePopover: View {
 
     /// 팝오버가 떠 있는 동안 "N분 전 갱신"이 굳지 않도록 1분마다 흐르는 현재 시각.
     @State private var now = Date()
-    /// 톱니로 켜는 설정 화면 — 켜지면 상세 대신 `UsageSettingsView`를 보여준다.
-    @State private var showSettings = false
 
     /// 막대 폭 = 팝오버 폭 − 좌우 인셋. 헤더·행과 같은 선에서 시작하고 끝난다.
     private var barWidth: CGFloat { PopoverWidth.footer - Space.panelInset * 2 }
 
     var body: some View {
-        FooterPopover(title: showSettings ? "표시 설정" : "Claude",
-                      subtitle: showSettings ? "사용량 칩에 무엇을 보일지" : updatedText) {
+        // 표시 설정(무엇을 보일지·위치·갱신)은 이제 **설정 사이드 패널**이 맡는다 — 이 팝오버는 상세만.
+        // (설정을 여기 넣었더니 높이가 바뀌며 위치가 튀고 뷰어가 깜빡였다 — 팝오버는 크기가 안정적이어야 한다.)
+        FooterPopover(title: "Claude", subtitle: updatedText) {
             ClaudeMark(size: IconSize.mark)
         } accessory: {
-            accessory
+            if usage.loading {
+                ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 14, height: 14)
+            } else {
+                FooterAction(icon: "arrow.clockwise", help: "새로고침") {
+                    Task { await usage.refresh(); now = Date() }
+                }
+            }
         } content: {
-            if showSettings {
-                UsageSettingsView(settings: .shared)
-            } else if usage.limits.isEmpty {
+            if usage.limits.isEmpty {
                 FooterHint(title: emptyTitle, detail: emptyDetail)
             } else {
                 // 한도 하나가 세 줄짜리 덩어리라, 덩어리 사이(md)를 줄 사이(xs)보다 확실히 벌려야 묶음이 읽힌다.
@@ -37,27 +40,6 @@ struct UsagePopover: View {
             }
         }
         .tick(every: 60, into: $now) // "3분 전 갱신"이 굳지 않게(팝오버가 열려 있는 동안만)
-    }
-
-    /// 헤더 오른쪽 — 상세에선 [새로고침][톱니], 설정에선 [뒤로]. 톱니가 상세↔설정을 오간다.
-    @ViewBuilder
-    private var accessory: some View {
-        if showSettings {
-            FooterAction(icon: "chevron.backward", help: "사용량으로 돌아가기") {
-                showSettings = false
-            }
-        } else {
-            HStack(spacing: Space.xs) {
-                if usage.loading {
-                    ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 14, height: 14)
-                } else {
-                    FooterAction(icon: "arrow.clockwise", help: "새로고침") {
-                        Task { await usage.refresh(); now = Date() }
-                    }
-                }
-                FooterAction(icon: "gearshape", help: "표시 설정") { showSettings = true }
-            }
-        }
     }
 
     /// 보여줄 한도가 없을 때 — 조회 전·실패·빈 응답을 구분해 원인을 짐작할 수 있게 한다.
