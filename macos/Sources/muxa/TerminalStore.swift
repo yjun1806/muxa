@@ -1071,11 +1071,16 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 사이드바 분포 클릭이 부른다 — 이 상태의 **다음 탭**으로 순환 선택·포커스한다(여럿이면 누를 때마다 다음).
     /// 순회는 칸→탭 순(quickSwitchTabs와 같은 순서). 현재 선택 탭 뒤의 첫 매칭으로, 없으면 처음으로 감는다.
     /// 매칭 탭이 없으면 false — 호출부(AppState)가 프로젝트 전환을 건너뛴다.
+    /// **터미널 탭만** 순회한다 — 뷰어(그룹)·링크 탭은 상태가 없어 항상 idle로 판정되므로,
+    /// 걸러내지 않으면 "유휴" 순환이 코드뷰어·HTML 탭까지 돈다(`projectTabStatus`와 같은 모집단).
     func revealNextTab(matching states: Set<AgentActivity>) -> Bool {
         let ordered = controller.allPaneIds.flatMap { pane in
             controller.tabs(inPane: pane).map { (pane: pane, tab: $0.id) }
         }
-        let matches = ordered.indices.filter { states.contains(agentActivity(for: ordered[$0].tab)) }
+        let matches = ordered.indices.filter {
+            guard case .terminal = content(for: ordered[$0].tab) else { return false }
+            return states.contains(agentActivity(for: ordered[$0].tab))
+        }
         guard !matches.isEmpty else { return false }
         let current = controller.focusedPaneId.flatMap { controller.selectedTabId(inPane: $0) }
         let currentIdx = ordered.firstIndex { $0.tab == current } ?? -1
@@ -1278,8 +1283,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     /// 사이드바 에이전트 목록용 — 이 스토어의 **모든 탭**을 표시 스냅샷으로 수확한다(순수 정렬은 뷰 밖 `AgentRow.ordered`).
     ///
-    /// 분포 pill(`projectTabStatus`)과 **같은 모집단**(모든 탭)을 다룬다 — hooked(Claude) 탭만 추리면 pill 개수와
-    /// 어긋난다. 라이브 도구 한 줄은 hooked 탭에만 있어 없으면 상태 라벨로 폴백한다(계획 #3).
+    /// 목록은 **모든 탭**을 보인다(뷰어·링크 포함 — 무엇이 열려 있나 한눈에). 분포 pill(`projectTabStatus`)은
+    /// 상태 있는 **터미널 탭만** 세므로 행 수 ≠ pill 합계일 수 있다 — 뷰어는 상태가 없어 개수에 안 낀다.
+    /// 라이브 도구 한 줄은 hooked 탭에만 있어 없으면 상태 라벨로 폴백한다(계획 #3).
     /// 대기 경과는 `lastOutputAt`(단조시간) 기준으로 **수확 시점에** 계산해 값으로 넘긴다(뷰에 타이머를 두지 않는다, #1).
     func agentRows(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> [AgentRow] {
         controller.allTabIds.map { tabId in

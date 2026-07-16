@@ -734,10 +734,13 @@ final class AppState {
     /// **이미 만들어진 스토어만** 본다(트리를 그리는 것만으로 PTY 스폰 금지). 안 연 프로젝트는 전부 0.
     /// 판정은 탭별 `agentActivity(for:)` 한 출처 — **done은 유휴에 접지 않고 따로 센다**(패인 테두리 초록과
     /// 일치하게, C2). done 탭은 사용자가 보면 acknowledge로 idle이 되어 자연히 사라진다.
+    /// **터미널 탭만** 센다 — 뷰어(그룹)·링크 탭은 상태가 없어 항상 idle로 판정되므로, 세면 유휴 개수가
+    /// 부풀고 순환 점프(`revealNextTab`)와 어긋난다(같은 모집단 유지).
     func projectTabStatus(_ projectId: String) -> (working: Int, waiting: Int, done: Int, idle: Int) {
         guard let store = stores[projectId] else { return (0, 0, 0, 0) }
         var working = 0, waiting = 0, done = 0, idle = 0
         for tabId in store.controller.allTabIds {
+            guard case .terminal = store.content(for: tabId) else { continue }
             switch store.agentActivity(for: tabId) {
             case .working: working += 1
             case .waiting: waiting += 1
