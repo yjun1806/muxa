@@ -39,4 +39,26 @@ struct WorktreeLinkTests {
     func 빈cwd제외() {
         #expect(WorktreeLink.owner(pwd: "", projectPaths: ["/repo"]) == nil)
     }
+
+    // MARK: pathIsInside — 경로 포함 판정(자동 승격의 "세션이 그 안에 있나" 신호)
+
+    @Test("자신·하위 경로는 안이고, 형제 접두사는 밖이다")
+    func 경로포함판정() {
+        #expect(pathIsInside("/wt/feat", root: "/wt/feat"))
+        #expect(pathIsInside("/wt/feat/apps/web", root: "/wt/feat"))
+        #expect(!pathIsInside("/wt/feat-2", root: "/wt/feat"))
+        #expect(!pathIsInside("/other", root: "/wt/feat"))
+    }
+
+    @Test("루트(/)와 빈 root는 항상 밖이다 — 전부 포함은 판정으로 무의미")
+    func 루트빈경로제외() {
+        #expect(!pathIsInside("/anything", root: "/"))
+        #expect(!pathIsInside("/anything", root: ""))
+    }
+
+    @Test("뒤 슬래시가 있어도 같은 경로로 본다")
+    func 포함판정뒤슬래시() {
+        #expect(pathIsInside("/wt/feat/", root: "/wt/feat"))
+        #expect(pathIsInside("/wt/feat", root: "/wt/feat/"))
+    }
 }

@@ -296,6 +296,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     @ObservationIgnored var onAttention: ((TabID, AttentionKind, String) -> Void)?
     /// 탭/뷰어 구성이 바뀔 때 상위(AppState)에 알린다 — 즉시 세션 저장(⌘Q 없이도 복원되게).
     @ObservationIgnored var onStateChange: (() -> Void)?
+    /// 셸 cwd(OSC 7)가 바뀔 때 상위(AppState)에 알린다 — 새 워크트리로 들어간 세션의 **자동 승격** 판정용(D31 보완).
+    /// 에이전트는 워크트리를 만들고 곧장 cd하는데, FSEvents(.git)보다 이 신호가 늦게 올 수 있어 둘 다 트리거로 쓴다.
+    @ObservationIgnored var onPwdChange: (() -> Void)?
     /// 초기 복원이 끝난 뒤에만 저장을 트리거한다(복원 중 중간 상태 저장 방지).
     @ObservationIgnored private var ready = false
 
@@ -727,7 +730,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             MainActor.assumeIsolated { self?.applyEngineTitle(title, for: tabId) }
         }
         t.onPwd = { [weak self] pwd in
-            MainActor.assumeIsolated { self?.pwds[tabId] = pwd }
+            MainActor.assumeIsolated {
+                self?.pwds[tabId] = pwd
+                self?.onPwdChange?() // cd로 새 워크트리에 들어간 세션 → AppState가 자동 승격을 판정한다
+            }
         }
         terms[tabId] = t
         return t

@@ -70,6 +70,15 @@ func normalizePath(_ path: String) -> String {
     return result
 }
 
+/// `path`가 `root` **안(자신 포함)**에 있는가 — 정규화 후 경계(`/`)를 못박아 형제 접두사 오판을 막는다
+/// (`/wt/feat-2`는 `/wt/feat` 안이 아니다). 루트(`/`)·빈 root는 항상 false — "전부 포함"은 판정으로 무의미하다.
+func pathIsInside(_ path: String, root: String) -> Bool {
+    let p = normalizePath(path)
+    let r = normalizePath(root)
+    guard !r.isEmpty, r != "/" else { return false }
+    return p == r || p.hasPrefix(r + "/")
+}
+
 /// 표시용 경로 — 홈 접두를 ~로 축약.
 func displayPath(_ path: String?, home: String?) -> String {
     guard let path else { return "" }

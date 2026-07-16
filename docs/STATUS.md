@@ -66,6 +66,37 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 추정기 `lastOutputAt`(systemUptime 경과) · 에이전트 판정 = `hookedTabs`. **경량 가드**: 접힘 기본 + 유휴 접기로 절제
 (muxa 우위=가벼움, [[muxa-vs-orca-positioning]]).
 
+## 다음 후보 (미구현) — 일회용 스크립트 터미널 (SCRIPT-TAB)
+
+**끝이 있는 명령**(`make build` 등)을 원클릭 실행하고, 끝나면 스스로 닫히는 터미널.
+서비스와 개념을 가른다: **서비스 = 끝이 없는 프로세스(tmux·도크) / 스크립트 = 끝이 있는 명령(일반 탭·끝나면 소멸)**.
+
+**핵심 메커니즘은 전부 있음** (2026-07-16 탐사 완료 — 재탐사 불필요):
+- ghostty `config.command`로 셸 대신 직접 exec 가능 (`TermView.swift:108`)
+- 프로세스가 끝나면 `close_surface_cb` → 탭 자동 닫힘 (`GhosttyRuntime.swift:148` → `TerminalStore.swift:723`)
+- 영속 탭이 안 닫히는 건 `execCommand`가 `; exec -l $SHELL`을 붙여서다 (`TerminalSession.swift:107`) — **안 붙이면 원하는 동작**
+
+**설계(사용자와 합의됨):**
+1. **모델** — `Script { id, name, command }`, `Project.scripts: [Script]?`(서비스와 같은 패턴, `Workspace.swift:15` 옆).
+   등록 시트는 `ServiceAddSheet`의 package.json/Makefile 스캔(`ProjectScripts`) 재활용.
+2. **실행** — 일반 탭 + 로그인 셸 래핑(PATH): `$SHELL -l -c '<cmd>; s=$?; [ $s -eq 0 ] || exec $SHELL -l'`
+   - 성공(exit 0) → 프로세스 종료 → 탭 자동 닫힘
+   - 실패 → 셸로 전환돼 **탭 잔류**, 에러를 그 자리에서 보고 재시도
+   - 같은 스크립트가 이미 돌면 새 탭 대신 **그 탭 포커스**(연타 난립 방지)
+3. **푸터 칩**(서비스 칩 옆, `ServiceStrip` 문법 따름):
+   - 평시: 클릭 → 팝오버(스크립트 목록·원클릭 실행·＋추가). **등록 0개면 숨김**(서비스 칩과 달리 — 발견성은 별도 진입점으로)
+   - 실행 중: `⟳ make build · 12s` — 클릭 = 해당 탭 포커스. 여러 개면 "개수+최신"으로 요약, 상세는 팝오버
+   - 완료 후: `✓ make build 8s` / `✗ exit 2`가 칩에 잔류(성공 로그는 버리고 결과 한 줄만, 실패는 탭이 남아 있으니 클릭 → 탭)
+4. **글리프·어휘를 서비스와 확실히 가른다**(서비스 ▶ vs 스크립트 ⚡ 등) — DESIGN.md 어휘표에 등재 필수.
+
+**미해결·구현 시 검증 포인트:**
+- **실패 감지**: 실패 시 `exec`가 pid를 이어받아 `DispatchSourceProcess` 워처가 안 울린다 —
+  래퍼가 종료 직전 `MUXA_SOCK`(탭마다 이미 주입, `TermView.swift:83~138`)으로 exit code를 쏘는 방식 검증 필요.
+- non-tmux라 **앱 종료 = 실행 중 스크립트 사망** — 의도된 트레이드오프(초~분 작업용, 장시간은 서비스).
+- 성공으로 조용히 닫힐 때 알림/배지 한 줄(`onSignal(.processExited)` 경로) — 안 하면 "성공? 아직?" 구분 불가.
+
+**구현 순서(합의)**: ① `Script` 모델·판정 순수 로직+테스트 → ② 실행 경로(oneShot 탭) → ③ 푸터 칩·팝오버 → ④ DESIGN/STATUS 갱신.
+
 ## 최근 완료 (2026-07-16) — 칸 상태 표시 2축 + 어휘 통일 + 유휴 구분 (PANE-STATUS)
 
 STATUS-UNIFY(07-15)가 표시 어휘를 SSOT로 모았다면, 이번엔 그 어휘를 **세 곳(사이드바·탭·칸)에서 같은 모양·색·모션으로**
@@ -525,6 +556,7 @@ dev 서버를 **탭 트리 밖 "서비스"**로 두고 실행을 muxa 전용 tmu
   - ✅ **순수 코어**(`WorktreeMembership.swift` + 14 테스트): `pending`/`offers`(pending − baseline) · `WorktreeMove.target`. `GitWorktree.isMain`(파서 첫 레코드) · `Workspace.acknowledgedWorktreePaths`(영속 baseline) · `normalizePath` 공통화.
   - ✅ **스텝 1 감지** — `WorktreeMonitor`(@MainActor @Observable): 워크스페이스별 공통 `.git`을 FSEvents(`FileWatcher.onFlush`) 감시 → `worktreeList` → `detected` 갱신. transient 빈 목록 방어. `GitService.gitCommonDir`. AppState가 `syncWorktreeMonitor()`로 소유(add/remove/ensureInitial/`ContentView.onAppear`). **★ 육안 미검증**(실제 워크트리 add 시 감지되는가).
   - ✅ **스텝 2 제안 UI** — `AttentionInbox` 상단 "새 워크트리 감지" 섹션 + `offerRow`(추가=`importWorktree` 승격 / 무시=`dismissWorktree` baseline). 벨 배지에 offer 수. **★ 육안 미검증**.
+  - ✅ **스텝 2.5 자동 승격 (D31 보완)** — **muxa 세션이 안에 있는 워크트리는 인박스 없이 자동으로 프로젝트가 된다**: 신규 워크트리(offer 후보) 안에 라이브 세션 cwd(OSC 7)가 있으면(에이전트가 만들고 들어간 것 = 의도된 행동) `autoImportWorktrees`가 조용히 `importWorktree`. 신호 없으면(외부 생성) 기존 offer 유지 — D31의 놀람·노이즈 반론은 외부 생성에만 해당. baseline 적재로 부활 방지. 트리거 = `worktreeMonitor.onChange` + `TerminalStore.onPwdChange`(cd가 FSEvents보다 늦어도 잡힘). 판정 순수 헬퍼 `pathIsInside`(중복 3회 → 추출). **★ 육안 미검증**.
   - ✅ **적대 리뷰(ultracode Workflow, 5차원×발견별 검증)** — critical 0. important 3 고침: `duplicateWorkspace`/`setWorkspacePath`에 `syncWorktreeMonitor()` 추가 + `WorktreeMonitor.sync`가 **경로 변경 시 재attach**(id만 보던 것 → sourceDir 비교). 저심각 fold: offer 복합키(공유 repo 충돌) · offer 스크롤 · orphan watcher 방어(`wanted`) · branch 변경 반영 · baseline 정규화.
   - **리뷰 후속(보류·저심각)**: (a) 심링크 — folder picker로 미resolve 경로(`/tmp/…`) 프로젝트를 추가하면 git의 real path와 안 맞아 offer 오탐 가능(경계 resolve 필요, I2와 동일). (b) `FileWatcher` FSEvents 콜백 use-after-free 창(동적 생성/파괴로 노출↑, 기존 문제). (c) `rescan`이 `worktreeList` 내부 repoRoot rev-parse 중복(미세 성능).
   - ✅ **스텝 3 제거 배지 (닫지 않고 표시)** — 정책 전환: 워크트리 폴더가 사라져도 **자동으로 안 닫는다**(안에 살아있는 cc·미저장 작업 보호). `DeadWorktree.projectIds`(순수, 존재확인 주입) + `AppState.deadWorktreeProjectIds`(런타임 Set) + `reconcileDeadWorktrees`(FileManager 경계). 트리거 = `WorktreeMonitor.onChange`(FSEvents)·startup·피커 제거. 사이드바 프로젝트 행에 **이름 취소선 + `folder.badge.minus` 글리프**(서비스-빨강·에이전트-앰버와 무충돌). `closeProjects(underPath:)`·`WorktreeOrphans`(+테스트)는 정책 폐기로 **삭제**. **★ 육안 미검증**.

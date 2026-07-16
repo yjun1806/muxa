@@ -240,8 +240,12 @@ final class AppState {
         self.config = config
         // 설정의 사이드바 기본 모드를 초기값으로. 저장된 세션이 있으면 load()가 사용자의 마지막 선택으로 덮는다.
         self.sidebarMode = config.sidebarMode
-        // 공통 .git이 움직이면(cc가 git worktree add/remove) 배지를 다시 판정한다 — **닫지 않고** 표시만(D31).
-        worktreeMonitor.onChange = { [weak self] in self?.reconcileDeadWorktrees() }
+        // 공통 .git이 움직이면(cc가 git worktree add/remove) ① 사라진 폴더 배지 재판정(닫지 않고 표시만)
+        // ② muxa 세션이 들어가 있는 새 워크트리 자동 승격(D31 보완).
+        worktreeMonitor.onChange = { [weak self] in
+            self?.reconcileDeadWorktrees()
+            self?.autoImportWorktrees()
+        }
     }
 
     /// 설정 파일 저장이 감지됐을 때 새 설정을 반영한다(ConfigWatcher → AppDelegate가 호출). (ARCHITECTURE 4.6)
@@ -805,6 +809,8 @@ final class AppState {
         }
         // 탭/뷰어가 바뀔 때마다 즉시 저장 — ⌘Q 없이(pkill·크래시) 종료돼도 다음 실행에 복원.
         s.onStateChange = { [weak self] in MainActor.assumeIsolated { self?.save() } }
+        // 셸이 새 워크트리로 들어갔을 수 있다(에이전트의 worktree add + cd) — 자동 승격을 판정한다(D31 보완).
+        s.onPwdChange = { [weak self] in self?.autoImportWorktrees() }
         // 늦게 열리는 프로젝트도 자기 창 소유권을 갖고 태어난다 — 분리 창의 프로젝트가 "메인 소유"로
         // 만들어지면 그 안의 TermView는 어느 창에도 붙지 않는다(I3).
         s.setOwnerWindow(owner(of: project.id), focusedTab: nil)
@@ -1481,6 +1487,26 @@ final class AppState {
     /// 인박스에 "추가?"로 띄울 워크트리 — 감지됨 − (기존 Project ∪ baseline). 뷰가 관측해 렌더한다.
     func worktreeOffers(for workspace: Workspace) -> [GitWorktree] {
         WorktreePromotion.offers(worktrees: worktreeMonitor.detected[workspace.id] ?? [], in: workspace)
+    }
+
+    /// **muxa 안에서 만든 워크트리는 자동으로 프로젝트가 된다**(D31 보완). 새로 감지된 워크트리 안에
+    /// **살아있는 muxa 세션의 cwd**가 있으면(에이전트가 만들고 들어간 것 — 사용자의 의도된 행동) 인박스를
+    /// 거치지 않고 조용히 승격한다. 그 신호가 없으면(외부 생성) 기존 "추가?" offer로 남는다 — D31이 막으려던
+    /// 놀람·노이즈는 외부 생성의 문제다. `importWorktree`가 baseline을 적재하므로 닫아도 부활하지 않는다.
+    /// 트리거: `worktreeMonitor.onChange`(.git 변화) + `onPwdChange`(cd) — 어느 쪽이 늦어도 잡힌다.
+    func autoImportWorktrees() {
+        for ws in workspaces {
+            for wt in worktreeOffers(for: ws) where hasLiveSession(inside: wt.path) {
+                importWorktree(wt, in: ws.id)
+            }
+        }
+    }
+
+    /// 어느 스토어든 셸 cwd(OSC 7)가 이 경로 안에 있는 라이브 탭이 있는가 — "muxa에서 만든 워크트리"의 신호.
+    private func hasLiveSession(inside path: String) -> Bool {
+        stores.values.contains { store in
+            store.pwds.values.contains { pathIsInside($0, root: path) }
+        }
     }
 
     /// "추가" — 워크트리를 Project로 승격하고(포커스는 안 뺏는다 — 조용히 추가) baseline에 적재한다.
