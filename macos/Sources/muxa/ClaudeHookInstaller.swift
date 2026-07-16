@@ -103,7 +103,10 @@ enum ClaudeHookInstaller {
     }
 
     /// 실행 파일 옆의 muxa-notify(.app 번들이든 bare 빌드든 같은 디렉터리에 있다).
-    private static func bundledBinaryURL() -> URL? {
+    /// 스크립트 래퍼(TerminalStore)도 이 경로를 절대경로로 박아 쓴다 — .app은 로그인 PATH를
+    /// 상속하지 않으므로 PATH 의존은 금지고, 훅 미설치 사용자도 이 경로는 항상 있다.
+    /// (훅과 달리 래퍼는 디스크에 영속되지 않아 "번들 안 경로 금지" 원칙(§executableURL)의 예외다.)
+    static func bundledBinaryURL() -> URL? {
         guard let exe = Bundle.main.executableURL else { return nil }
         let candidate = exe.deletingLastPathComponent().appendingPathComponent("muxa-notify")
         return FileManager.default.fileExists(atPath: candidate.path) ? candidate : nil

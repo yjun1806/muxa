@@ -66,36 +66,39 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 추정기 `lastOutputAt`(systemUptime 경과) · 에이전트 판정 = `hookedTabs`. **경량 가드**: 접힘 기본 + 유휴 접기로 절제
 (muxa 우위=가벼움, [[muxa-vs-orca-positioning]]).
 
-## 다음 후보 (미구현) — 일회용 스크립트 터미널 (SCRIPT-TAB)
+## 최근 완료 (2026-07-16) — 일회용 스크립트 터미널 (SCRIPT-TAB)
 
-**끝이 있는 명령**(`make build` 등)을 원클릭 실행하고, 끝나면 스스로 닫히는 터미널.
-서비스와 개념을 가른다: **서비스 = 끝이 없는 프로세스(tmux·도크) / 스크립트 = 끝이 있는 명령(일반 탭·끝나면 소멸)**.
+**끝이 있는 명령**(`make build` 등)을 원클릭 실행하는 스크립트 축 신설 → ARCHITECTURE **D33**, DESIGN 어휘표.
+**서비스 = 끝이 없는 프로세스(tmux·도크·▶ 원형) / 스크립트 = 끝이 있는 명령(일반 탭·사각형 가족)**.
+성공(exit 0) → 프로세스 종료 → `close_surface_cb` → **탭 자동 닫힘** / 실패 → `exec -l $SHELL`로 **셸 잔류**(에러를 그 자리에서).
 
-**핵심 메커니즘은 전부 있음** (2026-07-16 탐사 완료 — 재탐사 불필요):
-- ghostty `config.command`로 셸 대신 직접 exec 가능 (`TermView.swift:108`)
-- 프로세스가 끝나면 `close_surface_cb` → 탭 자동 닫힘 (`GhosttyRuntime.swift:148` → `TerminalStore.swift:723`)
-- 영속 탭이 안 닫히는 건 `execCommand`가 `; exec -l $SHELL`을 붙여서다 (`TerminalSession.swift:107`) — **안 붙이면 원하는 동작**
+- **모델** — `Script { id, name, command }` + `Project.scripts: [Script]?`(Persisted 자동 편승, 하위호환).
+  CRUD는 `AppState.scripts(of:)/addScript/removeScript` — 서비스 미러이되 tmux 없음.
+- **래퍼(순수·테스트)** — `ScriptRunCommand.wrap`: `/bin/sh -c '<로그인셸 -l -c 명령>; s=$?; muxa-notify script-exit --code $s; 실패 시만 exec -l $SHELL'`.
+  **exit code는 소켓 프레임이 유일한 진실** — 워처는 exec pid 승계로 무음, OSC 133은 직접 exec에선 안 뜸(D33 근거).
+- **프레임** — `script-exit\t<tabId>\t<code>`(NotifyServer 신규 파싱·`onScriptExit`) + muxa-notify `script-exit --code` 서브커맨드.
+  와이어 계약은 **실물 e2e 테스트**(임시 소켓에 NotifyServer + 빌드된 muxa-notify spawn)로 못 박음.
+- **실행 경로** — `TerminalStore.runScript`: dedup(실행 중이면 기존 탭 포커스) → createTab(`play.square`) → `scriptCommands` 심기.
+  결과 레지스트리 `scriptRuns`는 **scriptId 키**(성공 프레임 vs 탭 닫힘 레이스 해소). ⌘W·프레임 유실은 `code nil` = **"결과 미상"**(✓를 지어내지 않음, `questionmark.square`). 재시작 스냅샷에선 일반 터미널로 강등.
+- **푸터 칩 3모드**(`ScriptStrip`, DetachedStrip↔ServiceStrip 사이) — 평시: 개수+팝오버(목록·실행·trash 삭제·＋추가) /
+  실행 중: `⟳ 이름 · 12s`(1초 tick은 칩 로컬) 클릭=탭 포커스 / 잔류: `✓ 이름 8s`(무채)·`✗ 이름 exit 2`(빨강) — 클릭 시 해제.
+  **등록 0개면 칩 숨김** — 부트스트랩은 ⌘K/명령 메뉴 **"스크립트 추가"**(`KeymapAction.addScript`)와 StatusBar 상주 시트가 담당.
+- **표시 SSOT** — `ScriptStatusStyle`(제3 축, 사각형 가족) + 순수 칩 판정 `ScriptChipMode.judge`. 시트는 `ServiceAddSheet` 파라미터화 재사용(ProjectScripts 스캔 그대로).
+- **리뷰 마감** — 5차원 리뷰+적대적 검증에서 확정 6건 전부 수정: 부트스트랩 데드락(critical — 0개면 등록 진입점까지 숨었음),
+  removeScript 죽은 코드, `frame(maxWidth:)` 탐욕 확장(`fixedSize` 상한화), runScript YAGNI 시그니처, 셸 테스트 밀폐(HOME 임시화), 와이어 e2e.
+- 검증: `swift build` green · **테스트 297개** green(신규 32: Script 14·ScriptRun 7·ScriptChip 10·와이어 e2e 1).
 
-**설계(사용자와 합의됨):**
-1. **모델** — `Script { id, name, command }`, `Project.scripts: [Script]?`(서비스와 같은 패턴, `Workspace.swift:15` 옆).
-   등록 시트는 `ServiceAddSheet`의 package.json/Makefile 스캔(`ProjectScripts`) 재활용.
-2. **실행** — 일반 탭 + 로그인 셸 래핑(PATH): `$SHELL -l -c '<cmd>; s=$?; [ $s -eq 0 ] || exec $SHELL -l'`
-   - 성공(exit 0) → 프로세스 종료 → 탭 자동 닫힘
-   - 실패 → 셸로 전환돼 **탭 잔류**, 에러를 그 자리에서 보고 재시도
-   - 같은 스크립트가 이미 돌면 새 탭 대신 **그 탭 포커스**(연타 난립 방지)
-3. **푸터 칩**(서비스 칩 옆, `ServiceStrip` 문법 따름):
-   - 평시: 클릭 → 팝오버(스크립트 목록·원클릭 실행·＋추가). **등록 0개면 숨김**(서비스 칩과 달리 — 발견성은 별도 진입점으로)
-   - 실행 중: `⟳ make build · 12s` — 클릭 = 해당 탭 포커스. 여러 개면 "개수+최신"으로 요약, 상세는 팝오버
-   - 완료 후: `✓ make build 8s` / `✗ exit 2`가 칩에 잔류(성공 로그는 버리고 결과 한 줄만, 실패는 탭이 남아 있으니 클릭 → 탭)
-4. **글리프·어휘를 서비스와 확실히 가른다**(서비스 ▶ vs 스크립트 ⚡ 등) — DESIGN.md 어휘표에 등재 필수.
+### ★ 육안 검증 필요 (SCRIPT-TAB — `make relaunch`)
+1. ★ **부트스트랩**: 스크립트 0개 상태에서 ⌘K "스크립트 추가" → 시트 → 등록 → 푸터에 칩 등장.
+2. ★ **성공 경로**: 짧은 성공 명령(`true` 등) 실행 → 탭이 스스로 닫히고 칩에 `✓ 이름 시간` 잔류. **마지막 탭이었으면** 빈 상태 뷰 전환이 놀랍지 않은지.
+3. ★ **실패 경로**: `exit 2`류 실행 → 탭이 셸로 남아 로그 보임 + 칩 `✗ 이름 exit 2` + 클릭 → 그 탭 포커스.
+4. ★ **exit code 보고가 .app 번들에서도** 도는지 — muxa-notify를 번들 옆 절대경로로 부른다(PATH 미의존). bare 빌드·`.app` 둘 다.
+5. ★ **dedup**: 도는 중 팝오버에서 같은 스크립트 재클릭 → 새 탭 대신 기존 탭 포커스.
+6. ★ **칩 폭**: 짧은 이름(`bd`)에서 칩이 내용만큼만(120pt로 안 부풂 — fixedSize 수정), 긴 이름은 120pt에서 잘림. 1초 tick이 푸터 전체를 리렌더하지 않는지(느낌: 다른 칩 hover 상태 유지).
+7. ★ **⌘W 중단**: 실행 중 탭을 ⌘W → 칩이 "결과 미상"(`?` 무채)으로 남고 ✓로 속이지 않는지.
+8. ★ 앱 재시작 → 스크립트 탭이 있던 자리가 일반 터미널로 복원(cwd 유지), 칩 잔류는 사라짐(비영속 의도).
 
-**미해결·구현 시 검증 포인트:**
-- **실패 감지**: 실패 시 `exec`가 pid를 이어받아 `DispatchSourceProcess` 워처가 안 울린다 —
-  래퍼가 종료 직전 `MUXA_SOCK`(탭마다 이미 주입, `TermView.swift:83~138`)으로 exit code를 쏘는 방식 검증 필요.
-- non-tmux라 **앱 종료 = 실행 중 스크립트 사망** — 의도된 트레이드오프(초~분 작업용, 장시간은 서비스).
-- 성공으로 조용히 닫힐 때 알림/배지 한 줄(`onSignal(.processExited)` 경로) — 안 하면 "성공? 아직?" 구분 불가.
-
-**구현 순서(합의)**: ① `Script` 모델·판정 순수 로직+테스트 → ② 실행 경로(oneShot 탭) → ③ 푸터 칩·팝오버 → ④ DESIGN/STATUS 갱신.
+**남은 것(범위 밖)**: 스크립트 단축키 바인딩(`named("add_script")`만 예약됨), 여러 실행 동시 표시의 팝오버 상세 UX 다듬기.
 
 ## 최근 완료 (2026-07-16) — 사이드바 트리 v2: orca 헤더 × 레인 × 목록형 에이전트 (SIDEBAR-V2)
 

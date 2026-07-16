@@ -592,6 +592,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         resetCoalescers(for: tabId) // 배지·알림 병합 이력 해제(맵 누수 방지)
         manualTitles[tabId] = nil // 수동 지정 제목 해제
         persistentIntent[tabId] = nil
+        scriptCommands[tabId] = nil // 스크립트 탭 매핑 해제(맵 누수 방지)
+        finalizeScriptRun(closedTab: tabId) // 프레임 없이 닫혔으면 code nil로 폴백 마감(성공 단정 금지)
         confirmedCloses.remove(tabId) // 확인 게이트 잔여 정리(취소 후 재닫기 등 — 멱등)
         closeConfirmations[tabId] = nil // 확인 배너 상태 정리(멱등)
         // 탭 이름은 **닫히기 전에** 읽어야 한다(맵이 이미 비워지는 중이다).
@@ -772,6 +774,12 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                                                      session: session, cwd: tabCwd ?? SystemPaths.home,
                                                      env: env)
             return TerminalSession.execCommand(inner)
+        // 스크립트 탭(runScript)이면 래퍼 명령으로 직접 exec — 성공 시 프로세스 종료가 곧
+        // 탭 닫힘이 되도록 무조건 exec(-l $SHELL)를 붙이지 않는다(execCommand와의 유일한 차이).
+        // env(MUXA_TAB_ID/MUXA_SOCK)는 아래 TermView.init이 주입하고 exec 후에도 상속된다.
+        } ?? scriptCommands[tabId].map { script in
+            ScriptRunCommand.wrap(command: script.command, tabId: tabId.uuid.uuidString,
+                                  notifyPath: Self.notifyExecutablePath)
         }
         let t = TermView(app: app, cwd: tabCwd, tabId: tabId, sockPath: NotifyServer.socketPath,
                          restoreScrollbackFile: tmuxSession == nil ? restoredScrollbackFile[tabId] : nil,
@@ -1377,6 +1385,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             // OSC 9/777 자동 신호 — category nil로 게이트에 태운다(보이면 플래시, 안 보이면 배지+알림: 기존 동작).
             fireNotification(tabId, title: title, body: body, category: nil, kind: .notify)
         case .processExited:
+            // 스크립트 탭은 무시 — 워처가 포그라운드=비셸이라 5초 재시도 끝에 스크립트 프로세스
+            // 자체에 무장될 수 있어(TermView.armProcessWatcher), 종료 배지가 script-exit 프레임과
+            // 이중 발화한다. 스크립트 결과 판정은 deliverScriptExit가 전담한다.
+            if scriptCommands[tabId] != nil { return }
             // 프로세스가 OS 레벨에서 종료 — 결정론 done(셸 통합/OSC 133 없이도 확정). 안 보이는 탭이면 배지.
             // close_surface_cb(탭 닫기)와 별개 경로다: 탭이 닫히면 didCloseTab이 추정기·배지를 정리하고,
             // 서피스가 유지되면(통합 부재 등) 이 done 테두리·배지가 유일한 종료 표식이 된다.
@@ -1514,6 +1526,87 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         syncHasTabs() // 빈 상태에서 새 터미널을 열면 BonsplitView로 복귀(관측 갱신)
         persist()
         return id
+    }
+
+    // MARK: 스크립트 탭 — 끝이 있는 명령 1회 실행 (Script.swift)
+    //
+    // 서비스(tmux·도크)와 반대 축: 일반 탭에서 돌고, 성공(exit 0)이면 프로세스 종료 →
+    // close_surface_cb → 탭 자동 닫힘, 실패면 `exec -l $SHELL`로 셸 전환 → 탭 잔류.
+    // 결과 판정의 ground truth는 script-exit 프레임(deliverScriptExit) — 프로세스 워처는
+    // exec pid 승계·늦은 무장 때문에 스크립트 탭에서 신뢰하지 않는다.
+
+    /// 스크립트 탭 아이콘 — 서비스(play.circle)·에이전트 활동(bolt)과 글리프 축을 가른다.
+    static let scriptTabIcon = "play.square"
+
+    /// 탭 → 실행할 스크립트. term(for:)가 렌더 시 command 조립에 읽는다(persistentIntent 패턴).
+    /// 영속하지 않는다 — 재시작 후 스크립트 프로세스는 이미 죽었다(스냅샷은 일반 터미널로 강등).
+    @ObservationIgnored private var scriptCommands: [TabID: Script] = [:]
+
+    /// 실행 레지스트리 — 푸터 칩·팝오버가 관측한다. 키는 **scriptId**(탭 생존과 분리):
+    /// 성공 프레임(script-exit)과 탭 자동 닫힘(close_surface_cb)이 메인 큐에서 경합해도
+    /// 탭이 먼저 닫혔다고 결과가 버려지지 않는다. 같은 스크립트를 다시 돌리면 이전 결과를 덮는다.
+    private(set) var scriptRuns: [String: ScriptRun] = [:]
+
+    /// 래퍼가 부를 muxa-notify 절대경로 — 번들 옆(빌드마다 항상 존재)이 1순위, 못 찾으면
+    /// 훅 설치본(Application Support)이 폴백. PATH는 절대 안 탄다(.app은 로그인 PATH 미상속).
+    private static var notifyExecutablePath: String {
+        ClaudeHookInstaller.bundledBinaryURL()?.path ?? ClaudeHookInstaller.executableURL.path
+    }
+
+    /// 스크립트를 새 탭(포커스 칸)에서 1회 실행한다. 같은 스크립트가 이미 도는 중이면 새로 띄우지
+    /// 않고 그 탭만 앞으로 가져온다(dedup — 두 번 눌렀다고 빌드가 두 개 돌면 안 된다).
+    func runScript(_ script: Script) {
+        // dedup은 running 상태 + 탭 실존을 **둘 다** 본다 — 정리 누락·레이스로 매핑만 남으면
+        // 실행 버튼이 영영 죽은 탭만 포커스하려 든다.
+        if let run = scriptRuns[script.id], case .running = run.state, terms[run.tabId] != nil {
+            revealTab(run.tabId)
+            return
+        }
+        // 새 실행 시작 = 이전 잔류 결과(칩의 ✓/✗)를 치울 시점 — 칩은 "가장 최근 일"만 말한다.
+        scriptRuns = ScriptRun.clearingFinished(scriptRuns)
+        guard let id = controller.createTab(title: script.name, icon: Self.scriptTabIcon,
+                                            inPane: nil) else { return }
+        // createTab이 새 탭을 즉시 선택해 렌더(term(for:))가 동기로 따라올 수 있다 — 맵은
+        // 반환 직후·다른 일 전에 심는다(persistentIntent와 같은 함정, newTerminal :1490 주석).
+        pendingCwd[id] = cwd // 프로젝트 기본 경로에서 실행(분할 상속 의미론 없음)
+        manualTitles[id] = script.name // 엔진 OSC 제목이 탭 이름을 덮지 못하게(applyEngineTitle 가드)
+        scriptCommands[id] = script
+        scriptRuns[script.id] = ScriptRun(scriptId: script.id, tabId: id, name: script.name,
+                                          startedAt: Date(), state: .running)
+        regroup(id, inPane: controller.focusedPaneId)
+        syncHasTabs()
+        persist()
+    }
+
+    /// script-exit 프레임 배달 — 이 스토어의 실행에 대한 것이면 결과를 확정하고 true.
+    ///
+    /// **resolveTab을 쓰지 않는다**: 성공 프레임과 close_surface_cb(탭 자동 닫힘)가 메인 큐에서
+    /// 경합해 탭이 먼저 닫혔을 수 있다 — 살아있는 탭만 인정하면 성공 결과가 조용히 버려져
+    /// 칩이 running에 갇힌다. 레지스트리(scriptId 키)는 탭 생존과 무관하게 남아 있다.
+    func deliverScriptExit(tabId: TabID, exitCode: Int32) -> Bool {
+        guard let entry = scriptRuns.first(where: { $0.value.tabId == tabId }) else { return false }
+        scriptRuns[entry.key] = entry.value.receivingExit(code: exitCode, at: Date())
+        // 실패(≠0)는 exec $SHELL로 탭이 잔류한다 — 탭이 살아 있고 안 보이면 배지로 짚는다.
+        // 성공은 탭이 곧(또는 이미) 닫히므로 배지 경로가 무의미하다(칩 잔류가 담당).
+        if exitCode != 0, terms[tabId] != nil {
+            fireActivity(tabId, kind: .done, title: entry.value.name, visible: isTabVisible(tabId))
+        }
+        return true
+    }
+
+    /// 잔류 결과 해제(칩·팝오버 클릭 = "확인했다") — finished 엔트리만 지운다.
+    /// running은 못 지운다 — 실행 사실이 사라지면 dedup·프레임 배달이 근거를 잃는다.
+    func removeScriptRun(_ scriptId: String) {
+        guard let run = scriptRuns[scriptId], !run.isRunning else { return }
+        scriptRuns[scriptId] = nil
+    }
+
+    /// 탭이 프레임 없이 닫혔을 때의 폴백 마감(didCloseTab 전용) — ⌘W·소켓 유실로 exit code를
+    /// 끝내 못 받으면 code nil로 마감해 칩이 running에 영원히 갇히는 것을 막는다.
+    /// 프레임이 이미 왔거나 나중에 오면 전이 규칙(ScriptRun.receivingExit)이 code를 채운다.
+    private func finalizeScriptRun(closedTab tabId: TabID) {
+        guard let entry = scriptRuns.first(where: { $0.value.tabId == tabId }) else { return }
+        scriptRuns[entry.key] = entry.value.closingFallback(at: Date())
     }
 
     // MARK: 탭 그룹핑 — 같은 종류끼리 묶기 (터미널 | 문서 | diff)
@@ -1733,6 +1826,13 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                 case .terminal:
                     // 현재 셸 작업 디렉터리 기록 — TermView가 살아 있으면 그 pwd, 아직 미실체화 탭이면 복원 힌트.
                     let tabCwd = terms[tid]?.pwd ?? pendingCwd[tid]
+                    // 스크립트 탭은 **일반 터미널로 강등 저장**(cwd만 — resume·스크롤백·수동 제목 없음):
+                    // 재시작 후 래퍼 프로세스는 이미 죽었고(tmux 아님), 빈 셸 탭이 남는 게 실제 화면과
+                    // 일치한다. scriptCommands·scriptRuns는 영속하지 않는다(worktreeLink 스킵 선례의 변형).
+                    if scriptCommands[tid] != nil {
+                        tabs.append(TabSnapshot(group: nil, items: [], selectedItem: 0, cwd: tabCwd))
+                        continue
+                    }
                     // 화면+스크롤백 캡처 — 실체화된 터미널이면 서피스에서 읽어 파일에 쓰고(캡처 요청 시에만),
                     // 아니면 기존 파일 경로나 이전 복원 힌트를 그대로 이어 준다(④). 메타 저장은 재캡처를 건너뛴다.
                     let captured = captureScrollback ? terms[tid].flatMap { self.captureScrollback(from: $0, tabId: tid) } : nil

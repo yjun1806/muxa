@@ -63,7 +63,9 @@ let package = Package(
         .executableTarget(name: "muxa-notify"),
         // 순수 로직 단위 테스트 — 값 타입·순수 함수(파싱·랭킹·게이트·앵커링 등)만 검증.
         // @testable import muxa로 앱 모듈 심볼에 접근. GhosttyKit 링크는 앱과 동일(bootstrap 필요).
-        .testTarget(name: "muxaTests", dependencies: ["muxa"]),
+        // muxa-notify 의존은 링크가 아니라 **빌드 순서 보장**이다 — 와이어 계약 e2e 테스트
+        // (ScriptTests)가 빌드 산출물의 실물 CLI를 spawn해 script-exit 프레임 배달을 검증한다.
+        .testTarget(name: "muxaTests", dependencies: ["muxa", "muxa-notify"]),
         // cmux fork의 prebuilt xcframework(universal, ReleaseFast). scripts/bootstrap.sh가
         // vendor/ghostty/macos/에 설치하고, 이 심링크(GhosttyKit.xcframework)가 그걸 가리킨다.
         .binaryTarget(name: "GhosttyKit", path: "GhosttyKit.xcframework"),
