@@ -111,7 +111,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         return terms[tab] != nil ? tab : nil
     }
 
-    /// 그 칸의 선택 탭이 지속 세션인가 — 분할·새 탭이 물려받을 값.
+    /// 그 칸의 선택 탭이 지속 세션인가 — **분할이** 물려받을 값(`+`·⌘T의 새 탭은 항상 일반 — newTerminal 참조).
     private func inheritedPersistence(inPane pane: PaneID?) -> Bool {
         guard let pane, let tab = controller.selectedTab(inPane: pane) else { return false }
         return persistentIntent[tab.id] == true
@@ -1387,16 +1387,17 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 새 터미널 탭 생성(분할 후 빈 패인 채우기·⌘T 등).
     /// `inheritingFrom`은 작업 디렉터리를 물려받을 원본 칸(분할이면 분할된 칸). 없으면 탭이 생길 칸에서 상속한다.
     /// - Parameter persistent: 이 탭을 tmux 지속 세션(∞)으로 열지.
-    ///   **nil이면 원본 칸에서 물려받는다** — 분할 버튼은 하나뿐이므로, 지속 세션 옆에서 나눈 칸은
-    ///   지속 세션이고 일반 터미널 옆에서 나눈 칸은 일반이어야 자연스럽다(cwd를 물려받는 것과 같다).
+    ///   **nil이면 분할일 때만(source가 있을 때) 원본 칸에서 물려받는다** — 분할 버튼은 하나뿐이므로,
+    ///   지속 세션 옆에서 나눈 칸은 지속 세션이어야 자연스럽다(cwd 상속과 같은 규칙).
+    ///   `+`·⌘T·메뉴의 새 터미널은 **항상 일반**이다 — 옆 탭의 ∞를 물려받으면 `+`와 `∞`가 똑같이 동작해
+    ///   버튼을 나눈 이유가 사라지고(위 persistentIntent 주석), 사용자가 모르는 tmux 세션이 생긴다(실측 혼란).
     @discardableResult
     func newTerminal(inPane pane: PaneID? = nil, inheritingFrom source: PaneID? = nil,
                      persistent: Bool? = nil) -> TabID? {
         // createTab이 새 탭을 즉시 선택하므로, 원본 칸의 pwd·지속 여부는 생성 전에 읽는다.
-        // cwd는 **분할일 때만**(source가 있을 때) 물려받는다 — 새 탭은 프로젝트 기본 경로에서 연다.
-        let origin = source ?? pane ?? controller.focusedPaneId
+        // cwd·지속 여부 모두 **분할일 때만**(source가 있을 때) 물려받는다 — 새 탭은 프로젝트 기본 경로의 일반 셸.
         let start = source.flatMap { inheritedCwd(inPane: $0) } ?? cwd
-        let wantsPersistent = persistent ?? inheritedPersistence(inPane: origin)
+        let wantsPersistent = persistent ?? source.map { inheritedPersistence(inPane: $0) } ?? false
         let id = controller.createTab(title: "터미널",
                                       icon: wantsPersistent ? Self.persistentTabIcon : Self.terminalTabIcon,
                                       inPane: pane)
