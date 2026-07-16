@@ -12,22 +12,21 @@ struct BonsplitChromeTests {
     @Test("동적 색이 라이트/다크 각각의 값으로 해석된다")
     func resolvesBothAppearances() {
         // 스코프 밖에서 성분을 읽으면 조용히 라이트 값이 나온다 — 그 함정에 빠지면 이 테스트가 깨진다.
-        #expect(Palette.bg.bonsplitHexPair.light == "#FFFFFFFF")
-        #expect(Palette.bg.bonsplitHexPair.dark == "#1B1B1DFF")
+        #expect(Palette.bg.bonsplitHexPair.light == "#FCFBFAFF")
+        #expect(Palette.bg.bonsplitHexPair.dark == "#1C1A18FF")
 
-        #expect(Palette.btnActive.bonsplitHexPair.light == "#D6D6D9FF")
-        #expect(Palette.btnActive.bonsplitHexPair.dark == "#47474CFF")
+        #expect(Palette.btnActive.bonsplitHexPair.light == "#DFDAD3FF")
+        #expect(Palette.btnActive.bonsplitHexPair.dark == "#454037FF")
     }
 
-    /// 강조는 **딥틸**이지 아이콘의 키 컬러(#2DD4BF)가 아니다 — 키 컬러는 다크 크롬 위에서 9.24:1로
-    /// 네온이 되어 크롬에서 가장 빛나는 물체가 된다. UI는 채도를 내린 값만 쓰고, 아이콘 색은
-    /// `Palette.Brand`에 격리돼 있다. 이 테스트는 그 격리가 다시 새는 걸 막는다.
-    @Test("브랜드 강조는 라이트에서 진하고 다크에서 밝다 — 단 아이콘 teal은 아니다")
+    /// 강조는 **버밀리언**(UI accent)이지 아이콘의 키 컬러가 아니다 — 아이콘 색(`Palette.Brand.key`)은
+    /// Dock 전용으로 격리돼 UI accent보다 진하다. UI는 accent 값만 쓴다. 이 테스트는 그 격리가 다시 새는 걸 막는다.
+    @Test("브랜드 강조는 라이트에서 진하고 다크에서 밝다 — 단 아이콘 색이 UI로 새지 않는다")
     func brandFlipsWithAppearance() {
         let brand = Palette.brand.bonsplitHexPair
-        #expect(brand.light == "#0F766EFF")
-        #expect(brand.dark == "#5FB8ABFF")
-        #expect(brand.dark != "#\(String(format: "%06X", Palette.Brand.key))FF") // 아이콘 전용 teal이 UI로 새지 않는다
+        #expect(brand.light == "#C13A1BFF")
+        #expect(brand.dark == "#EE6B44FF")
+        #expect(brand.dark != "#\(String(format: "%06X", Palette.Brand.key))FF") // 아이콘 전용 색이 UI로 새지 않는다
     }
 
     /// 알파를 6자리로 자르면 반투명 색이 **완전 불투명**해진다.
