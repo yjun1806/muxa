@@ -24,10 +24,9 @@ struct SidebarSUI: View {
 
     private var width: CGFloat { effectiveMode.baseWidth }
 
-    /// 도킹/peek 각각의 그늘 세기 — 라이트/다크는 같은 알파로 같은 무게가 안 난다(`Elevation`).
-    private func shadowOpacity(peek: Bool) -> Double {
-        let pair = peek ? Elevation.Peek.shadowOpacity : Elevation.Peek.shadowOpacityDocked
-        return scheme == .dark ? pair.dark : pair.light
+    /// peek 그늘의 세기 — 라이트/다크는 같은 알파로 같은 무게가 안 난다(`Elevation`).
+    private var peekShadowOpacity: Double {
+        scheme == .dark ? Elevation.Peek.shadowOpacity.dark : Elevation.Peek.shadowOpacity.light
     }
 
     /// 이름이 보이지 않는 모드 — 호버 시 이름 칩을 띄운다.
@@ -54,15 +53,21 @@ struct SidebarSUI: View {
         // 위 레이어가 아래로 그림자를 던지는 게 물리적으로도 옳다: 틈이 사라져 폭 = 띠가 되고,
         // 가운데가 자명해진다.
         //
+        // **peek로 떠 있을 때만 그린다.** 도킹 상태에선 사이드바와 카드가 나란히 붙어 있어 카드의
+        // 1px 테두리·둥근 모서리만으로 층이 읽힌다 — 여기에 그림자를 얹으면 사각형 띠가 카드의 둥근
+        // 모서리를 못 따라가 아래 코너에서 세로로 삐져나온 노치("딱 잘린 느낌")가 생긴다. 그림자가 진짜
+        // 필요한 건 peek로 카드 *위에* 겹쳐 뜰 때뿐이다.
+        //
         // **오른쪽 그라디언트로 그린다(`.shadow` 아님).** `.shadow`는 세로 기둥(maxHeight)의 위·아래
-        // 모서리에서도 블러돼 크롬 위로 번진다 — 상단헤더↔사이드바 사이와 왼쪽 아래 코너에 회색 띠가
-        // 생겼다(Peek 주석이 경고한 "위아래로 번지면 크롬 위에 그늘"). 그라디언트는 딱 오른쪽만 그려 번짐이 없다.
+        // 모서리에서도 블러돼 크롬 위로 번진다. 그라디언트는 딱 오른쪽만 그려 번짐이 없다.
         .overlay(alignment: .trailing) {
-            LinearGradient(colors: [.black.opacity(shadowOpacity(peek: peeking)), .clear],
-                           startPoint: .leading, endPoint: .trailing)
-                .frame(width: Elevation.Peek.shadowRadius + Elevation.Peek.shadowOffsetX)
-                .offset(x: Elevation.Peek.shadowRadius + Elevation.Peek.shadowOffsetX) // 패널 오른쪽 바깥, 카드 위로
-                .allowsHitTesting(false)
+            if peeking {
+                LinearGradient(colors: [.black.opacity(peekShadowOpacity), .clear],
+                               startPoint: .leading, endPoint: .trailing)
+                    .frame(width: Elevation.Peek.shadowRadius + Elevation.Peek.shadowOffsetX)
+                    .offset(x: Elevation.Peek.shadowRadius + Elevation.Peek.shadowOffsetX) // 패널 오른쪽 바깥, 카드 위로
+                    .allowsHitTesting(false)
+            }
         }
         .overlay(alignment: .trailing) {
             if peeking { Rectangle().fill(Color.pBorder).frame(width: RowHeight.hairline) }

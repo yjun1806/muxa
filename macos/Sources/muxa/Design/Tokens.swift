@@ -167,10 +167,6 @@ enum Elevation {
     enum Peek {
         /// peek로 펼쳐졌을 때 — 카드 위에 확실히 떠 있어야 한다.
         static let shadowOpacity: (light: Double, dark: Double) = (0.10, 0.45)
-        /// **도킹 상태에서도 드리운다** — 사이드바가 카드보다 위 레이어라 카드는 왼쪽으로 그림자를
-        /// 흘릴 수 없다(가려진다). 그래서 층은 위에서 아래로 던지는 이 그늘이 만든다.
-        /// 무게는 카드 고도와 같게 잡는다(`Card.shadowOpacity`) — 같은 계급의 경계다.
-        static let shadowOpacityDocked: (light: Double, dark: Double) = Card.shadowOpacity
         static let shadowRadius: CGFloat = 4
         static let shadowOffsetX: CGFloat = 3
     }
