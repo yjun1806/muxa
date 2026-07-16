@@ -25,9 +25,13 @@ struct WorktreeLinkPane: View {
             if let link = store.worktreeLink?() {
                 linked(link)
             } else {
-                // 대상이 사라졌다(원본 탭 닫힘·이미 가져옴) — 빈 프로젝트 뷰와 같은 문법으로 다음 행동을 준다.
-                EmptyState(icon: "arrow.triangle.branch", title: "연결된 작업이 없습니다") {
-                    openTerminalButton
+                // 대상이 사라졌다 — 왜 비었는지(두 원인)와 다음 행동을 함께 준다(DESIGN 7: 빈 상태는 설명 + 버튼).
+                EmptyState(icon: "arrow.triangle.branch", title: "연결된 작업이 없습니다",
+                           subtitle: "원본 탭이 닫혔거나 이미 이 프로젝트로 가져왔습니다 — 일반 프로젝트로 쓰면 됩니다") {
+                    EmptyStateButton(title: "새 터미널", icon: "plus") {
+                        store.newTerminal()
+                        _ = store.controller.closeTab(tabId) // 안내 탭은 치운다 — 이제 일반 프로젝트로 쓰는 것
+                    }
                 }
             }
         }
@@ -36,45 +40,26 @@ struct WorktreeLinkPane: View {
     }
 
     private func linked(_ link: ExternalWorktreeSession) -> some View {
-        EmptyState(icon: "arrow.triangle.branch", title: "이 워크트리의 작업이 다른 탭에서 진행 중") {
-            Text(link.isPersistent ? "지속 세션(∞) — 이 프로젝트로 가져올 수 있습니다"
-                                   : "일반 터미널 — 가서 볼 수만 있습니다(가져오기 불가)")
-                .font(.muxa(.label))
-                .foregroundStyle(Color.pMuted)
+        // 제목이 목적지(원본 프로젝트)를 지목한다 — [가서 보기]가 어디로 데려갈지 예측 가능해야 한다(DESIGN 7: 원인을 말한다).
+        // 설명은 EmptyState의 subtitle 슬롯으로 — 호출부 재조판은 컴포넌트 계약(크기·간격 단일 출처)을 깬다.
+        EmptyState(icon: "arrow.triangle.branch", title: "‘\(link.originName)’의 탭에서 작업이 진행 중입니다",
+                   subtitle: link.isPersistent
+                       ? "지속 세션(∞) — 이 프로젝트로 가져올 수 있습니다"
+                       : "일반 터미널은 가져올 수 없습니다 — ∞ 지속 세션으로 열면 가능합니다. 지금은 가서 보기만 됩니다") {
             HStack(spacing: Space.md) {
-                actionButton("가서 보기", icon: "arrow.up.right") {
+                EmptyStateButton(title: "가서 보기", icon: "arrow.up.right") {
                     store.onWorktreeLinkAction?(link, .go)
                 }
-                .help("작업이 도는 원본 탭으로 이동합니다")
+                .help("작업이 도는 ‘\(link.originName)’의 탭으로 이동합니다")
                 if link.isPersistent {
-                    actionButton("가져오기", icon: "square.and.arrow.down") {
-                        // 링크 탭 정리는 이식 쪽(`bringPersistentTab` → `closeWorktreeLinkTabs`)이 맡는다 — 단일 메커니즘.
+                    // 가져오기 = 이 화면의 1급 CTA(brand — 화면당 하나). 링크 탭 정리는 이식 쪽
+                    // (`bringPersistentTab` → `closeWorktreeLinkTabs`)이 맡는다 — 단일 메커니즘.
+                    EmptyStateButton(title: "가져오기", icon: "square.and.arrow.down", prominent: true) {
                         store.onWorktreeLinkAction?(link, .bring)
                     }
                     .help("지속 세션을 이 프로젝트의 새 탭으로 가져옵니다(안에서 돌던 작업 그대로)")
                 }
             }
-        }
-    }
-
-    /// EmptyProjectView의 버튼과 같은 문법 — 정보 화면의 주 동작 버튼.
-    private func actionButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: icon)
-                .font(.muxa(.title))
-                .padding(.horizontal, Space.lg)
-                .padding(.vertical, Space.sm)
-                .background(Color.pBtnHover, in: RoundedRectangle(cornerRadius: Radius.sm))
-                .foregroundStyle(Color.pFg)
-        }
-        .buttonStyle(.plain)
-        .clickCursor()
-    }
-
-    private var openTerminalButton: some View {
-        actionButton("새 터미널", icon: "plus") {
-            store.newTerminal()
-            _ = store.controller.closeTab(tabId) // 안내 탭은 치운다 — 이제 일반 프로젝트로 쓰는 것
         }
     }
 }

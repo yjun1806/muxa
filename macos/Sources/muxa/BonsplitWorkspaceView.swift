@@ -114,18 +114,10 @@ private struct EmptyProjectView: View {
 
     var body: some View {
         EmptyState(icon: "terminal", title: "터미널이 없습니다") {
-            Button {
+            // 버튼 조판은 공용(EmptyStateButton) — 호출부마다 다시 조판하면 드리프트한다(링크 탭과 공유).
+            EmptyStateButton(title: "새 터미널", icon: "plus") {
                 store.newTerminal()
-            } label: {
-                Label("새 터미널", systemImage: "plus")
-                    .font(.muxa(.title))
-                    .padding(.horizontal, Space.lg)
-                    .padding(.vertical, Space.sm)
-                    .background(Color.pBtnHover, in: RoundedRectangle(cornerRadius: Radius.sm))
-                    .foregroundStyle(Color.pFg)
             }
-            .buttonStyle(.plain)
-            .clickCursor()
             Text("⌘T")
                 .font(.muxa(.label))
                 .foregroundStyle(Color.pMuted)

@@ -15,7 +15,8 @@ struct Breadcrumb: View {
     private var shown: Project? { project ?? workspace.activeProject }
 
     var body: some View {
-        HStack(alignment: .center, spacing: Space.sm) {
+        // firstTextBaseline — body(12)와 label(11) mono 브랜치가 섞여, center 정렬이면 작은 글자가 살짝 떠 보인다.
+        HStack(alignment: .firstTextBaseline, spacing: Space.sm) {
             Text(workspace.name)
                 .font(.muxa(.body))
                 .foregroundStyle(Color.pMuted)
@@ -38,11 +39,18 @@ struct Breadcrumb: View {
                     .lineLimit(1)
                 // 현재 브랜치 — 프로젝트명과 다를 때만(워크트리는 이름 = 브랜치라 중복). 식별자라 모노스페이스,
                 // 위치 라벨(이름)보다 한 단계 약하게(muted·label 크기) — "어디"가 주연, 브랜치는 상태다.
+                // 글리프 = 모양 채널: 타이포(크기·서체)만으로 가르면 뒤따르는 경로 텍스트의 시작으로 오독될 수 있다
+                // (DESIGN 2: 색만으로 구분하지 않는다 — 모양과 함께).
                 if let branch, branch != project.name {
-                    Text(branch)
-                        .font(.muxaMono(.label))
-                        .foregroundStyle(Color.pMuted)
-                        .lineLimit(1)
+                    HStack(alignment: .firstTextBaseline, spacing: Space.tight) {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.muxa(.micro))
+                            .foregroundStyle(Color.pMuted)
+                        Text(branch)
+                            .font(.muxaMono(.label))
+                            .foregroundStyle(Color.pMuted)
+                            .lineLimit(1)
+                    }
                 }
             }
         }

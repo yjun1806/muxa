@@ -31,6 +31,8 @@ enum WorktreePromotion {
 /// 워크트리에서 도는 작업이 살아 있는 **다른 프로젝트의 탭** — 링크 카드가 지목한다(D31). 판정은 `AppState.externalLiveSession`.
 struct ExternalWorktreeSession {
     let originProjectId: String
+    /// 원본 프로젝트의 표시 이름 — 링크 탭이 "어디의 탭인지"를 지목한다(무명 "다른 탭"은 [가서 보기]의 목적지를 숨긴다).
+    let originName: String
     let tabId: TabID
     /// 영속(∞ tmux) 탭인가 — 그렇다면 "가져오기"(이식)가 가능하다. 일반 터미널은 "가서 보기"만.
     let isPersistent: Bool

@@ -79,7 +79,9 @@ struct SidebarProjectRow: View {
             // 워크트리 폴더가 사라진 프로젝트 — 닫지 않고 표시만(사용자가 정리). 서비스-빨강·에이전트-앰버와
             // 헷갈리지 않게 무채 글리프 + 취소선으로 조용히 알린다.
             if worktreeGone {
-                Image(systemName: "folder.badge.minus")
+                // questionmark.folder = "참조 유실"(Xcode missing reference 관례). badge.minus 계열은
+                // "제거하는 동작"으로 읽혀 누르면 지워질 것 같은 오독 여지가 있었다(디자인 리뷰).
+                Image(systemName: "questionmark.folder")
                     .font(.muxa(.micro))
                     .foregroundStyle(Color.pMuted)
                     .help("워크트리 폴더가 사라졌습니다 — 정리하려면 프로젝트를 닫으세요")

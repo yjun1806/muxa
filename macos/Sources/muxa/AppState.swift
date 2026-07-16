@@ -1480,7 +1480,10 @@ final class AppState {
             }
         }
         guard let b = best else { return nil }
-        return ExternalWorktreeSession(originProjectId: b.originProjectId, tabId: b.tabId, isPersistent: b.persistent)
+        return ExternalWorktreeSession(originProjectId: b.originProjectId,
+                                       // self. — 위 guard의 로컬 project(값)가 동명 메서드를 가린다
+                                       originName: self.project(b.originProjectId)?.name ?? "다른 프로젝트",
+                                       tabId: b.tabId, isPersistent: b.persistent)
     }
 
     /// 링크 탭 "가져오기"·이동 배너 "옮기기" — 영속(∞) 세션을 원본 프로젝트에서 워크트리 프로젝트로 이식한다.
@@ -1557,6 +1560,9 @@ final class AppState {
         for ws in workspaces {
             for wt in worktreeOffers(for: ws) where hasLiveSession(inside: wt.path) {
                 importWorktree(wt, in: ws.id)
+                // "조용히"는 포커스를 안 뺏는다는 뜻이지 무알림이 아니다 — 인박스에 한 줄 남겨
+                // 사이드바를 안 보고 있어도 자동 승격이 일어났음을 뒤늦게라도 알 수 있게 한다(UX 감사 L2).
+                attention.recordSystem(title: "워크트리 ‘\(wt.displayName)’을 감지해 프로젝트로 추가했습니다.")
             }
         }
     }

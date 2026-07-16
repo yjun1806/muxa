@@ -58,14 +58,16 @@ private struct WorktreeMoveBanner: View {
             .help("이 ∞ 세션을 ‘\(targetName)’ 프로젝트의 탭으로 옮깁니다(돌던 작업 그대로)")
 
             Button(action: onDismiss) {
-                Text("여기 둠")
+                Text("여기 두기")
                     .font(.muxa(.body))
                     .foregroundStyle(Color.pMuted)
                     .padding(.horizontal, Space.md).padding(.vertical, 5)
             }
             .buttonStyle(.plain)
             .clickCursor()
-            .help("이 대상으로는 다시 묻지 않습니다")
+            // 약속은 지킬 수 있는 만큼만 — 무시 상태는 세션 한정(영속 안 함)이라 "이 세션 동안"으로 정직하게.
+            // 되돌릴 길(링크 탭의 가져오기)도 알려줘 "영구 결정"처럼 느껴지지 않게 한다.
+            .help("이 세션 동안은 다시 묻지 않습니다 — 필요하면 워크트리 프로젝트의 링크 탭에서 가져올 수 있습니다")
         }
         .paneBannerChrome(maxWidth: 560)
     }
