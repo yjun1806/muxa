@@ -26,14 +26,20 @@ struct UsageChip: View {
                    help: "claude 사용량 — 클릭해 상세 보기·설정") {
             HStack(alignment: .center, spacing: Space.sm) {
                 ClaudeMark(size: IconSize.inlineMark)
-                if shown.isEmpty {
+                if meters.isEmpty {
                     Text(placeholder)
                         .font(.muxa(.label))
                         .foregroundStyle(Color.pMuted.opacity(0.7))
                 } else {
-                    ForEach(shown) { limit in
+                    // 막대 먼저(5h · wk · fable), 그다음 리셋 시각(5h · wk)을 모아서 —
+                    // fable(시간 없음)이 막대들과 붙어 "주간 | 페이블 | 주간시간" 순이 되도록.
+                    ForEach(meters) { limit in
                         VDivider(height: 12)
-                        limitView(limit)
+                        meterView(limit)
+                    }
+                    ForEach(resetTimes, id: \.limit.id) { item in
+                        VDivider(height: 12)
+                        timeView(item.text)
                     }
                     if usage.failed {
                         // 값은 있지만 마지막 갱신이 실패 — 지금 보이는 건 이전 조회 결과다.
@@ -60,8 +66,8 @@ struct UsageChip: View {
         }
     }
 
-    /// 상태바에 띄울 한도 — 세션·주간은 항상, fable은 설정 시. 순서는 세션 → 주간 → fable.
-    private var shown: [UsageLimit] {
+    /// 막대로 보여줄 한도 — 세션·주간은 항상, fable은 설정 시. 순서는 세션 → 주간 → fable.
+    private var meters: [UsageLimit] {
         let all = usage.limits
         let session = all.first(where: \.isSession)
         let weekly = all.first { !$0.isSession && !$0.isModelScoped }
@@ -69,11 +75,16 @@ struct UsageChip: View {
         return [session, weekly, fable].compactMap { $0 }
     }
 
-    /// 이 한도 옆에 리셋 시각을 붙일지 — 세션·주간은 각자 토글, fable은 시간 표시 안 함.
-    private func showsReset(_ limit: UsageLimit) -> Bool {
-        if limit.isSession { return settings.showSessionReset }
-        if limit.isModelScoped { return false }
-        return settings.showWeeklyReset
+    /// 리셋 시각은 **막대들 뒤에** 모은다 — fable(시간 없음)이 막대들과 붙어 있게(주간|페이블|주간시간).
+    /// 각자 토글(세션·주간), 순서는 세션 → 주간. fable은 시간을 표시하지 않는다.
+    private var resetTimes: [(limit: UsageLimit, text: String)] {
+        let all = usage.limits
+        var out: [(UsageLimit, String)] = []
+        if settings.showSessionReset, let s = all.first(where: \.isSession),
+           let t = ClaudeUsage.resetShort(s.resetsAt, now: now) { out.append((s, t)) }
+        if settings.showWeeklyReset, let w = all.first(where: { !$0.isSession && !$0.isModelScoped }),
+           let t = ClaudeUsage.resetShort(w.resetsAt, now: now) { out.append((w, t)) }
+        return out
     }
 
     /// 보여줄 한도가 없을 때의 문구 — 조회 전·실패·빈 응답을 구분한다.
@@ -85,8 +96,8 @@ struct UsageChip: View {
         }
     }
 
-    /// 한도 하나 — [라벨][막대][%] + (설정 시)[⏲ 남은 시간]. 숫자가 주인공, 라벨은 보조.
-    private func limitView(_ limit: UsageLimit) -> some View {
+    /// 한도 막대 하나 — [라벨][막대][%]. 숫자가 주인공, 라벨은 보조. 리셋 시각은 따로(뒤에) 모은다.
+    private func meterView(_ limit: UsageLimit) -> some View {
         HStack(alignment: .center, spacing: Space.xs) {
             Text(limit.label)
                 .font(.muxa(.caption))
@@ -95,13 +106,16 @@ struct UsageChip: View {
             Text("\(limit.percent)%")
                 .font(.muxaMono(.label, weight: .semibold))
                 .foregroundStyle(UsageColor.text(limit))
-            if showsReset(limit), let reset = ClaudeUsage.resetShort(limit.resetsAt, now: now) {
-                // 시계 아이콘이 없으면 "3h 38m"이 또 하나의 사용량 수치처럼 읽힌다 — 남은 시간임을 표시.
-                Image(systemName: "clock").font(.muxa(.micro)).foregroundStyle(Color.pMuted)
-                Text(reset).font(.muxaMono(.caption)).foregroundStyle(Color.pMuted)
-            }
         }
         .help(detail(limit))
+    }
+
+    /// 리셋 시각 하나 — [⏲ 남은 시간]. 시계 아이콘이 없으면 또 하나의 사용량 수치처럼 읽힌다.
+    private func timeView(_ text: String) -> some View {
+        HStack(alignment: .center, spacing: Space.xs) {
+            Image(systemName: "clock").font(.muxa(.micro)).foregroundStyle(Color.pMuted)
+            Text(text).font(.muxaMono(.caption)).foregroundStyle(Color.pMuted)
+        }
     }
 
     /// 항목 툴팁 — 리셋 시각을 hover로 되돌려준다.
