@@ -233,12 +233,14 @@ struct PaneMotionEffect: ViewModifier {
                 }
             }
         case .glow:
+            // 얇은 선의 shadow 하나로는 번짐이 약하다 — 그림자를 3겹 쌓아 확실히 번지고 glowSpread에 반응하게.
             if reduceMotion {
-                content.shadow(color: color.opacity(0.6), radius: glowSpread * 0.45)
+                Self.glowLayers(content, color: color, radius: glowSpread * 0.7, intensity: 0.7)
             } else {
                 TimelineView(.animation) { ctx in
-                    let b = Self.wave(ctx.date, speed)
-                    content.shadow(color: color.opacity(0.3 + 0.6 * b), radius: glowSpread * (0.35 + 0.5 * b))
+                    let b = Self.wave(ctx.date, speed) // 0~1
+                    Self.glowLayers(content, color: color,
+                                    radius: glowSpread * (0.5 + 0.5 * b), intensity: 0.55 + 0.45 * b)
                 }
             }
         case .none, .flow:
@@ -250,6 +252,15 @@ struct PaneMotionEffect: ViewModifier {
     static func wave(_ date: Date, _ speed: Double) -> Double {
         let t = date.timeIntervalSinceReferenceDate
         return (sin(2 * .pi * t / max(speed, 0.1)) + 1) / 2
+    }
+
+    /// 그림자 3겹 — 각 겹이 앞 결과(그림자 포함) 위에 다시 드리워 번짐이 누적된다(얇은 선도 확실한 글로우).
+    @ViewBuilder
+    static func glowLayers(_ content: Content, color: Color, radius: CGFloat, intensity: Double) -> some View {
+        content
+            .shadow(color: color.opacity(intensity), radius: radius)
+            .shadow(color: color.opacity(intensity * 0.8), radius: radius * 0.5)
+            .shadow(color: color.opacity(intensity * 0.6), radius: radius * 0.25)
     }
 }
 
