@@ -3,11 +3,14 @@ import Bonsplit
 import GhosttyKit
 import Observation
 
-/// Bonsplit 탭이 담는 내용 — 터미널(개별 탭)이거나 그룹 탭(문서·diff 묶음).
+/// Bonsplit 탭이 담는 내용 — 터미널(개별 탭)이거나 그룹 탭(문서·diff 묶음)이거나 워크트리 링크(정보 탭).
 /// 문서/diff는 종류별로 그룹 탭 하나에 서브탭으로 모인다(2단 탭). 상태는 `groups`가 소유.
 enum TabContent {
     case terminal
     case group(TabGroupKind)
+    /// 워크트리 링크 탭 — "이 워크트리의 작업이 다른 프로젝트 탭에서 진행 중"을 알리는 정보 탭(D31).
+    /// 셸을 띄우지 않는다. 자동 승격된 워크트리 프로젝트의 초기 화면. 영속하지 않는다(스냅샷에서 스킵).
+    case worktreeLink
 }
 
 /// 워크스페이스 하나의 터미널 집합 + Bonsplit 분할·탭 컨트롤러. (cmux DockSplitStore 대응)
@@ -308,6 +311,28 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 셸 cwd(OSC 7)가 바뀔 때 상위(AppState)에 알린다 — 새 워크트리로 들어간 세션의 **자동 승격** 판정용(D31 보완).
     /// 에이전트는 워크트리를 만들고 곧장 cd하는데, FSEvents(.git)보다 이 신호가 늦게 올 수 있어 둘 다 트리거로 쓴다.
     @ObservationIgnored var onPwdChange: (() -> Void)?
+
+    // MARK: 워크트리 링크 탭 (D31) — "이 워크트리의 작업이 다른 탭에서 진행 중" 정보 탭
+
+    /// 링크 탭이 그릴 대상 — AppState가 `externalLiveSession(for: 이 프로젝트)`를 이어 준다
+    /// (스토어는 다른 프로젝트의 탭을 모른다 — 프로젝트를 넘나드는 판정은 상위 몫).
+    @ObservationIgnored var worktreeLink: (() -> ExternalWorktreeSession?)?
+    /// 링크 탭의 액션 위임 — 가서 보기(원본 탭 점프)·가져오기(∞ 세션 이식)는 프로젝트를 넘나들어 AppState가 맡는다.
+    @ObservationIgnored var onWorktreeLinkAction: ((ExternalWorktreeSession, WorktreeLinkAction) -> Void)?
+    /// 첫 화면을 터미널 대신 **링크 탭**으로 열라는 힌트 — 자동 승격된 워크트리 프로젝트(밖에 라이브 세션이
+    /// 있는)에 AppState가 store 생성 시 세운다. 복원 스냅샷이 있으면 그쪽이 우선(ensureInitialTerminal).
+    @ObservationIgnored var initialWorktreeLink = false
+
+    /// 워크트리 링크 탭을 연다 — 터미널이 아니라 셸을 띄우지 않는다(빈 프로젝트에 PTY 스폰 금지 원칙과 동일).
+    @discardableResult
+    func openWorktreeLinkTab(inPane pane: PaneID? = nil) -> TabID? {
+        guard let id = controller.createTab(title: "진행 중인 작업", icon: "arrow.triangle.branch",
+                                            inPane: pane) else { return nil }
+        tabContent[id] = .worktreeLink
+        syncHasTabs()
+        persist()
+        return id
+    }
     /// 초기 복원이 끝난 뒤에만 저장을 트리거한다(복원 중 중간 상태 저장 방지).
     @ObservationIgnored private var ready = false
 
@@ -453,6 +478,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 복원 중엔 replay가 탭을 직접 채우므로 자동 생성을 건너뛴다.
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
         if restoring { return }
+        // 탭을 **끌어다** 만든 분할은 그 탭이 이미 새 칸에 들어와 있다(Bonsplit이 splitPaneWithTab 뒤에
+        // 이 델리게이트를 부른다) — 거기에 또 터미널을 채우면 여분 탭이 생긴다(실측 버그).
+        // 빈 칸(분할 버튼)일 때만 채운다.
+        guard controller.tabs(inPane: newPane).isEmpty else { return }
         newTerminal(inPane: newPane, inheritingFrom: originalPane)
     }
 
@@ -1242,6 +1271,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                 typeIcon = "terminal"; viewerKind = nil
             case .group(let kind):
                 typeIcon = kind.icon; viewerKind = kind.title
+            case .worktreeLink:
+                typeIcon = "arrow.triangle.branch"; viewerKind = "링크"
             }
             return AgentRow(tabId: tabId, title: tabTitle(tabId), state: state,
                             detail: state == .working ? agentDetail[tabId] : nil,
@@ -1442,7 +1473,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 탭 종류 정렬 순위 — 터미널(0) < 문서(1) < HTML(2) < 코드(3) < 미디어(4) < 변경(5). 같은 순위는 생성 순서 유지.
     private func groupRank(_ content: TabContent) -> Int {
         switch content {
-        case .terminal: return 0
+        case .terminal, .worktreeLink: return 0 // 링크 탭은 터미널과 같은 자리(맨 앞 무리)
         case .group(.documents): return 1
         case .group(.html): return 2
         case .group(.code): return 3
@@ -1555,6 +1586,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         if let snap = restoreSnap {
             restoreSnap = nil
             restoreLayout(snap)
+        } else if initialWorktreeLink {
+            // 자동 승격된 워크트리 프로젝트 — 첫 화면은 셸이 아니라 **링크 탭**("작업이 다른 탭에서 진행 중").
+            _ = openWorktreeLinkTab()
         } else {
             _ = controller.createTab(title: "터미널", icon: Self.terminalTabIcon, inPane: nil)
         }
@@ -1669,6 +1703,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                     if items.isEmpty { continue } // 빈 그룹은 저장하지 않음
                     tabs.append(TabSnapshot(group: kind.raw, items: items, selectedItem: sel,
                                             manualTitle: manualTitles[tid]))
+                case .worktreeLink:
+                    continue // 링크 탭은 영속하지 않는다 — 라이브 세션 참조라 재시작 후엔 유효성을 보장 못 한다
                 }
                 _ = i
             }

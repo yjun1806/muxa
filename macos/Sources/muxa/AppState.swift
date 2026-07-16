@@ -816,6 +816,17 @@ final class AppState {
         s.onStateChange = { [weak self] in MainActor.assumeIsolated { self?.save() } }
         // 셸이 새 워크트리로 들어갔을 수 있다(에이전트의 worktree add + cd) — 자동 승격을 판정한다(D31 보완).
         s.onPwdChange = { [weak self] in self?.autoImportWorktrees() }
+        // 워크트리 링크 탭(D31) — 대상 판정·프로젝트를 넘나드는 액션은 AppState 몫(스토어는 다른 프로젝트를 모른다).
+        s.worktreeLink = { [weak self] in self?.externalLiveSession(for: pid) }
+        s.onWorktreeLinkAction = { [weak self] link, action in
+            switch action {
+            case .go: self?.focusAgentTab(link.originProjectId, link.tabId)
+            case .bring: self?.bringPersistentTab(from: link.originProjectId, tabId: link.tabId, to: pid)
+            }
+        }
+        // 자동 승격된 워크트리(밖에 라이브 세션이 있는) 프로젝트의 첫 화면은 터미널 대신 **링크 탭** —
+        // 복원 스냅샷이 있으면 그쪽이 우선이라 힌트는 무시된다(ensureInitialTerminal).
+        s.initialWorktreeLink = savedLayouts[project.id] == nil && externalLiveSession(for: pid) != nil
         // 늦게 열리는 프로젝트도 자기 창 소유권을 갖고 태어난다 — 분리 창의 프로젝트가 "메인 소유"로
         // 만들어지면 그 안의 TermView는 어느 창에도 붙지 않는다(I3).
         s.setOwnerWindow(owner(of: project.id), focusedTab: nil)

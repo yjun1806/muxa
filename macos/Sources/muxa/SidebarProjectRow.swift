@@ -43,7 +43,9 @@ struct SidebarProjectRow: View {
                 agentList()
             }
         }
-        .padding(.horizontal, Space.sm)
+        // 좌우 인셋 xs — 레인 인셋(xs)과 합쳐 이름 시작선이 워크스페이스 헤더의 이름과 한 세로선에 선다
+        // (레인 4 + 행 4 + 슬롯 11 + 간격 6 = 헤더 6 + 글리프 13 + 간격 6 = 25).
+        .padding(.horizontal, Space.xs)
         .padding(.vertical, (expandable && expanded) ? Space.tight : 0) // 2줄일 때만 위아래 숨을 준다
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(minHeight: RowHeight.row)
@@ -62,7 +64,7 @@ struct SidebarProjectRow: View {
     private func topRow(leadingTone: StatusTone, services: [Service], expandable: Bool) -> some View {
         HStack(spacing: Space.sm) {
             // 리딩 = 프로젝트 롤업(가장 센 신호 하나 — 죽은 서비스 빨강 · 대기 로즈 · 작업중 인디고)을 **점**으로.
-            // **유휴면 빈 슬롯**(점 없음). 상세는 셰브론/제목으로 펼치는 목록이 맡는다. 슬롯 고정으로 이름 시작선 불변.
+            // 유휴는 **작은 무채 점**(빈 슬롯은 행이 텅 비어 오류 같았다). 상세는 셰브론/제목으로 펼치는 목록이 맡는다.
             rollupDot(leadingTone)
             Text(displayName)
                 .font(nameFont)
@@ -150,7 +152,7 @@ struct SidebarProjectRow: View {
     private func agentRowView(_ r: AgentRow, selected: TabID?) -> some View {
         Button { state.focusAgentTab(project.id, r.tabId) } label: {
             HStack(spacing: Space.xs) {
-                statusGlyph(r.state.tone) // 유휴(뷰어 등)면 빈 슬롯
+                statusGlyph(r.state.tone) // 유휴(뷰어 등)면 작은 무채 점
                 typeMark(r) // Claude 세션이면 마크, 아니면 슬롯 고정(제목 시작선 불변)
                 Text(r.title).font(.muxa(.label)).foregroundStyle(Color.pFg)
                     .lineLimit(1).truncationMode(.tail)
@@ -193,7 +195,7 @@ struct SidebarProjectRow: View {
     private func idleFold(_ count: Int) -> some View {
         Button { state.jumpToProjectTab(project.id, matching: [.idle]) } label: {
             HStack(spacing: Space.xs) {
-                statusGlyph(.quiet) // 빈 슬롯(유휴는 글리프 없음)
+                statusGlyph(.quiet) // 작은 무채 점(유휴 — 조용하지만 비어 있진 않다)
                 Text("유휴 \(count)").font(.muxa(.label)).foregroundStyle(Color.pMuted)
                 Spacer(minLength: 0)
             }
@@ -210,25 +212,22 @@ struct SidebarProjectRow: View {
         .accessibilityLabel("\(project.name) 유휴 탭 \(count)개로 이동")
     }
 
-    /// 에이전트 행 내용의 들여쓰기 — 행의 상태 글리프가 프로젝트 **이름** 시작선에 온다
+    /// 에이전트 행 내용의 들여쓰기 — 행의 상태 글리프가 프로젝트 **이름** 시작선(위 25pt 리듬)에 온다
     /// (채움은 풀폭, 내용만 들어간다 — 들여쓰기를 행 밖에 주면 hover 채움이 좁아진다).
-    private var agentIndent: CGFloat { Space.sm + IconSize.statusGlyph + Space.sm }
+    private var agentIndent: CGFloat { IconSize.statusGlyph + Space.sm }
 
-    /// 프로젝트 롤업 점 — 색·크기는 `StatusStyle`(SSOT). **유휴는 빈 슬롯**(점 없음).
+    /// 프로젝트 롤업 점 — 색·크기는 `StatusStyle`(SSOT). **유휴도 작은 무채 점**(빈 슬롯은 아이콘이
+    /// 하나도 없는 행을 텅 비어 보이게 해 오류 같았다 — 크기·색이 "조용함"을 말한다, 색맹 안전은 크기가).
     /// 살아있는 글리프(스피너·펄스)는 에이전트 행(`StatusMark`)만 쓴다 — 개요(점)와 실체(글리프)의 위계.
     private func rollupDot(_ tone: StatusTone) -> some View {
-        ZStack {
-            if tone != .quiet {
-                Circle()
-                    .fill(StatusStyle.color(tone))
-                    .frame(width: StatusStyle.dotSize(tone), height: StatusStyle.dotSize(tone))
-            }
-        }
-        .frame(width: IconSize.statusGlyph, height: IconSize.statusGlyph)
+        Circle()
+            .fill(StatusStyle.color(tone))
+            .frame(width: StatusStyle.dotSize(tone), height: StatusStyle.dotSize(tone))
+            .frame(width: IconSize.statusGlyph, height: IconSize.statusGlyph)
     }
 
-    /// 상태 글리프 슬롯 — `StatusMark`에 위임한다(작업중=스피너·대기=펄스·완료=체크, 유휴=빈 슬롯).
-    /// 빈 슬롯도 폭을 유지해 이름 시작선이 안 흔들린다.
+    /// 상태 글리프 슬롯 — `StatusMark`에 위임한다(작업중=스피너·대기=펄스·완료=체크, 유휴=작은 무채 점).
+    /// 슬롯 폭 고정으로 이름 시작선이 안 흔들린다.
     private func statusGlyph(_ tone: StatusTone) -> some View {
         StatusMark(tone: tone, size: IconSize.statusGlyph)
     }

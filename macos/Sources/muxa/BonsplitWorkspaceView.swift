@@ -50,6 +50,9 @@ struct BonsplitWorkspaceView: View {
     @ViewBuilder
     private func paneBody(_ tabId: TabID, paneId: PaneID) -> some View {
         switch store.content(for: tabId) {
+        case .worktreeLink:
+            // 워크트리 링크 탭 — 정보 화면(셸 없음). 대상·액션은 AppState가 스토어에 꽂아 준 위임으로.
+            WorktreeLinkPane(store: store, tabId: tabId)
         case .terminal:
             let term = store.term(for: tabId)
             // **[weak store]가 필수다.** 이 클로저는 TerminalRepresentable이 `term.onFocus`에 대입해

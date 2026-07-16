@@ -4,7 +4,8 @@ import SwiftUI
 ///
 /// - 작업중(active) = 회전 스피너(인디고) — "지금 돌고 있다"를 모양·움직임으로.
 /// - 대기(attention) = 글리프 펄스(로즈) — "나를 기다린다".
-/// - 완료·실패·실행전 = 정적 글리프. 유휴(quiet) = 빈 슬롯(폭만 유지).
+/// - 완료·실패·실행전 = 정적 글리프. 유휴(quiet) = **작은 무채 점**(빈 슬롯은 행이 텅 비어 오류처럼 보였다 —
+///   "있는데 조용하다"를 점 하나로 말한다).
 ///
 /// 시간구동(TimelineView·symbolEffect)이라 리스트 행 재활용에도 애니메이션이 끊기거나 남지 않는다.
 /// reduce-motion이면 스피너는 멈춘 아크, 펄스는 정적 글리프로 떨어진다(움직임 없이 의미는 유지).
@@ -15,7 +16,10 @@ struct StatusMark: View {
     var body: some View {
         switch tone {
         case .quiet:
-            Color.clear.frame(width: size, height: size)
+            Circle()
+                .fill(StatusStyle.color(tone))
+                .frame(width: StatusStyle.dotSize(tone), height: StatusStyle.dotSize(tone))
+                .frame(width: size, height: size)
         case .active:
             SpinnerArc(color: StatusStyle.color(tone), lineWidth: max(size * 0.16, 1.5))
                 .frame(width: size, height: size)

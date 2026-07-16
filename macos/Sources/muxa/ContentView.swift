@@ -223,8 +223,6 @@ struct ContentView: View {
         BonsplitWorkspaceView(store: state.store(for: project, in: ws),
                               windowId: WindowID.main.rawValue)
             .id(project.id)
-            // 이 워크트리의 작업이 다른 프로젝트 탭에 갇혀 있으면 상단에 링크 카드(가서 보기/가져오기 — D31). 없으면 안 그린다.
-            .overlay(alignment: .top) { WorktreeLinkBanner(state: state, project: project) }
     }
 
     /// 인스펙터 = [탭 스트립] / [활성 탭 본문]. 탭 전환은 스트립·상단바 아이콘·벨이 한다.
