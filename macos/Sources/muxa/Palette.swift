@@ -4,20 +4,21 @@ import SwiftUI
 /// 앱 크롬 색 팔레트. 시스템 외관(라이트/다크)에 따라 값이 바뀌는 동적 NSColor다.
 /// 색은 여기 한 곳에만 두고, AppKit/SwiftUI 어디서든 이 값을 참조한다(하드코딩 금지).
 ///
-/// **설계 원칙 — 크롬은 무채, 색은 신호다.**
-/// 터미널 콘텐츠가 이미 ANSI 유채색으로 가득하다. 크롬까지 유채색이면 신호가 아니라 소음이다.
-/// 그래서 크롬의 회색은 중립 무채(zinc)로 통일하고, 유채색은 두 계급만 남긴다 —
-/// ① 포커스·활성(`brand`) ② 상태(`borderActivity`·git·서비스).
+/// **설계 원칙 — 완전 무채 웜 그레이 크롬, 색은 신호다 (색상 피로도 최적화).**
+/// 8시간 응시하는 터미널에서 채도는 곧 피로다(잔상 = 면적×시간×채도). 게다가 ANSI 콘텐츠가 이미
+/// 화면의 유채색 예산을 다 쓴다. 그래서 화면의 색을 셋으로 나눈다:
+/// ① **배경·크롬 전부 = 완전 무채 웜 그레이**(채도 ≈0 → 피로 ≈0, 웜이라 차갑지 않다) —
+///    zinc(청보라 H≈286)의 차가움을 걷어내고 웜(H≈40 근처, 채도 최소)으로 돌렸다.
+/// ② **상태 점 = 기능색**(`work` 틸·`borderActivity` 앰버·git·서비스) — 작은 점만, 조용한 배경 위에서 pop.
+/// ③ **`brand` = 선셋 버밀리언(#C13A1B/#EE6B44) — 강조 지점에만 조금씩**(포커스·선택 지시선·CTA·링크·아이콘).
+///    면(fill)이 아니라 선·글리프로만, 크롬 픽셀의 1% 미만. 그래서 가장 뜨거운 색인데도 눈이 안 지친다.
 ///
-/// **포커스는 색이 아니라 밝기로 말한다**(D20). 칸 포커스 링(`borderFocus`)은 없앴다 —
-/// 포커스 없는 칸에 `paneVeil`을 덮고, 테두리 채널은 **에이전트 알림(`borderActivity`)에만** 내준다.
-/// 테두리가 뜨면 그건 진짜 알림이다. 남은 포커스 강조는 선택 탭의 `brand` 지시선 하나뿐이다.
+/// **`brand`(버밀리언)와 `work`(틸)는 별개다.** 예전엔 `brand`(딥틸)가 UI 강조와 "작업 중" 상태를
+/// 겸했는데, 버밀리언 리브랜드에서 갈랐다 — 틸은 `work`로 분리해 순수 상태색이 되고(재학습 0),
+/// 버밀리언은 UI 강조 전용이 된다. `StatusStyle.active`는 이제 `work`를 가리킨다.
 ///
-/// **아이콘의 teal과 UI의 teal은 다른 색이다.**
-/// 앱 아이콘 배경(`Brand.key` = #2DD4BF)은 L\*78.5 · 고채도라 다크 크롬(#1B1B1D) 위에서 대비 9.24:1 —
-/// 포커스 링에 필요한 3:1의 세 배이고, 보조 텍스트보다 15포인트 밝아 **크롬에서 가장 빛나는 물체**가 된다.
-/// (VS Code #007ACC · Zed #2472F2 · Linear #5E6AD2는 전부 L\* 55~62다.)
-/// 그래서 아이콘 색은 `Brand`에 격리하고, UI 강조는 채도를 내린 **딥틸**(`brand`)만 쓴다.
+/// **포커스는 색이 아니라 밝기로 말한다**(D20). 칸 포커스 링은 없애고 `paneVeil`(무채)로 대체했다.
+/// 테두리 채널은 에이전트 알림(`borderActivity`)에만 내준다.
 enum Palette {
     // MARK: - 아이콘 전용 브랜드 스케일
     //
@@ -36,30 +37,30 @@ enum Palette {
         static let gradBottom: UInt32 = 0x27C4B1
     }
 
-    // MARK: 강조 semantic 토큰 (딥틸 — 아이콘 teal의 저채도 그림자)
+    // MARK: 강조 semantic 토큰 (선셋 버밀리언 — 강조 지점에만 조금씩)
     //
-    /// 강조 텍스트·아이콘·CTA. 라이트 5.47:1 · 다크 5.9:1 — 양 모드 WCAG AA 통과.
-    /// (기존 라이트 #0D9488은 흰 배경 대비 3.74:1로 AA 탈락이었다.)
-    ///
-    /// **포커스 지시선(선택 탭 하단)도 이 토큰이다** — 한때 `borderFocus`(다크 #3B8A7F)라는 더 가라앉힌
-    /// 테두리 전용 값을 뒀지만, 지시선이 사는 면은 `bg`가 아니라 **탭바(`btnActive`)**다.
-    /// 거기서 #3B8A7F는 2.26:1로 비텍스트 3:1에도 못 미치고, `brand`는 3.93:1로 통과한다.
-    /// 유일한 소비자였던 칸 포커스 링이 D20(→ `paneVeil`)으로 사라진 데다 지시선도 못 맡으니 토큰을 지웠다.
-    static let brand = NSColor.dynamic(light: 0x0F766E, dark: 0x5FB8AB)
-    /// 옅은 강조 배경 틴트. **목록 선택에는 쓰지 않는다**(선택은 중립 `btnActive`가 macOS 규약).
-    /// 라이트/다크의 무게를 대칭으로 맞췄다(기존 #CCFBF1은 흰 배경 대비 1.13:1로 사실상 안 보였다).
-    static let brandSubtle = NSColor.dynamic(light: 0xE6F5F1, dark: 0x223834)
+    /// 강조 텍스트·링크·포커스 지시선·1급 CTA·아이콘. 키컬러 #C13A1B(라이트)는 흰 배경 대비 ≈4.7:1,
+    /// 다크는 어둠 위에서 읽히게 한 단 밝힌 #EE6B44(≈5.5:1). **면이 아니라 선·글리프로만** 써서
+    /// 크롬 픽셀의 1% 미만으로 묶는다 — 그래야 가장 뜨거운 색인데도 잔상·피로가 안 생긴다.
+    static let brand = NSColor.dynamic(light: 0xC13A1B, dark: 0xEE6B44)
+    /// **작업 중(active) 상태 전용 — 예전 `brand`(딥틸)에서 분리한 틸.** `StatusStyle.active`가 이걸 쓴다.
+    /// 값은 옛 brand 그대로라 재학습 비용 0. 버밀리언 brand와 hue가 정반대(보색)라 나란히 떠도 안 싸운다.
+    static let work = NSColor.dynamic(light: 0x0F766E, dark: 0x5FB8AB)
+    /// 옅은 강조 배경 틴트(버밀리언). **목록 선택에는 쓰지 않는다**(선택은 중립 `btnActive`가 macOS 규약).
+    /// 팝오버·안내 배너 같은 데만. 웜 크롬에 묻히지 않게 반 톤 벌렸다.
+    static let brandSubtle = NSColor.dynamic(light: 0xF6E8E3, dark: 0x3A2018)
     /// 강조 hover — 한 단계 진하게.
-    static let brandHover = NSColor.dynamic(light: 0x0C5F59, dark: 0x79C4B8)
-    /// **`brand` 채움 위에 얹는 전경**(1급 CTA 글자). brand의 명도가 모드마다 뒤집히므로 전경도 뒤집힌다 —
-    /// 라이트는 어두운 브랜드 위 흰 글자(5.52:1), 다크는 밝은 브랜드 위 딥 차콜(6.20:1). 양 모드 AA 통과.
-    static let onBrand = NSColor.dynamic(light: 0xFFFFFF, dark: 0x0A2E2A)
+    static let brandHover = NSColor.dynamic(light: 0xA82E12, dark: 0xF3855F)
+    /// **`brand` 채움 위에 얹는 전경**(1급 CTA 글자). 라이트는 어두운 버밀리언 위 흰 글자,
+    /// 다크는 밝은 버밀리언 위 딥 브라운(대비 확보). 양 모드 AA 통과.
+    static let onBrand = NSColor.dynamic(light: 0xFFFFFF, dark: 0x3A1305)
 
-    // MARK: - 중립(zinc 무채)
+    // MARK: - 중립(완전 무채 웜 그레이)
     //
-    // 라이트 회색은 Tailwind gray 램프(청보라 언더톤 H≈260)였는데, 브랜드 teal(H≈182)과 74~104° 어긋나
-    // 서로 밀어냈다. 양 모드를 중립 zinc(H≈286, 채도 거의 0)로 통일한다.
-    static let bg = NSColor.dynamic(light: 0xFFFFFF, dark: 0x1B1B1D) // 콘텐츠·패인 배경
+    // 채도는 거의 0(피로 ≈0)이되 **웜 쪽**으로 — zinc(청보라 H≈286)의 차가움을 걷어내고 웜(H≈40 근처)으로
+    // 돌렸다. 명도 계단(ΔL* 다크 7.8·라이트 5.5, panel→hover→active 사다리)은 검증된 값을 온도만 바꿔 계승한다.
+    // 다크 bg는 순검정을 피해 L*≈11(halation·명순응 왕복 완화), 라이트 bg는 순백 대신 웜 오프화이트.
+    static let bg = NSColor.dynamic(light: 0xFCFBFA, dark: 0x1C1A18) // 콘텐츠·패인 배경
     // **크롬↔콘텐츠의 층은 명도차 *하나로만* 만들지 않는다 — 카드 고도(`Elevation.Card`)와 나눠 진다.**
     //
     // 두 주장이 정면으로 부딪혔고, 둘 다 부분적으로 옳았다:
@@ -72,20 +73,20 @@ enum Palette {
     // 그래서 명도차를 0으로 되돌리지 않고 **두 값의 중간**에 둔다 — 고도가 덜어준 만큼만 뺀다.
     //   다크 ΔL*: 10.2(ccb8d68) → 5.4(수술안) → **7.8(여기)**  /  라이트: 7.4 → 3.8 → **5.5**
     // 색상은 zinc 무채를 유지한다(위 주석) — 되돌린 건 명도지 색상이 아니다.
-    static let panel = NSColor.dynamic(light: 0xEFEFF1, dark: 0x2B2B2F) // 상단바·사이드바·패인 헤더(한 덩어리 회색)
+    static let panel = NSColor.dynamic(light: 0xF0EEEB, dark: 0x2B2926) // 상단바·사이드바·패인 헤더(한 덩어리 웜 그레이)
     // 카드 경계이자 **카드 안의 패널↔터미널 분할선**. 고도가 못 닿는 그 선이 유일한 신호라 함께 올렸다
     // (다크 34343A→3E3E44: bg 대비 1.39→1.62, panel 대비 1.14→1.33).
-    static let border = NSColor.dynamic(light: 0xDCDCE0, dark: 0x3E3E44)
+    static let border = NSColor.dynamic(light: 0xDEDAD5, dark: 0x423F3A)
     // 사이드바 2단 트리의 **세로 가이드선** — 프로젝트를 그 워크스페이스 아래로 묶어 소속을 그린다.
     // 1px가 panel 위에서 읽혀야 하므로 border보다 살짝 진하게 잡는다(다크 3E3E44는 panel 대비 안 보였다 → 54545C).
-    static let guide = NSColor.dynamic(light: 0xCBCBD2, dark: 0x54545C)
+    static let guide = NSColor.dynamic(light: 0xCBC6BF, dark: 0x58534C)
     // 활동·주의 환기(호박). 라이트를 B45309(적갈색)→A16207(앰버/머스터드)로 옮겼다 — 적갈색이 실패색
     // #CF222E(빨강)와 헷갈렸다(에러처럼 읽힘). A16207은 초록 채널이 살아 확실한 앰버고 흰 배경 대비 4.9:1(AA).
     // (#F59E0B는 2.15:1로 미달이었다.) 다크 FBBF24는 이미 밝은 노랑이라 그대로.
     static let borderActivity = NSColor.dynamic(light: 0xA16207, dark: 0xFBBF24)
-    static let muted = NSColor.dynamic(light: 0x65656B, dark: 0x98989E) // 보조 텍스트 — 다크 #8A8A90은 3.82:1로 AA 탈락이었다
-    static let mutedHover = NSColor.dynamic(light: 0x232326, dark: 0xE4E4E7)
-    static let fg = NSColor.dynamic(light: 0x232326, dark: 0xE4E4E7)
+    static let muted = NSColor.dynamic(light: 0x6B655E, dark: 0xA29C94) // 보조 텍스트 — 양 모드 AA(≈5:1)
+    static let mutedHover = NSColor.dynamic(light: 0x26231F, dark: 0xE9E5E0)
+    static let fg = NSColor.dynamic(light: 0x26231F, dark: 0xE9E5E0) // 웜 잉크 — 순검정/순백 회피
     // 목록 선택·hover 채움 — **중립이다. 브랜드색을 쓰지 않는다**(macOS 규약: 색은 상태에만).
     //
     // **`btnActive`는 Bonsplit 탭바의 면이기도 하다**(`BonsplitChrome.colors.tabBar`) — 팔레트 수술이
@@ -93,8 +94,8 @@ enum Palette {
     // 다크에서 3C3C41은 bg 대비 **1.57:1**로 c713cd5가 측정해 잡은 목표(1.9:1)를 절반쯤 되돌린다.
     // 47474C는 1.86:1 — 지표를 지키면서도 r≈g의 무채라 zinc 원칙과 충돌하지 않는다. 그래서 되살린다.
     // (`panel`을 올린 만큼 hover도 한 칸 올려 panel→hover→active 사다리를 유지한다: L* 17.7→22.3→30.3)
-    static let btnHover = NSColor.dynamic(light: 0xE6E6E9, dark: 0x35353A)
-    static let btnActive = NSColor.dynamic(light: 0xD6D6D9, dark: 0x47474C)
+    static let btnHover = NSColor.dynamic(light: 0xE9E5E0, dark: 0x39352F)
+    static let btnActive = NSColor.dynamic(light: 0xDFDAD3, dark: 0x454037)
 
     /// 포커스 없는 칸에 덮는 베일 — **"지금 입력이 어디로 가는가"를 밝기로 말한다**(테두리 대신).
     ///
@@ -166,6 +167,7 @@ extension Color {
     static let pBorder = Color(nsColor: Palette.border)
     static let pGuide = Color(nsColor: Palette.guide)
     static let pBrand = Color(nsColor: Palette.brand)
+    static let pWork = Color(nsColor: Palette.work) // 작업 중(active) 상태 틸 — brand(버밀리언)와 분리
     static let pBrandSubtle = Color(nsColor: Palette.brandSubtle)
     static let pBrandHover = Color(nsColor: Palette.brandHover)
     static let pOnBrand = Color(nsColor: Palette.onBrand)

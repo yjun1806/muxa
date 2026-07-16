@@ -22,7 +22,7 @@ enum StatusStyle {
     static func color(_ tone: StatusTone) -> Color {
         switch tone {
         case .quiet, .inert: return .pMuted          // 무채 — 조용/미실행
-        case .active: return .pBrand                 // 딥틸 — 돌고 있다
+        case .active: return .pWork                  // 틸 — 돌고 있다 (brand 버밀리언과 분리된 상태색)
         case .attention: return .pBorderActivity     // 호박 — 기다린다
         case .success: return .pGitAdded             // 초록 — 완료/정상(서비스 실행중 파랑과 구분)
         case .failure: return .pServiceExited        // 빨강 — 실패
