@@ -15,10 +15,10 @@ enum TabStatusMapping {
             return TabStatus(symbol: "", tintLightHex: Palette.StatusHex.work.light,
                              tintDarkHex: Palette.StatusHex.work.dark, motion: .spin)
         case .waiting:
-            return TabStatus(symbol: "pause.fill", tintLightHex: Palette.StatusHex.waiting.light,
+            return TabStatus(symbol: StatusStyle.glyph(.attention), tintLightHex: Palette.StatusHex.waiting.light,
                              tintDarkHex: Palette.StatusHex.waiting.dark, motion: .pulse)
         case .done:
-            return TabStatus(symbol: "checkmark.circle.fill", tintLightHex: Palette.StatusHex.done.light,
+            return TabStatus(symbol: StatusStyle.glyph(.success), tintLightHex: Palette.StatusHex.done.light,
                              tintDarkHex: Palette.StatusHex.done.dark, motion: .none)
         case .idle:
             return nil

@@ -23,8 +23,6 @@ enum Space {
     static let lg: CGFloat = 12
     static let xl: CGFloat = 16
 
-    /// 2단 트리의 자식(프로젝트) 들여쓰기.
-    static let treeIndent: CGFloat = 16
     /// 트리에서 **그룹 사이**를 벌리는 여백 — 위계를 색이 아니라 간격으로 만든다.
     /// (행 간격이 1~3pt로 균일하면 리듬이 없어 목록 전체가 한 덩어리로 뭉갠다.)
     static let groupGap: CGFloat = 10

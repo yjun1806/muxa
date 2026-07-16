@@ -272,6 +272,15 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// TermView는 NSView라 SwiftUI가 관측하지 못해, onPwd 콜백으로 여기 미러링한다(관측 대상).
     private(set) var pwds: [TabID: String] = [:]
 
+    /// 탭별 **에이전트(훅) cwd** — 훅 페이로드의 cwd 미러(관측 대상). 셸 pwd와 따로 두는 이유:
+    /// cc의 EnterWorktree는 **셸을 cd하지 않고**(cc 프로세스만 이동) OSC 7이 안 나오며, ∞(tmux) 탭은
+    /// 안쪽 셸의 OSC 7이 바깥 pty로 통과되지도 않는다(실측 — 자동 승격이 영영 안 걸렸다).
+    /// 워크트리 자동 승격·링크 카드는 `effectiveCwds`(훅 우선)로 판정한다.
+    private(set) var agentCwds: [TabID: String] = [:]
+
+    /// 탭별 실효 cwd — **에이전트(훅) cwd 우선**, 없으면 셸 pwd(OSC 7). 워크트리 귀속 판정의 단일 소스.
+    var effectiveCwds: [TabID: String] { pwds.merging(agentCwds) { _, agent in agent } }
+
     /// 백그라운드 활동(●)으로 배지가 붙은 탭들(A). 프로젝트 배지가 이걸 파생·관측한다.
     var badgedTabs: Set<TabID> = []
     /// 마지막으로 뷰어 탭으로 연 파일 경로 — 익스플로러가 관측해 그 노드로 reveal(펼침+선택+스크롤).
@@ -522,6 +531,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         clearAgentActivity(tabId) // 에이전트 추정 상태·추정기 해제(+ idle 타이머 재동기화)
         hookSessions[tabId] = nil // 훅 세션 상태(배경작업·서브에이전트 로스터) 해제 — 맵 누수 방지
         hookedTabs.remove(tabId)
+        agentCwds[tabId] = nil // 에이전트(훅) cwd 미러 해제(맵 누수 방지)
         if agentDetail[tabId] != nil { // 진행 표시 해제(관측 맵은 immutable 교체)
             var map = agentDetail
             map[tabId] = nil
@@ -806,6 +816,12 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     func deliverHook(tabId incoming: TabID, event: ClaudeHookEvent, payload: ClaudeHookPayload) -> Bool {
         guard let tabId = resolveTab(incoming) else { return false }
         hookedTabs.insert(tabId)
+        // 훅이 실어 온 cwd = 에이전트의 실제 작업 폴더(EnterWorktree 반영 — 셸 OSC 7은 이걸 못 본다).
+        // 워크트리 자동 승격·링크 카드의 신호라, 바뀌면 상위(AppState)에 재판정을 청한다.
+        if let cwd = payload.cwd, agentCwds[tabId] != cwd {
+            agentCwds[tabId] = cwd
+            onPwdChange?()
+        }
 
         let (outcome, next) = ClaudeHookInterpreter.interpret(
             event: event, payload: payload, state: hookSessions[tabId] ?? HookSessionState()
@@ -1330,6 +1346,12 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     private func inheritedCwd(inPane pane: PaneID?) -> String? {
         guard let pane, let tab = controller.selectedTab(inPane: pane) else { return nil }
         return terms[tab.id]?.pwd
+    }
+
+    /// 지금 이 스토어에서 "보고 있는" 탭 — 포커스 칸의 선택 탭.
+    /// 사이드바 에이전트 목록(L1)이 활성 행(선택 채움)을 표시하는 데 쓴다.
+    var currentTabId: TabID? {
+        controller.focusedPaneId.flatMap { controller.selectedTabId(inPane: $0) }
     }
 
     /// 지금 포커스된 칸의 선택 탭이 있는 디렉터리 — 상태바 표시용.

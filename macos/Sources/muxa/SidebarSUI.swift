@@ -88,21 +88,19 @@ struct SidebarSUI: View {
                     SidebarWorkspaceRow(state: state, workspace: ws, index: index,
                                         hoveredId: $hoveredId, menuOpenId: $menuOpenId)
                     if state.isExpanded(ws.id) {
-                        // 세로 가이드선이 프로젝트들을 이 워크스페이스 아래로 묶는다(소속·경계 표시).
-                        // 가로 구분선은 쓰지 않는다 — 간격이 위계다(그룹 사이는 groupGap).
+                        // **프로젝트 레인**(D안) — 자식 묶음이 옅은 면 위에 앉아 소속을 그린다.
+                        // 세로 가이드선·들여쓰기를 대체한다: 선이 아니라 형태가 "한 워크스페이스"를 말하고,
+                        // 들여쓰기가 사라져 좁은 사이드바에서 긴 워크트리 이름에 가로 공간을 벌어준다.
+                        // 모서리는 안쪽 행(Radius.sm) + 인셋(Space.xs) = Radius.lg — 동심원 규칙.
                         VStack(alignment: .leading, spacing: Space.tight) {
                             ForEach(ws.projects) { project in
                                 SidebarProjectRow(state: state, workspace: ws, project: project,
                                                   hoveredId: $hoveredId, menuOpenId: $menuOpenId)
                             }
                         }
-                        .overlay(alignment: .leading) {
-                            Rectangle()
-                                .fill(Color.pGuide)
-                                .frame(width: RowHeight.hairline)
-                                .padding(.leading, Space.md) // 프로젝트 들여쓰기(treeIndent) 안쪽 — 상태 아이콘 왼쪽에 선다
-                                .padding(.vertical, Space.tight) // 상하 숨통 — 첫/끝 행 모서리에 딱 붙지 않게
-                        }
+                        .padding(Space.xs)
+                        .background(Color.pLane)
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
                     }
                 }
             }

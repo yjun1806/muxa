@@ -29,6 +29,7 @@ struct AgentRow: Equatable, Identifiable {
 
     /// 행 본문 — 뷰어는 종류를, 나머지는 상태 인지형. 대기=경과 시간, 작업=라이브 도구(없으면 라벨), 완료=완료, 유휴=라벨.
     /// done에 상대시간을 붙이지 않는다 — 벽시계 완료시각을 저장하지 않아 신뢰할 수 없다(계획 #4).
+    /// **툴팁·VoiceOver용 전문(全文)** — 목록 행은 `bodyLabel` + `timeLabel` 두 열로 나눠 그린다(L1).
     var subtitle: String {
         if let kind = viewerKind { return kind } // 뷰어는 상태 대신 종류를 부제로("· 문서")
         switch state {
@@ -36,6 +37,19 @@ struct AgentRow: Equatable, Identifiable {
         case .working: return detail ?? state.label
         case .done, .idle: return state.label
         }
+    }
+
+    /// 목록 행 본문(L1) — `subtitle`에서 경과 시간을 뗀 것. 시간은 우측 `timeLabel` 열이 맡는다.
+    var bodyLabel: String {
+        if let kind = viewerKind { return kind }
+        if state == .working { return detail ?? state.label }
+        return state.label
+    }
+
+    /// 목록 행 우측 시간 열(L1) — 대기 경과만("19m"). working/done은 시각 미저장이라 nil(지어내지 않는다).
+    var timeLabel: String? {
+        guard state == .waiting, let seconds = waitingSeconds else { return nil }
+        return RelativeTime.compact(seconds)
     }
 }
 

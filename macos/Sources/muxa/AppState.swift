@@ -755,6 +755,11 @@ final class AppState {
         return AgentRow.ordered(store.agentRows())
     }
 
+    /// 프로젝트의 "지금 보고 있는" 탭(포커스 칸의 선택 탭) — 사이드바 에이전트 목록의 활성 행 표시용.
+    func selectedTabId(_ projectId: String) -> TabID? {
+        stores[projectId]?.currentTabId
+    }
+
     /// 프로젝트 서비스들의 현재 상태.
     func serviceStatuses(of projectId: String) -> [ServiceState] {
         services(of: projectId).map { serviceMonitor.state(of: $0.id) }
@@ -1430,7 +1435,8 @@ final class AppState {
     func syncWorktreeMonitor() { worktreeMonitor.sync(workspaces) }
 
     /// 이 워크트리 프로젝트에서 도는 작업이 살아 있는 **다른 프로젝트의 탭**(옛 탭에 갇힌 세션) — 링크 카드(D31)가 읽는다.
-    /// 다른 스토어들의 셸 cwd(OSC 7 `pwds`)를 훑어, 이 프로젝트 경로 안에서 도는 가장 깊은 것을 고른다(매칭은 순수 `WorktreeLink`).
+    /// 다른 스토어들의 실효 cwd(훅 cwd ?? 셸 pwd — `effectiveCwds`)를 훑어, 이 프로젝트 경로 안에서 도는
+    /// 가장 깊은 것을 고른다(매칭은 순수 `WorktreeLink`). 훅 cwd 우선인 이유는 `hasLiveSession` 참조.
     func externalLiveSession(for projectId: String) -> ExternalWorktreeSession? {
         guard let ws = workspace(containing: projectId),
               let project = ws.projects.first(where: { $0.id == projectId }),
@@ -1445,7 +1451,7 @@ final class AppState {
         let paths = allPaths.map(\.path)
         var best: (originProjectId: String, tabId: TabID, persistent: Bool, depth: Int)?
         for (pid, store) in stores where pid != projectId {
-            for (tabId, pwd) in store.pwds {
+            for (tabId, pwd) in store.effectiveCwds {
                 guard let oi = WorktreeLink.owner(pwd: pwd, projectPaths: paths),
                       allPaths[oi].id == projectId else { continue }
                 let depth = normalizePath(pwd).count
@@ -1502,10 +1508,11 @@ final class AppState {
         }
     }
 
-    /// 어느 스토어든 셸 cwd(OSC 7)가 이 경로 안에 있는 라이브 탭이 있는가 — "muxa에서 만든 워크트리"의 신호.
+    /// 어느 스토어든 실효 cwd(훅 cwd 우선 ?? 셸 pwd)가 이 경로 안에 있는 라이브 탭이 있는가 —
+    /// "muxa에서 만든 워크트리"의 신호. 훅 cwd를 봐야 cc의 EnterWorktree(셸 cd 없음)·∞ 탭(OSC 7 미통과)이 잡힌다.
     private func hasLiveSession(inside path: String) -> Bool {
         stores.values.contains { store in
-            store.pwds.values.contains { pathIsInside($0, root: path) }
+            store.effectiveCwds.values.contains { pathIsInside($0, root: path) }
         }
     }
 

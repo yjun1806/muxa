@@ -1,10 +1,15 @@
 import AppKit
 import SwiftUI
 
-/// 워크스페이스 행 = 트리의 **소섹션 헤더**. 주인공은 아래 프로젝트 행이므로 여기는 조용해야 한다.
+/// 워크스페이스 행 = 트리의 그룹 헤더 — **orca 방식**(v2 시안). 주인공은 아래 프로젝트 행이므로 조용해야 한다.
+///
+/// - **행 전체가 접기/펼치기 토글**이다 — 선행 디스클로저를 없앴다(어포던스 정리).
+/// - **셰브론은 오른쪽, hover에서만** 보인다. 접히면 −90° 회전(▼→▶).
+/// - **개수 배지**가 이름 옆에 붙는다 — 접혀 있어도 "안에 몇 개"가 보인다.
+/// - 이름은 **일반 케이스 semibold** — 대문자 변환·자간(muxaLabel) 폐기(한글엔 대문자가 없어 반쪽이던 규칙).
 ///
 /// **활성이어도 배경을 채우지 않는다** — 채움(선택)은 프로젝트 행의 언어다. 워크스페이스 활성은
-/// 이름 색(pFg)으로만 말한다. Button으로 감싸지 않는 이유: 디스클로저·`+`가 행 클릭보다 먼저
+/// 이름 색(pFg)으로만 말한다. Button으로 감싸지 않는 이유: `+`가 행 클릭보다 먼저
 /// 자기 영역의 클릭을 가져가야 하기 때문(행은 contentShape + onTapGesture).
 struct SidebarWorkspaceRow: View {
     let state: AppState
@@ -20,8 +25,7 @@ struct SidebarWorkspaceRow: View {
 
     var body: some View {
         let rollup = state.workspaceStatus(workspace)
-        HStack(spacing: Space.xs) {
-            disclosure
+        HStack(spacing: Space.sm) {
             // 레이어 글리프 = "이건 컨테이너다" — 프로젝트 행의 상태 점과 **다른 시각 어휘**라
             // 워크스페이스↔프로젝트가 한눈에 갈린다(색이 아니라 모양으로).
             Image(systemName: "square.stack")
@@ -29,10 +33,9 @@ struct SidebarWorkspaceRow: View {
                 .foregroundStyle(active ? Color.pFg : Color.pMuted)
             Text(workspace.name)
                 .font(.muxa(.body, weight: .semibold))
-                .tracking(Tracking.label)
-                .textCase(.uppercase)
                 .foregroundStyle(active ? Color.pFg : Color.pMuted)
                 .lineLimit(1)
+            countBadge
             // 접혀 있을 때만 롤업 — 펼쳐져 있으면 자식 행이 이미 말한다(같은 말을 두 번 하지 않는다).
             if !expanded, rollup != .idle {
                 Circle()
@@ -41,7 +44,7 @@ struct SidebarWorkspaceRow: View {
                            height: ProjectStatusStyle.dotSize(rollup))
             }
             Spacer(minLength: Space.xs)
-            // 힌트·+ 는 hover에서만 **보인다**. 하지만 뷰 트리에선 **항상 존재한다** —
+            // 힌트·+·셰브론은 hover에서만 **보인다**. 하지만 뷰 트리에선 **항상 존재한다** —
             // `if hovered`로 감싸면 hover가 없는 사용자(키보드·VoiceOver·스위치 컨트롤)에게
             // `+`(새 프로젝트)가 접근성 트리에서 통째로 사라져, 확장 트리의 유일한 진입점이 봉쇄된다.
             // 보임은 opacity가, 마우스 히트는 hover가 그대로 가른다(빈 자리를 눌러도 메뉴가 열리지 않게).
@@ -56,16 +59,17 @@ struct SidebarWorkspaceRow: View {
                 }
                 IconButton(icon: "plus", help: "새 프로젝트") { showAddMenu() }
                     .allowsHitTesting(hovered)
+                chevron
             }
             .opacity(hovered ? 1 : 0)
         }
         .padding(.horizontal, Space.sm)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: RowHeight.tight)
+        .frame(height: RowHeight.row)
         .background(hovered ? Color.pBtnHover : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
         .contentShape(Rectangle())
-        // **제목 클릭 = 그 워크스페이스 펼침/접힘 토글**(디스클로저와 같은 동작 — 활성 전환은 프로젝트 클릭이 맡는다).
+        // **행 전체 클릭 = 그 워크스페이스 펼침/접힘 토글**(orca 방식 — 활성 전환은 프로젝트 클릭이 맡는다).
         .onTapGesture { state.toggleWorkspaceExpansion(workspace.id) }
         .sidebarRow(id: workspace.id, label: "\(workspace.name) 워크스페이스", selected: active,
                     hoveredId: $hoveredId, menuOpenId: $menuOpenId,
@@ -75,17 +79,28 @@ struct SidebarWorkspaceRow: View {
         .help(workspace.tooltip)
     }
 
-    /// 디스클로저 — 클릭은 **전환 없이** 그 워크스페이스 하나만 접기/펼치기(활성도 접을 수 있다).
-    private var disclosure: some View {
-        Button { state.toggleWorkspaceExpansion(workspace.id) } label: {
-            Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                .font(.muxa(.micro, weight: .semibold))
-                .foregroundStyle(Color.pMuted)
-                .frame(width: IconSize.statusSlot, height: IconSize.statusSlot)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .clickCursor()
+    /// 프로젝트 개수 배지 — 접혀 있어도 "안에 몇 개"가 보인다(orca SectionMetricsBadge).
+    private var countBadge: some View {
+        Text("\(workspace.projects.count)")
+            .font(.muxaMono(.micro))
+            .foregroundStyle(Color.pMuted)
+            .padding(.horizontal, Space.xs)
+            .padding(.vertical, Space.tight)
+            .background(Capsule().fill(Color.pBtnHover))
+            .overlay(Capsule().stroke(Color.pBorder, lineWidth: RowHeight.hairline))
+            .accessibilityLabel("프로젝트 \(workspace.projects.count)개")
+    }
+
+    /// 우측 셰브론 — hover에서만 보이는 접힘 어포던스. 접히면 −90° 회전(▼→▶).
+    /// 행 전체가 이미 토글이라 **장식**이다(자기 히트 없음, 접근성은 행이 말한다).
+    private var chevron: some View {
+        Image(systemName: "chevron.down")
+            .font(.muxa(.micro, weight: .semibold))
+            .foregroundStyle(Color.pMuted)
+            .rotationEffect(.degrees(expanded ? 0 : -90))
+            .animation(Motion.fast, value: expanded)
+            .frame(width: IconSize.statusSlot, height: IconSize.statusSlot)
+            .accessibilityHidden(true)
     }
 
     /// `+` 메뉴(새 프로젝트·워크트리·임의 폴더). SwiftUI `Menu`가 아니라 `MuxaMenuWindow`를 쓰는 이유:

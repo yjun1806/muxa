@@ -1,13 +1,15 @@
+import Bonsplit
 import SwiftUI
 
 /// 프로젝트 행 = 트리의 **주인공**. 폴더가 아니라 "그 안의 에이전트가 지금 뭘 하고 있나"를 말한다.
+/// v2 시안: 프로젝트들은 **레인**(옅은 면, `SidebarSUI`) 위에 앉는다 — 들여쓰기·가이드선 없이 면이 소속을 그린다.
 ///
 /// 선택 표시는 브랜드색 wash가 아니라 **중립 채움**(btnActive) — 크롬은 무채, 색은 신호다.
 /// 워크트리 프로젝트(path != nil)의 이름은 모노스페이스다(브랜치는 식별자다).
 ///
 /// **상태는 두 축으로 나뉜다**(Orca 본받아 축소): 에이전트 축(작업중·주의·유휴+완료)은 **롤업 점 하나**
 /// (`projectLeadingTone` — 가장 센 신호)로 요약하고, 상세는 셰브론으로 펼치는 에이전트 목록이 맡는다.
-/// 예전의 4-way 분포 pill(작업중·대기·완료·유휴 칩을 한 줄에)은 폐기했다 — 한 행에 네 색을 다는 게 소음이었다.
+/// **롤업은 점, 살아있는 글리프(스피너·펄스)는 펼친 에이전트 행만** — 개요와 실체를 모양으로도 가른다(v2).
 /// 실패(빨강)는 에이전트가 아니라 **서비스 죽음**에만 뜬다(`hasDeadService` → 서비스 요약이 맡는다).
 struct SidebarProjectRow: View {
     let state: AppState
@@ -38,11 +40,10 @@ struct SidebarProjectRow: View {
         VStack(alignment: .leading, spacing: Space.tight) {
             topRow(leadingTone: leadingTone, services: services, expandable: expandable)
             if expandable && expanded {
-                agentList().padding(.leading, IconSize.statusGlyph + Space.sm) // 이름 아래 정렬
+                agentList()
             }
         }
-        .padding(.leading, Space.treeIndent) // 2단 트리의 들여쓰기 = 위계
-        .padding(.trailing, Space.sm)
+        .padding(.horizontal, Space.sm)
         .padding(.vertical, (expandable && expanded) ? Space.tight : 0) // 2줄일 때만 위아래 숨을 준다
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(minHeight: RowHeight.row)
@@ -60,9 +61,9 @@ struct SidebarProjectRow: View {
     /// 이름 줄 — **리딩 롤업 점**(가장 센 신호 하나) · 이름 · (분리 글리프) · 서비스 요약/닫기 · 펼침 셰브론.
     private func topRow(leadingTone: StatusTone, services: [Service], expandable: Bool) -> some View {
         HStack(spacing: Space.sm) {
-            // 리딩 = 프로젝트 롤업(가장 센 신호 하나 — 죽은 서비스 빨강 ⚠ · 대기 호박 … · 작업중 틸 ●).
-            // **유휴면 빈 슬롯**(글리프 없음). 상세는 셰브론/제목으로 펼치는 목록이 맡는다. 슬롯 고정으로 이름 시작선 불변.
-            statusGlyph(leadingTone)
+            // 리딩 = 프로젝트 롤업(가장 센 신호 하나 — 죽은 서비스 빨강 · 대기 로즈 · 작업중 인디고)을 **점**으로.
+            // **유휴면 빈 슬롯**(점 없음). 상세는 셰브론/제목으로 펼치는 목록이 맡는다. 슬롯 고정으로 이름 시작선 불변.
+            rollupDot(leadingTone)
             Text(displayName)
                 .font(nameFont)
                 .foregroundStyle(active || hovered ? Color.pFg : Color.pMuted)
@@ -99,60 +100,75 @@ struct SidebarProjectRow: View {
                         .allowsHitTesting(hovered)
                 }
             }
-            // 펼침 셰브론 — 펼칠 값이 있을 때만. 클릭=목록 토글(행 클릭 전환보다 먼저 자기 히트를 가져간다).
+            // 펼침 셰브론 — 펼칠 값이 있을 때만. hover에서 보이고(펼쳐져 있으면 옅게 유지),
+            // 클릭=목록 토글(행 클릭 전환보다 먼저 자기 히트를 가져간다). 워크스페이스 헤더와 같은 문법(▼→▶).
             if expandable { expandToggle }
         }
         .frame(height: RowHeight.row)
     }
 
-    /// 목록 펼침/접힘 셰브론.
+    /// 목록 펼침/접힘 셰브론 — hover에서만 보인다(보임은 opacity, 히트는 hover가 가른다).
     private var expandToggle: some View {
         Button { expanded.toggle() } label: {
-            Image(systemName: expanded ? "chevron.down" : "chevron.right").font(.muxa(.micro))
+            Image(systemName: "chevron.down")
+                .font(.muxa(.micro))
                 .foregroundStyle(Color.pMuted)
+                .rotationEffect(.degrees(expanded ? 0 : -90))
+                .animation(Motion.fast, value: expanded)
                 .frame(width: IconSize.statusSlot, height: IconSize.statusSlot)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .opacity(hovered ? 1 : (expanded ? 0.7 : 0))
+        .allowsHitTesting(hovered)
         .clickCursor()
         .help(expanded ? "에이전트 목록 접기" : "에이전트 목록 펼치기")
         .accessibilityLabel(expanded ? "에이전트 목록 접기" : "에이전트 목록 펼치기")
     }
 
-    // MARK: 에이전트 목록 — 펼쳤을 때 탭별 상세(무엇을 하는지 한 줄씩)
+    // MARK: 에이전트 목록 — 펼쳤을 때 탭별 상세(L1 — 풀폭 목록 행)
 
-    /// 펼침 목록 = 비유휴 에이전트 행(긴급도순, 순수 정렬은 `AppState.agentRows`) + 유휴는 "○ 유휴 N" 한 줄로 접기.
+    /// 펼침 목록 = 비유휴 에이전트 행(긴급도순, 순수 정렬은 `AppState.agentRows`) + 유휴는 "유휴 N" 한 줄로 접기.
+    /// 행은 **프로젝트 행과 같은 문법**(풀폭·hover 채움·radius)을 쓴다 — "클릭 가능한 목록"으로 읽히게(L1).
     @ViewBuilder
     private func agentList() -> some View {
         let rows = state.agentRows(project.id)
         // 뷰어(문서·코드·diff…)는 유휴여도 남긴다("파일탭은 파일로"). 유휴 **터미널**만 접어 소음 제거.
         let visible = rows.filter { $0.state != .idle || $0.viewerKind != nil }
         let idleCount = rows.count - visible.count // 안 보이는 건 곧 유휴 터미널
+        // "지금 보고 있는 탭"(활성 프로젝트의 포커스 칸 선택 탭)은 선택 채움 — 목록에서도 현재 위치가 보인다.
+        let selected = active ? state.selectedTabId(project.id) : nil
         VStack(alignment: .leading, spacing: Space.tight) {
-            ForEach(visible) { agentRowView($0) }
+            ForEach(visible) { agentRowView($0, selected: selected) }
             if idleCount > 0 { idleFold(idleCount) }
         }
         .padding(.top, Space.tight)
     }
 
-    /// 에이전트 한 행 — 상태 글리프 + 제목 + 상태 인지형 본문(대기=경과·작업=라이브도구·완료=완료).
+    /// 에이전트 한 행 — 상태 글리프 + 타입 마크 + 제목 – 본문 + 우측 시간 열(대기 경과만).
     /// **클릭 = 그 탭 지목 이동**(`focusAgentTab`, 상태 순환이 아니라 이 탭 하나).
-    private func agentRowView(_ r: AgentRow) -> some View {
-        let tone = r.state.tone
-        return Button { state.focusAgentTab(project.id, r.tabId) } label: {
+    private func agentRowView(_ r: AgentRow, selected: TabID?) -> some View {
+        Button { state.focusAgentTab(project.id, r.tabId) } label: {
             HStack(spacing: Space.xs) {
-                statusGlyph(tone) // 유휴(뷰어 등)면 빈 슬롯
+                statusGlyph(r.state.tone) // 유휴(뷰어 등)면 빈 슬롯
                 typeMark(r) // Claude 세션이면 마크, 아니면 슬롯 고정(제목 시작선 불변)
-                Text(r.title).font(.muxa(.caption)).foregroundStyle(Color.pFg)
+                Text(r.title).font(.muxa(.label)).foregroundStyle(Color.pFg)
                     .lineLimit(1).truncationMode(.tail)
-                Text("·").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
-                Text(r.subtitle).font(.muxa(.caption)).foregroundStyle(Color.pMuted)
+                Text("– \(r.bodyLabel)").font(.muxa(.label)).foregroundStyle(Color.pMuted)
                     .lineLimit(1).truncationMode(.tail)
                 Spacer(minLength: 0)
+                if let time = r.timeLabel {
+                    Text(time).font(.muxaMono(.caption)).foregroundStyle(Color.pMuted)
+                }
             }
+            .padding(.leading, agentIndent)
+            .padding(.trailing, Space.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: RowHeight.tight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .modifier(ListRowFill(selected: r.tabId == selected))
         .clickCursor()
         .help("\(r.title) — \(r.subtitle). 클릭해 이동")
         .accessibilityLabel("\(r.title) \(r.subtitle) 탭으로 이동")
@@ -173,20 +189,42 @@ struct SidebarProjectRow: View {
         }
     }
 
-    /// 유휴 접기 행 — "○ 유휴 N". 클릭=유휴 탭 순환 점프(펼쳐도 개별 나열은 안 함, 소음이라).
+    /// 유휴 접기 행 — "유휴 N". 클릭=유휴 탭 순환 점프(펼쳐도 개별 나열은 안 함, 소음이라).
     private func idleFold(_ count: Int) -> some View {
         Button { state.jumpToProjectTab(project.id, matching: [.idle]) } label: {
             HStack(spacing: Space.xs) {
                 statusGlyph(.quiet) // 빈 슬롯(유휴는 글리프 없음)
-                Text("유휴 \(count)").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
+                Text("유휴 \(count)").font(.muxa(.label)).foregroundStyle(Color.pMuted)
                 Spacer(minLength: 0)
             }
+            .padding(.leading, agentIndent)
+            .padding(.trailing, Space.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: RowHeight.tight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .modifier(ListRowFill())
         .clickCursor()
         .help("유휴 탭 \(count)개 — 클릭해 이동")
         .accessibilityLabel("\(project.name) 유휴 탭 \(count)개로 이동")
+    }
+
+    /// 에이전트 행 내용의 들여쓰기 — 행의 상태 글리프가 프로젝트 **이름** 시작선에 온다
+    /// (채움은 풀폭, 내용만 들어간다 — 들여쓰기를 행 밖에 주면 hover 채움이 좁아진다).
+    private var agentIndent: CGFloat { Space.sm + IconSize.statusGlyph + Space.sm }
+
+    /// 프로젝트 롤업 점 — 색·크기는 `StatusStyle`(SSOT). **유휴는 빈 슬롯**(점 없음).
+    /// 살아있는 글리프(스피너·펄스)는 에이전트 행(`StatusMark`)만 쓴다 — 개요(점)와 실체(글리프)의 위계.
+    private func rollupDot(_ tone: StatusTone) -> some View {
+        ZStack {
+            if tone != .quiet {
+                Circle()
+                    .fill(StatusStyle.color(tone))
+                    .frame(width: StatusStyle.dotSize(tone), height: StatusStyle.dotSize(tone))
+            }
+        }
+        .frame(width: IconSize.statusGlyph, height: IconSize.statusGlyph)
     }
 
     /// 상태 글리프 슬롯 — `StatusMark`에 위임한다(작업중=스피너·대기=펄스·완료=체크, 유휴=빈 슬롯).
@@ -261,5 +299,19 @@ struct SidebarProjectRow: View {
         .help("프로젝트 닫기")
         // 파괴적 동작인데 대상이 안 들리면 안 된다 — VO는 `.help()`를 hint로만 읽는다(라벨은 "xmark"로 떨어진다).
         .accessibilityLabel("\(project.name) 닫기")
+    }
+}
+
+/// 목록 행 채움 문법(L1) — hover는 옅게(`btnHover`), 선택(지금 보고 있는 탭)은 활성 채움(`btnActive`).
+/// 행마다 자기 hover 상태를 가진다(행 재활용에도 안전 — 로컬 @State).
+private struct ListRowFill: ViewModifier {
+    var selected = false
+    @State private var hovered = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(selected ? Color.pBtnActive : (hovered ? Color.pBtnHover : Color.clear))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
+            .onHover { hovered = $0 }
     }
 }

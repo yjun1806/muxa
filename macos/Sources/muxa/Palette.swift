@@ -93,9 +93,10 @@ enum Palette {
     // 카드 경계이자 **카드 안의 패널↔터미널 분할선**. 고도가 못 닿는 그 선이 유일한 신호라 함께 올렸다
     // (다크 34343A→3E3E44: bg 대비 1.39→1.62, panel 대비 1.14→1.33).
     static let border = NSColor.dynamic(light: 0xDEDAD5, dark: 0x423F3A)
-    // 사이드바 2단 트리의 **세로 가이드선** — 프로젝트를 그 워크스페이스 아래로 묶어 소속을 그린다.
-    // 1px가 panel 위에서 읽혀야 하므로 border보다 살짝 진하게 잡는다(다크 3E3E44는 panel 대비 안 보였다 → 54545C).
-    static let guide = NSColor.dynamic(light: 0xCBC6BF, dark: 0x58534C)
+    // 사이드바 트리의 **프로젝트 레인** — 워크스페이스의 자식 묶음이 앉는 옅은 면.
+    // 소속을 선(가이드선)이 아니라 면으로 그린다(D안). 값은 bg 55% + panel 45% 혼합 —
+    // 떠 보이지 않을 만큼만 panel에서 벌린다(카드처럼 읽히면 실패).
+    static let lane = NSColor.dynamic(light: 0xF7F5F3, dark: 0x23211E)
     // 활동·주의 환기(호박). 라이트를 B45309(적갈색)→A16207(앰버/머스터드)로 옮겼다 — 적갈색이 실패색
     // #CF222E(빨강)와 헷갈렸다(에러처럼 읽힘). A16207은 초록 채널이 살아 확실한 앰버고 흰 배경 대비 4.9:1(AA).
     // (#F59E0B는 2.15:1로 미달이었다.) 다크 FBBF24는 이미 밝은 노랑이라 그대로.
@@ -186,7 +187,7 @@ extension Color {
     static let pBg = Color(nsColor: Palette.bg)
     static let pPanel = Color(nsColor: Palette.panel)
     static let pBorder = Color(nsColor: Palette.border)
-    static let pGuide = Color(nsColor: Palette.guide)
+    static let pLane = Color(nsColor: Palette.lane)
     static let pBrand = Color(nsColor: Palette.brand)
     static let pWork = Color(nsColor: Palette.work) // 작업 중(active) — 인디고
     static let pWaiting = Color(nsColor: Palette.waiting) // 입력 대기(attention) — 로즈

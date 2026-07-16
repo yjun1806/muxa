@@ -63,6 +63,30 @@ final class AgentRowTests: XCTestCase {
         XCTAssertEqual(row(.idle, viewerKind: "문서").subtitle, "문서")
     }
 
+    // MARK: 목록 행 두 열(L1) — 본문(bodyLabel) ⟂ 시간(timeLabel)
+
+    /// 대기 행은 본문("입력 대기")과 시간("19m")이 **두 열로 갈린다** — 시간은 우측 열이 맡는다.
+    func testWaitingSplitsBodyAndTime() {
+        let r = row(.waiting, waiting: 19 * 60)
+        XCTAssertEqual(r.bodyLabel, AgentActivity.waiting.label)
+        XCTAssertEqual(r.timeLabel, "19m")
+    }
+
+    /// 시간 열은 **대기 경과만** — working/done/idle은 시각 미저장이라 nil(지어내지 않는다).
+    func testTimeLabelOnlyForWaiting() {
+        XCTAssertNil(row(.working, detail: "실행 중: swift").timeLabel)
+        XCTAssertNil(row(.done, waiting: 9999).timeLabel)
+        XCTAssertNil(row(.idle).timeLabel)
+        XCTAssertNil(row(.waiting, waiting: nil).timeLabel) // 경과를 모르면 침묵
+    }
+
+    /// 본문 열은 시간을 뺀 subtitle과 같다 — 작업=라이브 도구, 뷰어=종류.
+    func testBodyLabelMatchesSubtitleSansTime() {
+        XCTAssertEqual(row(.working, detail: "실행 중: swift").bodyLabel, "실행 중: swift")
+        XCTAssertEqual(row(.idle, viewerKind: "문서").bodyLabel, "문서")
+        XCTAssertEqual(row(.done).bodyLabel, AgentActivity.done.label)
+    }
+
     // MARK: 경과 압축
 
     func testCompactUnits() {
