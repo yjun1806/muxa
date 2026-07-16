@@ -38,7 +38,8 @@ struct ProjectWindowView: View {
     private func topBar(_ model: ProjectWindow, workspace: Workspace, project: Project) -> some View {
         HStack(alignment: .center, spacing: Space.md) {
             Color.clear.frame(width: TrafficLights.reservedLeadingWidth)
-            Breadcrumb(workspace: workspace, project: project)
+            Breadcrumb(workspace: workspace, project: project,
+                       branch: state.currentBranch(of: project, in: workspace))
             WindowProjectStrip(state: state, window: model)
             Spacer(minLength: Space.lg)
             IconButton(icon: "macwindow.badge.minus", scale: .body,

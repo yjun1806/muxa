@@ -8,6 +8,9 @@ struct Breadcrumb: View {
     /// 표시할 프로젝트. 분리 창은 **그 창의** 프로젝트를 말해야 한다 — 워크스페이스의 활성 프로젝트는
     /// 메인 창의 좌표라 다른 것을 가리킨다. 생략하면 메인의 좌표(활성 프로젝트)를 쓴다.
     var project: Project?
+    /// 현재 브랜치(호출부가 `AppState.currentBranch`로 계산해 넘긴다 — 이 뷰는 순수 라벨 유지).
+    /// **프로젝트명과 같으면 숨긴다** — 워크트리 프로젝트는 이름 = 브랜치라 중복이다.
+    var branch: String?
 
     private var shown: Project? { project ?? workspace.activeProject }
 
@@ -33,6 +36,14 @@ struct Breadcrumb: View {
                                               : .muxaMono(.body, weight: .medium))
                     .foregroundStyle(Color.pFg)
                     .lineLimit(1)
+                // 현재 브랜치 — 프로젝트명과 다를 때만(워크트리는 이름 = 브랜치라 중복). 식별자라 모노스페이스,
+                // 위치 라벨(이름)보다 한 단계 약하게(muted·label 크기) — "어디"가 주연, 브랜치는 상태다.
+                if let branch, branch != project.name {
+                    Text(branch)
+                        .font(.muxaMono(.label))
+                        .foregroundStyle(Color.pMuted)
+                        .lineLimit(1)
+                }
             }
         }
         .fixedSize()

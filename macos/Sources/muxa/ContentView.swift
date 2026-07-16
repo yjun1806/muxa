@@ -103,7 +103,9 @@ struct ContentView: View {
             if let ws = state.activeWorkspace {
                 // 좌측(앱·워크스페이스 관리)과 우측(현재 위치 + 패널 토글)은 성격이 다른 영역이라 선으로 가른다.
                 VDivider(height: 18)
-                Breadcrumb(workspace: ws) // 표시 전용 — 전환은 사이드바 트리가 유일한 경로다
+                // 표시 전용 — 전환은 사이드바 트리가 유일한 경로다. 브랜치는 모니터 캐시에서(셸아웃 없음).
+                Breadcrumb(workspace: ws,
+                           branch: ws.activeProject.flatMap { state.currentBranch(of: $0, in: ws) })
                 // **선택한 프로젝트의 경로**(라이브 셸 pwd가 아니다) — 기본은 워크스페이스 경로,
                 // 프로젝트(워크트리)를 바꾸면 그 워크트리 경로로 바뀐다. 브레드크럼(정체) 옆에 **조용히** 둔다:
                 // 세로선 없이(HStack 간격만), 한 단 작고 더 흐리게(mono). 워크스페이스명은 사용자가 자유

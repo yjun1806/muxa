@@ -1539,6 +1539,15 @@ final class AppState {
         WorktreePromotion.offers(worktrees: worktreeMonitor.detected[workspace.id] ?? [], in: workspace)
     }
 
+    /// 프로젝트의 현재 브랜치(표시용 — 브레드크럼) — `WorktreeMonitor.detected`에서 실효 경로가 일치하는
+    /// 워크트리(메인 워킹트리 포함)의 branch를 읽는다. **셸아웃·폴링 없음**: checkout도 `.git` 변화라
+    /// FSEvents가 준실시간으로 갱신해 둔다. git 저장소가 아니거나 detached면 nil(표시 안 함).
+    func currentBranch(of project: Project, in workspace: Workspace) -> String? {
+        guard let path = (project.path ?? workspace.path).map(normalizePath) else { return nil }
+        return worktreeMonitor.detected[workspace.id]?
+            .first { normalizePath($0.path) == path }?.branch
+    }
+
     /// **muxa 안에서 만든 워크트리는 자동으로 프로젝트가 된다**(D31 보완). 새로 감지된 워크트리 안에
     /// **살아있는 muxa 세션의 cwd**가 있으면(에이전트가 만들고 들어간 것 — 사용자의 의도된 행동) 인박스를
     /// 거치지 않고 조용히 승격한다. 그 신호가 없으면(외부 생성) 기존 "추가?" offer로 남는다 — D31이 막으려던
