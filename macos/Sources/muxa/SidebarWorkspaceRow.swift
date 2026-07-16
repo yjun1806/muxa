@@ -65,11 +65,12 @@ struct SidebarWorkspaceRow: View {
         .background(hovered ? Color.pBtnHover : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
         .contentShape(Rectangle())
-        // 행 클릭 = 전환(포커스한 워크스페이스는 펼쳐 보여준다 — 단 다른 건 접지 않는다).
-        .onTapGesture { state.setActiveId(workspace.id) }
+        .clickCursor() // 클릭 가능 = 포인팅 핸드 커서
+        // **제목 클릭 = 그 워크스페이스 펼침/접힘 토글**(디스클로저와 같은 동작 — 활성 전환은 프로젝트 클릭이 맡는다).
+        .onTapGesture { state.toggleWorkspaceExpansion(workspace.id) }
         .sidebarRow(id: workspace.id, label: "\(workspace.name) 워크스페이스", selected: active,
                     hoveredId: $hoveredId, menuOpenId: $menuOpenId,
-                    activate: { state.setActiveId(workspace.id) }) {
+                    activate: { state.toggleWorkspaceExpansion(workspace.id) }) {
             WorkspaceMenu.items(for: workspace, state: state)
         }
         .help(workspace.tooltip)

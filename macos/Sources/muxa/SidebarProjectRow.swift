@@ -24,14 +24,15 @@ struct SidebarProjectRow: View {
         project.id == workspace.activeProjectId && workspace.id == state.activeId && !separated
     }
     private var hovered: Bool { hoveredId == project.id || menuOpenId == project.id }
+    /// 펼칠 값이 있나 — 신호(작업중·대기·완료)가 있거나 탭이 여럿(뷰어 포함)이면. 유휴 1개뿐이면 접어 둔다.
+    private var expandable: Bool {
+        let s = state.projectTabStatus(project.id)
+        return (s.working + s.waiting + s.done > 0) || (s.working + s.waiting + s.done + s.idle) > 1
+    }
 
     var body: some View {
         let leadingTone = state.projectLeadingTone(project.id)
         let services = state.services(of: project.id)
-        let s = state.projectTabStatus(project.id)
-        let total = s.working + s.waiting + s.done + s.idle
-        // 펼칠 값이 있나 — 신호(작업중·대기·완료)가 있거나 탭이 여럿이면. 유휴 1개뿐이면 접어 둔다.
-        let expandable = (s.working + s.waiting + s.done > 0) || total > 1
         VStack(alignment: .leading, spacing: Space.tight) {
             topRow(leadingTone: leadingTone, services: services, expandable: expandable)
             if expandable && expanded {
@@ -46,9 +47,10 @@ struct SidebarProjectRow: View {
         .background(active ? Color.pBtnActive : (hovered ? Color.pBtnHover : Color.clear))
         .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
         .contentShape(Rectangle())
-        .onTapGesture(perform: select)
+        .clickCursor() // 클릭 가능 = 포인팅 핸드 커서
+        .onTapGesture(perform: activate)
         .sidebarRow(id: project.id, label: displayName, selected: active,
-                    hoveredId: $hoveredId, menuOpenId: $menuOpenId, activate: select) {
+                    hoveredId: $hoveredId, menuOpenId: $menuOpenId, activate: activate) {
             ProjectMenu.items(for: project, in: workspace, state: state)
         }
         .help(displayPath(project.path ?? workspace.path, home: SystemPaths.home))
@@ -58,11 +60,8 @@ struct SidebarProjectRow: View {
     private func topRow(leadingTone: StatusTone, services: [Service], expandable: Bool) -> some View {
         HStack(spacing: Space.sm) {
             // 리딩 = 프로젝트 롤업(가장 센 신호 하나 — 죽은 서비스 빨강 ⚠ · 대기 호박 … · 작업중 틸 ●).
-            // 상세는 셰브론으로 펼치는 목록이 맡는다. 슬롯 고정으로 이름 시작선이 안 흔들린다.
-            Image(systemName: StatusStyle.glyph(leadingTone))
-                .font(.muxa(.micro, weight: .semibold))
-                .foregroundStyle(StatusStyle.color(leadingTone))
-                .frame(width: IconSize.statusGlyph, height: IconSize.statusGlyph)
+            // **유휴면 빈 슬롯**(글리프 없음). 상세는 셰브론/제목으로 펼치는 목록이 맡는다. 슬롯 고정으로 이름 시작선 불변.
+            statusGlyph(leadingTone)
             Text(displayName)
                 .font(nameFont)
                 .foregroundStyle(active || hovered ? Color.pFg : Color.pMuted)
@@ -131,9 +130,7 @@ struct SidebarProjectRow: View {
         let tone = r.state.tone
         return Button { state.focusAgentTab(project.id, r.tabId) } label: {
             HStack(spacing: Space.xs) {
-                Image(systemName: StatusStyle.glyph(tone)).font(.muxa(.micro, weight: .semibold))
-                    .foregroundStyle(StatusStyle.color(tone))
-                    .frame(width: IconSize.statusGlyph)
+                statusGlyph(tone) // 유휴(뷰어 등)면 빈 슬롯
                 typeMark(r) // Claude 세션이면 마크, 아니면 슬롯 고정(제목 시작선 불변)
                 Text(r.title).font(.muxa(.caption)).foregroundStyle(Color.pFg)
                     .lineLimit(1).truncationMode(.tail)
@@ -169,9 +166,7 @@ struct SidebarProjectRow: View {
     private func idleFold(_ count: Int) -> some View {
         Button { state.jumpToProjectTab(project.id, matching: [.idle]) } label: {
             HStack(spacing: Space.xs) {
-                Image(systemName: StatusStyle.glyph(.quiet)).font(.muxa(.micro, weight: .semibold))
-                    .foregroundStyle(StatusStyle.color(.quiet))
-                    .frame(width: IconSize.statusGlyph)
+                statusGlyph(.quiet) // 빈 슬롯(유휴는 글리프 없음)
                 Text("유휴 \(count)").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
                 Spacer(minLength: 0)
             }
@@ -183,7 +178,27 @@ struct SidebarProjectRow: View {
         .accessibilityLabel("\(project.name) 유휴 탭 \(count)개로 이동")
     }
 
-    /// 행 클릭 = 이 프로젝트로 이동(마우스·VoiceOver가 같은 동작을 쓴다).
+    /// 상태 글리프 슬롯 — **유휴(quiet)면 아무것도 안 그린다**(빈 슬롯으로 폭만 유지해 이름 시작선 불변).
+    /// 나머지 톤만 색+모양으로 말한다.
+    @ViewBuilder
+    private func statusGlyph(_ tone: StatusTone) -> some View {
+        if tone == .quiet {
+            Color.clear.frame(width: IconSize.statusGlyph, height: IconSize.statusGlyph)
+        } else {
+            Image(systemName: StatusStyle.glyph(tone))
+                .font(.muxa(.micro, weight: .semibold))
+                .foregroundStyle(StatusStyle.color(tone))
+                .frame(width: IconSize.statusGlyph, height: IconSize.statusGlyph)
+        }
+    }
+
+    /// 행/제목 클릭 = 이 프로젝트로 이동 **+ 펼침 토글**. 제목을 누르면 에이전트 목록이 펼쳐지고 접힌다.
+    private func activate() {
+        select()
+        if expandable { expanded.toggle() }
+    }
+
+    /// 이 프로젝트로 이동(마우스·VoiceOver가 같은 동작을 쓴다).
     private func select() {
         // 분리된 프로젝트는 그 창을 앞으로 부르기만 한다 — 메인의 활성 좌표는 건드리지 않는다
         // (메인이 그 프로젝트를 그리지 않으므로 활성으로 바꾸면 플레이스홀더만 남는다).
