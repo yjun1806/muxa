@@ -7,9 +7,11 @@ import XCTest
 final class AgentRowTests: XCTestCase {
     private func row(_ state: AgentActivity, title: String = "claude",
                      detail: String? = nil, waiting: TimeInterval? = nil,
-                     isAgent: Bool = false) -> AgentRow {
+                     isAgent: Bool = false, typeIcon: String = "terminal",
+                     viewerKind: String? = nil) -> AgentRow {
         AgentRow(tabId: TabID(), title: title, state: state, detail: detail,
-                 waitingSeconds: waiting, isAgent: isAgent)
+                 waitingSeconds: waiting, isAgent: isAgent,
+                 typeIcon: typeIcon, viewerKind: viewerKind)
     }
 
     // MARK: 정렬 — 긴급도 그룹 순서
@@ -54,6 +56,11 @@ final class AgentRowTests: XCTestCase {
     /// done엔 상대시간을 붙이지 않는다(벽시계 완료시각 미저장, 계획 #4) — 라벨만.
     func testDoneSubtitleIsPlainLabel() {
         XCTAssertEqual(row(.done, waiting: 9999).subtitle, AgentActivity.done.label)
+    }
+
+    /// 뷰어 탭은 상태(유휴)가 아니라 **종류**를 부제로 말한다("파일탭은 파일로").
+    func testViewerSubtitleShowsKind() {
+        XCTAssertEqual(row(.idle, viewerKind: "문서").subtitle, "문서")
     }
 
     // MARK: 경과 압축

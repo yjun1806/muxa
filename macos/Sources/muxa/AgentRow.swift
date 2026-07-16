@@ -18,12 +18,19 @@ struct AgentRow: Equatable, Identifiable {
     /// 이 탭이 **확정 Claude 세션**인가(muxa 훅을 보낸 탭). 참이면 행에 Claude 마크를 단다 —
     /// "진짜 에이전트"와 "로그만 흐르는 터미널"을 가른다(훅 미설정 Claude는 놓칠 수 있음).
     let isAgent: Bool
+    /// 탭 종류 아이콘(SF Symbol) — 터미널="terminal", 뷰어=그 종류(doc.richtext·curlybraces·plusminus·photo·…).
+    /// **isAgent면 이 아이콘 대신 ClaudeMark(정체성)를 단다** — "누구(WHO)"와 "무슨 상태(WHAT)"를 가른다(Orca 원칙).
+    let typeIcon: String
+    /// 뷰어(문서·코드·diff…) 탭이면 그 종류 라벨("문서"·"코드"·"변경"…), 아니면 nil.
+    /// 뷰어는 에이전트 상태가 없어(유휴) 부제로 종류를 말하고, **유휴여도 목록에 남긴다**("파일탭은 파일로").
+    let viewerKind: String?
 
     var id: TabID { tabId }
 
-    /// 행 본문 — 상태 인지형. 대기=경과 시간, 작업=라이브 도구(없으면 라벨), 완료=완료, 유휴=라벨.
+    /// 행 본문 — 뷰어는 종류를, 나머지는 상태 인지형. 대기=경과 시간, 작업=라이브 도구(없으면 라벨), 완료=완료, 유휴=라벨.
     /// done에 상대시간을 붙이지 않는다 — 벽시계 완료시각을 저장하지 않아 신뢰할 수 없다(계획 #4).
     var subtitle: String {
+        if let kind = viewerKind { return kind } // 뷰어는 상태 대신 종류를 부제로("· 문서")
         switch state {
         case .waiting: return waitingSeconds.map(RelativeTime.waitingLabel) ?? state.label
         case .working: return detail ?? state.label

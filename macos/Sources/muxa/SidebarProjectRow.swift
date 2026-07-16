@@ -115,8 +115,9 @@ struct SidebarProjectRow: View {
     @ViewBuilder
     private func agentList() -> some View {
         let rows = state.agentRows(project.id)
-        let visible = rows.filter { $0.state != .idle } // 유휴는 접어 소음 제거
-        let idleCount = rows.count - visible.count
+        // 뷰어(문서·코드·diff…)는 유휴여도 남긴다("파일탭은 파일로"). 유휴 **터미널**만 접어 소음 제거.
+        let visible = rows.filter { $0.state != .idle || $0.viewerKind != nil }
+        let idleCount = rows.count - visible.count // 안 보이는 건 곧 유휴 터미널
         VStack(alignment: .leading, spacing: Space.tight) {
             ForEach(visible) { agentRowView($0) }
             if idleCount > 0 { idleFold(idleCount) }
@@ -149,15 +150,18 @@ struct SidebarProjectRow: View {
         .accessibilityLabel("\(r.title) \(r.subtitle) 탭으로 이동")
     }
 
-    /// 타입 마크 — Claude 세션(hooked)이면 공식 Claude 마크, 아니면 **빈 슬롯**(같은 폭)으로 제목 시작선을 맞춘다.
-    /// 로고라 톤색으로 물들이지 않는다(`ClaudeMark`가 원본 주황 유지). 비-Claude에 다른 글리프를 안 붙이는 건
-    /// "에이전트냐 아니냐"만 마크 유무로 즉독하게 하기 위함(소음 최소).
+    /// 타입 마크 — **"이게 뭔가(WHO/무엇)"를 상태 점(WHAT)과 분리해 말한다**(Orca 원칙).
+    /// Claude 세션(hooked)이면 공식 Claude 마크(원본 주황 유지), 아니면 탭 종류 아이콘
+    /// (터미널·문서·코드·변경…)을 무채로. 슬롯 폭은 고정이라 제목 시작선이 안 흔들린다.
     @ViewBuilder
     private func typeMark(_ r: AgentRow) -> some View {
         if r.isAgent {
             ClaudeMark(size: IconSize.statusGlyph)
         } else {
-            Color.clear.frame(width: IconSize.statusGlyph, height: IconSize.statusGlyph)
+            Image(systemName: r.typeIcon)
+                .font(.muxa(.micro))
+                .foregroundStyle(Color.pMuted)
+                .frame(width: IconSize.statusGlyph, height: IconSize.statusGlyph)
         }
     }
 

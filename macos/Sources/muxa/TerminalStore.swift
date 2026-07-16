@@ -1207,10 +1207,20 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             } else {
                 waitingSeconds = nil
             }
+            // 타입 아이콘(WHO/무엇인가) — 터미널은 terminal, 뷰어는 그 종류(문서·코드·변경…).
+            let typeIcon: String
+            let viewerKind: String?
+            switch content(for: tabId) {
+            case .terminal:
+                typeIcon = "terminal"; viewerKind = nil
+            case .group(let kind):
+                typeIcon = kind.icon; viewerKind = kind.title
+            }
             return AgentRow(tabId: tabId, title: tabTitle(tabId), state: state,
                             detail: state == .working ? agentDetail[tabId] : nil,
                             waitingSeconds: waitingSeconds,
-                            isAgent: hookedTabs.contains(tabId))
+                            isAgent: hookedTabs.contains(tabId),
+                            typeIcon: typeIcon, viewerKind: viewerKind)
         }
     }
 
