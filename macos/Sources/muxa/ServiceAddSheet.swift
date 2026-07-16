@@ -11,6 +11,11 @@ import SwiftUI
 struct ServiceAddSheet: View {
     /// 프로젝트 경로 — 스크립트를 찾을 곳.
     let cwd: String?
+    /// 제목·하단 안내문은 파라미터다 — **스크립트 추가(ScriptStrip)가 같은 시트를 재사용**한다
+    /// (스캔·매니저 감지·검증이 똑같고 문구만 다르다). 기본값은 서비스 문구 — 스크립트에
+    /// "muxa를 꺼도 계속 돕니다"는 거짓말이라 호출부가 갈아 끼운다.
+    var title = "서비스 추가"
+    var footnote = "프로젝트 폴더에서 로그인 셸로 실행되고, muxa를 꺼도 계속 돕니다.\n죽으면 푸터 칩이 빨갛게 바뀌고 알림이 옵니다.\n명령은 평문으로 저장됩니다 — 토큰·API 키는 명령에 적지 말고 .env에 두세요."
     let onAdd: (String, String) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -38,7 +43,7 @@ struct ServiceAddSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.lg) {
-            Text("서비스 추가")
+            Text(title)
                 .font(.muxa(.title, weight: .semibold))
                 .foregroundStyle(Color.pFg)
 
@@ -87,7 +92,7 @@ struct ServiceAddSheet: View {
                 }
             }
 
-            Text("프로젝트 폴더에서 로그인 셸로 실행되고, muxa를 꺼도 계속 돕니다.\n죽으면 푸터 칩이 빨갛게 바뀌고 알림이 옵니다.\n명령은 평문으로 저장됩니다 — 토큰·API 키는 명령에 적지 말고 .env에 두세요.")
+            Text(footnote)
                 .font(.muxa(.caption))
                 .foregroundStyle(Color.pMuted.opacity(0.8))
 

@@ -145,6 +145,14 @@ zinc 원칙과도 충돌하지 않는다. `panel`을 올린 만큼 hover도 한 
 예: 서비스가 죽으면 초록 점(`circle.fill`)이 빨간 경고(`exclamationmark.triangle.fill`)로 **모양까지** 바뀌고,
 프로젝트 상태 점은 유휴(5pt) → 신호(6pt)로 **크기가** 바뀐다(`ProjectStatusStyle`).
 
+**상태 어휘는 세 축이다 — 축끼리 글리프를 공유하지 않는다.**
+① 에이전트(`StatusStyle`): ● 인디고 / ⏸ 로즈 / ✓ `checkmark` 세이지.
+② 서비스 = 끝없는 프로세스(`ServiceStatusStyle`): **원형 play/stop 짝** — ▶ `play.circle.fill` 파랑 / ■ `stop.circle` 무채 / ⚠ 빨강.
+③ 스크립트 = 끝있는 명령(`ScriptStatusStyle`): **사각형 가족**(탭 아이콘 `play.square`와 한 축) —
+실행중 ⟳ `arrow.triangle.2.circlepath` 파랑(`serviceRunning` 재사용 — 의미가 같고 글리프가 이미 가른다) /
+성공 `checkmark.square` **무채**(에이전트 완료 세이지 ✓와 가름) / 실패 `xmark.square` 빨강 /
+결과 미상 `questionmark.square` 무채(⌘W·프레임 유실 — ✓를 지어내지 않는다).
+
 ---
 
 ## 3. 타이포
@@ -238,7 +246,7 @@ zinc 원칙과도 충돌하지 않는다. `panel`을 올린 만큼 hover도 한 
 | **탭** | Tab | 칸 안의 탭 — 터미널 탭 또는 **그룹 탭**(터미널·문서·HTML·코드·변경) |
 | **서브탭** | Sub-tab | 그룹 탭 바로 아래 줄 — 그 그룹에 열린 개별 파일/커밋 |
 | **도구 패널** | Tool Panel | 우측 — 파일 탐색기와 Git 패널이 토글로 번갈아 |
-| **푸터** | Status Bar | 맨 아래 줄 — **왼쪽**: claude 사용량 칩 · 에이전트 활동 / **오른쪽**: 백그라운드 세션 · 서비스 칩. (경로는 상단바로 올라갔고, 브랜치는 Git 패널이 맡는다) |
+| **푸터** | Status Bar | 맨 아래 줄 — **왼쪽**: claude 사용량 칩 · 에이전트 활동 / **오른쪽**: 백그라운드 세션 · **스크립트 칩** · 서비스 칩. (경로는 상단바로 올라갔고, 브랜치는 Git 패널이 맡는다) |
 | **서비스 도크** | Service Dock | 우측 **도킹 패널**(⌘J) — 본문을 밀어냄·너비 리사이즈(탐색기·Git과 같은 층). 위: 서비스 목록, 아래: 로그 |
 | **콘텐츠 카드** | Content Card | 크롬 위에 떠 있는 판 — 터미널·패널이 그 안에 산다 |
 | **메인 창** | Main Window | 사이드바·⌘K·푸터가 있는 창. **닫으면 앱이 종료된다**(D30) |
@@ -321,9 +329,11 @@ zinc 원칙과도 충돌하지 않는다. `panel`을 올린 만큼 hover도 한 
 | `ProjectStatusStyle` | 프로젝트·워크스페이스 상태의 **색 + 점 크기** | `ServiceStatusStyle`와 같은 자리·같은 패턴. 트리 행·롤업 점·슬림 막대가 공유하는 단일 출처 |
 | `EmptyState` | 빈 상태 — 아이콘 · 제목 · `subtitle`(왜 비었나) · 액션 | 아이콘·제목 크기는 **여기서만** 정한다(호출부가 `.system(size:)`를 다시 쓰지 않는다). `compact`는 팝오버용 |
 | `ServiceRow` | 서비스 한 줄 — 도크 목록과 팝오버가 **같은 행**을 쓴다 | 표식은 **글리프**(`ServiceStatusStyle.glyph`) — 색만으로 상태를 말하지 않는다. 명령 미리보기는 `truncationMode(.tail)`: 가운데를 접으면 명령의 꼬리(`&& curl … \| sh`)가 숨는다 |
+| `ScriptStatusStyle` | 스크립트 축(제3 축)의 색·글리프·라벨 SSOT | `ServiceStatusStyle`와 같은 자리·같은 패턴 — 푸터 칩(`ScriptStrip`)·팝오버 행이 공유 |
+| `ScriptRow` | 스크립트 한 줄(팝오버 목록) | `ServiceRow`와 같은 규칙 — 글리프 표식 + 명령 `truncationMode(.tail)` |
 | `Breadcrumb` | 상단바의 "지금 어디에 있나" | **라벨이다(버튼 아님).** 여기에 클릭을 주면 전환 경로가 둘이 되고, 어느 쪽이 진짜인지 매번 고민하게 된다 |
 | `SidebarNameChip` | 접힌 모드에서 hover한 항목의 이름 칩 | 사이드바 **바깥**에 뜬다(`Sidebar.chipOffset`). 히트테스트 끔 |
-| **칩** | 푸터의 누를 수 있는 알약(사용량·서비스) | 배경(`btnHover`) + hover/열림 상태로 "누를 수 있음"을 드러낸다. 항목 사이는 여백이 아니라 **얇은 세로선**(`VDivider`)으로 가른다 — 여백만으로는 붙어 읽힌다 |
+| **칩** | 푸터의 누를 수 있는 알약(사용량·서비스·스크립트·백그라운드) | 배경(`btnHover`) + hover/열림 상태로 "누를 수 있음"을 드러낸다. 항목 사이는 여백이 아니라 **얇은 세로선**(`VDivider`)으로 가른다 — 여백만으로는 붙어 읽힌다. 스크립트·백그라운드 칩은 **0개면 숨김**(있을 때만 의미) — 서비스 칩만 상시(기능의 유일한 발견 지점) |
 | **팝오버** | 칩의 상세 | 칩이 "있나 없나"를 말하고, 팝오버가 "무엇이 왜"를 말한다 |
 
 **아이콘**: SF Symbols. 파일 아이콘만 Material Icon Theme(`Resources/fileicons`).

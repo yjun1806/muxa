@@ -45,6 +45,15 @@ struct HookMessage {
     let payload: ClaudeHookPayload
 }
 
+/// 스크립트 래퍼(ScriptRunCommand.wrap)가 보낸 종료 보고: `script-exit\t<tabId>\t<exitCode>\n`.
+///
+/// 기존 줄 프로토콜(NotifyMessage)을 재활용하지 않는 이유: 거긴 exit code 슬롯이 없고,
+/// `--state done`을 빌리면 deliverNotify가 에이전트 의미론(턴 완료 알림·배지)으로 오발화한다.
+struct ScriptExitMessage {
+    let tabId: String
+    let exitCode: Int32
+}
+
 /// Unix 도메인 소켓 리스너 — `muxa notify` CLI가 보낸 한 줄을 받아 콜백으로 넘긴다.
 ///
 /// 부작용(소켓·fd·DispatchSource)을 이 경계 타입에 격리한다(순수 라우팅은 AppState). 소켓
@@ -82,17 +91,39 @@ final class NotifyServer {
     private var listenFD: Int32 = -1
     private var source: DispatchSourceRead?
 
+    /// 이 리스너가 bind할 경로 — 앱은 인스턴스 고정 경로(`Self.socketPath`), 테스트만 임시 경로를 준다.
+    private let path: String
+    /// 찌꺼기 소켓 청소를 할지 — 인스턴스 디렉터리 소유자(기본 경로)일 때만. 주입 경로(테스트)는
+    /// 지원 디렉터리와 무관하므로 남의 살림을 건드리지 않는다.
+    private let reapsStaleSockets: Bool
+
+    /// 앱용 — 인스턴스 고정 경로에 bind.
+    init() {
+        path = Self.socketPath
+        reapsStaleSockets = true
+    }
+
+    /// 테스트용 — 임시 경로에 bind해 와이어 계약(muxa-notify → 콜백)을 실물로 검증한다.
+    init(socketPath: String) {
+        path = socketPath
+        reapsStaleSockets = false
+    }
+
     /// 메시지 수신 콜백 — 메인 큐에서 호출된다. 라우팅·UI 갱신은 상위(AppState)가 한다.
     var onMessage: ((NotifyMessage) -> Void)?
 
     /// 훅 원본 payload 수신 콜백 — 메인 큐. 해석(ClaudeHookInterpreter)은 소유 store가 한다.
     var onHook: ((HookMessage) -> Void)?
 
+    /// 스크립트 종료 보고 수신 콜백 — 메인 큐. 라우팅(scriptRuns 전이)은 소유 store가 한다.
+    var onScriptExit: ((ScriptExitMessage) -> Void)?
+
     /// 리스너 시작(백그라운드). 시작 전에 죽은 인스턴스가 남긴 소켓 파일을 청소한다.
     func start() {
         queue.async { [weak self] in
-            Self.reapStaleSockets()
-            self?.setup()
+            guard let self else { return }
+            if self.reapsStaleSockets { Self.reapStaleSockets() }
+            self.setup()
         }
     }
 
@@ -118,12 +149,12 @@ final class NotifyServer {
             guard let self else { return }
             self.source?.cancel()
             self.source = nil
-            unlink(Self.socketPath)
+            unlink(self.path)
         }
     }
 
     private func setup() {
-        let path = Self.socketPath
+        let path = self.path
         unlink(path)
 
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -201,6 +232,11 @@ final class NotifyServer {
             DispatchQueue.main.async { callback?(hook) }
             return
         }
+        if let scriptExit = Self.parseScriptExit(text) {
+            let callback = onScriptExit
+            DispatchQueue.main.async { callback?(scriptExit) }
+            return
+        }
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
             guard let msg = Self.parse(String(line)) else { continue }
             let callback = onMessage
@@ -223,6 +259,20 @@ final class NotifyServer {
 
     /// 훅 프레임 식별 접두 — CLI(muxa-notify)와 공유하는 와이어 상수.
     static let hookFramePrefix = "hook\t"
+
+    /// 스크립트 종료 프레임 식별 접두 — CLI(muxa-notify)와 공유하는 와이어 상수.
+    static let scriptExitFramePrefix = "script-exit\t"
+
+    /// `script-exit\t<tabId>\t<exitCode>` 프레임 파싱(순수). 꼴이 어긋나면 nil —
+    /// exit code는 상태 판정의 근거라 지어내지 않는다(관대한 기본값 없음, parse()와 다른 태도).
+    static func parseScriptExit(_ text: String) -> ScriptExitMessage? {
+        guard text.hasPrefix(scriptExitFramePrefix) else { return nil }
+        // 첫 줄만 프레임이다 — 뒤에 뭐가 붙어 있어도(개행 포함 노이즈) 경계는 첫 개행 하나.
+        let line = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)[0]
+        let parts = line.components(separatedBy: "\t")
+        guard parts.count >= 3, !parts[1].isEmpty, let code = Int32(parts[2]) else { return nil }
+        return ScriptExitMessage(tabId: parts[1], exitCode: code)
+    }
 
     /// `<tabId>\t<state>\t<title>\t<body>\t<category>\t<resumeCommand>\t<agentLabel>` 파싱. 부족한
     /// 필드는 관대하게 채운다(title/body는 빈 문자열, category는 미지정·미인식이면 nil → deliverNotify가

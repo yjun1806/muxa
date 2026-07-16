@@ -21,6 +21,11 @@ import Foundation
 //   --agent <label>   재개 명령의 표시용 에이전트 라벨(claude/codex 등, 선택).
 //   --title / --body  알림 제목·본문(선택).
 //
+// 서브커맨드:
+//   script-exit --code <n>   스크립트 래퍼(ScriptRunCommand.wrap) 전용 — 사용자 명령의 exit code를
+//               전용 프레임(`script-exit\t<tabId>\t<code>`)으로 보고한다. 줄 프로토콜과 별개인 이유:
+//               --state done을 빌리면 앱이 에이전트 턴 완료로 오독해 알림·배지가 오발화한다.
+//
 // Claude Code 훅 프리셋 예시(~/.claude/settings.json hooks):
 //   SessionStart(resume 가능)           → muxa notify --resume-command "claude --resume $CLAUDE_SESSION_ID" --agent claude
 //   PreToolUse / PostToolUse           → muxa notify --state working
@@ -68,6 +73,20 @@ if args.first == "hook" {
     hookEvent = event
 }
 
+// script-exit 모드 — 스크립트 래퍼(ScriptRunCommand.wrap)가 사용자 명령의 exit code를 앱에
+// 보고한다. 프레임: `script-exit\t<tabId>\t<code>`. 코드는 Int32로 파싱되는 값만 인정 —
+// 숫자가 아니면 프레임을 지어내느니 조용히 접는다(fire-and-forget, bail도 exit 0).
+var scriptExitCode: Int32?
+if args.first == "script-exit" {
+    args.removeFirst()
+    var j = 0
+    while j < args.count {
+        if args[j] == "--code", j + 1 < args.count { scriptExitCode = Int32(args[j + 1]) }
+        j += 1
+    }
+    guard scriptExitCode != nil else { bail("script-exit: --code 누락/비숫자") }
+}
+
 var state = "waiting"
 var stateExplicit = false
 var category = ""
@@ -101,6 +120,10 @@ guard let sock = env["MUXA_SOCK"], !sock.isEmpty,
 /// 소켓에 실을 바이트. hook 모드면 `hook\t<tabId>\t<event>\n<원본 JSON>`, 아니면 기존 줄 프로토콜.
 /// hook 프레임은 payload를 손대지 않는다(개행·탭이 들어 있어도 첫 개행 하나만 경계로 쓴다).
 let line: String = {
+    // script-exit 프레임 — 필드가 tabId·숫자(Int32 파싱 통과)뿐이라 sanitize 불필요.
+    if let code = scriptExitCode {
+        return "script-exit\t\(tabId)\t\(code)\n"
+    }
     guard let event = hookEvent else {
         // --resume-command 단독(명시적 --state 없음)이면 상태 필드를 비운다 — 바인딩만 등록하고 상태 신호는 안 보낸다.
         // (resume-command가 없으면 종전대로 기본 waiting이 실린다 — 하위호환.)

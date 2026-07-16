@@ -28,6 +28,7 @@ enum KeymapAction {
     case quickSwitch                    // ⌘K — 빠른 전환기(명령 팔레트)
     case toggleServiceDock              // ⌘J — 서비스 도크(장수 프로세스 로그)
     case separateProject                // 활성 프로젝트를 새 창으로 분리(기본 바인딩 없음 — ⌘K·우클릭 메뉴에서)
+    case addScript                      // 스크립트 등록 시트(기본 바인딩 없음 — ⌘K에서. 칩은 0개면 숨어 첫 등록 진입점이 이것뿐)
 }
 
 /// (keyCode, 수정자) → KeymapAction 매핑 테이블 + 순수 판정 함수. 설정의 재정의를 기본 위에 얹는다.
@@ -143,6 +144,7 @@ extension KeymapAction {
         case "quick_switch": return .quickSwitch
         case "toggle_service_dock": return .toggleServiceDock
         case "separate_project": return .separateProject
+        case "add_script": return .addScript
         case "focus_left": return .focusPane(.left)
         case "focus_right": return .focusPane(.right)
         case "focus_up": return .focusPane(.up)

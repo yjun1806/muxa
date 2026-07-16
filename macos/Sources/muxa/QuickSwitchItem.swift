@@ -96,6 +96,9 @@ enum QuickCommandCatalog {
                  subtitle: "배지된 다음 세션으로 점프", icon: "bell.badge", shortcutHint: "⌘⇧A"),
         .command(.separateProject, id: "cmd:separate-project", title: "새 창으로 분리",
                  subtitle: "활성 프로젝트를 새 창으로", icon: "macwindow"),
+        // 첫 스크립트의 상시 진입점 — 푸터 칩은 등록 0개면 숨어서 스스로는 0→1을 못 만든다.
+        .command(.addScript, id: "cmd:add-script", title: "스크립트 추가",
+                 subtitle: "활성 프로젝트에 1회 실행 명령 등록", icon: "play.square"),
     ]
 }
 

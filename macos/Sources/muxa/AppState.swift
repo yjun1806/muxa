@@ -281,6 +281,9 @@ final class AppState {
         notifyServer.onHook = { [weak self] msg in
             MainActor.assumeIsolated { self?.routeHook(msg) }
         }
+        notifyServer.onScriptExit = { [weak self] msg in
+            MainActor.assumeIsolated { self?.routeScriptExit(msg) }
+        }
         notifyServer.start()
         refreshHookInstallState()
     }
@@ -332,6 +335,16 @@ final class AppState {
         for store in stores.values {
             if store.deliverNotify(tabId: tabId, state: msg.state, title: msg.title,
                                    body: msg.body, category: msg.category, resume: msg.resume) { break }
+        }
+    }
+
+    /// script-exit 프레임(스크립트 exit code)을 tabId 소유 store로 라우팅한다(routeNotify와 같은 순회 규칙).
+    /// 결과 판정(running→finished 전이·배지)은 소유 store의 deliverScriptExit가 한다.
+    private func routeScriptExit(_ msg: ScriptExitMessage) {
+        guard let uuid = UUID(uuidString: msg.tabId) else { return }
+        let tabId = TabID(uuid: uuid)
+        for store in stores.values {
+            if store.deliverScriptExit(tabId: tabId, exitCode: msg.exitCode) { break }
         }
     }
 
@@ -539,6 +552,13 @@ final class AppState {
             // 메인이 보고 있는 프로젝트를 새 창으로 — 이미 분리 창에서 눌렀다면 분리할 것이 없다.
             guard windowId.isMain, let projectId = activeProject?.id else { return false }
             separateProject(projectId)
+            return true
+        case .addScript:
+            // 등록할 프로젝트가 없으면 무동작 — 시트(대상 프로젝트에 등록)가 빈 대상에 뜨면 안 된다.
+            // 시트 호스트는 메인 창의 StatusBar다(칩은 등록 0개면 숨어 첫 등록을 못 받는다) — 먼저 앞으로.
+            guard activeProject != nil else { return false }
+            raiseMainIfNeeded(from: windowId)
+            requestAddScript()
             return true
         case .closeTab where windowId.isMain && showServiceDock:
             // ⌘W 오폭 방지 — 도크가 열려 있으면 ⌘W는 도크를 닫는다.
@@ -1013,6 +1033,36 @@ final class AppState {
         }
     }
 
+    // MARK: 스크립트 (끝이 있는 명령 — Script.swift)
+    //
+    // 서비스 CRUD의 미러지만 tmux 호출이 없다 — 스크립트는 등록만 하고, 실행은 사용자가
+    // 그때그때 명시적으로 시킨다(TerminalStore.runScript). 자동 기동·좀비 청소도 없다.
+
+    /// 프로젝트에 등록된 스크립트 목록.
+    func scripts(of projectId: String) -> [Script] {
+        project(projectId)?.scripts ?? []
+    }
+
+    /// 스크립트를 등록한다(실행은 별도 — addService와 달리 등록이 곧 기동이 아니다).
+    func addScript(name: String, command: String, to projectId: String) {
+        let script = Script(id: newId(), name: name, command: command)
+        updateProject(projectId) { p in
+            var next = p
+            next.scripts = (p.scripts ?? []) + [script]
+            return next
+        }
+    }
+
+    /// 스크립트 등록을 해제한다. 실행 중이던 탭은 건드리지 않는다 — 이미 뜬 프로세스는
+    /// 사용자 것이고, 어차피 끝나면 스스로 소멸한다(서비스의 좀비 문제가 없다).
+    func removeScript(_ scriptId: String, from projectId: String) {
+        updateProject(projectId) { p in
+            var next = p
+            next.scripts = (p.scripts ?? []).filter { $0.id != scriptId }
+            return next
+        }
+    }
+
     /// 등록된 서비스가 바뀔 때마다 모니터에 알린다(폴링 대상 갱신). 서비스가 0개면 폴링이 멈춘다.
     func syncServiceMonitor() {
         serviceMonitor.sync(services: allServices)
@@ -1166,6 +1216,16 @@ final class AppState {
         dockProjectId = activeProject?.id // 추가는 언제나 메인이 보고 있는 프로젝트에 한다
         showServiceDock = true
         serviceAddRequested = true
+    }
+
+    /// 스크립트 추가 시트 원샷 요청(serviceAddRequested 패턴) — 스크립트 팝오버는 별도
+    /// NSWindow(FloatingPanelHost)라 그 안에서 `.sheet`를 못 띄운다. 소비자는 **StatusBar**다
+    /// (항상 렌더 — 칩(ScriptStrip)은 등록 0개면 사라져 첫 등록 요청을 못 받는다).
+    /// 호출처는 팝오버의 ＋과 ⌘K "스크립트 추가"(perform .addScript).
+    var scriptAddRequested = false
+
+    func requestAddScript() {
+        scriptAddRequested = true
     }
 
     /// 재시작·제거로 세션이 갈아엎어지면 그 서비스의 터미널을 버린다(옛 세션에 붙은 채 남지 않게).
