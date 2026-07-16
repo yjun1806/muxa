@@ -46,6 +46,15 @@ enum GitService {
         }
     }
 
+    /// origin remote URL(조회 전용) — 워크스페이스 리포 아바타(`RepoRemote`) 입력.
+    /// git 저장소가 아니거나 origin이 없으면 nil.
+    static func remoteURL(in dir: String) async -> String? {
+        let result = await run(["remote", "get-url", "origin"], in: dir)
+        guard result.exitCode == 0 else { return nil }
+        let url = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return url.isEmpty ? nil : url
+    }
+
     /// 현재 브랜치명만 가볍게 조회 — 상태바용. status(--porcelain 전체 스캔)보다 훨씬 싸다.
     /// git 저장소가 아니거나 detached HEAD면 nil.
     static func currentBranch(in dir: String) async -> String? {

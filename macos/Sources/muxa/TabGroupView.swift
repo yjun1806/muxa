@@ -31,7 +31,9 @@ struct TabGroupView: View {
             }
             .padding(.horizontal, 8)
         }
-        .frame(height: 32)
+        // 아래 HDivider(1)까지 합쳐 도구 패널 헤더(panelHeader+구분선 = header)와 같은 높이 —
+        // 서브탭 줄과 탐색기·Git 헤더의 아래 경계가 한 선에 선다(하드코딩 32는 1pt 어긋났다).
+        .frame(height: RowHeight.panelHeader)
         .background(Color.pPanel)
     }
 

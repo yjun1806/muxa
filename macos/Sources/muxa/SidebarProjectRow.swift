@@ -156,19 +156,26 @@ struct SidebarProjectRow: View {
         .padding(.top, Space.tight)
     }
 
-    /// 에이전트 한 행 — 상태 글리프 + 타입 마크 + 제목 – 본문 + 우측 시간 열(대기 경과만).
+    /// 에이전트 한 행 — 상태 글리프 + 타입 마크 + 제목(– 본문) + 우측 열(그룹=서브탭 개수 · 대기=경과).
+    /// 그룹 행은 **종류가 이름**("문서·HTML·코드")이라 본문을 겹쳐 말하지 않는다.
     /// **클릭 = 그 탭 지목 이동**(`focusAgentTab`, 상태 순환이 아니라 이 탭 하나).
     private func agentRowView(_ r: AgentRow, selected: TabID?) -> some View {
-        Button { state.focusAgentTab(project.id, r.tabId) } label: {
+        let desc = r.viewerKind == nil ? "\(r.title) — \(r.subtitle)"
+                                       : r.subtabCount.map { "\(r.title) \($0)개" } ?? r.title
+        return Button { state.focusAgentTab(project.id, r.tabId) } label: {
             HStack(spacing: Space.xs) {
                 statusGlyph(r.state.tone) // 유휴(뷰어 등)면 작은 무채 점
                 typeMark(r) // Claude 세션이면 마크, 아니면 슬롯 고정(제목 시작선 불변)
                 Text(r.title).font(.muxa(.label)).foregroundStyle(Color.pFg)
                     .lineLimit(1).truncationMode(.tail)
-                Text("– \(r.bodyLabel)").font(.muxa(.label)).foregroundStyle(Color.pMuted)
-                    .lineLimit(1).truncationMode(.tail)
+                if r.viewerKind == nil { // 그룹 행은 제목 = 종류라 본문이 같은 말의 반복이 된다
+                    Text("– \(r.bodyLabel)").font(.muxa(.label)).foregroundStyle(Color.pMuted)
+                        .lineLimit(1).truncationMode(.tail)
+                }
                 Spacer(minLength: 0)
-                if let time = r.timeLabel {
+                if let count = r.subtabCount {
+                    Text("\(count)").font(.muxaMono(.caption)).foregroundStyle(Color.pMuted)
+                } else if let time = r.timeLabel {
                     Text(time).font(.muxaMono(.caption)).foregroundStyle(Color.pMuted)
                 }
             }
@@ -181,8 +188,8 @@ struct SidebarProjectRow: View {
         .buttonStyle(.plain)
         .modifier(ListRowFill(selected: r.tabId == selected))
         .clickCursor()
-        .help("\(r.title) — \(r.subtitle). 클릭해 이동")
-        .accessibilityLabel("\(r.title) \(r.subtitle) 탭으로 이동")
+        .help("\(desc). 클릭해 이동")
+        .accessibilityLabel("\(desc) 탭으로 이동")
     }
 
     /// 타입 마크 — **"이게 뭔가(WHO/무엇)"를 상태 점(WHAT)과 분리해 말한다**(Orca 원칙).
@@ -205,6 +212,12 @@ struct SidebarProjectRow: View {
         Button { state.jumpToProjectTab(project.id, matching: [.idle]) } label: {
             HStack(spacing: Space.xs) {
                 statusGlyph(.quiet) // 작은 무채 점(유휴 — 조용하지만 비어 있진 않다)
+                // 접힌 것은 곧 유휴 **터미널**들 — 뷰어 행이 타입 아이콘을 달았는데 이 행만 비면
+                // WHO 열이 끊긴다(터미널만 아이콘이 없냐는 인상).
+                Image(systemName: "terminal")
+                    .font(.muxa(.micro))
+                    .foregroundStyle(Color.pMuted)
+                    .frame(width: IconSize.statusGlyph, height: IconSize.statusGlyph)
                 Text("유휴 \(count)").font(.muxa(.label)).foregroundStyle(Color.pMuted)
                 Spacer(minLength: 0)
             }

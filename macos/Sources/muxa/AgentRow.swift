@@ -22,8 +22,10 @@ struct AgentRow: Equatable, Identifiable {
     /// **isAgent면 이 아이콘 대신 ClaudeMark(정체성)를 단다** — "누구(WHO)"와 "무슨 상태(WHAT)"를 가른다(Orca 원칙).
     let typeIcon: String
     /// 뷰어(문서·코드·diff…) 탭이면 그 종류 라벨("문서"·"코드"·"변경"…), 아니면 nil.
-    /// 뷰어는 에이전트 상태가 없어(유휴) 부제로 종류를 말하고, **유휴여도 목록에 남긴다**("파일탭은 파일로").
+    /// 뷰어는 에이전트 상태가 없어(유휴) 종류가 곧 이름이고, **유휴여도 목록에 남긴다**("파일탭은 파일로").
     let viewerKind: String?
+    /// 그룹 탭의 서브탭 개수("문서 안에 몇 개") — 행 우측 열이 보여준다. 터미널·링크 탭은 nil.
+    var subtabCount: Int? = nil
 
     var id: TabID { tabId }
 

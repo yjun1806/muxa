@@ -3,8 +3,9 @@ import SwiftUI
 /// 이름이 안 보이는 모드(icon 52 · slim 14)의 **워크스페이스** 항목.
 /// (그 아래 프로젝트는 `SidebarProjectIcon`이 그린다 — 접힘 모드에서도 프로젝트가 보여야 한다.)
 ///
-/// icon은 **무채 캡슐 + 이니셜**이다(컬러 사각형 아바타 폐기 — 그건 Slack/Notion의 언어이고,
-/// 브랜드색 채움은 크롬을 도형으로 만든다). 색은 상태 점·막대만 쓴다.
+/// icon은 **무채 캡슐 + 리포 아바타(폴백 이니셜)**이다 — 아바타는 리포의 정체성이라 원본 색을
+/// 유지한다(ClaudeMark와 같은 규칙). 임의 컬러 채움 사각형(Slack/Notion 언어)은 여전히 안 쓴다 —
+/// 크롬의 색은 상태 점·막대만 쓴다.
 struct SidebarIconItem: View {
     let state: AppState
     let workspace: Workspace
@@ -47,6 +48,7 @@ struct SidebarIconItem: View {
             }
         }
         .help(workspace.tooltip)
+        .task(id: workspace.id) { await state.loadRepoAvatar(for: workspace) } // 판정 1회(캐시)
     }
 
     /// 슬림 막대 — 색은 **신호**(주의·작업중)만 말하고, "지금 보는 곳"은 색이 아니라 **폭·높이**가 말한다.
@@ -64,13 +66,19 @@ struct SidebarIconItem: View {
             .animation(Motion.fast, value: active)
     }
 
-    /// 아이콘 캡슐 — 무채 채움(활성/hover만 밝아진다) + 이니셜, 우상단에 롤업 점.
+    /// 아이콘 캡슐 — 무채 채움(활성/hover만 밝아진다) + 리포 아바타(폴백 이니셜), 우상단에 롤업 점.
     private func iconCapsule(_ rollup: SidebarTree.ProjectStatus) -> some View {
-        Text(workspace.name.first.map { String($0).uppercased() } ?? "?")
-            // `muxaLabel`은 **머리글 전용** 서체다(자간·대문자와 한 세트) — 이니셜은 머리글이 아니다.
-            .font(.muxa(.label, weight: .semibold))
-            .foregroundStyle(active ? Color.pFg : Color.pMuted)
-            .frame(width: IconSize.control, height: IconSize.control)
+        Group {
+            if let avatar = state.repoAvatar(workspace.id) {
+                RepoAvatarIcon(url: avatar, size: IconSize.mark)
+            } else {
+                Text(workspace.name.first.map { String($0).uppercased() } ?? "?")
+                    // `muxaLabel`은 **머리글 전용** 서체다(자간·대문자와 한 세트) — 이니셜은 머리글이 아니다.
+                    .font(.muxa(.label, weight: .semibold))
+                    .foregroundStyle(active ? Color.pFg : Color.pMuted)
+            }
+        }
+        .frame(width: IconSize.control, height: IconSize.control)
             .background(active ? Color.pBtnActive : (hovered ? Color.pBtnHover : Color.clear))
             .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
             .overlay(alignment: .topTrailing) {

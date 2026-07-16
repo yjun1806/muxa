@@ -767,6 +767,31 @@ final class AppState {
         stores[projectId]?.hasTerminalTabs ?? false
     }
 
+    // MARK: 워크스페이스 리포 아바타 — git remote → GitHub owner 아바타 (orca식 리포 아이콘)
+
+    /// 워크스페이스 id → 아바타 URL. **"없음"(nil)도 캐시**한다(이중 옵셔널 — 키 존재 = 판정 완료).
+    /// remote 없음·비 GitHub 워크스페이스에서 행이 그려질 때마다 셸아웃이 재실행되지 않게.
+    private(set) var repoAvatars: [String: URL?] = [:]
+
+    /// 이 워크스페이스의 아바타 URL(판정 전·없음이면 nil → 뷰는 레이어 글리프/이니셜 폴백).
+    func repoAvatar(_ workspaceId: String) -> URL? {
+        repoAvatars[workspaceId] ?? nil
+    }
+
+    /// 아바타 판정 1회 — 행이 나타날 때 불린다(`.task`). 이미 판정한 워크스페이스는 no-op.
+    /// remote는 사실상 안 바뀌므로 세션 내 재조회하지 않는다.
+    func loadRepoAvatar(for workspace: Workspace) async {
+        guard repoAvatars[workspace.id] == nil else { return }
+        guard let path = workspace.path else { // 경로 없는 워크스페이스 — 아바타 없음으로 확정
+            repoAvatars[workspace.id] = .some(nil)
+            return
+        }
+        let url = await GitService.remoteURL(in: path)
+            .flatMap(RepoRemote.githubSlug(from:))
+            .flatMap(RepoRemote.avatarURL)
+        repoAvatars[workspace.id] = .some(url)
+    }
+
     /// 프로젝트 서비스들의 현재 상태.
     func serviceStatuses(of projectId: String) -> [ServiceState] {
         services(of: projectId).map { serviceMonitor.state(of: $0.id) }

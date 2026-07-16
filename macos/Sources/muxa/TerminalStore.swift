@@ -1293,19 +1293,28 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             // 타입 아이콘(WHO/무엇인가) — 터미널은 terminal, 뷰어는 그 종류(문서·코드·변경…).
             let typeIcon: String
             let viewerKind: String?
+            let title: String
+            var subtabCount: Int?
             switch content(for: tabId) {
             case .terminal:
                 typeIcon = "terminal"; viewerKind = nil
+                title = tabTitle(tabId)
             case .group(let kind):
                 typeIcon = kind.icon; viewerKind = kind.title
+                // 그룹 행은 탭 제목(선택 서브탭명·"터미널")이 아니라 **종류가 이름**이다 — "문서·HTML·코드"로
+                // 읽히게. 안에 몇 개가 열렸는지는 서브탭 개수가 말한다(행 우측 열).
+                title = kind.title
+                subtabCount = groups[tabId]?.items.count
             case .worktreeLink:
                 typeIcon = "arrow.triangle.branch"; viewerKind = "링크"
+                title = tabTitle(tabId)
             }
-            return AgentRow(tabId: tabId, title: tabTitle(tabId), state: state,
+            return AgentRow(tabId: tabId, title: title, state: state,
                             detail: state == .working ? agentDetail[tabId] : nil,
                             waitingSeconds: waitingSeconds,
                             isAgent: hookedTabs.contains(tabId),
-                            typeIcon: typeIcon, viewerKind: viewerKind)
+                            typeIcon: typeIcon, viewerKind: viewerKind,
+                            subtabCount: subtabCount)
         }
     }
 

@@ -26,13 +26,17 @@ struct SidebarWorkspaceRow: View {
     var body: some View {
         let rollup = state.workspaceStatus(workspace)
         HStack(spacing: Space.sm) {
-            // 레이어 글리프 = "이건 컨테이너다" — 프로젝트 행의 상태 점과 **다른 시각 어휘**라
-            // 워크스페이스↔프로젝트가 한눈에 갈린다(색이 아니라 모양으로).
+            // 리포 아바타(GitHub owner — orca식) — 리포의 정체성이 곧 워크스페이스의 얼굴이다.
+            // 비 GitHub·remote 없음이면 레이어 글리프("컨테이너") 폴백.
             // 폭 고정 — 심볼 고유 폭에 맡기면 워크스페이스마다 이름 시작선이 흔들린다(25pt 리듬의 기준점).
-            Image(systemName: "square.stack")
-                .font(.muxa(.body, weight: .medium))
-                .foregroundStyle(active ? Color.pFg : Color.pMuted)
-                .frame(width: IconSize.inlineMark)
+            if let avatar = state.repoAvatar(workspace.id) {
+                RepoAvatarIcon(url: avatar, size: IconSize.inlineMark)
+            } else {
+                Image(systemName: "square.stack")
+                    .font(.muxa(.body, weight: .medium))
+                    .foregroundStyle(active ? Color.pFg : Color.pMuted)
+                    .frame(width: IconSize.inlineMark)
+            }
             Text(workspace.name)
                 .font(.muxa(.body, weight: .semibold))
                 .foregroundStyle(active ? Color.pFg : Color.pMuted)
@@ -79,6 +83,7 @@ struct SidebarWorkspaceRow: View {
             WorkspaceMenu.items(for: workspace, state: state)
         }
         .help(workspace.tooltip)
+        .task(id: workspace.id) { await state.loadRepoAvatar(for: workspace) } // 판정 1회(캐시) — 셸아웃 반복 없음
     }
 
     /// 프로젝트 개수 배지 — 접혀 있어도 "안에 몇 개"가 보인다(orca SectionMetricsBadge).
