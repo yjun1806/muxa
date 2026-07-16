@@ -47,7 +47,6 @@ struct SidebarProjectRow: View {
         .background(active ? Color.pBtnActive : (hovered ? Color.pBtnHover : Color.clear))
         .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
         .contentShape(Rectangle())
-        .clickCursor() // 클릭 가능 = 포인팅 핸드 커서
         .onTapGesture(perform: activate)
         .sidebarRow(id: project.id, label: displayName, selected: active,
                     hoveredId: $hoveredId, menuOpenId: $menuOpenId, activate: activate) {
@@ -192,10 +191,16 @@ struct SidebarProjectRow: View {
         }
     }
 
-    /// 행/제목 클릭 = 이 프로젝트로 이동 **+ 펼침 토글**. 제목을 누르면 에이전트 목록이 펼쳐지고 접힌다.
+    /// 행/제목 클릭. **전환과 접힘이 안 겹치게** 한다:
+    /// - 다른 프로젝트로 **전환**하면 선택 + 펼침(절대 접지 않는다 — 전환하며 닫히면 성가시다).
+    /// - **이미 활성**인 프로젝트를 다시 누르면 펼침/접힘 토글(그때만 접을 수 있다. 셰브론도 언제든 토글).
     private func activate() {
-        select()
-        if expandable { expanded.toggle() }
+        if active {
+            if expandable { expanded.toggle() }
+        } else {
+            select()
+            if expandable { expanded = true }
+        }
     }
 
     /// 이 프로젝트로 이동(마우스·VoiceOver가 같은 동작을 쓴다).

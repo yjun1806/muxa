@@ -16,9 +16,17 @@ extension View {
     func clickCursor() -> some View { cursor(.pointingHand) }
 
     /// 커서를 지정한 모양으로 바꾼다(hover 동안).
+    ///
+    /// **`onHover`가 아니라 `onContinuousHover`를 쓴다.** `NSCursor.set()`은 끈적하지 않다 —
+    /// 시스템이 mouseMoved마다 창 기본 커서(화살표)로 되돌린다. onHover(진입/이탈 각 1회)로는 넓은 행 위에서
+    /// 몇 픽셀만 움직여도 화살표로 풀린다. onContinuousHover는 움직일 때마다 다시 set해 커서를 붙잡는다
+    /// (중첩된 자식이 이탈하며 arrow를 세팅해도 다음 이동에서 부모가 곧바로 되돌린다 — 자기 치유).
     func cursor(_ cursor: NSCursor) -> some View {
-        onHover { inside in
-            if inside { cursor.set() } else { NSCursor.arrow.set() }
+        onContinuousHover { phase in
+            switch phase {
+            case .active: cursor.set()
+            case .ended: NSCursor.arrow.set()
+            }
         }
     }
 }
