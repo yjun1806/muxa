@@ -41,10 +41,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         self.runtime = runtime
 
-        // 툴팁이 바로 뜨게 — macOS 기본은 1초 넘게 기다린다. 탭바의 분할·새 터미널 버튼처럼 아이콘만
-        // 있는 컨트롤은 그때까지 뭘 하는 버튼인지 알 수 없어 설명이 있으나 마나다.
-        // (그 버튼들은 Bonsplit이 `.help()`로 그리므로 우리가 뷰를 감쌀 수 없다 — 앱 전역 지연을 줄인다.)
-        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 250])
+        // 탭바 툴팁(분할 버튼·탭 제목·오디오 배지)을 muxa 팝오버 칩으로 — 예전엔 Bonsplit이
+        // NSToolTip(`.help()`)으로 그려 뷰를 감쌀 수 없어 **앱 전역** `NSInitialToolTipDelay=250`
+        // 해킹을 깔았는데, 그 탓에 앱의 모든 툴팁이 즉시 떠 거슬렸다. 이제 포크가 툴팁 표시를
+        // 호스트에 위임하므로(`BonsplitTooltipHost`) 전역 지연 해킹은 제거 — 나머지 툴팁은 시스템 기본.
+        BonsplitTooltipHost.render = { view, text in AnyView(view.muxaTip(text)) }
 
         // 분할 칸 사이 divider 위 리사이즈 커서. Bonsplit은 이 훅이 **설정됐을 때만** divider의
         // 확장 효과 영역(두께 + hitExpansion)에 커서를 걸고, unset이면 AppKit 네이티브(그려진 1pt

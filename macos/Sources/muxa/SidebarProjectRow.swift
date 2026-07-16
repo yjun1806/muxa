@@ -40,16 +40,18 @@ struct SidebarProjectRow: View {
         VStack(alignment: .leading, spacing: Space.tight) {
             // 채움(active·hover)은 **이름 줄에만** — 블록 전체에 걸면 에이전트 행의 hover·선택 채움이
             // 같은 색 위에 그려져 안 보인다(L1 행 문법이 죽는다). 에이전트 행은 레인 위에 직접 앉는다.
+            // 패딩은 채움 **안쪽**(내용 인셋)이다 — 채움 밖에 두면 dot·✕가 채움 모서리에 딱 붙어 어색하다.
+            // leading xs = 레인 인셋과 합쳐 이름 시작선이 워크스페이스 헤더와 한 세로선(레인 4+행 4+슬롯 11+간격 6
+            // = 헤더 6+글리프 13+간격 6 = 25). trailing은 sm — ✕·셰브론이 모서리에서 숨 쉴 자리.
             topRow(leadingTone: leadingTone, services: services, expandable: expandable)
+                .padding(.leading, Space.xs)
+                .padding(.trailing, Space.sm)
                 .background(active ? Color.pBtnActive : (hovered ? Color.pBtnHover : Color.clear))
                 .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
             if expandable && expanded {
                 agentList()
             }
         }
-        // 좌우 인셋 xs — 레인 인셋(xs)과 합쳐 이름 시작선이 워크스페이스 헤더의 이름과 한 세로선에 선다
-        // (레인 4 + 행 4 + 슬롯 11 + 간격 6 = 헤더 6 + 글리프 13 + 간격 6 = 25).
-        .padding(.horizontal, Space.xs)
         .padding(.vertical, (expandable && expanded) ? Space.tight : 0) // 2줄일 때만 위아래 숨을 준다
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(minHeight: RowHeight.row)
@@ -219,7 +221,7 @@ struct SidebarProjectRow: View {
 
     /// 에이전트 행 내용의 들여쓰기 — 행의 상태 글리프가 프로젝트 **이름** 시작선(위 25pt 리듬)에 온다
     /// (채움은 풀폭, 내용만 들어간다 — 들여쓰기를 행 밖에 주면 hover 채움이 좁아진다).
-    private var agentIndent: CGFloat { IconSize.statusGlyph + Space.sm }
+    private var agentIndent: CGFloat { Space.xs + IconSize.statusGlyph + Space.sm }
 
     /// 프로젝트 롤업 점 — 색·크기는 `StatusStyle`(SSOT). **유휴도 작은 무채 점**(빈 슬롯은 아이콘이
     /// 하나도 없는 행을 텅 비어 보이게 해 오류 같았다 — 크기·색이 "조용함"을 말한다, 색맹 안전은 크기가).

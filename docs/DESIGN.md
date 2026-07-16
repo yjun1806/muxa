@@ -323,6 +323,7 @@ zinc 원칙과도 충돌하지 않는다. `panel`을 올린 만큼 hover도 한 
 | `ServiceRow` | 서비스 한 줄 — 도크 목록과 팝오버가 **같은 행**을 쓴다 | 표식은 **글리프**(`ServiceStatusStyle.glyph`) — 색만으로 상태를 말하지 않는다. 명령 미리보기는 `truncationMode(.tail)`: 가운데를 접으면 명령의 꼬리(`&& curl … \| sh`)가 숨는다 |
 | `Breadcrumb` | 상단바의 "지금 어디에 있나" | **라벨이다(버튼 아님).** 여기에 클릭을 주면 전환 경로가 둘이 되고, 어느 쪽이 진짜인지 매번 고민하게 된다 |
 | `SidebarNameChip` | 접힌 모드에서 hover한 항목의 이름 칩 | 사이드바 **바깥**에 뜬다(`Sidebar.chipOffset`). 히트테스트 끔 |
+| `muxaTip` | **팝오버 툴팁** — NSToolTip 대체(hover 0.5s 후 앵커 아래 칩) | 지연·모양·위치를 앱이 소유. 탭바(Bonsplit `safeHelp`)가 `BonsplitTooltipHost`로 위임받아 쓴다. **전역 `NSInitialToolTipDelay` 해킹 금지**(모든 툴팁이 즉시 떠 거슬린다 — 그래서 걷어냈다) |
 | **칩** | 푸터의 누를 수 있는 알약(사용량·서비스) | 배경(`btnHover`) + hover/열림 상태로 "누를 수 있음"을 드러낸다. 항목 사이는 여백이 아니라 **얇은 세로선**(`VDivider`)으로 가른다 — 여백만으로는 붙어 읽힌다 |
 | **팝오버** | 칩의 상세 | 칩이 "있나 없나"를 말하고, 팝오버가 "무엇이 왜"를 말한다 |
 
