@@ -72,7 +72,7 @@ struct SidebarIconItem: View {
             .foregroundStyle(active ? Color.pFg : Color.pMuted)
             .frame(width: IconSize.control, height: IconSize.control)
             .background(active ? Color.pBtnActive : (hovered ? Color.pBtnHover : Color.clear))
-            .clipShape(RoundedRectangle(cornerRadius: Radius.md))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
             .overlay(alignment: .topTrailing) {
                 // 하위 신호가 있을 때만. 패널색 링으로 아이콘과 분리한다.
                 // 점 크기는 상태가 정한다(신호 6 / 유휴 5) — `ProjectStatusStyle`이 단일 출처.

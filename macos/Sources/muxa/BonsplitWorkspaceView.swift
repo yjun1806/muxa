@@ -116,7 +116,7 @@ private struct EmptyProjectView: View {
                     .font(.muxa(.title))
                     .padding(.horizontal, Space.lg)
                     .padding(.vertical, Space.sm)
-                    .background(Color.pBtnHover, in: RoundedRectangle(cornerRadius: Radius.md))
+                    .background(Color.pBtnHover, in: RoundedRectangle(cornerRadius: Radius.sm))
                     .foregroundStyle(Color.pFg)
             }
             .buttonStyle(.plain)

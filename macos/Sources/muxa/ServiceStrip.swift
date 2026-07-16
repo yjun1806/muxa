@@ -40,7 +40,7 @@ struct ServiceStrip: View {
         }
         .padding(.horizontal, Space.sm)
         .frame(height: RowHeight.tight)
-        .background(chipColor, in: RoundedRectangle(cornerRadius: Radius.md))
+        .background(chipColor, in: RoundedRectangle(cornerRadius: Radius.sm))
         .onHover { hovered = $0 } // hover는 배경색까지만
         .animation(Motion.fast, value: hovered)
     }

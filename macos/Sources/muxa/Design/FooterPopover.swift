@@ -21,8 +21,8 @@ struct FooterChip<Label: View>: View {
             label()
                 .padding(.horizontal, Space.sm)
                 .frame(height: RowHeight.tight)
-                .background(background, in: RoundedRectangle(cornerRadius: Radius.md))
-                .contentShape(RoundedRectangle(cornerRadius: Radius.md))
+                .background(background, in: RoundedRectangle(cornerRadius: Radius.sm))
+                .contentShape(RoundedRectangle(cornerRadius: Radius.sm))
         }
         .buttonStyle(.plain)
         .clickCursor()

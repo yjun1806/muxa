@@ -20,7 +20,7 @@ struct PanelToggle: View {
         .clickCursor()
         .frame(width: IconSize.control, height: IconSize.control)
         .background(on ? Color.pBtnActive.opacity(0.6) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.md))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
         .help(help)
     }
 }

@@ -105,9 +105,9 @@ struct ServiceDock: View {
         .padding(.vertical, Space.sm)
         .padding(.horizontal, Space.sm) // 카드 안 선택이 테두리에서 숨 쉴 만큼만(과하지 않게)
         .background {
-            RoundedRectangle(cornerRadius: Radius.md)
+            RoundedRectangle(cornerRadius: Radius.sm)
                 .fill(Color.pBg)
-                .overlay(RoundedRectangle(cornerRadius: Radius.md)
+                .overlay(RoundedRectangle(cornerRadius: Radius.sm)
                     .stroke(Color.pBorder, lineWidth: RowHeight.hairline))
         }
         .padding(.horizontal, Space.xs) // 카드가 도크 벽에서 뜨는 자리

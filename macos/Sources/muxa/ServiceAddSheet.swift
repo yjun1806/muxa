@@ -194,8 +194,8 @@ struct ServiceAddSheet: View {
                 }
             }
             .frame(maxHeight: 150)
-            .background(Color.pBg, in: RoundedRectangle(cornerRadius: Radius.md))
-            .overlay(RoundedRectangle(cornerRadius: Radius.md).stroke(Color.pBorder, lineWidth: 1))
+            .background(Color.pBg, in: RoundedRectangle(cornerRadius: Radius.sm))
+            .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: 1))
         }
     }
 

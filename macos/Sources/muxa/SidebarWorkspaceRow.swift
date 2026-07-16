@@ -63,7 +63,7 @@ struct SidebarWorkspaceRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: RowHeight.tight)
         .background(hovered ? Color.pBtnHover : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.md))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
         .contentShape(Rectangle())
         // 행 클릭 = 전환(포커스한 워크스페이스는 펼쳐 보여준다 — 단 다른 건 접지 않는다).
         .onTapGesture { state.setActiveId(workspace.id) }

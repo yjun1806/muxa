@@ -29,7 +29,7 @@ struct SidebarQueueHeader: View {
             .padding(.horizontal, Space.sm)
             .frame(height: RowHeight.row)
             .background(hovered ? Color.pBtnHover : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.md))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
             .contentShape(Rectangle())
             .clickCursor()
             .onTapGesture { state.jumpToNextWaiting() }

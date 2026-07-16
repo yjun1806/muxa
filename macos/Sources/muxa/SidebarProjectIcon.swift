@@ -27,7 +27,7 @@ struct SidebarProjectIcon: View {
                 // 워크스페이스 항목(row 24)보다 얕게 — 자식이라는 걸 크기로 말한다(들여쓸 폭이 없다).
                 .frame(height: RowHeight.tight)
                 .background(background)
-                .clipShape(RoundedRectangle(cornerRadius: Radius.md))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -45,7 +45,7 @@ struct WindowProjectStrip: View {
             .padding(.horizontal, Space.md)
             .frame(height: IconSize.control)
             .background(active ? Color.pBtnActive.opacity(0.6) : Color.clear,
-                        in: RoundedRectangle(cornerRadius: Radius.md))
+                        in: RoundedRectangle(cornerRadius: Radius.sm))
         }
         .buttonStyle(.plain)
         .clickCursor()

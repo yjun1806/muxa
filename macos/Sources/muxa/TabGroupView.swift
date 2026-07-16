@@ -52,8 +52,8 @@ struct TabGroupView: View {
         .padding(.horizontal, 8)
         .frame(height: 22)
         .background(selected ? Color.pBg : Color.clear)
-        .overlay(RoundedRectangle(cornerRadius: 5).stroke(selected ? Color.pBorder : Color.clear, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(selected ? Color.pBorder : Color.clear, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
         .contentShape(Rectangle())
         .clickCursor()
         .onTapGesture { group.selectedId = item.id; onFocus() }

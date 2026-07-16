@@ -36,7 +36,7 @@ struct SidebarProjectRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(minHeight: RowHeight.row)
         .background(active ? Color.pBtnActive : (hovered ? Color.pBtnHover : Color.clear))
-        .clipShape(RoundedRectangle(cornerRadius: Radius.md))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
         .contentShape(Rectangle())
         .onTapGesture(perform: select)
         .sidebarRow(id: project.id, label: displayName, selected: active,

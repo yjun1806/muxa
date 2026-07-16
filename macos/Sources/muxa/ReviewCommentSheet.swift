@@ -32,15 +32,15 @@ struct ReviewCommentSheet: View {
                 .lineLimit(2)
                 .padding(6)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.pBg, in: RoundedRectangle(cornerRadius: 5))
+                .background(Color.pBg, in: RoundedRectangle(cornerRadius: Radius.sm))
 
             TextEditor(text: $body_)
                 .font(.muxa(.body))
                 .frame(height: 90)
                 .scrollContentBackground(.hidden)
                 .padding(6)
-                .background(Color.pBg, in: RoundedRectangle(cornerRadius: 5))
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.pBorder, lineWidth: 1))
+                .background(Color.pBg, in: RoundedRectangle(cornerRadius: Radius.sm))
+                .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: 1))
 
             HStack {
                 Spacer()

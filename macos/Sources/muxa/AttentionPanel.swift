@@ -29,7 +29,7 @@ struct AttentionBell: View {
         .clickCursor()
         .frame(width: IconSize.control, height: IconSize.control)
         .background(open ? Color.pBtnActive.opacity(0.6) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
         .help("알림 인박스")
         // 인박스를 여는 순간 다 봤음 처리(벨 배지 0으로) — 여는 즉시 읽음이 표준 인박스 UX.
         .onChange(of: open) { _, isOpen in if isOpen { state.attention.markAllRead() } }

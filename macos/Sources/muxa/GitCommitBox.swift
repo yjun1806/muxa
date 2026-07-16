@@ -20,7 +20,7 @@ struct GitCommitBox: View {
                 .lineLimit(1...4)
                 .padding(6)
                 .background(Color.pBg)
-                .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.pBorder, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: 1))
                 .onSubmit { if canCommit { onCommit() } }
             if let error {
                 Text(error)
@@ -38,7 +38,7 @@ struct GitCommitBox: View {
                 .frame(height: 26)
                 .background(canCommit ? Color.accentColor : Color.pBorder)
                 .foregroundStyle(canCommit ? Color.white : Color.pMuted)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
             }
             .buttonStyle(.plain)
             .clickCursor()

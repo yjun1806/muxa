@@ -254,7 +254,7 @@ struct DiffView: View {
             segButton("통합", selected: !sideBySide) { sideBySide = false }
             segButton("나란히", selected: sideBySide) { sideBySide = true }
         }
-        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.pBorder, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: 1))
     }
 
     private func segButton(_ title: String, selected: Bool, _ action: @escaping () -> Void) -> some View {
@@ -278,7 +278,7 @@ struct DiffView: View {
             }
             .padding(.horizontal, 8)
             .frame(height: 22)
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.pBorder, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .clickCursor()

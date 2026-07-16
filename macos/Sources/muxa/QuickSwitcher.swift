@@ -58,8 +58,8 @@ struct QuickSwitcher: View {
             }
         }
         .background(Color.pPanel)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.pBorder, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+        .overlay(RoundedRectangle(cornerRadius: Radius.lg).stroke(Color.pBorder, lineWidth: 1))
         .shadow(color: .black.opacity(0.35), radius: 20, y: 8)
     }
 
@@ -129,7 +129,7 @@ struct QuickSwitcher: View {
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
                     .background(Color.pBtnActive.opacity(0.5))
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
             } else {
                 Text(item.kind.label)
                     .font(.muxa(.micro, weight: .medium))

@@ -38,8 +38,8 @@ struct SearchOverlay: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .background(Color.pPanel)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.pBorder, lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
+            .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: 1))
             .shadow(color: .black.opacity(0.25), radius: 8, y: 2)
             .padding(10)
         }

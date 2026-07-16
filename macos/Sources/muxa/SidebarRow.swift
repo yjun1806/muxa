@@ -64,8 +64,8 @@ struct SidebarNameChip: View {
         .padding(.horizontal, Space.md)
         .padding(.vertical, Space.xs)
         .background(Color.pPanel)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.md))
-        .overlay(RoundedRectangle(cornerRadius: Radius.md).stroke(Color.pBorder, lineWidth: RowHeight.hairline))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
+        .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: RowHeight.hairline))
         .shadow(color: .black.opacity(Elevation.keyOpacity),
                 radius: Elevation.keyRadius, y: Elevation.keyOffsetY)
     }
