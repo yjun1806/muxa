@@ -2,9 +2,12 @@ import Foundation
 
 /// 화면에 그릴 수 있는 상태 **톤** — 표시 어휘의 단일 집합(SSOT).
 ///
-/// 도메인 상태(`AgentActivity`(탭)·`SidebarTree.ProjectStatus`(롤업)·`ServiceState`(서비스))는 의미가
-/// 서로 달라 **타입을 합치지 않는다**. 대신 "화면에 어떤 톤으로 그릴까"만 이 한 집합으로 모아,
-/// 색·글리프·점크기·라벨을 `StatusStyle` 한 곳에서 받는다. 매핑 테이블이 여러 곳에 흩어지지 않게.
+/// **에이전트/프로젝트 축**의 도메인 상태(`AgentActivity`(탭)·`SidebarTree.ProjectStatus`(롤업))를
+/// "화면에 어떤 톤으로 그릴까"로 모아, 색·글리프·점크기·라벨을 `StatusStyle` 한 곳에서 받는다
+/// (그리고 서비스 죽음을 반영하는 `projectLeadingTone`의 `.failure`). 매핑이 여러 곳에 흩어지지 않게.
+///
+/// **서비스 자체의 표시는 별개 축**(`ServiceStatusStyle`)이다 — 실행중 파랑 ▶·정상종료 무채 ■가 이 어휘와
+/// 달라 합치지 않는다(두 축 모델). 여기 `ServiceState`를 끌어들이지 않는 건 그 때문이다.
 ///
 /// **색맹 안전**: 톤마다 색과 **모양이 둘 다** 달라야 한다(`StatusStyleTests`가 글리프 유일성을 못 박는다).
 enum StatusTone: CaseIterable {
