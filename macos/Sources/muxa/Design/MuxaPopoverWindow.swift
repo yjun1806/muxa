@@ -49,11 +49,28 @@ private struct MuxaPopoverModifier<PopoverContent: View>: ViewModifier {
 @MainActor
 private final class AnchorBox {
     weak var view: NSView?
+    /// 마지막으로 성공적으로 읽은 자리. 앵커 뷰가 **잠깐 사라져도**(모드가 바뀌거나 `.tick`으로 칩이
+    /// 매초 재렌더될 때 SwiftUI가 배경 NSView를 교체하는 찰나) 팝오버가 (0,0) = 메인 화면 좌하단으로
+    /// 튀지 않게 지켜주는 폴백. 라이브 읽기가 되면 항상 그 값을 쓰므로(캐시가 아니라 폴백) 창이 움직여도
+    /// 낡은 자리에 뜨지 않는다 — `updateNSView`가 살아 있을 때마다 이 값을 최신으로 갱신한다.
+    private var lastValid: NSRect?
 
     var screenRect: NSRect {
-        guard let view, let window = view.window else { return .zero }
+        if let rect = liveRect {
+            lastValid = rect
+            return rect
+        }
+        return lastValid ?? .zero
+    }
+
+    /// 앵커 뷰가 창에 붙어 있을 때의 스크린 자리 — 붙어 있지 않으면 nil.
+    private var liveRect: NSRect? {
+        guard let view, let window = view.window else { return nil }
         return window.convertToScreen(view.convert(view.bounds, to: nil))
     }
+
+    /// 앵커가 아직 살아 있을 때 마지막 자리를 갱신해 둔다(뒤에 떨어져 나가도 최신 자리로 폴백되게).
+    func refresh() { if let rect = liveRect { lastValid = rect } }
 }
 
 /// 자기가 놓인 자리를 알려주는 투명 뷰 — SwiftUI 좌표계는 창 밖(스크린)을 모른다.
@@ -66,7 +83,10 @@ private struct AnchorReader: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ view: NSView, context: Context) { box.view = view }
+    func updateNSView(_ view: NSView, context: Context) {
+        box.view = view
+        box.refresh()
+    }
 
     /// 자리만 차지하고 클릭은 아래(칩)로 흘려보낸다.
     private final class PassthroughView: NSView {
