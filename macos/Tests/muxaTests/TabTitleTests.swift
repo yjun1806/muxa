@@ -27,4 +27,20 @@ final class TabTitleTests: XCTestCase {
     func testTrimsWhitespace() {
         XCTAssertEqual(TabTitle.shorten("  yj@mac:~/Code/app  "), "app")
     }
+
+    // MARK: decorate — 지속 세션(∞) 접두. 상태 마크가 아이콘 슬롯을 차지해도 제목이 ∞를 말한다.
+
+    /// 지속 탭만 접두가 붙고, 일반 탭은 원형 그대로.
+    func testDecoratePrefixesOnlyPersistent() {
+        XCTAssertEqual(TabTitle.decorate("muxa", persistent: true), "∞ muxa")
+        XCTAssertEqual(TabTitle.decorate("muxa", persistent: false), "muxa")
+    }
+
+    /// 멱등 — 엔진 제목 갱신마다 관문(pushTitle)을 다시 지나도 접두가 겹으로 안 붙는다.
+    /// 사용자가 손수 "∞ "로 시작하는 이름을 지어도 마찬가지.
+    func testDecorateIsIdempotent() {
+        XCTAssertEqual(TabTitle.decorate("∞ muxa", persistent: true), "∞ muxa")
+        XCTAssertEqual(TabTitle.decorate(TabTitle.decorate("빌드", persistent: true), persistent: true),
+                       "∞ 빌드")
+    }
 }

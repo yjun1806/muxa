@@ -198,6 +198,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         releaseTmuxSession(of: tabId, title: tabTitle(tabId))
         persistentIntent[tabId] = nil // 이 탭은 이제 그냥 터미널이다 — 닫기 판정도 그에 맞게 바뀐다
         controller.updateTab(tabId, icon: Self.terminalTabIcon) // ∞를 뗀다(새 기호를 만들지 않는다 — 원래 아이콘으로)
+        pushTitle(tabTitle(tabId), for: tabId) // 제목 접두(∞)도 함께 뗀다 — intent 해제 후라 무장식으로 나간다
         persist() // 스냅샷에서도 세션 참조를 지운다(다음 실행에서 빈 세션을 새로 만들지 않게)
         syncAttachTimer()
     }
@@ -680,6 +681,19 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 엔진이 마지막으로 보낸 제목 — 수동 제목 해제 시 이 값으로 되돌린다.
     @ObservationIgnored private var engineTitles: [TabID: String] = [:]
 
+    /// Bonsplit으로 나가는 제목의 **단일 관문** — 지속 세션(∞) 탭이면 "∞ " 접두를 단다.
+    /// 왜 제목인가·왜 원본에 안 넣는가는 `TabTitle.decorate` 주석(상태 마크가 아이콘 슬롯을 차지해
+    /// ∞가 안 보이는 문제의 해법). 제목을 밀어넣는 코드는 반드시 이 관문을 거친다 — 직접
+    /// `controller.updateTab(title:)`을 부르면 그 경로만 접두가 빠져 표시가 깜빡인다.
+    private func pushTitle(_ title: String, for tabId: TabID, hasCustomTitle: Bool? = nil) {
+        let decorated = TabTitle.decorate(title, persistent: isPersistent(tabId))
+        if let hasCustomTitle {
+            controller.updateTab(tabId, title: decorated, hasCustomTitle: hasCustomTitle)
+        } else {
+            controller.updateTab(tabId, title: decorated)
+        }
+    }
+
     /// 엔진(SET_TITLE)이 보낸 제목을 탭에 반영한다 — 터미널 탭만, 수동 지정 탭은 건드리지 않는다.
     private func applyEngineTitle(_ raw: String, for tabId: TabID) {
         guard case .terminal = content(for: tabId) else { return } // 그룹 탭은 종류 제목 유지
@@ -688,7 +702,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         guard !title.isEmpty else { return }
         engineTitles[tabId] = title
         guard manualTitles[tabId] == nil else { return } // 수동 지정 우선
-        controller.updateTab(tabId, title: title)
+        pushTitle(title, for: tabId)
     }
 
     /// 사용자가 탭 이름을 수동 지정한다 — 이후 엔진 제목은 무시된다.
@@ -696,7 +710,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         let title = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return }
         manualTitles[tabId] = title
-        controller.updateTab(tabId, title: title, hasCustomTitle: true)
+        pushTitle(title, for: tabId, hasCustomTitle: true)
         persist()
     }
 
@@ -705,7 +719,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         guard manualTitles[tabId] != nil else { return }
         manualTitles[tabId] = nil
         let fallback = engineTitles[tabId] ?? Self.defaultTerminalTitle
-        controller.updateTab(tabId, title: fallback, hasCustomTitle: false)
+        pushTitle(fallback, for: tabId, hasCustomTitle: false)
         persist()
     }
 
@@ -1495,7 +1509,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 안에서 돌던 프로세스와 화면이 그대로 돌아온다.
     @discardableResult
     func reattach(_ detached: DetachedSession, inPane pane: PaneID? = nil) -> TabID? {
-        guard let id = controller.createTab(title: "터미널", icon: Self.persistentTabIcon,
+        guard let id = controller.createTab(title: TabTitle.decorate(Self.defaultTerminalTitle,
+                                                                     persistent: true),
+                                            icon: Self.persistentTabIcon,
                                             inPane: pane) else { return nil }
         tmuxSessions[id] = detached.session // 새 세션을 만들지 않고 이 이름에 붙는다
         persistentIntent[id] = true
@@ -1537,7 +1553,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         // cwd·지속 여부 모두 **분할일 때만**(source가 있을 때) 물려받는다 — 새 탭은 프로젝트 기본 경로의 일반 셸.
         let start = source.flatMap { inheritedCwd(inPane: $0) } ?? cwd
         let wantsPersistent = persistent ?? source.map { inheritedPersistence(inPane: $0) } ?? false
-        let id = controller.createTab(title: "터미널",
+        let id = controller.createTab(title: TabTitle.decorate(Self.defaultTerminalTitle,
+                                                               persistent: wantsPersistent),
                                       icon: wantsPersistent ? Self.persistentTabIcon : Self.terminalTabIcon,
                                       inPane: pane)
         if let id {
@@ -1850,8 +1867,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                 if let raw = t.group, let kind = TabGroupKind(raw: raw) {
                     newTab = realizeGroup(kind, items: t.items, selectedItem: t.selectedItem, inPane: pane)
                 } else if let tid = controller.createTab(
-                    title: "터미널",
-                    // 지속 세션이었던 탭은 복원 후에도 그렇게 보여야 한다 — 아이콘이 유일한 구분이다.
+                    // 지속 세션이었던 탭은 복원 후에도 그렇게 보여야 한다 — 아이콘 + 제목 접두(∞).
+                    title: TabTitle.decorate(Self.defaultTerminalTitle, persistent: t.tmuxSession != nil),
                     icon: t.tmuxSession != nil ? Self.persistentTabIcon : Self.terminalTabIcon,
                     inPane: pane
                 ) {
@@ -1881,7 +1898,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                 // 수동 탭 이름 복구 — 터미널·그룹 공통. 엔진 제목이 나중에 덮지 않도록 manualTitles에도 되살린다.
                 if let title = t.manualTitle {
                     manualTitles[tid] = title
-                    controller.updateTab(tid, title: title, hasCustomTitle: true)
+                    pushTitle(title, for: tid, hasCustomTitle: true) // ∞ 탭이면 접두까지(관문 경유)
                 }
                 created.append(tid)
             }
