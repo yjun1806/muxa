@@ -32,10 +32,12 @@ struct TmuxStartArgsTests {
         #expect(args().filter { $0 == ";" }.count == 3)
     }
 
-    @Test func 명령은_로그인_셸로_감싸_인자로_넘긴다() {
+    @Test func 명령은_인터랙티브_로그인_셸로_감싸_인자로_넘긴다() {
         // 배열로 넘기므로 명령에 따옴표·공백이 섞여도 셸 인용이 필요 없다(`.app`은 PATH를 상속 못 한다).
+        // `-i`가 빠지면 `.zshrc`를 안 읽어(로그인 비인터랙티브는 `.zprofile`만) nvm·PNPM_HOME 류의
+        // PATH가 사라진다 — 탭에서는 되는 명령이 서비스로 돌리면 즉사하는 불일치의 원인.
         let expected = ["new-session", "-d", "-s", "muxa__p1__svc__s1",
-                        "-c", "/tmp/proj", "/bin/zsh", "-l", "-c", "pnpm dev"]
+                        "-c", "/tmp/proj", "/bin/zsh", "-l", "-i", "-c", "pnpm dev"]
         #expect(Array(args().suffix(expected.count)) == expected)
     }
 }

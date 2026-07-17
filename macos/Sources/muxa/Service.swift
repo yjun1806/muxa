@@ -11,6 +11,31 @@ struct Service: Codable, Identifiable, Equatable {
     let id: String
     var name: String // 표시 이름 ("web")
     var command: String // 실행 명령 ("pnpm dev")
+    /// 실행 폴더 지정 — **nil이면 프로젝트 경로(없으면 워크스페이스 경로) 상속**. 모노레포의 하위
+    /// 패키지(`apps/admin`)처럼 프로젝트 루트가 아닌 곳에서 돌 서비스를 위한 값. 기본값과 같은 입력은
+    /// 저장하지 않는다(`runCwdOverride`) — 프로젝트 경로가 바뀔 때 얼어붙지 않게.
+    /// 옵셔널이라 하위호환(옛 저장분엔 없음 → nil로 디코드).
+    var cwd: String?
+}
+
+/// 서비스·스크립트 추가 시트의 실행 폴더 입력 → 저장할 지정값(순수). **nil = 상속**(프로젝트 경로).
+///
+/// `~`는 홈으로 편다 — tmux `new-session -c`는 셸을 안 거치므로 틸드를 모른다. 뒤 슬래시를 정리한 뒤
+/// **기본값과 같으면 nil을 돌려준다** — 같은 값을 저장해두면 프로젝트 경로가 바뀔 때(워크트리 이동 등)
+/// 이 서비스만 옛 경로에 얼어붙는다. 지정은 "다를 때만" 저장한다.
+func runCwdOverride(entered: String, defaultCwd: String?, home: String) -> String? {
+    let trimmed = entered.trimmingCharacters(in: .whitespaces)
+    guard !trimmed.isEmpty else { return nil }
+    let expanded: String
+    if trimmed == "~" {
+        expanded = home
+    } else if trimmed.hasPrefix("~/") {
+        expanded = home + trimmed.dropFirst(1)
+    } else {
+        expanded = trimmed
+    }
+    let normalized = normalizePath(expanded)
+    return normalized == defaultCwd.map(normalizePath) ? nil : normalized
 }
 
 /// 모든 워크스페이스·프로젝트에 등록된 서비스 id 전부. 고아 정리(TmuxService.collectGarbage)의 입력이다.
@@ -40,7 +65,8 @@ struct LocatedService: Identifiable {
     let projectId: String
     let projectName: String
     /// 이 서비스가 도는 폴더 — 도크가 **활성 프로젝트 전환 없이** 그 자리에서 로그/터미널을 열 때 쓴다.
-    /// 프로젝트 자체 경로(워크트리)가 있으면 그것, 없으면 워크스페이스 경로 상속(서비스 시작 cwd와 같은 규칙).
+    /// 해석 사슬: 서비스 자체 지정(`Service.cwd`) → 프로젝트 자체 경로(워크트리) → 워크스페이스 경로.
+    /// 시작·재시작·attach가 전부 이 값 하나를 쓴다(규칙이 갈라지면 "로그는 여기, 실행은 저기"가 된다).
     let cwd: String?
 }
 
@@ -52,7 +78,7 @@ func collectAllServices(in workspaces: [Workspace]) -> [LocatedService] {
                 LocatedService(service: $0,
                                workspaceId: ws.id, workspaceName: ws.name,
                                projectId: project.id, projectName: project.name,
-                               cwd: project.path ?? ws.path)
+                               cwd: $0.cwd ?? project.path ?? ws.path)
             }
         }
     }

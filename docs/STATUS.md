@@ -66,6 +66,50 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 추정기 `lastOutputAt`(systemUptime 경과) · 에이전트 판정 = `hookedTabs`. **경량 가드**: 접힘 기본 + 유휴 접기로 절제
 (muxa 우위=가벼움, [[muxa-vs-orca-positioning]]).
 
+## 최근 완료 (2026-07-17) — 서비스 셸 환경 일치 + 실행 폴더 지정 (SVC-CWD) → D35·D36
+
+실사용 버그에서 출발: xames-admin에서 `pnpm dev:local` 서비스가 corepack 서명 오류(exit 1)로 즉사.
+원인은 **로그인 비인터랙티브 셸**(`-l -c`)이 `.zshrc`(nvm·`PNPM_HOME`)를 안 읽어, 탭에서는 잡히던
+pnpm 대신 homebrew 구버전 corepack shim이 잡힌 것. 함께 "서비스가 프로젝트 하위 폴더에서 돌아야
+한다"는 요구도 해결.
+
+- **D35**: `TmuxService.startArgs` 셸 래핑 `-l -c` → `-l -i -c` — 서비스·스크립트가 탭(인터랙티브)과
+  같은 PATH를 보게. tmux **탐지**는 `-l -c` 유지(앱 기동 경로에 rc 부작용 금지).
+- **D36**: `Service.cwd`·`Script.cwd`(옵셔널, nil = 상속) — 해석 사슬 자체지정 → 프로젝트 경로 →
+  워크스페이스 경로를 `collectAllServices`/`collectAllScripts` 한 곳에서. 추가 시트 "실행 경로"가
+  편집 필드로(placeholder = 프로젝트 경로, `~` 확장·존재 검증, 기본값과 같으면 저장 안 함 —
+  `runCwdOverride` 순수 함수). 워크스페이스 경로 변경 자동 재시작은 자체 지정 서비스를 건너뜀.
+- 테스트: startArgs `-i` 포함·cwd 해석 사슬·override 정규화(빈 값·동일 값·`~`·뒤 슬래시) — 전체 303개 통과.
+
+### ★ 육안 검증 필요 (SVC-CWD — `make relaunch`)
+1. ★ 서비스 추가 시트: 실행 경로 필드에 하위 폴더(`apps/…`) 입력 → 스크립트 후보가 그 폴더 기준으로
+   다시 스캔되는지 → 등록 후 그 폴더에서 도는지(`tmux -L muxa-services-* list-panes -a -F '#{pane_start_path}'`).
+2. ★ 없는 폴더 입력 → 앰버 경고("폴더를 찾을 수 없습니다") + "추가" 비활성.
+3. ★ 비워두면 기존과 동일(프로젝트 경로) — 기존 서비스 재시작·자동기동 회귀 없음.
+4. ★ nvm/PNPM_HOME 환경에서 `pnpm dev` 서비스가 즉사 없이 뜨는지(-i 효과 — 실제 xames-admin에서 재현 확인).
+5. ★ rc가 느린 환경에서 서비스 기동 지연이 체감되는지 관찰.
+
+## 최근 완료 (2026-07-17) — 지속 세션(∞) 탭 제목 접두 (INF-TITLE)
+
+에이전트가 작업 중이면 탭 좌측 슬롯을 상태 마크(스피너·⏸·✓)가 차지해 **∞ 아이콘이 안 보였다**
+(에이전트 탭은 대부분 그 상태 — "어느 탭이 tmux 안인가"가 실사용에서 사라짐, 사용자 불만).
+제목을 상태와 경쟁하지 않는 채널로 써서 **"∞ muxa"처럼 접두**를 단다. → DESIGN §4.
+
+- `TabTitle.decorate(_:persistent:)` (순수·멱등 — "∞ " 이중 접두 방지) + XCTest 2건.
+- Bonsplit으로 나가는 제목의 **단일 관문** `TerminalStore.pushTitle` 신설 — 엔진 제목(OSC)·수동
+  이름·해제 폴백·복원 경로가 전부 경유. 원본 저장소(manualTitles·engineTitles)·스냅샷·detached
+  기록은 무장식 유지(tabTitle 로직 오염 없음).
+- 생성(newTerminal·reattach·복원 createTab)은 초기 제목부터 접두, `releaseDetachedTab`(tmux 이탈
+  확정)은 아이콘과 함께 접두도 뗀다.
+- 검토한 대안: 탭 우측 트레일링 ∞ 슬롯(Bonsplit fork 수정) — 더 깔끔하지만 fork 리비전 절차가
+  필요해 사용자가 제목 접두를 선택. fork 슬롯은 후속 후보로 남음.
+
+### ★ 육안 검증 필요 (INF-TITLE — `make relaunch`)
+1. ★ ∞ 탭에서 claude 작업 중(스피너) — 제목이 "∞ <이름>"으로 구분되는지.
+2. ★ 일반 탭엔 접두 없음 · ∞ 탭 수동 이름 변경 후에도 접두 유지 · 이름 해제 시에도 유지.
+3. ★ `⌃b d`로 tmux 이탈 → 아이콘·접두 둘 다 떨어지는지.
+4. ★ 재시작 복원된 ∞ 탭 — 처음부터 접두가 붙어 있는지(엔진 제목 도착 전 "∞ 터미널").
+
 ## 최근 완료 (2026-07-17) — 스크립트 백그라운드 실행 (SCRIPT-BG) → D34
 
 SCRIPT-TAB(아래, 07-16)의 **탭 실행 경로를 통째로 대체**했다: 스크립트는 이제 탭을 띄우지 않고

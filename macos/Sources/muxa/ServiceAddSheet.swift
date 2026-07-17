@@ -6,21 +6,24 @@ import SwiftUI
 /// **잘못된 패키지 매니저**가 새어든다. 그래서 프로젝트를 훑어 스크립트를 보여주고 클릭 한 번으로
 /// 이름·명령이 채워지게 한다. 그 밖의 것(`./scripts/dev.sh`, `go run .`)은 직접 입력으로 받는다.
 ///
-/// 명령은 로그인 셸로 실행된다(`TmuxService.start`) — `.app` 번들은 PATH를 상속하지 않아
+/// 명령은 인터랙티브 로그인 셸로 실행된다(`TmuxService.start`) — `.app` 번들은 PATH를 상속하지 않아
 /// 감싸지 않으면 `pnpm`을 못 찾는다. 그래서 여기 적는 명령은 터미널에 치는 것과 똑같이 동작한다.
 struct ServiceAddSheet: View {
-    /// 프로젝트 경로 — 스크립트를 찾을 곳.
+    /// 기본 실행 경로(프로젝트 경로) — 실행 경로를 비워두면 여기서 돌고, 스크립트 스캔의 기본 대상이다.
     let cwd: String?
     /// 제목·하단 안내문은 파라미터다 — **스크립트 추가(ScriptStrip)가 같은 시트를 재사용**한다
     /// (스캔·매니저 감지·검증이 똑같고 문구만 다르다). 기본값은 서비스 문구 — 스크립트에
     /// "muxa를 꺼도 계속 돕니다"는 거짓말이라 호출부가 갈아 끼운다.
     var title = "서비스 추가"
-    var footnote = "프로젝트 폴더에서 로그인 셸로 실행되고, muxa를 꺼도 계속 돕니다.\n죽으면 푸터 칩이 빨갛게 바뀌고 알림이 옵니다.\n명령은 평문으로 저장됩니다 — 토큰·API 키는 명령에 적지 말고 .env에 두세요."
-    let onAdd: (String, String) -> Void
+    var footnote = "실행 경로에서 로그인 셸로 실행되고, muxa를 꺼도 계속 돕니다.\n죽으면 푸터 칩이 빨갛게 바뀌고 알림이 옵니다.\n명령은 평문으로 저장됩니다 — 토큰·API 키는 명령에 적지 말고 .env에 두세요."
+    /// (이름, 명령, 실행 폴더 지정) — 지정이 nil이면 프로젝트 경로 상속.
+    let onAdd: (String, String, String?) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var command = ""
+    /// 실행 경로 입력 — **비워두면 기본(프로젝트 경로)**. 기본값과 같은 입력도 저장하지 않는다(`runCwdOverride`).
+    @State private var cwdText = ""
     @State private var scripts: [ProjectScript] = []
     @State private var manager: PackageManager?
     /// lock 파일이 없어 매니저를 모를 때 사용자가 고른 값(추측하지 않는다).
@@ -28,12 +31,28 @@ struct ServiceAddSheet: View {
 
     private var effectiveManager: PackageManager { manager ?? pickedManager }
 
-    /// 서비스가 실행될 폴더가 멀쩡한가 — 없거나(nil·빈 문자열) 루트(`/`)면 pnpm 등이 그 폴더의
-    /// package.json을 못 찾아 즉사한다(`ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND`). 추가 전에 막는다.
-    private var cwdIsValid: Bool {
-        guard let cwd, !cwd.isEmpty, cwd != "/" else { return false }
-        return true
+    /// 입력이 기본값과 실질적으로 다를 때만 나오는 지정값(nil = 상속) — 저장·검증·스캔이 같은 해석을 쓴다.
+    private var cwdOverride: String? {
+        runCwdOverride(entered: cwdText, defaultCwd: cwd, home: SystemPaths.home)
     }
+
+    /// 실제로 실행될 폴더 — 지정이 있으면 그것, 없으면 프로젝트 경로.
+    private var effectiveCwd: String? { cwdOverride ?? cwd }
+
+    /// 실행될 폴더의 문제(없으면 nil). 없거나(nil·빈 문자열) 루트(`/`)면 pnpm 등이 그 폴더의
+    /// package.json을 못 찾아 즉사하고(`ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND`), 존재하지 않는 폴더면
+    /// tmux 세션 생성 자체가 실패한다 — 전부 추가 전에 막는다.
+    private enum CwdIssue { case unset, root, notFound }
+    private var cwdIssue: CwdIssue? {
+        guard let path = effectiveCwd, !path.isEmpty else { return .unset }
+        guard path != "/" else { return .root }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+              isDirectory.boolValue else { return .notFound }
+        return nil
+    }
+
+    private var cwdIsValid: Bool { cwdIssue == nil }
 
     private var isValid: Bool {
         cwdIsValid
@@ -102,7 +121,8 @@ struct ServiceAddSheet: View {
                     .keyboardShortcut(.cancelAction)
                 Button("추가") {
                     onAdd(name.trimmingCharacters(in: .whitespaces),
-                          command.trimmingCharacters(in: .whitespaces))
+                          command.trimmingCharacters(in: .whitespaces),
+                          cwdOverride)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -112,17 +132,20 @@ struct ServiceAddSheet: View {
         .padding(Space.xl)
         .frame(width: 420)
         .background(Color.pPanel)
-        .task {
-            let found = ProjectScripts.discover(in: cwd)
+        // 실행 경로가 바뀌면 스크립트 후보도 그 폴더에서 다시 찾는다 — 모노레포 하위 패키지를 지정하면
+        // 그 패키지의 package.json 스크립트가 나와야 클릭 채움이 의미 있다.
+        .task(id: effectiveCwd) {
+            let found = ProjectScripts.discover(in: effectiveCwd)
             scripts = found.scripts
             manager = found.manager
         }
     }
 
-    // MARK: 실행 경로 — 이 서비스가 어느 폴더에서 도는지 명시한다
+    // MARK: 실행 경로 — 이 서비스가 어느 폴더에서 도는지 명시하고, 필요하면 바꾼다
 
-    /// 서비스 cwd = 프로젝트 경로(없으면 워크스페이스 경로)다. pnpm 등은 이 폴더의 package.json을
-    /// 찾으므로, 루트(`/`)·빈 경로면 여기서 곧바로 드러나고 "추가"가 막힌다(엉뚱한 데서 도는 걸 사전 차단).
+    /// 기본은 프로젝트 경로(placeholder로 보인다), 입력하면 그 폴더에서 돈다 — 모노레포의 하위
+    /// 패키지(`apps/admin`)처럼 프로젝트 루트가 아닌 곳에서 돌 서비스를 위해 편집을 받는다.
+    /// `~`는 홈으로 펴진다(runCwdOverride). 루트(`/`)·빈 경로·없는 폴더면 문제를 말하고 "추가"가 막힌다.
     ///
     /// 상태를 **모양으로** 나른다(DESIGN §2·ServiceRow와 같은 규칙): 컨테이너는 언제나 같고
     /// 글리프만 바뀐다 — 정상 = 조용한 `folder`(muted, `pBg` 박스), 이상 = `exclamationmark.triangle.fill`
@@ -135,28 +158,31 @@ struct ServiceAddSheet: View {
                     .font(.muxa(.micro))
                     .foregroundStyle(cwdIsValid ? Color.pMuted : Color.pBorderActivity)
                     .frame(width: IconSize.statusSlot)
-                    .accessibilityHidden(true) // 텍스트가 이미 의미를 말한다 — 글리프는 중복 낭독일 뿐
-                if cwdIsValid {
-                    Text(displayPath(cwd, home: SystemPaths.home))
-                        .font(.muxaMono(.caption))
-                        .foregroundStyle(Color.pFg)
-                        .textSelection(.enabled)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Text(cwd == "/"
-                         ? "루트(/)에서는 실행할 수 없습니다 — 워크스페이스 경로를 프로젝트 폴더로 바꾸세요."
-                         : "실행할 폴더가 없습니다 — 워크스페이스 경로를 먼저 지정하세요.")
-                        .font(.muxa(.caption))
-                        .foregroundStyle(Color.pBorderActivity)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                    .accessibilityHidden(true) // 필드·경고문이 이미 의미를 말한다 — 글리프는 중복 낭독일 뿐
+                // placeholder = 기본(프로젝트 경로). 비워두면 거기서 돌고, 적으면 그 폴더에서 돈다.
+                TextField(cwd.map { displayPath($0, home: SystemPaths.home) } ?? "실행할 폴더 경로",
+                          text: $cwdText)
+                    .textFieldStyle(.plain)
+                    .font(.muxaMono(.caption))
+                    .foregroundStyle(Color.pFg)
             }
             .padding(Space.sm)
             .background(cwdIsValid ? Color.pBg : Color.pBorderActivity.opacity(Tint.subtle),
                         in: RoundedRectangle(cornerRadius: Radius.sm))
+            if let issue = cwdIssue {
+                Text(issueMessage(issue))
+                    .font(.muxa(.caption))
+                    .foregroundStyle(Color.pBorderActivity)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func issueMessage(_ issue: CwdIssue) -> String {
+        switch issue {
+        case .unset: return "실행할 폴더가 없습니다 — 경로를 적거나 워크스페이스 경로를 먼저 지정하세요."
+        case .root: return "루트(/)에서는 실행할 수 없습니다 — 프로젝트 폴더를 적어주세요."
+        case .notFound: return "폴더를 찾을 수 없습니다: \(displayPath(effectiveCwd, home: SystemPaths.home))"
         }
     }
 

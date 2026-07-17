@@ -45,9 +45,10 @@ struct ServiceDock: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(Color.pPanel)
             .sheet(isPresented: $showAdd) {
-                // 추가 대상은 **활성 프로젝트**다 — cwd를 넘겨 package.json 스크립트를 찾게 한다.
-                ServiceAddSheet(cwd: state.activeProjectCwd) { name, command in
-                    guard let pid = state.activeProject?.id, let cwd = state.activeProjectCwd else { return }
+                // 추가 대상은 **활성 프로젝트**다 — 기본 cwd를 넘겨 package.json 스크립트를 찾게 한다.
+                // cwd는 시트의 실행 경로 지정(nil = 프로젝트 경로 상속) — 시작 경로 해석은 addService가 한다.
+                ServiceAddSheet(cwd: state.activeProjectCwd) { name, command, cwd in
+                    guard let pid = state.activeProject?.id else { return }
                     state.addService(name: name, command: command, to: pid, cwd: cwd)
                 }
             }

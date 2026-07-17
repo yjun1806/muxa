@@ -87,6 +87,50 @@ final class ServiceTests: XCTestCase {
         XCTAssertTrue(ServiceSession.parsePanes("").isEmpty)
     }
 
+    // MARK: 실행 폴더 해석 — service.cwd ?? project.path ?? ws.path (한 규칙을 모두가 공유)
+
+    /// 서비스 자체 cwd가 있으면 그것, 없으면 프로젝트 경로, 그것도 없으면 워크스페이스 경로.
+    /// 모노레포의 하위 패키지(`apps/admin`)에서 돌 서비스가 프로젝트 루트에 얼어붙지 않게 한다.
+    func testLocatedServiceCwdResolutionChain() {
+        let ws = Workspace(id: "w", path: "/repo", name: "repo",
+                           projects: [Project(id: "p1", name: "메인", path: nil,
+                                              services: [Service(id: "a", name: "a", command: "c"),
+                                                         Service(id: "b", name: "b", command: "c",
+                                                                 cwd: "/repo/apps/admin")]),
+                                      Project(id: "p2", name: "워크트리", path: "/wt/feat",
+                                              services: [Service(id: "d", name: "d", command: "c")])],
+                           activeProjectId: "p1")
+        let located = collectAllServices(in: [ws])
+        XCTAssertEqual(located.first { $0.id == "a" }?.cwd, "/repo") // 상속: ws.path
+        XCTAssertEqual(located.first { $0.id == "b" }?.cwd, "/repo/apps/admin") // 지정이 이긴다
+        XCTAssertEqual(located.first { $0.id == "d" }?.cwd, "/wt/feat") // 상속: project.path
+    }
+
+    // MARK: 시트 입력 → 저장할 override (순수) — 기본값과 같으면 nil(상속 유지)
+
+    /// 빈 입력·기본값과 같은 입력은 nil — 같은 값을 저장해두면 프로젝트 경로가 바뀔 때
+    /// (워크트리 이동 등) 서비스만 옛 경로에 얼어붙는다. 지정은 "다를 때만" 저장한다.
+    func testRunCwdOverrideInheritsWhenSameAsDefault() {
+        XCTAssertNil(runCwdOverride(entered: "", defaultCwd: "/repo", home: "/Users/u"))
+        XCTAssertNil(runCwdOverride(entered: "  ", defaultCwd: "/repo", home: "/Users/u"))
+        XCTAssertNil(runCwdOverride(entered: "/repo", defaultCwd: "/repo", home: "/Users/u"))
+        XCTAssertNil(runCwdOverride(entered: "/repo/", defaultCwd: "/repo", home: "/Users/u")) // 뒤 슬래시 무시
+    }
+
+    func testRunCwdOverrideStoresDifferentPath() {
+        XCTAssertEqual(runCwdOverride(entered: "/repo/apps/admin", defaultCwd: "/repo", home: "/Users/u"),
+                       "/repo/apps/admin")
+        // 기본값이 없어도(경로 미지정 프로젝트) 입력이 있으면 저장한다.
+        XCTAssertEqual(runCwdOverride(entered: "/repo", defaultCwd: nil, home: "/Users/u"), "/repo")
+    }
+
+    /// `~`는 홈으로 편다 — tmux `new-session -c`는 셸을 안 거치므로 틸드를 모른다.
+    func testRunCwdOverrideExpandsTilde() {
+        XCTAssertEqual(runCwdOverride(entered: "~/proj", defaultCwd: "/repo", home: "/Users/u"),
+                       "/Users/u/proj")
+        XCTAssertNil(runCwdOverride(entered: "~/repo", defaultCwd: "/Users/u/repo", home: "/Users/u"))
+    }
+
     // MARK: 고아 판정 — 좀비 tmux 세션 정리 (ScrollbackStore.orphans 와 같은 원칙: 의심되면 안 지운다)
 
     func testOrphanIsUnregisteredServiceOfAKnownProject() {

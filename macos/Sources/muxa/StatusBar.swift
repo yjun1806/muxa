@@ -71,10 +71,10 @@ struct StatusBar: View {
         ServiceAddSheet(
             cwd: state.activeProjectCwd,
             title: "스크립트 추가",
-            footnote: "프로젝트 폴더에서 로그인 셸로 1회, 백그라운드에서 실행됩니다(탭이 뜨지 않습니다). 출력과 종료 로그는 서비스 도크(⌘J)에서 봅니다.\n명령은 평문으로 저장됩니다 — 토큰·API 키는 명령에 적지 말고 .env에 두세요."
-        ) { name, command in
+            footnote: "실행 경로에서 로그인 셸로 1회, 백그라운드에서 실행됩니다(탭이 뜨지 않습니다). 출력과 종료 로그는 서비스 도크(⌘J)에서 봅니다.\n명령은 평문으로 저장됩니다 — 토큰·API 키는 명령에 적지 말고 .env에 두세요."
+        ) { name, command, cwd in
             guard let projectId = state.activeProject?.id else { return }
-            state.addScript(name: name, command: command, to: projectId)
+            state.addScript(name: name, command: command, to: projectId, cwd: cwd)
         }
     }
 }

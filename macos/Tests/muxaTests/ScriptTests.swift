@@ -50,6 +50,16 @@ struct ScriptTests {
         #expect(all[1].projectId == "p2")
     }
 
+    @Test("스크립트 자체 cwd가 있으면 프로젝트 경로보다 우선한다 — 서비스와 같은 해석 사슬")
+    func cwd지정우선() {
+        let ws = Workspace(id: "w", path: "/repo", name: "repo",
+                           projects: [Project(id: "p", name: "메인",
+                                              scripts: [Script(id: "s", name: "build", command: "make",
+                                                               cwd: "/repo/apps/admin")])],
+                           activeProjectId: "p")
+        #expect(collectAllScripts(in: [ws]).first?.cwd == "/repo/apps/admin")
+    }
+
     @Test("collectLiveScriptIds는 모든 워크스페이스의 등록 id를 모은다 — GC 판정의 보존 입력")
     func 등록id수집() {
         let ws1 = Workspace(id: "w1", path: nil, name: "a", projects: [

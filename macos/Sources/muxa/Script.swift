@@ -14,6 +14,9 @@ struct Script: Codable, Identifiable, Equatable {
     let id: String
     var name: String // 표시 이름 ("build")
     var command: String // 실행 명령 ("make build")
+    /// 실행 폴더 지정 — nil이면 프로젝트 경로(없으면 워크스페이스 경로) 상속(`Service.cwd`와 같은 규칙).
+    /// 옵셔널이라 하위호환(옛 저장분엔 없음 → nil로 디코드).
+    var cwd: String?
 }
 
 /// 스크립트 하나 + **어디에 속하는가** — `LocatedService`와 같은 이유(도크는 창 전체를 본다).
@@ -24,7 +27,8 @@ struct LocatedScript: Identifiable {
     let workspaceName: String
     let projectId: String
     let projectName: String
-    /// 실행 cwd — 프로젝트 자체 경로(워크트리)가 있으면 그것, 없으면 워크스페이스 경로 상속(서비스와 같은 규칙).
+    /// 실행 cwd — 해석 사슬: 스크립트 자체 지정(`Script.cwd`) → 프로젝트 자체 경로(워크트리) →
+    /// 워크스페이스 경로(서비스와 같은 규칙).
     let cwd: String?
 }
 
@@ -37,7 +41,7 @@ func collectAllScripts(in workspaces: [Workspace]) -> [LocatedScript] {
                 LocatedScript(script: $0,
                               workspaceId: ws.id, workspaceName: ws.name,
                               projectId: project.id, projectName: project.name,
-                              cwd: project.path ?? ws.path)
+                              cwd: $0.cwd ?? project.path ?? ws.path)
             }
         }
     }

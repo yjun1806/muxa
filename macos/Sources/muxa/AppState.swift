@@ -1069,15 +1069,18 @@ final class AppState {
         dropDetached(detached.session, from: projectId)
     }
 
-    func addService(name: String, command: String, to projectId: String, cwd: String) {
-        let service = Service(id: newId(), name: name, command: command)
+    /// 서비스를 등록하고 곧바로 띄운다. `cwd`는 **서비스 자체 실행 폴더 지정**(nil = 프로젝트 경로 상속) —
+    /// 시작 경로는 등록 후 `locateService`가 해석한다(시작·재시작·attach가 같은 규칙 하나를 쓰게).
+    func addService(name: String, command: String, to projectId: String, cwd: String? = nil) {
+        let service = Service(id: newId(), name: name, command: command, cwd: cwd)
         updateProject(projectId) { p in
             var next = p
             next.services = (p.services ?? []) + [service]
             return next
         }
         Task {
-            reportServiceStart(await TmuxService.start(service, projectId: projectId, cwd: cwd), service)
+            let startCwd = locateService(service.id, in: workspaces)?.cwd ?? ""
+            reportServiceStart(await TmuxService.start(service, projectId: projectId, cwd: startCwd), service)
             syncServiceMonitor()
         }
     }
@@ -1154,8 +1157,9 @@ final class AppState {
     }
 
     /// 스크립트를 등록한다(실행은 별도 — addService와 달리 등록이 곧 기동이 아니다).
-    func addScript(name: String, command: String, to projectId: String) {
-        let script = Script(id: newId(), name: name, command: command)
+    /// `cwd`는 스크립트 자체 실행 폴더 지정(nil = 프로젝트 경로 상속) — 실행 시 `allLocatedScripts`가 해석한다.
+    func addScript(name: String, command: String, to projectId: String, cwd: String? = nil) {
+        let script = Script(id: newId(), name: name, command: command, cwd: cwd)
         updateProject(projectId) { p in
             var next = p
             next.scripts = (p.scripts ?? []) + [script]
@@ -1339,9 +1343,9 @@ final class AppState {
         }
         for ws in workspaces {
             for project in ws.projects {
-                let cwd = project.path ?? ws.path
-                guard let cwd else { continue }
                 for service in project.services ?? [] {
+                    // 해석 사슬은 collectAllServices와 같다: 서비스 지정 → 프로젝트 경로 → 워크스페이스 경로.
+                    guard let cwd = service.cwd ?? project.path ?? ws.path else { continue }
                     Task {
                         reportServiceStart(await TmuxService.start(service, projectId: project.id, cwd: cwd),
                                            service)
@@ -1649,8 +1653,10 @@ final class AppState {
             // dev 서버가 올바른 폴더로 옮겨 온다). 터미널 cwd 갱신과 대칭. 재시작은 옛 세션을 죽이고
             // 새로 만든다(restartService) — 도는 서비스는 잠깐 끊긴다(경로 이전의 불가피한 대가).
             // 경로가 실제로 바뀔 때만 — 같은 값 재지정으로 서비스를 헛되이 끊지 않는다.
+            // **자체 cwd를 지정한 서비스는 건드리지 않는다** — 그 서비스의 실행 폴더는 워크스페이스
+            // 경로와 무관하므로, 옮겨 갈 이유도 재시작으로 끊을 이유도 없다.
             if pathChanged {
-                for service in project.services ?? [] {
+                for service in project.services ?? [] where service.cwd == nil {
                     restartService(service.id, in: project.id, cwd: path)
                 }
             }

@@ -176,8 +176,12 @@ enum TmuxService {
 
     /// 서비스를 시작한다(이미 있으면 아무것도 하지 않는다 — 멱등).
     ///
-    /// 명령을 **로그인 셸로 감싸는 이유**: `.app` 번들로 띄운 muxa는 로그인 셸의 PATH를 상속하지 않아
-    /// `pnpm`/`node`(homebrew·nvm 경로)를 못 찾는다. 감싸지 않으면 dev 서버가 command not found로 즉사한다.
+    /// 명령을 **인터랙티브 로그인 셸로 감싸는 이유**: `.app` 번들로 띄운 muxa는 로그인 셸의 PATH를
+    /// 상속하지 않아 `pnpm`/`node`(homebrew·nvm 경로)를 못 찾는다. 감싸지 않으면 dev 서버가
+    /// command not found로 즉사한다. `-l`만으로는 부족하다 — 로그인 비인터랙티브 셸은 `.zprofile`만
+    /// 읽고 `.zshrc`(nvm·PNPM_HOME이 사는 곳)를 건너뛰어, **탭(ghostty, 인터랙티브)에서는 되는 명령이
+    /// 서비스로 돌리면 다른 바이너리로 해석되거나 즉사**한다. `-i`를 더해 탭과 같은 환경을 보장한다
+    /// (tmux pane은 tty가 있어 인터랙티브가 안전하다 — rc가 느리면 기동이 그만큼 늦는 것이 대가).
     /// 인자를 배열로 넘기므로 명령에 따옴표가 섞여도 셸 인용이 필요 없다.
     ///
     /// - Returns: 성공(또는 이미 있음)이면 nil, 실패면 사용자용 사유. **버리면 안 된다** — 세션 생성이
@@ -219,7 +223,7 @@ enum TmuxService {
         ["start-server",
          ";", "set-option", "-g", "remain-on-exit", "on",
          ";", "set-option", "-g", "status", "off", // 도크에 tmux 상태바가 이중으로 보이지 않게
-         ";", "new-session", "-d", "-s", session, "-c", cwd, shell, "-l", "-c", command]
+         ";", "new-session", "-d", "-s", session, "-c", cwd, shell, "-l", "-i", "-c", command]
     }
 
     static func exists(_ session: String) async -> Bool {
