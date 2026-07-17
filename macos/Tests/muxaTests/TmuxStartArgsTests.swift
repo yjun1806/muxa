@@ -29,7 +29,21 @@ struct TmuxStartArgsTests {
     @Test func 한_번의_호출에_세미콜론으로_이어_붙인다() {
         // 명령을 나눠 보내면 그 사이에 pane이 죽을 수 있다. tmux가 명령 목록을 순차 처리하도록
         // `;`(그 자체가 하나의 인자)로 잇는다 — 셸을 안 거치므로 인용이 필요 없다.
-        #expect(args().filter { $0 == ";" }.count == 3)
+        // 5개 = remain-on-exit · base-index · pane-base-index · status · new-session 앞.
+        #expect(args().filter { $0 == ";" }.count == 5)
+    }
+
+    @Test func pane_base_index를_0으로_new_session보다_먼저_강제한다() {
+        // 사용자 ~/.tmux.conf의 pane-base-index 1이면 pane이 1이 돼 capture(`:.0`)·parsePanes(pane 0)가
+        // 통째로 깨진다(빈 로그·오상태). new-session 앞에서 0으로 강제해야 만들어지는 pane이 0이다.
+        let a = args()
+        let opt = a.firstIndex(of: "pane-base-index")
+        let create = a.firstIndex(of: "new-session")
+        #expect(opt != nil && create != nil)
+        #expect(opt! < create!)
+        // 값이 바로 뒤에 0으로 온다.
+        #expect(a[opt! + 1] == "0")
+        #expect(a.contains("base-index")) // 윈도우 인덱스도 함께 0
     }
 
     @Test func 명령은_인터랙티브_로그인_셸로_감싸_인자로_넘긴다() {

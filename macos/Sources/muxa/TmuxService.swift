@@ -229,8 +229,16 @@ enum TmuxService {
     /// (`start-server`가 먼저 있어야 옵션만 걸고 서버가 곧장 꺼지는 일이 없다).
     /// 인자를 배열로 넘기므로 `;`은 셸이 아니라 tmux가 구분자로 읽는다.
     static func startArgs(session: String, cwd: String, shell: String, command: String) -> [String] {
+        // **pane/window 인덱스를 0으로 강제한다 — 이게 없으면 로그·상태가 통째로 깨진다.**
+        // 전용 소켓(`-L`)이라도 tmux는 `~/.tmux.conf`를 로드하는데, 흔한 설정 `pane-base-index 1`이면
+        // muxa가 만든 pane이 인덱스 1이 된다. 그런데 로그 캡처(`capture-pane :.0`)도 상태 판정
+        // (`ServiceSession.parsePanes`, pane 0만 인정)도 **pane 0을 가정**한다 → 캡처는 빈 결과
+        // ("남은 로그가 없습니다"), 상태는 `.missing`으로 오판. `new-session` **앞에** 걸어 만들어지는
+        // 세션의 pane이 0에서 시작하게 한다(remain-on-exit와 같은 순서 이유).
         ["start-server",
          ";", "set-option", "-g", "remain-on-exit", "on",
+         ";", "set-option", "-g", "base-index", "0",
+         ";", "set-option", "-g", "pane-base-index", "0",
          ";", "set-option", "-g", "status", "off", // 도크에 tmux 상태바가 이중으로 보이지 않게
          ";", "new-session", "-d", "-s", session, "-c", cwd, shell, "-l", "-i", "-c", command]
     }
