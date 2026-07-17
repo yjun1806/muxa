@@ -46,6 +46,9 @@ struct HookOutcome: Equatable {
     var resume: ResumeBinding?
     /// 본문이 비어 transcript 꼬리에서 마지막 assistant 메시지를 보강해야 하는 경로.
     var transcriptPath: String?
+    /// 사용자가 방금 입력한 프롬프트(UserPromptSubmit에서만) — 사이드바 행 제목의 출처.
+    /// nil = 변화 없음(다른 이벤트) — "지우기"가 아니다. 마지막 프롬프트는 턴이 끝나도 남는다.
+    var prompt: AgentPrompt?
 }
 
 /// 훅 이벤트 → (상태 전이, 알림 결정) 순수 해석기.
@@ -87,7 +90,8 @@ enum ClaudeHookInterpreter {
         case .userPromptSubmit:
             // 새 턴 시작 — 이전 턴의 보류·배경작업·서브에이전트 잔여를 전부 리셋한다.
             next = HookSessionState()
-            return (HookOutcome(state: .working, clearsDetail: true), next)
+            return (HookOutcome(state: .working, clearsDetail: true,
+                                prompt: AgentPrompt.parse(payload.prompt)), next)
 
         case .preToolUse:
             // AskUserQuestion의 PreToolUse가 곧 "사용자에게 묻는 중"이다 — Claude는 이때

@@ -66,6 +66,33 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 추정기 `lastOutputAt`(systemUptime 경과) · 에이전트 판정 = `hookedTabs`. **경량 가드**: 접힘 기본 + 유휴 접기로 절제
 (muxa 우위=가벼움, [[muxa-vs-orca-positioning]]).
 
+## 최근 완료 (2026-07-17) — 마지막 프롬프트 노출 (LAST-PROMPT)
+
+사이드바 에이전트 목록과 백그라운드 터미널 팝오버에 **"내가 마지막에 뭘 시켰나"**를 노출.
+지금까지 두 곳 모두 에이전트 쪽 사정(라이브 도구·상태·마지막 답변)만 말했다.
+
+- **데이터**: `UserPromptSubmit` 훅 payload의 `prompt` 필드(기존에 버리던 것)를 파싱(`AgentPrompt.parse` —
+  "[Image #N]" 마커는 개수로 접고 본문 500자 클램프). `TerminalStore.agentPrompts`(관측 맵)에 탭별 저장 —
+  진행 표시와 달리 **턴이 끝나도 남는다**. transcript 경로도 미러(`agentTranscripts`, hover 이미지용).
+- **사이드바 행(B+C 합침)**: 프롬프트가 있으면 **2줄** — 첫 줄 제목=프롬프트(승격), 아랫줄=`탭 이름 – 상태/라이브 도구`.
+  이미지 첨부는 칩(`PromptImageChip`), 잘린 전문·이미지는 **hover 카드**(`PromptHoverCard`, 0.5s 지연).
+  프롬프트 없으면(일반 셸·훅 이전) 현행 1줄 폴백. 뷰어 행은 승격 안 함(종류가 이름).
+- **백그라운드 팝오버(문답 페어)**: `❯ 내 지시`(진하게, transcript 마지막 user 메시지 — tool_result·
+  isMeta·사이드체인·슬래시 명령 배관은 건너뜀) + `↳ 마지막 답변`(흐리게). 이미지 칩 + hover 카드 동일.
+  비 claude 세션은 tmux 화면 꼬리 폴백(현행).
+- **인프라**: `HoverTip`을 일반화 — `TipHostView`/`TipWindow`가 칩·리치 카드 공용(`muxaHoverCard`).
+  `TranscriptTail`에 `lastUserMessage`/`lastUserImages`(base64 디코딩) 추가, 재시도 루프는 `retryingTail`로 공통화.
+- **테스트**: `AgentPromptTests`(파싱·훅 전달·제목 승격) + `TranscriptUserTailTests`(오염 차단·이미지) 등
+  신규 2파일 — 전체 스위트 통과.
+
+### ★ 육안 검증 필요 (LAST-PROMPT — `make relaunch`)
+1. ★ claude 탭에 프롬프트 입력 → 사이드바 행이 2줄(제목=프롬프트, 아랫줄=상태)로 바뀌는지. 다음 프롬프트에서 갱신되는지.
+2. ★ 긴 프롬프트 행 hover 0.5s → 카드에 전문. 이미지 붙인 프롬프트 → 행에 `photo N` 칩 + 카드에 썸네일.
+3. ★ 일반 zsh 탭·훅 이전 세션은 현행 1줄 그대로(2줄 오염 없음). 뷰어 행 불변.
+4. ★ 2줄 행 높이·hover/선택 채움·시작선 정렬이 목록 리듬을 깨지 않는지(유휴 접기 행과 나란히).
+5. ★ 백그라운드 팝오버: claude 세션에 `❯ 지시` + `↳ 답변` 페어, 이미지 칩 hover 카드. tmux 폴백 세션은 현행.
+6. ★ hover 카드가 클릭·스크롤·키 입력에 즉시 접히는지(TipWindow 규칙 상속 확인).
+
 ## 최근 완료 (2026-07-17) — 주의 큐 헤더 → 주의 큐 카드 (QUEUE-CARD)
 
 한 줄 헤더("메인 가 입력을 기다립니다")가 ① 어느 워크스페이스의 "메인"인지 침묵하고
