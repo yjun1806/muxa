@@ -48,6 +48,7 @@ struct DeleteConfirmButton: View {
                 .focused($cancelFocused)
             }
             .onAppear { cancelFocused = true }
+            .onExitCommand { confirming = false } // Esc는 확인부터 취소(도크 닫기보다 우선)
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(prompt) 확인하려면 \(confirmLabel), 아니면 취소.")
         } else {

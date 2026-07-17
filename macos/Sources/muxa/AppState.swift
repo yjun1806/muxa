@@ -1111,6 +1111,8 @@ final class AppState {
     /// 그래서 여기서 반드시 함께 죽인다. 그럼에도 놓친 것(앱이 죽은 사이 등록이 사라진 경우 등)은
     /// 시작 시 collectServiceGarbage가 쓸어간다 — 두 겹 방어.
     func removeService(_ serviceId: String, from projectId: String) {
+        let removed = services(of: projectId).first { $0.id == serviceId }
+        let log = finalLogs[serviceId]
         updateProject(projectId) { p in
             var next = p
             next.services = (p.services ?? []).filter { $0.id != serviceId }
@@ -1124,6 +1126,7 @@ final class AppState {
             await TmuxService.kill(projectId: projectId, serviceId: serviceId)
             syncServiceMonitor()
         }
+        if let removed { queueUndoDeletion(label: removed.name, projectId: projectId, service: removed, script: nil, finalLog: log) }
     }
 
     /// 죽은 서비스를 같은 명령으로 다시 띄운다(재시작). tmux 세션을 지우고 새로 만든다.
@@ -1168,6 +1171,53 @@ final class AppState {
     /// 사망) 마지막 로그를 살린다. `ServiceLogView`가 라이브 캡처가 비면 이걸 폴백으로 쓴다.
     /// 값 타입(`ScriptRun`) 본문에 넣지 않는다 — merge의 `==` 비교가 수백 줄 문자열을 물면 리렌더가 무거워진다.
     private(set) var finalLogs: [String: String] = [:]
+
+    // MARK: 등록 해제 실행취소 — 되돌릴 수 없는 파괴를 잠깐(6초) 되돌릴 수 있게 (2단계 확인의 상위 안전망)
+
+    /// 방금 등록 해제된 것 — 스낵바가 떠 있는 동안 되돌리면 등록·로그를 복원한다. 프로세스는 이미
+    /// 종료됐으므로 '실행 전'으로 돌아온다(재실행 한 번이면 다시 뜬다) — 되찾는 건 다시 타이핑하기 번거로운
+    /// **등록(이름·명령)과 로그**다. 일회용 기록 삭제는 저위험이라 undo 대상이 아니다.
+    struct PendingDeletion: Identifiable, Equatable {
+        let id: String
+        let label: String
+        let projectId: String
+        let service: Service?
+        let script: Script?
+        let finalLog: String?
+        var itemId: String { service?.id ?? script?.id ?? "" }
+    }
+    private(set) var pendingDeletion: PendingDeletion?
+    @ObservationIgnored private var undoTask: Task<Void, Never>?
+
+    /// 등록 해제 직후 스낵바를 띄우고 6초 뒤 스스로 내린다(그 안에 안 되돌리면 확정).
+    private func queueUndoDeletion(label: String, projectId: String, service: Service?, script: Script?, finalLog: String?) {
+        pendingDeletion = PendingDeletion(id: newId(), label: label, projectId: projectId,
+                                          service: service, script: script, finalLog: finalLog)
+        undoTask?.cancel()
+        undoTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(6))
+            guard !Task.isCancelled else { return }
+            self?.pendingDeletion = nil
+        }
+    }
+
+    /// 되돌리기 — 등록을 프로젝트에 다시 넣고 로그 스냅샷을 복원한 뒤 그 항목을 선택한다.
+    func undoDeletion() {
+        guard let pd = pendingDeletion else { return }
+        undoTask?.cancel()
+        if let s = pd.service {
+            updateProject(pd.projectId) { p in var n = p; n.services = (p.services ?? []) + [s]; return n }
+        }
+        if let s = pd.script {
+            updateProject(pd.projectId) { p in var n = p; n.scripts = (p.scripts ?? []) + [s]; return n }
+        }
+        if let log = pd.finalLog { finalLogs[pd.itemId] = log }
+        selectedServiceId = pd.itemId
+        syncServiceMonitor()
+        pendingDeletion = nil
+    }
+
+    func dismissUndo() { undoTask?.cancel(); pendingDeletion = nil }
 
     // MARK: 스크립트 (끝이 있는 명령 — Script.swift)
     //
@@ -1245,6 +1295,8 @@ final class AppState {
     /// 스크립트 등록을 해제한다 — **세션도 함께 죽인다**(removeService와 대칭). 등록만 지우면
     /// 실행 중이던 프로세스·종료 로그 pane이 좀비로 남는다(놓친 것은 시작 시 GC가 쓸어간다 — 두 겹 방어).
     func removeScript(_ scriptId: String, from projectId: String) {
+        let removed = scripts(of: projectId).first { $0.id == scriptId }
+        let log = finalLogs[scriptId]
         updateProject(projectId) { p in
             var next = p
             next.scripts = (p.scripts ?? []).filter { $0.id != scriptId }
@@ -1258,6 +1310,7 @@ final class AppState {
             await TmuxService.killScript(projectId: projectId, scriptId: scriptId)
             syncServiceMonitor()
         }
+        if let removed { queueUndoDeletion(label: removed.name, projectId: projectId, service: nil, script: removed, finalLog: log) }
     }
 
     /// 스크립트를 **백그라운드(tmux)** 에서 1회 실행한다 — 탭을 띄우지 않는다. 출력은 서비스 도크에서

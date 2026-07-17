@@ -98,6 +98,20 @@ struct ServiceDock: View {
                 state.oneOffFocusRequested = false
                 oneOffFocused = true
             }
+            // 등록 해제 실행취소 스낵바 — 도크 바닥에 잠깐 뜬다.
+            .overlay(alignment: .bottom) {
+                if let pd = state.pendingDeletion {
+                    UndoSnackbar(label: pd.label,
+                                 undo: { state.undoDeletion() },
+                                 dismiss: { state.dismissUndo() })
+                        .padding(.horizontal, Space.md)
+                        .padding(.bottom, Space.md)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(Motion.medium, value: state.pendingDeletion?.id)
+            // Esc로 도크를 닫는다(터미널이 포커스면 그쪽이 먼저 먹는다 — 목록·상세에서만).
+            .onExitCommand { state.closeServiceDock() }
     }
 
     @ViewBuilder
@@ -656,6 +670,30 @@ struct ServiceDock: View {
             guard let projectId = state.activeProject?.id else { return }
             state.addScript(name: name, command: command, to: projectId, cwd: cwd)
         }
+    }
+}
+
+/// 등록 해제 실행취소 스낵바 — 도크 바닥에 잠깐 뜨는 판. 2단계 확인이 실수를 막고, 이게 회복을 준다.
+private struct UndoSnackbar: View {
+    let label: String
+    let undo: () -> Void
+    let dismiss: () -> Void
+    var body: some View {
+        HStack(spacing: Space.md) {
+            Text("\(label) 등록 해제됨").font(.muxa(.label)).foregroundStyle(Color.pFg).lineLimit(1)
+            Spacer(minLength: Space.sm)
+            Button(action: undo) {
+                Text("실행 취소").font(.muxa(.label, weight: .semibold)).foregroundStyle(Color.pBrand)
+            }
+            .buttonStyle(.plain).clickCursor()
+            IconButton(icon: "xmark", help: "닫기", action: dismiss)
+        }
+        .padding(.leading, Space.md).padding(.trailing, Space.xs)
+        .frame(height: RowHeight.toolbar)
+        .background(Color.pPanel, in: RoundedRectangle(cornerRadius: Radius.sm))
+        .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: RowHeight.hairline))
+        .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+        .frame(maxWidth: 360)
     }
 }
 
