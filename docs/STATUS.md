@@ -66,6 +66,26 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 추정기 `lastOutputAt`(systemUptime 경과) · 에이전트 판정 = `hookedTabs`. **경량 가드**: 접힘 기본 + 유휴 접기로 절제
 (muxa 우위=가벼움, [[muxa-vs-orca-positioning]]).
 
+## 최근 완료 (2026-07-17) — 파일 드롭 첨부 수리 (FILE-DROP)
+
+터미널 칸에 이미지·파일을 드래그해 경로를 삽입하는 기능(7/13 `35f9883`)이 사실상 죽어 있었다.
+Bonsplit·muxa 코드 모두 구현 당시와 동일 — **처음부터 플레이키**였고 검증 때 우연히 통과한 것.
+
+- **원인**: 레거시 `controller.onFileDrop`은 center zone에서만 드롭을 받는데(`acceptsFileDrop`),
+  `validateDrop`의 zone 판정은 드래그가 칸에 **진입한 순간의 좌표**다. 가장자리 zone이 각 변
+  25%(최소 80pt)라 진입 좌표는 거의 항상 edge → **세션 전체가 조용히 거부**(마우스를 빠르게 넣어
+  첫 hover 이벤트가 중앙에서 잡힐 때만 통과). 증거: 디버그 로그에 `pane.dropExited`만 남고
+  `validateDrop`/`dropEntered`/`drop`이 없음.
+- **수정**: `controller.onExternalFileDrop`으로 전환(`TerminalStore.init`) — 이 핸들러가 있으면
+  모든 zone에서 파일 드롭이 유효. destination(insert/split)과 무관하게 targetPane만 뽑아
+  `insertDroppedPaths`로 라우팅(muxa 의미론 = "그 칸 터미널에 경로 삽입", zone 무관).
+
+### ★ 육안 검증 필요 (FILE-DROP — `make relaunch`)
+1. ★ Finder에서 이미지를 터미널 칸에 **천천히** 드래그(가장자리로 진입) → 경로가 프롬프트에 삽입되는지. 이전엔 이 경로가 실패.
+2. ★ 드롭한 경로를 claude code가 이미지 첨부로 인식하는지(백슬래시 이스케이프 형식 유지 확인).
+3. ★ 여러 파일 동시 드롭 → 공백으로 이어진 경로들. 뷰어 탭(diff·문서)엔 드롭이 거부되는지.
+4. ★ 파일을 가장자리 zone 위에서 hover할 때 분할 하이라이트가 떠도 드롭 결과는 "경로 삽입"(분할 아님) — 어포던스 불일치가 거슬리는 수준인지 관찰.
+
 ## 최근 완료 (2026-07-17) — 마지막 프롬프트 노출 (LAST-PROMPT)
 
 사이드바 에이전트 목록과 백그라운드 터미널 팝오버에 **"내가 마지막에 뭘 시켰나"**를 노출.

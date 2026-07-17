@@ -445,8 +445,19 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         // 파일 드롭은 **반드시 Bonsplit을 통해** 받는다. Bonsplit이 패인마다 `.onDrop(of: [.tabTransfer, .fileURL])`을
         // 깔아두므로(PaneContainerView), 파일 드래그의 목적지는 그 중첩 호스팅 뷰가 된다. 핸들러를 안 걸면
         // Bonsplit이 드롭을 거부하고, AppKit은 거부된 목적지에서 조상 뷰로 폴백하지 않아 드롭이 통째로 죽는다.
-        controller.onFileDrop = { [weak self] urls, paneId in
-            self?.insertDroppedPaths(urls.map(\.path), inPane: paneId) ?? false
+        //
+        // 레거시 `onFileDrop`이 아니라 **`onExternalFileDrop`이어야 한다.** 레거시는 center zone에서만
+        // 유효한데, validateDrop의 zone 판정은 드래그가 칸에 **진입한 순간의 좌표**라 거의 항상
+        // 가장자리(각 변 25%, 최소 80pt) — 세션 전체가 조용히 거부된다(빠른 드래그만 우연히 통과).
+        // onExternalFileDrop은 모든 zone을 허용한다. muxa 의미론은 zone과 무관하게
+        // "그 칸의 터미널에 경로 삽입"이므로 destination의 targetPane만 뽑아 쓴다.
+        controller.onExternalFileDrop = { [weak self] request in
+            let paneId: PaneID
+            switch request.destination {
+            case .insert(let targetPane, _), .split(let targetPane, _, _):
+                paneId = targetPane
+            }
+            return self?.insertDroppedPaths(request.urls.map(\.path), inPane: paneId) ?? false
         }
         // 칸 사이 divider를 더블클릭하면 모든 칸을 같은 크기로 되돌린다.
         // 어느 divider를 눌렀는지는 무시한다 — 요청은 "전부 균등"이다.

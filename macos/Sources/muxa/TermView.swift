@@ -610,7 +610,7 @@ final class TermView: NSView, NSTextInputClient {
     }
 
     // 파일 드롭(→ 경로 삽입)은 이 뷰가 받지 않는다 — Bonsplit이 패인 드롭 타깃을 깔아 드래그를 가져가므로
-    // 여기에 NSDraggingDestination을 달아도 호출되지 않는다. 수신은 TerminalStore.controller.onFileDrop.
+    // 여기에 NSDraggingDestination을 달아도 호출되지 않는다. 수신은 TerminalStore.controller.onExternalFileDrop.
 
     // MARK: 키 입력 — Ghostty SurfaceView_AppKit.keyDown 이식
 

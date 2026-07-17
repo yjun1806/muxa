@@ -4,7 +4,7 @@ import Foundation
 ///
 /// 드롭 이벤트 자체는 Bonsplit이 받는다 — 패인마다 `.onDrop(of: [.tabTransfer, .fileURL])`을 깔아두므로
 /// 파일 드래그의 목적지는 그 중첩 호스팅 뷰가 되고, AppKit은 거기서 조상 뷰로 폴백하지 않는다.
-/// 그래서 TermView에 NSDraggingDestination을 달아도 닿지 않는다(수신은 `TerminalStore.controller.onFileDrop`).
+/// 그래서 TermView에 NSDraggingDestination을 달아도 닿지 않는다(수신은 `TerminalStore.controller.onExternalFileDrop`).
 enum TerminalDrop {
     /// 여러 경로를 한 줄의 터미널 입력으로 — 각 경로를 셸 이스케이프해 공백으로 잇는다.
     static func insertionText(for paths: [String]) -> String {
