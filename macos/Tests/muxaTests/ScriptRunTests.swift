@@ -70,6 +70,19 @@ struct ScriptRunTests {
         #expect(exits.isEmpty) // 결과 미상은 알리지 않는다
     }
 
+    @Test("미상(code nil) 마감 뒤 늦은 exited 관측: code로 승격 + 잔류 부활 + exits에 실린다")
+    func 미상승격() {
+        var unknown = running()
+        unknown.state = .finished(code: nil, duration: 11)
+        unknown.acknowledged = true // 사용자가 "?"를 이미 확인했어도 — 새 판정은 다시 말한다
+        let (next, exits) = ScriptRun.merging(runs: ["s1": unknown], observed: ["s1": .exited(code: 2)],
+                                              registered: [located()], now: Self.t0.addingTimeInterval(60))
+        // duration은 조기 마감 값 유지 — 이 관측은 폴 지연을 타서 60은 과대다.
+        #expect(next["s1"]?.state == .finished(code: 2, duration: 11))
+        #expect(next["s1"]?.acknowledged == false)
+        #expect(exits.map(\.scriptId) == ["s1"]) // 미상엔 알림이 없었다 — 실패 확정은 여기서 처음 알린다
+    }
+
     @Test("finished 뒤 세션이 사라져도(missing) 확정 결과는 남는다 — 칩 잔류·도크 진입점 유지")
     func 종료후소멸보존() {
         var done = running()

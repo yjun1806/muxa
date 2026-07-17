@@ -1212,6 +1212,12 @@ final class AppState {
             if let reason {
                 attention.recordSystem(title: "\(script.name) 실행 실패 — \(reason)")
                 scriptRuns[script.id] = nil // 시작 자체가 실패 — running을 남기면 칩이 유령을 돈다
+            } else {
+                // 기동 완료 후 **한 번 더** 버린다 — 위의 동기 dropDockTerm과 이 시점 사이에 도크가
+                // 열려 있었으면(재실행·dedup reveal) SwiftUI가 이미 attach TermView를 만들었는데,
+                // 그건 kill→new-session **이전**의 옛/부재 세션에 붙은 죽은 서피스다. 여기서 버리고
+                // restartSeq를 올리면 뷰 id가 바뀌어 새 세션 기준으로 갈아 끼워진다(도크 `.id` 참조).
+                dropDockTerm(script.id)
             }
             syncServiceMonitor()
         }

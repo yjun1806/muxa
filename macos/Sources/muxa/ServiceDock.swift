@@ -12,8 +12,6 @@ struct ServiceDock: View {
     let state: AppState
 
     @State private var showAdd = false
-    /// 스크립트 헤더의 경과("12s") 갱신 기준 — 실행 중 상세를 볼 때만 tick이 붙는다.
-    @State private var now = Date()
 
     /// 창 전체 서비스(모든 워크스페이스·프로젝트).
     private var all: [LocatedService] { state.allLocatedServices }
@@ -311,14 +309,16 @@ struct ServiceDock: View {
     private func scriptDetail(_ item: LocatedScript) -> some View {
         let run = state.scriptRuns[item.id]
         VStack(spacing: 0) {
-            scriptHeader(item, run: run)
+            ScriptDetailHeader(state: state, item: item, run: run)
             if run?.isRunning == true {
                 // 실행 중이면 진짜 터미널(tmux attach) — Ctrl+C로 중단하고 그 자리에서 본다.
                 TerminalRepresentable(
                     term: state.dockScriptTerm(scriptId: item.id, projectId: item.projectId, cwd: item.cwd),
                     onFocus: {}
                 )
-                .id(item.id) // 스크립트를 바꾸면 그 스크립트의 터미널로 갈아 끼운다
+                // 스크립트 전환뿐 아니라 **세션 갈아엎기**(재실행 기동 완료 → restartSeq 증가)에도
+                // 갈아 끼운다 — 기동 중에 만들어진 attach는 옛/부재 세션에 붙은 죽은 서피스다(runScript 주석).
+                .id("\(item.id)|\(state.serviceRestartSeq)")
             } else if run != nil {
                 // 끝났으면 읽기 전용 로그 — remain-on-exit가 보존한 마지막 화면(exit 사유가 여기 있다).
                 ServiceLogView(session: ScriptSession.name(projectId: item.projectId, scriptId: item.id),
@@ -336,9 +336,56 @@ struct ServiceDock: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// 스크립트 상세 헤더 — 서비스 헤더와 같은 문법, 상태 어휘만 스크립트 축.
-    /// 실행 중이면 "실행"이 dedup(그 출력이 이미 여기 있다)이라 버튼을 감춘다 — 대신 ⟳ 재실행만 남긴다.
-    private func scriptHeader(_ item: LocatedScript, run: ScriptRun?) -> some View {
+    // MARK: 빈/미설치 상태 (목록이 없을 때 detail 자리를 채운다)
+
+    private var setup: some View {
+        // tmux가 없으면 기능을 숨기는 대신 **왜 없는지 말하고 설치를 돕는다**.
+        ServiceSetupView(state: state) { command in
+            state.mainStore?.injectToTerminal(command) ?? false
+        }
+    }
+
+    private var emptyState: some View {
+        EmptyState(icon: "square.stack.3d.up",
+                   title: "등록된 서비스가 없습니다",
+                   subtitle: "dev 서버처럼 오래 도는 명령을 등록하면 여기서 로그를 봅니다.\nmuxa를 꺼도 프로세스는 계속 돕니다.") {
+            Button("서비스 추가") { showAdd = true }
+                .font(.muxa(.label))
+        }
+        .background(Color.pBg)
+    }
+
+    /// 죽었나 — tmux가 진실 원천이다. 아직 모르면(missing) 살아있다고 보고 attach를 시도한다
+    /// (폴링 첫 바퀴 전이라도 도크가 빈 화면으로 뜨지 않게). **`isFailure`가 아니다** — 정상 종료(0)한
+    /// pane에 attach하면 죽은 셸에 붙어 빈 화면이 뜨므로 exit 0도 죽음으로 본다.
+    private func isDead(_ item: LocatedService) -> Bool {
+        if case .exited = state.serviceMonitor.state(of: item.service.id) { return true }
+        return false
+    }
+}
+
+/// 스크립트 상세 헤더 — 서비스 헤더와 같은 문법, 상태 어휘만 스크립트 축.
+/// 실행 중이면 "실행"이 dedup(그 출력이 이미 여기 있다)이라 버튼을 감춘다 — 대신 ⟳ 재실행만 남긴다.
+///
+/// **별도 뷰인 이유**: 경과("12s")의 1초 tick을 이 헤더에 가둔다 — 도크 루트의 @State였을 땐
+/// 매초 도크 본문 전체(목록·attach 터미널 update)가 리렌더됐다. tick은 **실행 중일 때만** 붙는다
+/// (끝난 스크립트의 duration·exit 꼬리표는 정적이라 시계가 필요 없다).
+private struct ScriptDetailHeader: View {
+    let state: AppState
+    let item: LocatedScript
+    let run: ScriptRun?
+
+    @State private var now = Date()
+
+    var body: some View {
+        if run?.isRunning == true {
+            content.tick(every: 1, into: $now)
+        } else {
+            content
+        }
+    }
+
+    private var content: some View {
         HStack(spacing: Space.sm) {
             Image(systemName: ScriptStatusStyle.glyph(run?.state))
                 .font(.muxa(.micro))
@@ -370,33 +417,5 @@ struct ServiceDock: View {
         }
         .panelBar(height: RowHeight.panelHeader)
         .background(Color.pPanel)
-        .tick(every: 1, into: $now) // 실행 중 경과("12s") — 이 헤더 안에서만 리렌더된다
-    }
-
-    // MARK: 빈/미설치 상태 (목록이 없을 때 detail 자리를 채운다)
-
-    private var setup: some View {
-        // tmux가 없으면 기능을 숨기는 대신 **왜 없는지 말하고 설치를 돕는다**.
-        ServiceSetupView(state: state) { command in
-            state.mainStore?.injectToTerminal(command) ?? false
-        }
-    }
-
-    private var emptyState: some View {
-        EmptyState(icon: "square.stack.3d.up",
-                   title: "등록된 서비스가 없습니다",
-                   subtitle: "dev 서버처럼 오래 도는 명령을 등록하면 여기서 로그를 봅니다.\nmuxa를 꺼도 프로세스는 계속 돕니다.") {
-            Button("서비스 추가") { showAdd = true }
-                .font(.muxa(.label))
-        }
-        .background(Color.pBg)
-    }
-
-    /// 죽었나 — tmux가 진실 원천이다. 아직 모르면(missing) 살아있다고 보고 attach를 시도한다
-    /// (폴링 첫 바퀴 전이라도 도크가 빈 화면으로 뜨지 않게). **`isFailure`가 아니다** — 정상 종료(0)한
-    /// pane에 attach하면 죽은 셸에 붙어 빈 화면이 뜨므로 exit 0도 죽음으로 본다.
-    private func isDead(_ item: LocatedService) -> Bool {
-        if case .exited = state.serviceMonitor.state(of: item.service.id) { return true }
-        return false
     }
 }

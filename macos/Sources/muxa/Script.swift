@@ -104,8 +104,12 @@ extension ScriptRun {
     ///  - 관측 .running: 레지스트리도 running이면 유지(startedAt 보존). 아니면 **채택** —
     ///    muxa 재시작 후 도는 세션. startedAt은 모른다(nil — 경과를 지어내지 않는다).
     ///  - 관측 .exited(code): running → finished(code) 확정 + exits에 실림(알림은 이 목록만).
-    ///    이미 finished면 유지(첫 판정이 이긴다). 레지스트리에 없으면 **조용히 채택**(acknowledged) —
-    ///    재시작 전의 결과를 재알림·재잔류시키지 않는다(ServiceMonitor baseline과 같은 원칙).
+    ///    code가 확정된 finished는 유지(첫 판정이 이긴다 — 중복 관측 멱등). 단 **결과 미상**(code nil —
+    ///    폴 1회 유실로 조기 마감)이었다면 늦은 진짜 관측으로 **승격**한다: pane에 진실이 남아 있는데
+    ///    "?"로 굳히는 건 "지어내지 않는다"의 반대 방향 오류다(있는 진실을 안 말하는 것). 승격은
+    ///    새 판정이므로 잔류(acknowledged)를 되살리고 exits에도 실린다(미상엔 알림이 없었다).
+    ///    레지스트리에 없으면 **조용히 채택**(acknowledged) — 재시작 전의 결과를 재알림·재잔류시키지
+    ///    않는다(ServiceMonitor baseline과 같은 원칙).
     ///  - 관측 없음(세션 소멸): running이던 것은 유예(missingGrace) 안이면 유지(막 시작 — 관측 지연),
     ///    지났으면 finished(code nil) — 결과 미상으로 마감하되 exits에는 안 싣는다(지어내지 않는다).
     ///    finished는 그대로 — 세션이 정리돼도 확정된 결과는 남는다.
@@ -133,6 +137,14 @@ extension ScriptRun {
                         var done = prev
                         done.state = .finished(code: code,
                                                duration: prev.startedAt.map { now.timeIntervalSince($0) })
+                        next[id] = done
+                        exits.append(done)
+                    } else if case .finished(nil, let duration) = prev.state {
+                        // 결과 미상 → 진짜 관측으로 승격. duration은 조기 마감 값을 유지한다
+                        // (마감 시점이 실제 종료에 더 가깝고, 이 관측은 폴 지연을 탄다).
+                        var done = prev
+                        done.state = .finished(code: code, duration: duration)
+                        done.acknowledged = false // 새 판정 — 내려간 칩이라도 다시 말한다
                         next[id] = done
                         exits.append(done)
                     } else {
