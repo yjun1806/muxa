@@ -547,7 +547,8 @@ struct ServiceDock: View {
                                                             serviceId: item.service.id),
                                // finalLogs 도착 시 다시 읽도록 토큰에 존재 여부를 실어 준다.
                                reloadToken: "\(item.service.id)|\(state.serviceRestartSeq)|\(state.finalLogs[item.service.id] != nil)",
-                               fallback: state.finalLogs[item.service.id])
+                               fallback: state.finalLogs[item.service.id],
+                               onCapture: { state.recordFinalLog(item.service.id, $0) })
             } else {
                 TerminalRepresentable(
                     term: state.dockTerm(serviceId: item.service.id, projectId: item.projectId, cwd: item.cwd),
@@ -629,7 +630,8 @@ struct ServiceDock: View {
             } else if run != nil {
                 ServiceLogView(session: ScriptSession.name(projectId: item.projectId, scriptId: item.id),
                                reloadToken: "\(item.id)|\(state.serviceRestartSeq)|\(state.finalLogs[item.id] != nil)",
-                               fallback: state.finalLogs[item.id])
+                               fallback: state.finalLogs[item.id],
+                               onCapture: { state.recordFinalLog(item.id, $0) })
             } else {
                 EmptyState(icon: ScriptStatusStyle.icon,
                            title: "아직 실행한 적이 없습니다",

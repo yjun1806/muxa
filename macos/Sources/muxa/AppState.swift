@@ -1219,6 +1219,11 @@ final class AppState {
 
     func dismissUndo() { undoTask?.cancel(); pendingDeletion = nil }
 
+    /// 로그 뷰가 라이브로 읽어낸 비지 않은 로그를 스냅샷으로 굳힌다 — 한 번 본 로그는 pane이 정리돼도 남는다.
+    func recordFinalLog(_ id: String, _ raw: String) {
+        if !ServiceLogView.tidy(raw).isEmpty { finalLogs[id] = raw }
+    }
+
     // MARK: 스크립트 (끝이 있는 명령 — Script.swift)
     //
     // 서비스 CRUD의 미러. 실행도 서비스와 **같은 tmux 백엔드**지만(탭 없음 — 백그라운드),
@@ -1599,7 +1604,9 @@ final class AppState {
         if attach == nil {
             attention.recordSystem(title: "서비스 로그를 열 수 없습니다 — 서비스 id가 세션명 규약을 벗어납니다 (\(serviceId))")
         }
-        let term = TermView(app: app, cwd: cwd, initialCommand: attach)
+        // 영속탭과 같은 **exec 경로**(`execCommand`)로 붙인다 — 셸에 `tmux attach`를 타이핑하지 않아
+        // 번쩍임이 없고, attach가 끝나면 `exec -l $SHELL`로 셸이 남아 서피스가 비지 않는다.
+        let term = TermView(app: app, cwd: cwd, command: attach.map(TerminalSession.execCommand))
         dockTerms[serviceId] = term
         return term
     }
@@ -1612,7 +1619,8 @@ final class AppState {
         if attach == nil { // dockTerm과 같은 이유 — nil을 삼키면 "그냥 셸"이 떠서 침묵 실패다
             attention.recordSystem(title: "스크립트 출력을 열 수 없습니다 — 스크립트 id가 세션명 규약을 벗어납니다 (\(scriptId))")
         }
-        let term = TermView(app: app, cwd: cwd, initialCommand: attach)
+        // 영속탭과 같은 exec 경로 — 번쩍임 없이 attach, 끝나면 셸이 남는다(dockTerm 주석).
+        let term = TermView(app: app, cwd: cwd, command: attach.map(TerminalSession.execCommand))
         dockTerms[scriptId] = term
         return term
     }
