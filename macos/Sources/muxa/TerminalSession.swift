@@ -76,6 +76,12 @@ enum TerminalSession {
             "set-option -g set-titles-string '#{b:pane_current_path}'",
             // muxa가 이미 탭·도크 UI를 가지므로 tmux 하단 상태바는 중복이다(서비스 세션과 동일하게 끈다).
             "set-option -g status off",
+            // Shift+Enter 등 수정자 조합 — tmux는 기본으로 extended keys를 끈다. 안 켜면 안쪽
+            // TUI(Claude Code 등)가 kitty 프로토콜을 요청해도 Shift+Enter가 Enter로 뭉개진다.
+            "set-option -s extended-keys on",
+            // 바깥 터미널(ghostty, TERM=xterm-ghostty)이 extkeys를 지원한다고 알려야
+            // tmux가 밖으로도 modifyOtherKeys를 요청해 조합을 구분해 받는다.
+            "set-option -sa terminal-features 'xterm*:extkeys'",
             // 없으면 만들고 있으면 그대로 둔다(-A). 앱을 껐다 켜도 같은 이름이면 그 세션에 다시 붙는다.
             "new-session -d -A -s \(q) -c \(ShellQuote.single(cwd))\(envArgs)",
             // 서버 전역은 `on`이다(서비스가 죽은 뒤 exit code·로그를 읽어야 하므로). 터미널에 그대로 두면

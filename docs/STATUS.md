@@ -66,6 +66,20 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 추정기 `lastOutputAt`(systemUptime 경과) · 에이전트 판정 = `hookedTabs`. **경량 가드**: 접힘 기본 + 유휴 접기로 절제
 (muxa 우위=가벼움, [[muxa-vs-orca-positioning]]).
 
+## 최근 완료 (2026-07-17) — Shift+Enter 줄바꿈 (tmux extended-keys)
+
+터미널 탭에서 Claude Code 등 안쪽 TUI에 **Shift+Enter가 그냥 Enter로 뭉개지던** 문제.
+단독 Ghostty에선 kitty 키보드 프로토콜로 구분되지만, muxa 탭은 tmux를 경유하는데 tmux 기본값이
+`extended-keys off`라 안쪽 요청이 무시됐다. `TerminalSession.startCommand`에 두 줄 추가:
+`set-option -s extended-keys on`(안쪽 요청 수용) + `set-option -sa terminal-features 'xterm*:extkeys'`
+(바깥 ghostty에 modifyOtherKeys 요청). 서버 옵션이라 서비스·스크립트 세션에도 함께 적용.
+테스트 `extended_keys를_켠다` + 기존 1024바이트 길이 가드 통과(305개 green).
+
+### ★ 육안 검증 필요 (`make relaunch`)
+1. ★ 새 터미널 탭에서 Claude Code 실행 → 입력창 Shift+Enter = 줄바꿈(제출 아님).
+   **기존 tmux 서버가 살아있으면 옵션이 안 먹을 수 있다** — 새 탭 하나 열어 옵션이 서버에 박힌 뒤 Claude Code를 재시작해서 확인.
+2. ★ 일반 셸·vim 등에서 Enter·Ctrl+C 등 기본 키가 그대로 정상인지(회귀).
+
 ## 최근 완료 (2026-07-16) — 일회용 스크립트 터미널 (SCRIPT-TAB)
 
 **끝이 있는 명령**(`make build` 등)을 원클릭 실행하는 스크립트 축 신설 → ARCHITECTURE **D33**, DESIGN 어휘표.

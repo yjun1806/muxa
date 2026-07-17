@@ -125,6 +125,16 @@ struct TerminalSessionTests {
         #expect(startCmd().contains("set-option -g allow-passthrough on"))
     }
 
+    /// tmux는 기본으로 extended keys를 끈다 — 그러면 안쪽 TUI(Claude Code 등)가 kitty 키보드
+    /// 프로토콜을 요청해도 tmux가 Shift+Enter를 그냥 Enter로 뭉개 줄바꿈 입력이 안 된다.
+    /// 바깥 터미널(ghostty, TERM=xterm-ghostty)이 extkeys를 지원한다는 것도 알려줘야
+    /// tmux가 밖으로 modifyOtherKeys를 요청해 조합을 구분해 받는다.
+    @Test func extended_keys를_켠다() {
+        let cmd = startCmd()
+        #expect(cmd.contains("set-option -s extended-keys on"))
+        #expect(cmd.contains("set-option -sa terminal-features 'xterm*:extkeys'"))
+    }
+
     /// zsh에서 `=word`는 명령 경로로 치환되는 EQUALS 확장 — 인용을 빼면 세션명을 명령으로 착각한다.
     @Test func 타겟은_인용된다() {
         #expect(!startCmd().contains("attach -t =muxa"))
