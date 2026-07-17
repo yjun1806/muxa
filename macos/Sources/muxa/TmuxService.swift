@@ -203,9 +203,18 @@ enum TmuxService {
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let result = await runResult(startArgs(session: session, cwd: cwd,
                                                shell: shell, command: service.command))
-        guard result.exitCode != 0 else { return nil }
+        guard result.exitCode != 0 else { await suppressDeadPaneBanner(); return nil }
         let reason = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
         return reason.isEmpty ? "tmux 세션 생성 실패 (exit \(result.exitCode))" : reason
+    }
+
+    /// tmux가 죽은 pane 위에 띄우는 **"Pane is dead" 기본 문구를 지운다**. `remain-on-exit on`으로 종료
+    /// pane·로그를 보존하는 대가로, 실행 중 보던 라이브 attach 터미널에 이 문구가 뜬다(폴링이 종료를
+    /// 감지해 로그 뷰로 바꾸기 전까지). 빈 포맷이면 문구 없이 마지막 출력만 남는다.
+    /// `remain-on-exit-format`은 tmux 3.4+ 옵션 — 구버전이면 조용히 실패한다(무시). 전역·멱등이라
+    /// 세션 생성 성공 뒤 best-effort로 건다(세션 생성 판정과 분리해 구버전에서 오작동하지 않게).
+    private static func suppressDeadPaneBanner() async {
+        _ = await run(["set-option", "-g", "remain-on-exit-format", ""])
     }
 
     /// 기동 명령 목록(순수) — **순서가 곧 정확성이다**.
@@ -249,7 +258,7 @@ enum TmuxService {
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let result = await runResult(startArgs(session: session, cwd: cwd,
                                                shell: shell, command: script.command))
-        guard result.exitCode != 0 else { return nil }
+        guard result.exitCode != 0 else { await suppressDeadPaneBanner(); return nil }
         let reason = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
         return reason.isEmpty ? "tmux 세션 생성 실패 (exit \(result.exitCode))" : reason
     }
