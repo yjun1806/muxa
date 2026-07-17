@@ -816,6 +816,11 @@ final class AppState {
         stores[projectId]?.currentTabId
     }
 
+    /// 탭의 transcript(JSONL) 경로 — 사이드바 hover 카드가 첨부 이미지를 읽을 때 쓴다.
+    func agentTranscript(_ projectId: String, _ tabId: TabID) -> String? {
+        stores[projectId]?.agentTranscript(for: tabId)
+    }
+
     /// 열려 있는 터미널이 하나라도 있나 — 사이드바 ✕(닫기) 노출 판정.
     /// 터미널이 살아 있으면 ✕를 숨긴다(실수 클릭 한 번이 모든 세션을 죽인다 — 닫기는 우클릭 메뉴로).
     /// 안 연 프로젝트(store 없음)는 false — 세션이 없으니 ✕가 떠도 안전하다.

@@ -26,6 +26,8 @@ struct ClaudeHookPayload: Equatable {
     let notificationType: String?
     /// Notification 훅의 사람이 읽을 메시지.
     let message: String?
+    /// UserPromptSubmit 훅의 사용자 입력 원문 — 사이드바 행 제목("마지막에 뭘 시켰나")의 출처.
+    let prompt: String?
     /// 사용자가 ESC로 끊었는가(Stop) — "완료"와 "중단"을 가른다.
     let isInterrupt: Bool
     /// 백그라운드 작업이 **지금 돌고 있는가** — 턴이 끝나도 done이 아니다(cmux `pending`).
@@ -36,7 +38,7 @@ struct ClaudeHookPayload: Equatable {
     /// 이벤트 이름만으로도 상태 전이(Stop→done 등)는 유효하므로 신호를 통째로 버리지 않는다.
     static let empty = ClaudeHookPayload(
         toolName: nil, toolInput: [:], transcriptPath: nil, lastAssistantMessage: nil,
-        sessionId: nil, cwd: nil, notificationType: nil, message: nil,
+        sessionId: nil, cwd: nil, notificationType: nil, message: nil, prompt: nil,
         isInterrupt: false, hasPendingBackgroundWork: false
     )
 
@@ -53,6 +55,7 @@ struct ClaudeHookPayload: Equatable {
             cwd: nonEmptyString(root["cwd"]),
             notificationType: nonEmptyString(root["notification_type"]),
             message: nonEmptyString(root["message"]),
+            prompt: nonEmptyString(root["prompt"]),
             isInterrupt: root["is_interrupt"] as? Bool ?? false,
             hasPendingBackgroundWork: pendingBackgroundWork(root)
         )

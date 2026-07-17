@@ -26,8 +26,19 @@ struct AgentRow: Equatable, Identifiable {
     let viewerKind: String?
     /// 그룹 탭의 서브탭 개수("문서 안에 몇 개") — 행 우측 열이 보여준다. 터미널·링크 탭은 nil.
     var subtabCount: Int? = nil
+    /// 사용자가 이 탭에 마지막으로 입력한 프롬프트(UserPromptSubmit 훅) — 있으면 행 제목으로 승격.
+    var prompt: AgentPrompt? = nil
 
     var id: TabID { tabId }
+
+    /// **프롬프트 승격 제목** — 프롬프트가 곧 행의 이름이 된다(일감 목록으로 읽히게).
+    /// 뷰어는 종류가 이름이라 승격하지 않고, 이미지만 던진 턴은 "이미지 N장"(빈 제목 금지).
+    /// nil이면 뷰는 현행 한 줄 표시(제목 – 상태)로 폴백한다.
+    var promptTitle: String? {
+        guard viewerKind == nil, let prompt else { return nil }
+        let line = prompt.oneLine
+        return line.isEmpty ? "이미지 \(prompt.imageCount)장" : line
+    }
 
     /// 행 본문 — 뷰어는 종류를, 나머지는 상태 인지형. 대기=경과 시간, 작업=라이브 도구(없으면 라벨), 완료=완료, 유휴=라벨.
     /// done에 상대시간을 붙이지 않는다 — 벽시계 완료시각을 저장하지 않아 신뢰할 수 없다(계획 #4).

@@ -20,6 +20,13 @@ extension View {
     func muxaTip(_ text: String?) -> some View {
         background(TipAnchor(text: text).allowsHitTesting(false))
     }
+
+    /// 이 뷰에 **hover 카드**를 단다 — 한 줄 칩 대신 임의 콘텐츠(잘린 전문·이미지 미리보기).
+    /// 표시 규칙(지연·이탈·클릭 시 접기)은 툴팁과 동일하다. `key`가 바뀌면 떠 있던 카드를 접는다
+    /// (행 재사용·내용 교체 대응 — 클로저는 비교할 수 없어 키가 동일성을 대신 말한다).
+    func muxaHoverCard(key: String, @ViewBuilder content: @escaping () -> some View) -> some View {
+        background(HoverCardAnchor(key: key, content: { AnyView(content()) }).allowsHitTesting(false))
+    }
 }
 
 // MARK: - 칩 (표면)
@@ -54,16 +61,21 @@ private struct TipAnchor: NSViewRepresentable {
 
     func makeNSView(context: Context) -> TipHostView {
         let view = TipHostView()
-        view.text = normalized
+        apply(to: view)
         return view
     }
 
     func updateNSView(_ nsView: TipHostView, context: Context) {
-        nsView.text = normalized
+        apply(to: nsView)
     }
 
     static func dismantleNSView(_ nsView: TipHostView, coordinator: ()) {
         nsView.cancel()
+    }
+
+    private func apply(to view: TipHostView) {
+        view.contentKey = normalized
+        view.provider = normalized.map { text in { AnyView(TipChip(text: text)) } }
     }
 
     private var normalized: String? {
@@ -72,11 +84,36 @@ private struct TipAnchor: NSViewRepresentable {
     }
 }
 
-/// 앵커 뷰 — hover 진입에서 지연 타이머를 걸고, 이탈·창 분리에서 접는다.
+/// 리치 카드 앵커 — 칩(TipChip) 대신 호출자가 준 콘텐츠를 띄운다. hover 규칙은 TipHostView 공용.
+private struct HoverCardAnchor: NSViewRepresentable {
+    let key: String
+    let content: () -> AnyView
+
+    func makeNSView(context: Context) -> TipHostView {
+        let view = TipHostView()
+        view.contentKey = key
+        view.provider = content
+        return view
+    }
+
+    func updateNSView(_ nsView: TipHostView, context: Context) {
+        nsView.contentKey = key
+        nsView.provider = content
+    }
+
+    static func dismantleNSView(_ nsView: TipHostView, coordinator: ()) {
+        nsView.cancel()
+    }
+}
+
+/// 앵커 뷰 — hover 진입에서 지연 타이머를 걸고, 이탈·창 분리에서 접는다(칩·카드 공용).
 /// 히트테스트는 없다(클릭은 아래 컨트롤이 받는다) — 트래킹 영역은 히트테스트와 무관하게 동작한다.
 private final class TipHostView: NSView {
-    var text: String? {
-        didSet { if text != oldValue { cancel() } }
+    /// 띄울 내용 공급자 — nil이면 아무것도 안 띄운다(표시 순간에 만든다 — 안 뜰 카드를 미리 만들지 않는다).
+    var provider: (() -> AnyView)?
+    /// 내용 동일성 키 — 클로저는 비교할 수 없어 이 키가 "내용이 바뀌었다"를 대신 말한다(바뀌면 접는다).
+    var contentKey: String? {
+        didSet { if contentKey != oldValue { cancel() } }
     }
 
     private var pending: DispatchWorkItem?
@@ -93,8 +130,8 @@ private final class TipHostView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        guard let text else { return }
-        let work = DispatchWorkItem { [weak self] in self?.present(text) }
+        guard provider != nil else { return }
+        let work = DispatchWorkItem { [weak self] in self?.present() }
         pending = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Tip.delay, execute: work)
     }
@@ -115,10 +152,10 @@ private final class TipHostView: NSView {
         TipWindow.shared.hide()
     }
 
-    private func present(_ text: String) {
-        guard let window else { return }
+    private func present() {
+        guard let window, let provider else { return }
         let anchor = window.convertToScreen(convert(bounds, to: nil))
-        TipWindow.shared.show(text: text, anchor: anchor)
+        TipWindow.shared.show(view: provider(), anchor: anchor)
     }
 
     deinit {
@@ -140,8 +177,14 @@ final class TipWindow {
     private var monitor: Any?
 
     func show(text: String, anchor: NSRect) {
+        show(view: AnyView(TipChip(text: text)), anchor: anchor)
+    }
+
+    /// 임의 콘텐츠(리치 카드)를 띄운다 — 칩과 같은 창 규칙(마우스 무시·포커스 불가침).
+    /// 콘텐츠는 **표시 시점 크기로 고정**된다 — 비동기 로드가 있으면 자리(placeholder)를 먼저 잡아야 한다.
+    func show(view: AnyView, anchor: NSRect) {
         hide()
-        let host = NSHostingView(rootView: TipChip(text: text))
+        let host = NSHostingView(rootView: view)
         host.layoutSubtreeIfNeeded()
         let size = host.fittingSize
         let panel = NSPanel(contentRect: NSRect(origin: .zero, size: size),

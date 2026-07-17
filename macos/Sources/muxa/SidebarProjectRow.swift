@@ -164,13 +164,60 @@ struct SidebarProjectRow: View {
         .padding(.top, Space.tight)
     }
 
-    /// 에이전트 한 행 — 상태 글리프 + 타입 마크 + 제목(– 본문) + 우측 열(그룹=서브탭 개수 · 대기=경과).
-    /// 그룹 행은 **종류가 이름**("문서·HTML·코드")이라 본문을 겹쳐 말하지 않는다.
+    /// 에이전트 한 행 — **프롬프트가 있으면 2줄**(제목=마지막 프롬프트, 아랫줄=탭 이름–상태/라이브 도구),
+    /// 없으면 현행 1줄(제목 – 본문). 우측 열은 그룹=서브탭 개수 · 대기=경과.
     /// **클릭 = 그 탭 지목 이동**(`focusAgentTab`, 상태 순환이 아니라 이 탭 하나).
+    /// 프롬프트 행의 hover는 카드(전문+이미지)가, 나머지는 툴팁이 말한다 — 둘을 겹치지 않는다.
+    @ViewBuilder
     private func agentRowView(_ r: AgentRow, selected: TabID?) -> some View {
-        let desc = r.viewerKind == nil ? "\(r.title) — \(r.subtitle)"
-                                       : r.subtabCount.map { "\(r.title) \($0)개" } ?? r.title
-        return Button { state.focusAgentTab(project.id, r.tabId) } label: {
+        let desc = rowDescription(r)
+        let button = Button { state.focusAgentTab(project.id, r.tabId) } label: {
+            rowContent(r)
+                .padding(.leading, agentIndent)
+                .padding(.trailing, Space.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .modifier(ListRowFill(selected: r.tabId == selected))
+        .clickCursor()
+        .accessibilityLabel("\(desc) 탭으로 이동")
+        if let prompt = r.prompt, r.promptTitle != nil {
+            button.muxaHoverCard(key: "\(r.tabId)#\(prompt.text)#\(prompt.imageCount)") {
+                PromptHoverCard(text: prompt.text, imageCount: prompt.imageCount,
+                                transcriptPath: state.agentTranscript(project.id, r.tabId))
+            }
+        } else {
+            button.help("\(desc). 클릭해 이동")
+        }
+    }
+
+    /// 행 본문 — 프롬프트 승격(2줄) 또는 현행(1줄).
+    @ViewBuilder
+    private func rowContent(_ r: AgentRow) -> some View {
+        if let promptTitle = r.promptTitle {
+            // **프롬프트가 곧 행의 이름**(일감 목록으로 읽히게) — 아랫줄이 "누가·지금 뭘"을 말한다.
+            VStack(alignment: .leading, spacing: Space.tight) {
+                HStack(spacing: Space.xs) {
+                    statusGlyph(r.state.tone)
+                    typeMark(r)
+                    Text(promptTitle).font(.muxa(.label)).foregroundStyle(Color.pFg)
+                        .lineLimit(1).truncationMode(.tail)
+                    if let prompt = r.prompt, prompt.imageCount > 0 { PromptImageChip(count: prompt.imageCount) }
+                    Spacer(minLength: 0)
+                    if let time = r.timeLabel {
+                        Text(time).font(.muxaMono(.caption)).foregroundStyle(Color.pMuted)
+                    }
+                }
+                // 아랫줄 — 탭 이름 – 상태/라이브 도구. 제목 시작선(글리프 2슬롯 + 간격)에 맞춘다.
+                Text("\(r.title) – \(r.bodyLabel)")
+                    .font(.muxa(.caption))
+                    .foregroundStyle(Color.pMuted)
+                    .lineLimit(1).truncationMode(.tail)
+                    .padding(.leading, IconSize.statusGlyph * 2 + Space.xs * 2)
+            }
+            .padding(.vertical, Space.xs)
+        } else {
             HStack(spacing: Space.xs) {
                 statusGlyph(r.state.tone) // 유휴(뷰어 등)면 작은 무채 점
                 typeMark(r) // Claude 세션이면 마크, 아니면 슬롯 고정(제목 시작선 불변)
@@ -187,17 +234,15 @@ struct SidebarProjectRow: View {
                     Text(time).font(.muxaMono(.caption)).foregroundStyle(Color.pMuted)
                 }
             }
-            .padding(.leading, agentIndent)
-            .padding(.trailing, Space.sm)
-            .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: RowHeight.tight)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .modifier(ListRowFill(selected: r.tabId == selected))
-        .clickCursor()
-        .help("\(desc). 클릭해 이동")
-        .accessibilityLabel("\(desc) 탭으로 이동")
+    }
+
+    /// 행 설명(툴팁·VoiceOver) — 프롬프트 행은 프롬프트가 앞장선다.
+    private func rowDescription(_ r: AgentRow) -> String {
+        if let promptTitle = r.promptTitle { return "\(promptTitle) — \(r.title), \(r.subtitle)" }
+        return r.viewerKind == nil ? "\(r.title) — \(r.subtitle)"
+                                   : r.subtabCount.map { "\(r.title) \($0)개" } ?? r.title
     }
 
     /// 타입 마크 — **"이게 뭔가(WHO/무엇)"를 상태 점(WHAT)과 분리해 말한다**(Orca 원칙).

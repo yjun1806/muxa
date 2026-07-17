@@ -298,6 +298,12 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 탭별 진행 표시("편집 중: TermView.swift") — 훅의 도구 이벤트에서 파생한다(관측 대상, 푸터가 읽는다).
     /// 알림이 아니라 "지금 뭘 하고 있나"의 표면이다. 턴이 끝나면(Stop·새 프롬프트) 지운다.
     private(set) var agentDetail: [TabID: String] = [:]
+    /// 탭별 **마지막 입력 프롬프트**(UserPromptSubmit 훅) — 사이드바 행 제목이 읽는다(관측 대상).
+    /// 진행 표시와 달리 턴이 끝나도 **남는다** — "이 탭에 마지막으로 뭘 시켰나"가 정체성이다.
+    private(set) var agentPrompts: [TabID: AgentPrompt] = [:]
+    /// 탭별 transcript(JSONL) 경로 미러 — hover 팝오버가 첨부 이미지를 여기서 읽는다.
+    /// 관측 대상이 아니다(열람 시점에만 읽는 값) — 훅이 올 때마다 최신으로 덮는다.
+    @ObservationIgnored private var agentTranscripts: [TabID: String] = [:]
     /// 배지가 하나라도 생기면 상위(AppState)에 알린다 — 프로젝트 탭 ● 표시용.
     @ObservationIgnored var onProjectActivity: (() -> Void)?
     /// 데스크톱 알림을 띄워야 할 때 상위(AppState)에 위임한다 — 라우팅 컨텍스트(프로젝트·워크스페이스)는
@@ -588,6 +594,12 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             map[tabId] = nil
             agentDetail = map
         }
+        if agentPrompts[tabId] != nil { // 마지막 프롬프트 해제(관측 맵은 immutable 교체)
+            var map = agentPrompts
+            map[tabId] = nil
+            agentPrompts = map
+        }
+        agentTranscripts[tabId] = nil // transcript 경로 미러 해제(맵 누수 방지)
         lastBellAt[tabId] = nil // 벨 디바운스 상태 해제
         resetCoalescers(for: tabId) // 배지·알림 병합 이력 해제(맵 누수 방지)
         manualTitles[tabId] = nil // 수동 지정 제목 해제
@@ -886,6 +898,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             agentCwds[tabId] = cwd
             onPwdChange?()
         }
+        // transcript 경로 미러 — hover 팝오버(첨부 이미지)가 읽는다. 세션이 바뀌면 경로도 바뀌므로 늘 최신으로.
+        if let transcript = payload.transcriptPath { agentTranscripts[tabId] = transcript }
 
         let (outcome, next) = ClaudeHookInterpreter.interpret(
             event: event, payload: payload, state: hookSessions[tabId] ?? HookSessionState()
@@ -900,6 +914,12 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     private func apply(_ outcome: HookOutcome, to tabId: TabID) {
         if let resume = outcome.resume { setResumeBinding(resume, for: tabId) }
         updateAgentDetail(tabId, outcome: outcome)
+        // 마지막 프롬프트 — 새 프롬프트만 덮는다(nil은 "변화 없음", 지우기가 아니다. 완료 후에도 남는다).
+        if let prompt = outcome.prompt, agentPrompts[tabId] != prompt {
+            var map = agentPrompts
+            map[tabId] = prompt
+            agentPrompts = map
+        }
 
         if let state = outcome.state {
             // 훅은 ground truth — 추정기에 고정(pin)해 노이즈 RENDER가 상태를 되돌리지 못하게 한다.
@@ -961,6 +981,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     /// 탭의 현재 진행 표시(없으면 nil) — 푸터가 활성 탭의 값을 읽는다.
     func agentDetail(for tabId: TabID) -> String? { agentDetail[tabId] }
+
+    /// 탭의 transcript(JSONL) 경로(없으면 nil) — hover 팝오버가 첨부 이미지를 읽을 때 쓴다.
+    func agentTranscript(for tabId: TabID) -> String? { agentTranscripts[tabId] }
 
     /// transcript에서 마지막 메시지를 못 건졌을 때의 완료 본문(빈 본문보다 낫다).
     private static let turnCompleteFallbackBody = "턴이 끝났다"
@@ -1328,7 +1351,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                             waitingSeconds: waitingSeconds,
                             isAgent: hookedTabs.contains(tabId),
                             typeIcon: typeIcon, viewerKind: viewerKind,
-                            subtabCount: subtabCount)
+                            subtabCount: subtabCount,
+                            prompt: agentPrompts[tabId])
         }
     }
 
