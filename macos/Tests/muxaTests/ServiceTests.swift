@@ -257,16 +257,23 @@ final class ServiceTests: XCTestCase {
         XCTAssertFalse(ServiceSession.isValidId("웹"))       // 비ASCII
     }
 
-    // MARK: pane 0만 세션의 상태다 — attach해서 화면을 나눠도 판정이 흔들리지 않는다
+    // MARK: 세션의 첫(최소 인덱스) pane이 서비스 상태다 — attach해서 화면을 나눠도, base-index가 뭐든 안 흔들린다
 
-    /// 사용자가 도크에서 attach해 pane을 나누면 한 세션에 pane이 여럿 잡힌다. 전부 받아들이면
-    /// 마지막 줄이 이겨(딕셔너리 덮어쓰기) **죽은 서비스가 살아 있다고 보인다** — 옆 pane의 셸 때문에.
-    func testParsePanesUsesPaneZeroOnly() {
+    /// 사용자가 도크에서 attach해 pane을 나누면 한 세션에 pane이 여럿 잡힌다(서비스 pane + 더 높은 인덱스의 셸).
+    /// 최소 인덱스(서비스 pane)를 써야 **죽은 서비스가 옆 셸 때문에 살아 있다고 보이지 않는다.**
+    func testParsePanesUsesLowestPane() {
         let raw = """
         muxa__P__web|0|1|1
         muxa__P__web|1|0|
         """
         XCTAssertEqual(ServiceSession.parsePanes(raw)["muxa__P__web"], .exited(code: 1))
+    }
+
+    /// `~/.tmux.conf`의 `pane-base-index 1`이면 세션의 유일한 pane이 인덱스 1이다. 0만 인정하던 옛 코드는
+    /// 이걸 놓쳐 **실행 중 서비스를 통째로 `.missing`으로 오판**했다(헤더에 [시작] 버튼·재실행 없음).
+    func testParsePanesHandlesNonZeroBaseIndex() {
+        XCTAssertEqual(ServiceSession.parsePanes("muxa__P__web|1|0|")["muxa__P__web"], .running)
+        XCTAssertEqual(ServiceSession.parsePanes("muxa__P__api|1|1|2")["muxa__P__api"], .exited(code: 2))
     }
 
     // MARK: 살아있는 서비스 id 수집 — 고아 정리의 입력. 여기가 틀리면 멀쩡한 dev 서버를 죽인다.

@@ -250,24 +250,23 @@ enum ServiceSession {
     /// `tmux list-panes -a -F '#{session_name}|#{pane_index}|#{pane_dead}|#{pane_dead_status}'` 출력 → 세션별 상태.
     /// 형식이 어긋난 줄은 조용히 버린다(상태를 지어내지 않는다).
     ///
-    /// **pane 0만 세션의 상태다.** 사용자가 attach해서 화면을 나누면 한 세션에 pane이 여럿 생기는데,
-    /// 전부 받아들이면 마지막으로 읽은 줄이 이겨(딕셔너리 덮어쓰기) 상태가 비결정적이 된다 —
-    /// 서비스 프로세스가 죽었는데 옆 pane의 셸이 살아 있다고 `.running`으로 보이는 식이다.
-    /// 서비스 명령은 항상 `new-session`이 만든 pane 0에서 돈다.
+    /// **세션의 "첫(최소 인덱스) pane"이 서비스 상태다.** 서비스 명령은 `new-session`이 만든 첫 pane에서
+    /// 돌고, 사용자가 attach해 화면을 나누면 **더 높은 인덱스**의 셸 pane이 추가된다. 그래서 최소 인덱스
+    /// pane을 서비스 pane으로 삼으면, 옆 셸이 살아 있어도 서비스의 진짜 상태를 읽는다.
+    /// **pane 0을 하드코딩하지 않는다** — 사용자 `~/.tmux.conf`의 `pane-base-index 1`이면 첫 pane이 1이라,
+    /// 0만 인정하면 실행 중 서비스가 통째로 `.missing`으로 오판된다(전용 소켓도 `~/.tmux.conf`를 로드한다).
     static func parsePanes(_ raw: String) -> [String: ServiceState] {
-        var states: [String: ServiceState] = [:]
+        var best: [String: (index: Int, state: ServiceState)] = [:]
         for line in raw.split(separator: "\n", omittingEmptySubsequences: true) {
             let fields = line.components(separatedBy: "|")
-            guard fields.count >= 4, !fields[0].isEmpty, fields[1] == "0" else { continue }
+            guard fields.count >= 4, !fields[0].isEmpty, let index = Int(fields[1]) else { continue }
             let session = fields[0]
-            if fields[2] == "1" {
-                // 죽었다. status가 비면(신호 종료 등) 코드는 모르지만 죽었다는 사실은 확정이다.
-                states[session] = .exited(code: Int32(fields[3]) ?? -1)
-            } else {
-                states[session] = .running
-            }
+            // 죽었다(pane_dead=1). status가 비면(신호 종료 등) 코드는 모르지만 죽었다는 사실은 확정이다.
+            let state: ServiceState = fields[2] == "1" ? .exited(code: Int32(fields[3]) ?? -1) : .running
+            if let existing = best[session], existing.index <= index { continue } // 더 낮은 인덱스만 이긴다
+            best[session] = (index, state)
         }
-        return states
+        return best.mapValues(\.state)
     }
 
     /// 정리해도 안전한 '고아' 세션(= 좀비 dev 서버)을 고른다. 순수, 부작용 없음.

@@ -331,8 +331,10 @@ enum TmuxService {
 
     /// 세션명 → pane 0의 로그 꼬리(공통 꼴) — 스크립트 로그 뷰가 세션명으로 직접 읽는다.
     static func capture(session: String, lines: Int = 100) async -> String {
-        // `-J`: pane 폭에서 하드랩된 줄을 논리 줄로 잇는다(좁은 도크에서 `gzip`이 `gz`+`ip`로 쪼개지던 것 복원).
-        await run(["capture-pane", "-p", "-J", "-t", "=\(session):.0", "-S", "-\(lines)"]).stdout
+        // 타겟은 **세션의 활성 pane**(`=세션`)이다 — 배경 세션은 pane 하나(서비스 명령)뿐이라 그게 서비스 pane이다.
+        // `:.0`으로 pane 0을 하드코딩하면 `~/.tmux.conf`의 `pane-base-index 1`에서 pane이 1이라 빈 결과가 난다
+        // (parsePanes가 최소 인덱스 pane을 쓰는 것과 같은 이유). `-J`: 좁은 폭 하드랩을 논리 줄로 잇는다(gz+ip 방지).
+        await run(["capture-pane", "-p", "-J", "-t", "=\(session)", "-S", "-\(lines)"]).stdout
     }
 
     // MARK: 종료·정리
