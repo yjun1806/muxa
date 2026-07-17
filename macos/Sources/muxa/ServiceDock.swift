@@ -538,11 +538,13 @@ struct ServiceDock: View {
     private func detail(_ item: LocatedService) -> some View {
         let st = state.serviceMonitor.state(of: item.service.id)
         let stopped = state.userStoppedServiceIds.contains(item.service.id)
-        // 로그를 보여줄 때: 죽었거나(exited), 사용자가 중단해(세션 kill → missing) attach할 게 없을 때.
-        let showLog: Bool = { if case .exited = st { return true }; return stopped && st == .missing }()
+        // **사용자 중단**만 텍스트 스냅샷이다 — 세션을 kill해 붙을 pane이 없다. 나머지(실행 중·비정상 종료·
+        // 실행 전)는 attach: 비정상 종료도 remain-on-exit로 마지막 화면이 색·서식 그대로 얼어붙어 있어,
+        // 텍스트로 다시 그리는 것보다 그 pane을 그대로 보는 게 충실하다(스크립트 상세와 같은 판단).
+        let userStopped = stopped && st == .missing
         VStack(spacing: 0) {
             header(item)
-            if showLog {
+            if userStopped {
                 ServiceLogView(session: ServiceSession.name(projectId: item.projectId,
                                                             serviceId: item.service.id),
                                // finalLogs 도착 시 다시 읽도록 토큰에 존재 여부를 실어 준다.
@@ -621,17 +623,17 @@ struct ServiceDock: View {
         let run = state.scriptRuns[item.id]
         VStack(spacing: 0) {
             ScriptDetailHeader(state: state, item: item, run: run, oneOff: oneOff)
-            if run?.isRunning == true {
+            if run != nil {
+                // 실행 중·종료 **둘 다 attach**. remain-on-exit로 종료된 pane도 마지막 화면이 **색·서식 그대로**
+                // 얼어붙어 있고, 붙으면 현재 도크 폭으로 reflow돼 좁은 폭 줄바꿈 아티팩트가 없다. 텍스트로
+                // 다시 그리면(capture) 색이 죽고 폭이 어긋난다. 뷰를 안 갈아끼워(같은 서피스) 종료 순간
+                // 빈 화면 레이스도 없다. 죽은 pane이라 입력은 무의미(읽기 전용과 같다). 세션이 사라졌으면
+                // execCommand의 `exec -l $SHELL` 폴백이 셸을 남긴다(그 자리서 다시 돌릴 수 있게).
                 TerminalRepresentable(
                     term: state.dockScriptTerm(scriptId: item.id, projectId: item.projectId, cwd: item.cwd),
                     onFocus: {}
                 )
                 .id("\(item.id)|\(state.serviceRestartSeq)")
-            } else if run != nil {
-                ServiceLogView(session: ScriptSession.name(projectId: item.projectId, scriptId: item.id),
-                               reloadToken: "\(item.id)|\(state.serviceRestartSeq)|\(state.finalLogs[item.id] != nil)",
-                               fallback: state.finalLogs[item.id],
-                               onCapture: { state.recordFinalLog(item.id, $0) })
             } else {
                 EmptyState(icon: ScriptStatusStyle.icon,
                            title: "아직 실행한 적이 없습니다",

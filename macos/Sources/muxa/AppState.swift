@@ -1467,16 +1467,8 @@ final class AppState {
         let (next, exits) = ScriptRun.merging(runs: scriptRuns, observed: settled,
                                               registered: trackedLocatedScripts, now: Date())
         if next != scriptRuns { scriptRuns = next }
-        // 방금 종료 확정된 실행은 마지막 화면을 스냅샷해 둔다 — 재실행이 세션을 갈아엎거나 tmux가 죽어도
-        // 종료 로그가 남게(③). 실패뿐 아니라 성공 로그도 보존한다(둘 다 봐야 할 수 있다).
-        for run in exits {
-            guard let session = ScriptSession.name(projectId: run.projectId, scriptId: run.scriptId) else { continue }
-            let id = run.scriptId
-            Task {
-                let raw = await TmuxService.capture(session: session, lines: 400)
-                if !ServiceLogView.tidy(raw).isEmpty { finalLogs[id] = raw }
-            }
-        }
+        // (스크립트 종료 로그는 상세가 attach로 얼어붙은 pane을 그대로 보여주므로 텍스트 스냅샷을 안 뜬다 —
+        //  종료 로그 텍스트 폴백은 세션이 kill되는 **서비스 중단**에만 필요하고, 그건 stopService가 뜬다.)
         for run in exits where run.isFailure {
             guard case .finished(let code?, _) = run.state else { continue }
             guard let location = located(run.projectId) else { continue }

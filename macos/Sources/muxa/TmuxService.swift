@@ -331,7 +331,8 @@ enum TmuxService {
 
     /// 세션명 → pane 0의 로그 꼬리(공통 꼴) — 스크립트 로그 뷰가 세션명으로 직접 읽는다.
     static func capture(session: String, lines: Int = 100) async -> String {
-        await run(["capture-pane", "-p", "-t", "=\(session):.0", "-S", "-\(lines)"]).stdout
+        // `-J`: pane 폭에서 하드랩된 줄을 논리 줄로 잇는다(좁은 도크에서 `gzip`이 `gz`+`ip`로 쪼개지던 것 복원).
+        await run(["capture-pane", "-p", "-J", "-t", "=\(session):.0", "-S", "-\(lines)"]).stdout
     }
 
     // MARK: 종료·정리
