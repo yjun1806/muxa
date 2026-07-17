@@ -63,7 +63,14 @@ enum TranscriptTail {
     /// 서브에이전트 대화(isSidechain)·슬래시 명령 배관(`<command-…>`)은 전부 건너뛴다.
     static func lastUserMessage(inTail tail: String) -> TranscriptUserMessage? {
         guard let blocks = lastUserContent(inTail: tail) else { return nil }
-        return TranscriptUserMessage(text: joinedText(blocks), imageCount: imageBlocks(blocks).count)
+        return TranscriptUserMessage(text: clampPrompt(joinedText(blocks)),
+                                     imageCount: imageBlocks(blocks).count)
+    }
+
+    /// 표시 상한 — 거대 붙여넣기(수십 KB)가 팝오버 행·hover 카드로 그대로 흐르면 카드가 화면보다
+    /// 커진다. 상한은 훅 경로와 한 곳(`AgentPrompt.textMax`)을 쓴다 — 두 경로의 잘림이 같아야 한다.
+    private static func clampPrompt(_ text: String) -> String {
+        text.count <= AgentPrompt.textMax ? text : String(text.prefix(AgentPrompt.textMax)) + "…"
     }
 
     /// 마지막 user 프롬프트에 첨부된 이미지들(base64 디코딩) — hover 미리보기용, 최대 `limit`개.

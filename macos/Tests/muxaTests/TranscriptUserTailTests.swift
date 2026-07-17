@@ -56,6 +56,15 @@ final class TranscriptUserTailTests: XCTestCase {
         XCTAssertEqual(TranscriptTail.lastUserMessage(inTail: tail)?.text, "문자열 지시")
     }
 
+    /// 거대 붙여넣기 프롬프트는 표시 상한에서 잘라야 한다 — 안 자르면 hover 카드가 화면보다 커진다.
+    /// 상한은 훅 경로와 같은 한 곳(`AgentPrompt.textMax`)이다.
+    func testClampsHugePastedPrompt() {
+        let huge = String(repeating: "가", count: AgentPrompt.textMax + 200)
+        let text = TranscriptTail.lastUserMessage(inTail: line(role: "user", text: huge))?.text
+        XCTAssertEqual(text?.count, AgentPrompt.textMax + 1) // +1 = 말줄임표
+        XCTAssertEqual(text?.hasSuffix("…"), true)
+    }
+
     func testEmptyAndGarbageReturnNil() {
         XCTAssertNil(TranscriptTail.lastUserMessage(inTail: ""))
         XCTAssertNil(TranscriptTail.lastUserMessage(inTail: "쓰레기"))

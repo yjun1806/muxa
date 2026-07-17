@@ -209,21 +209,15 @@ struct DetachedPopover: View {
             .multilineTextAlignment(.leading)
     }
 
+    /// 행 툴팁 — **행동 안내만**. 문답 상세는 hover 카드(`PromptHoverCard`)가 말한다 —
+    /// 여기 미리보기를 또 실으면 질문 줄 위에서 시스템 툴팁과 카드가 **겹쳐 뜬다**(중복 표시 금지).
+    /// 카드가 없는 폴백(비에이전트) 세션만 화면 꼬리를 싣는다.
     private func helpText(_ session: DetachedSession) -> String {
         var lines = ["클릭하면 탭으로 되찾습니다 — \(session.command)"]
         if let cwd = session.cwd { lines.append(cwd) }
-        if let p = previews[session.session] {
-            if let question = p.question, !question.text.isEmpty {
-                lines.append("")
-                lines.append("❯ \(question.text)")
-            }
-            if let answer = p.answer, !answer.isEmpty {
-                lines.append("↳ \(answer)")
-            }
-            if let tail = p.fallback, !tail.isEmpty {
-                lines.append("")
-                lines.append(tail)
-            }
+        if let tail = previews[session.session]?.fallback, !tail.isEmpty {
+            lines.append("")
+            lines.append(tail)
         }
         return lines.joined(separator: "\n")
     }
