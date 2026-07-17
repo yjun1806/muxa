@@ -131,21 +131,14 @@ struct ServiceDock: View {
         }
     }
 
-    /// 목록 상단 바 — [탭 스위처] ····· [＋(탭별 대상)/🗑(일회용 비우기)] [✕(⌘J)].
+    /// 목록 상단 바 — [탭 스위처] ····· [✕(⌘J)]. **추가·비우기는 여기 두지 않는다** — ＋가 탭 옆에
+    /// 있으면 "탭 추가"로 오독되고, 도크는 창 전체(여러 워크스페이스)를 담아 "어디에 추가되나"가 흐려진다.
+    /// 추가는 **현재 워크스페이스 카드 안**(활성 프로젝트 대상), 일회용 비우기는 그 탭 목록 헤더가 맡는다.
     private var toolbar: some View {
         HStack(spacing: Space.sm) {
             tabSwitcher
             Spacer(minLength: Space.xs)
-            if state.servicesAvailable, tab != .oneoff {
-                // ＋는 탭 문맥이 대상을 말한다(아이콘은 공통 plus, help로만 구분).
-                IconButton(icon: "plus", help: tab == .scripts ? "스크립트 추가" : "서비스 추가") {
-                    if tab == .scripts { scriptPrefill = ""; showScriptAdd = true } else { showServiceAdd = true }
-                }
-            }
-            if tab == .oneoff, oneOff.contains(where: { state.scriptRuns[$0.id]?.isRunning != true }) {
-                IconButton(icon: "trash", help: "완료된 일회용 기록 비우기") { state.clearOneOffHistory() }
-            }
-            IconButton(icon: "xmark", help: "서랍 닫기 (⌘J) — 프로세스는 계속 돕니다") {
+            IconButton(icon: "xmark", help: "도크 닫기 (⌘J) — 프로세스는 계속 돕니다") {
                 state.closeServiceDock()
             }
         }
@@ -204,27 +197,43 @@ struct ServiceDock: View {
 
     // MARK: 좌 — 서비스·스크립트 탭의 스코프 목록
 
-    @ViewBuilder
     private var scopeList: some View {
-        if scopes.isEmpty {
-            tabEmptyState
-        } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: Space.groupGap) {
-                    ForEach(scopes) { scope in
-                        if scope.isCurrent { currentScope(scope) } else { otherScope(scope) }
-                    }
-                }
-                .padding(.vertical, Space.xs)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: Space.groupGap) {
+                // 현재 워크스페이스는 **비어도 항상** 그린다 — 그 카드가 "여기에 추가"의 진입점을 품는다.
+                currentScope(currentWorkspaceScope)
+                ForEach(otherScopes) { otherScope($0) }
             }
+            .padding(.vertical, Space.xs)
         }
     }
 
+    /// 현재 워크스페이스 스코프 — 목록에 있으면 그것, 없으면(항목 0) 빈 스코프로 만들어 추가 행만 품게 한다.
+    private var currentWorkspaceScope: ServiceScope {
+        if let s = scopes.first(where: { $0.isCurrent }) { return s }
+        return ServiceScope(workspaceId: state.activeId,
+                            workspaceName: state.activeWorkspace?.name ?? "",
+                            isCurrent: true, groups: [])
+    }
+    private var otherScopes: [ServiceScope] { scopes.filter { !$0.isCurrent } }
+
     /// 현재 워크스페이스 — pBg 콘텐츠 카드로 "여기/내 것" 영역을 만든다(명도·경계, 색맹 안전). 늘 펼침.
+    /// 카드 **안**에 추가 행을 둔다 — 도크가 창 전체를 담아도 "추가는 여기(활성 프로젝트)"가 위치로 분명하다.
+    @ViewBuilder
     private func currentScope(_ scope: ServiceScope) -> some View {
         VStack(alignment: .leading, spacing: Space.tight) {
             scopeHeader(scope, chevron: nil, collapsed: false)
             scopeItems(scope)
+            if scope.groups.isEmpty {
+                Text(tab == .scripts ? "등록된 스크립트가 없습니다." : "등록된 서비스가 없습니다.")
+                    .font(.muxa(.caption)).foregroundStyle(Color.pMuted)
+                    .padding(.horizontal, Space.sm).padding(.top, Space.tight)
+            }
+            if state.activeProject != nil {
+                AddInCardRow(kind: tab, projectName: state.activeProject?.name ?? "") {
+                    if tab == .scripts { scriptPrefill = ""; showScriptAdd = true } else { showServiceAdd = true }
+                }
+            }
         }
         .padding(.vertical, Space.sm)
         .padding(.horizontal, Space.sm)
@@ -314,14 +323,19 @@ struct ServiceDock: View {
         return ServiceStatusStyle.summarize(states)
     }
 
-    /// 서비스 행 — 클릭하면 전환 없이 상세를 이 서비스로 바꾼다.
+    /// 서비스 행 — 클릭=상세 선택, hover=중단/시작(비파괴). 삭제는 상세 헤더에만.
     private func row(_ item: LocatedService) -> some View {
-        ServiceRow(service: item.service,
-                   status: state.serviceMonitor.state(of: item.service.id),
-                   port: state.serviceMonitor.ports[item.service.id],
-                   selected: selectedId == item.service.id) {
-            state.selectedServiceId = item.service.id
-        }
+        let st = state.serviceMonitor.state(of: item.service.id)
+        return ServiceRow(service: item.service,
+                          status: st,
+                          port: state.serviceMonitor.ports[item.service.id],
+                          selected: selectedId == item.service.id,
+                          stopped: state.userStoppedServiceIds.contains(item.service.id),
+                          action: { state.selectedServiceId = item.service.id },
+                          onToggleRun: {
+                              if st == .running { state.stopService(item.service.id, in: item.projectId) }
+                              else if let cwd = item.cwd { state.restartService(item.service.id, in: item.projectId, cwd: cwd) }
+                          })
     }
 
     /// 스크립트 행 — 클릭=상세 선택, hover ▶=백그라운드 실행.
@@ -332,36 +346,18 @@ struct ServiceDock: View {
                       onRun: { state.runScript(item.script, in: item.projectId) })
     }
 
-    /// 서비스·스크립트 탭이 비었을 때 — 축 글리프 아이콘 + 그 탭의 추가 CTA.
-    @ViewBuilder
-    private var tabEmptyState: some View {
-        switch tab {
-        case .services:
-            EmptyState(icon: "play.circle",
-                       title: "등록된 서비스가 없습니다",
-                       subtitle: "dev 서버처럼 오래 도는 명령을 ＋로 등록하면 여기서 로그를 봅니다.\nmuxa를 꺼도 프로세스는 계속 돕니다.") {
-                Button("서비스 추가") { showServiceAdd = true }.font(.muxa(.label))
-            }
-            .background(Color.pBg)
-        case .scripts:
-            EmptyState(icon: ScriptStatusStyle.icon,
-                       title: "등록된 스크립트가 없습니다",
-                       subtitle: "빌드·테스트처럼 끝이 있는 명령을 ＋로 등록합니다.\n실행하면 백그라운드에서 돌고 종료 로그를 여기서 봅니다.") {
-                Button("스크립트 추가") { scriptPrefill = ""; showScriptAdd = true }.font(.muxa(.label))
-            }
-            .background(Color.pBg)
-        case .oneoff:
-            EmptyView() // 일회용 빈 상태는 입력창을 유지해야 해서 oneOffColumn 안에서 처리한다
-        }
-    }
-
     // MARK: 좌 — 일회용 탭 (입력창 + 최근 실행 기록)
 
     private var oneOffColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
             oneOffInput
             HDivider()
-            if oneOff.isEmpty { oneOffEmpty } else { oneOffHistory }
+            if oneOff.isEmpty {
+                oneOffEmpty
+            } else {
+                oneOffHistoryHeader
+                oneOffHistory
+            }
         }
         .tick(every: 1, into: $now)
         .task(id: state.activeProjectCwd) {
@@ -418,6 +414,31 @@ struct ServiceDock: View {
         guard canRunOneOff else { return }
         state.runOneOff(command: oneOffCommand)
         oneOffCommand = ""
+    }
+
+    /// 최근 실행 헤더 — "비우기"가 여기 산다(툴바가 아니라 비우는 대상 바로 위). 완료분만·실행 중 보존.
+    private var oneOffHistoryHeader: some View {
+        HStack(spacing: Space.sm) {
+            Text("최근 실행")
+                .font(.muxa(.micro, weight: .semibold)).tracking(Tracking.label)
+                .textCase(.uppercase).foregroundStyle(Color.pMuted)
+            Spacer(minLength: Space.sm)
+            if oneOff.contains(where: { state.scriptRuns[$0.id]?.isRunning != true }) {
+                Button { state.clearOneOffHistory() } label: {
+                    HStack(spacing: Space.xs) {
+                        Image(systemName: "wind").font(.muxa(.micro))
+                        Text("비우기").font(.muxa(.caption))
+                    }
+                    .foregroundStyle(Color.pMuted)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).clickCursor()
+                .help("완료된 일회용 기록만 비웁니다 — 실행 중은 보존")
+            }
+        }
+        .padding(.horizontal, Space.sm)
+        .padding(.top, Space.sm)
+        .padding(.bottom, Space.tight)
     }
 
     /// 최근 실행 기록 — 최신이 위(역시간순 flat). 스코프 카드 없음(소수·휘발).
@@ -488,12 +509,18 @@ struct ServiceDock: View {
 
     @ViewBuilder
     private func detail(_ item: LocatedService) -> some View {
+        let st = state.serviceMonitor.state(of: item.service.id)
+        let stopped = state.userStoppedServiceIds.contains(item.service.id)
+        // 로그를 보여줄 때: 죽었거나(exited), 사용자가 중단해(세션 kill → missing) attach할 게 없을 때.
+        let showLog: Bool = { if case .exited = st { return true }; return stopped && st == .missing }()
         VStack(spacing: 0) {
             header(item)
-            if isDead(item) {
+            if showLog {
                 ServiceLogView(session: ServiceSession.name(projectId: item.projectId,
                                                             serviceId: item.service.id),
-                               reloadToken: "\(item.service.id)|\(state.serviceRestartSeq)")
+                               // finalLogs 도착 시 다시 읽도록 토큰에 존재 여부를 실어 준다.
+                               reloadToken: "\(item.service.id)|\(state.serviceRestartSeq)|\(state.finalLogs[item.service.id] != nil)",
+                               fallback: state.finalLogs[item.service.id])
             } else {
                 TerminalRepresentable(
                     term: state.dockTerm(serviceId: item.service.id, projectId: item.projectId, cwd: item.cwd),
@@ -505,23 +532,25 @@ struct ServiceDock: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// 상세 헤더 — 상태 글리프 · 이름 · 포트/코드 꼬리표 · 명령 · 시작/재시작 · 제거.
+    /// 상세 헤더 — 상태 글리프 · 이름 · 포트/코드 꼬리표 · 명령 · (상태별)중단/시작/재실행 · 등록 해제(2단계).
     private func header(_ item: LocatedService) -> some View {
         let service = item.service
         let st = state.serviceMonitor.state(of: service.id)
         let port = state.serviceMonitor.ports[service.id]
+        let stopped = state.userStoppedServiceIds.contains(service.id)
+        let running = st == .running
         let notStarted: Bool = { if case .missing = st { return true }; return false }()
         return HStack(spacing: Space.sm) {
-            Image(systemName: ServiceStatusStyle.glyph(st))
+            Image(systemName: ServiceDisplay.glyph(st, stopped: stopped))
                 .font(.muxa(.micro))
-                .foregroundStyle(ServiceStatusStyle.color(st))
+                .foregroundStyle(ServiceDisplay.color(st, stopped: stopped))
                 .frame(width: IconSize.statusSlot)
             Text(service.name)
                 .font(.muxa(.label, weight: .semibold))
                 .foregroundStyle(Color.pFg)
                 .fixedSize()
-            if let tail = ServiceStatusStyle.tail(st, port: port) {
-                Text(tail).font(.muxaMono(.caption)).foregroundStyle(ServiceStatusStyle.color(st))
+            if let tail = ServiceDisplay.tail(st, port: port, stopped: stopped) {
+                Text(tail).font(.muxaMono(.caption)).foregroundStyle(ServiceDisplay.color(st, stopped: stopped))
             }
             Text(service.command)
                 .font(.muxaMono(.caption))
@@ -530,12 +559,26 @@ struct ServiceDock: View {
                 .truncationMode(.middle)
                 .layoutPriority(-1)
             Spacer(minLength: Space.sm)
-            IconButton(icon: notStarted ? "play.fill" : "arrow.clockwise",
-                       help: notStarted ? "시작" : "재시작") {
-                guard let cwd = item.cwd else { return }
-                state.restartService(service.id, in: item.projectId, cwd: cwd)
+            // 단일 토글 원칙: 실행 중=[중단][재실행] / 중단됨·실행 전=[시작] / 비정상 종료=[재시작].
+            if running {
+                IconButton(icon: "stop.circle", help: "중단 — 프로세스만 종료, 등록은 유지") {
+                    state.stopService(service.id, in: item.projectId)
+                }
+                IconButton(icon: "arrow.clockwise", help: "재실행") {
+                    guard let cwd = item.cwd else { return }
+                    state.restartService(service.id, in: item.projectId, cwd: cwd)
+                }
+            } else {
+                IconButton(icon: (stopped || notStarted) ? "play.fill" : "arrow.clockwise",
+                           help: (stopped || notStarted) ? "시작" : "재시작") {
+                    guard let cwd = item.cwd else { return }
+                    state.restartService(service.id, in: item.projectId, cwd: cwd)
+                }
             }
-            IconButton(icon: "trash", help: "서비스 제거 — 등록을 지우고 프로세스도 종료합니다") {
+            DeleteConfirmButton(help: "등록 해제",
+                                prompt: running ? "실행 중인 \(service.name)을 종료하고 등록·로그를 지웁니다."
+                                                : "\(service.name)의 등록과 로그를 지웁니다.",
+                                confirmLabel: "등록 해제") {
                 state.removeService(service.id, from: item.projectId)
             }
         }
@@ -558,7 +601,8 @@ struct ServiceDock: View {
                 .id("\(item.id)|\(state.serviceRestartSeq)")
             } else if run != nil {
                 ServiceLogView(session: ScriptSession.name(projectId: item.projectId, scriptId: item.id),
-                               reloadToken: "\(item.id)|\(state.serviceRestartSeq)")
+                               reloadToken: "\(item.id)|\(state.serviceRestartSeq)|\(state.finalLogs[item.id] != nil)",
+                               fallback: state.finalLogs[item.id])
             } else {
                 EmptyState(icon: ScriptStatusStyle.icon,
                            title: "아직 실행한 적이 없습니다",
@@ -580,12 +624,6 @@ struct ServiceDock: View {
         }
     }
 
-    /// 죽었나 — tmux가 진실 원천. 아직 모르면(missing) 살아있다고 보고 attach를 시도한다. exit 0도 죽음으로 본다.
-    private func isDead(_ item: LocatedService) -> Bool {
-        if case .exited = state.serviceMonitor.state(of: item.service.id) { return true }
-        return false
-    }
-
     // MARK: 추가 시트 (서비스·스크립트 — 같은 시트, 문구만 다르다)
 
     private var serviceAddSheet: some View {
@@ -605,6 +643,41 @@ struct ServiceDock: View {
             guard let projectId = state.activeProject?.id else { return }
             state.addScript(name: name, command: command, to: projectId, cwd: cwd)
         }
+    }
+}
+
+/// 현재 워크스페이스 카드 안의 "추가" 행 — **활성 프로젝트에 등록**한다. 대상 프로젝트를 오른쪽에
+/// 명시(→ 이름)해, 도크가 창 전체(여러 워크스페이스) 목록이어도 "어디에 추가되나"가 위치·라벨로 분명하다.
+private struct AddInCardRow: View {
+    let kind: DockTab
+    let projectName: String
+    let action: () -> Void
+    @State private var hovered = false
+
+    private var label: String { kind == .scripts ? "스크립트 추가" : "서비스 추가" }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Space.sm) {
+                Image(systemName: "plus")
+                    .font(.muxa(.micro)).foregroundStyle(Color.pMuted).frame(width: IconSize.statusSlot)
+                Text(label).font(.muxa(.label)).foregroundStyle(hovered ? Color.pFg : Color.pMuted)
+                Spacer(minLength: Space.sm)
+                Text("→ \(projectName)")
+                    .font(.muxaMono(.caption)).foregroundStyle(Color.pMuted).lineLimit(1)
+            }
+            .padding(.horizontal, Space.sm)
+            .padding(.vertical, Space.xs)
+            .frame(minHeight: RowHeight.row)
+            .background(hovered ? Color.pBtnHover : Color.clear, in: RoundedRectangle(cornerRadius: Radius.sm))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.sm))
+        }
+        .buttonStyle(.plain)
+        .clickCursor()
+        .onHover { hovered = $0 }
+        .animation(Motion.fast, value: hovered)
+        .help("활성 프로젝트 \(projectName)에 \(label)")
+        .accessibilityLabel("\(projectName)에 \(label)")
     }
 }
 
@@ -663,11 +736,22 @@ private struct ScriptDetailHeader: View {
                     if oneOff { state.runOneOff(command: item.script.command) }
                     else { state.runScript(item.script, in: item.projectId) }
                 }
+                if oneOff {
+                    IconButton(icon: "plus.square", help: "스크립트로 등록") { state.promoteOneOff(item.id) }
+                }
             }
-            IconButton(icon: "trash",
-                       help: oneOff ? "기록 삭제" : "등록 해제 — 실행 중이면 종료하고 로그도 지웁니다") {
-                if oneOff { state.removeOneOff(item.id) }
-                else { state.removeScript(item.id, from: item.projectId) }
+            if oneOff {
+                // 일회용은 저위험(등록 아님·세션 한정)이라 확인 없이 — 마찰을 늘리지 않는다.
+                IconButton(icon: "trash", help: "기록 삭제") { state.removeOneOff(item.id) }
+            } else {
+                // 등록 해제는 되돌릴 수 없는 파괴 — 2단계 확인으로 감싼다.
+                DeleteConfirmButton(help: "등록 해제",
+                                    prompt: run?.isRunning == true
+                                        ? "실행 중인 \(item.script.name)을 종료하고 등록·로그를 지웁니다."
+                                        : "\(item.script.name)의 등록과 종료 로그를 지웁니다.",
+                                    confirmLabel: "등록 해제") {
+                    state.removeScript(item.id, from: item.projectId)
+                }
             }
         }
         .panelBar(height: RowHeight.panelHeader)

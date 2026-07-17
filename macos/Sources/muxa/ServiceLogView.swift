@@ -14,6 +14,9 @@ struct ServiceLogView: View {
     let session: String?
     /// 재시작 등으로 세션이 갈아엎어지면 다시 읽어야 한다.
     let reloadToken: String
+    /// **종료 시점 스냅샷 폴백** — 라이브 캡처가 비면(세션이 kill되거나 tmux가 죽어 pane이 없음) 이걸 쓴다.
+    /// 재실행·중단·tmux 사망에도 마지막 로그가 살아남게 한다(AppState.finalLogs).
+    var fallback: String?
 
     @State private var log = ""
     @State private var loading = true
@@ -49,7 +52,9 @@ struct ServiceLogView: View {
             loading = true
             var raw = ""
             if let session { raw = await TmuxService.capture(session: session, lines: 400) }
-            log = ServiceLogView.tidy(raw)
+            let live = ServiceLogView.tidy(raw)
+            // 라이브 pane이 비면 종료 스냅샷으로 — 세션이 사라졌어도 마지막 로그를 보여준다.
+            log = live.isEmpty ? ServiceLogView.tidy(fallback ?? "") : live
             loading = false
         }
     }

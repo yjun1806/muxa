@@ -1116,6 +1116,8 @@ final class AppState {
             return next
         }
         if selectedServiceId == serviceId { selectedServiceId = nil }
+        userStoppedServiceIds.remove(serviceId) // 등록이 사라지면 오버레이도 정리(누수 방지)
+        finalLogs[serviceId] = nil
         dropDockTerm(serviceId)
         Task {
             await TmuxService.kill(projectId: projectId, serviceId: serviceId)
@@ -1130,6 +1132,7 @@ final class AppState {
     /// 로그를 본 뒤 직접 누르게 한다.
     func restartService(_ serviceId: String, in projectId: String, cwd: String) {
         guard let service = services(of: projectId).first(where: { $0.id == serviceId }) else { return }
+        userStoppedServiceIds.remove(serviceId) // 다시 띄우면 "중단됨" 표시를 내린다
         dropDockTerm(serviceId) // 옛 세션에 attach된 터미널은 버린다 — 다시 열 때 새 세션에 붙는다
         Task {
             await TmuxService.kill(projectId: projectId, serviceId: serviceId)
@@ -1137,6 +1140,33 @@ final class AppState {
             syncServiceMonitor()
         }
     }
+
+    /// **사용자가 껐다** — 프로세스(세션)만 종료하고 **등록은 남긴다**(삭제와 다르다). 다시 등록·실행하는
+    /// 수고 없이 껐다 켤 수 있다. 세션이 사라져 다음 폴은 `.missing`을 보고하는데, 그걸 "실행 전"이 아니라
+    /// **중단됨**으로 갈라 보이게 id를 오버레이에 담는다(`ServiceDisplay`). 순진하게 프로세스만 죽이면
+    /// tmux가 exit 143으로 읽어 `isFailure` → 거짓 실패 알림·빨간 배지가 뜨는데, 세션 kill이 그 원천을 없앤다.
+    func stopService(_ serviceId: String, in projectId: String) {
+        userStoppedServiceIds.insert(serviceId) // 표시를 먼저 세운다(kill↔폴 사이 "실행 전" 깜빡임 방지)
+        dropDockTerm(serviceId)
+        Task {
+            // 세션을 지우기 전에 마지막 화면을 스냅샷 — kill하면 pane 로그가 사라진다(③ 로그 보존).
+            if let session = ServiceSession.name(projectId: projectId, serviceId: serviceId) {
+                let raw = await TmuxService.capture(session: session, lines: 400)
+                if !ServiceLogView.tidy(raw).isEmpty { finalLogs[serviceId] = raw }
+            }
+            await TmuxService.kill(projectId: projectId, serviceId: serviceId)
+            syncServiceMonitor()
+        }
+    }
+
+    /// 사용자가 중단한 서비스 id — 세션 kill로 `.missing`이 된 것을 "중단됨"으로 갈라 표시하는 오버레이.
+    /// 비영속(세션 한정) — muxa 재시작 시 `startServices`가 자동 기동하므로 중단은 유지되지 않는다.
+    private(set) var userStoppedServiceIds: Set<String> = []
+
+    /// 서비스·스크립트·일회용의 **종료 시점 로그 스냅샷**(id 키) — 세션 pane이 사라져도(재실행·중단·tmux
+    /// 사망) 마지막 로그를 살린다. `ServiceLogView`가 라이브 캡처가 비면 이걸 폴백으로 쓴다.
+    /// 값 타입(`ScriptRun`) 본문에 넣지 않는다 — merge의 `==` 비교가 수백 줄 문자열을 물면 리렌더가 무거워진다.
+    private(set) var finalLogs: [String: String] = [:]
 
     // MARK: 스크립트 (끝이 있는 명령 — Script.swift)
     //
@@ -1220,6 +1250,7 @@ final class AppState {
             return next
         }
         scriptRuns[scriptId] = nil
+        finalLogs[scriptId] = nil
         if selectedServiceId == scriptId { selectedServiceId = nil }
         dropDockTerm(scriptId)
         Task {
@@ -1328,6 +1359,7 @@ final class AppState {
     /// 일회용 하나의 세션·run·터미널을 정리한다(오래된 축출·비우기 공통).
     private func evictOneOff(_ id: String, projectId: String?) {
         scriptRuns[id] = nil
+        finalLogs[id] = nil
         if selectedServiceId == id { selectedServiceId = nil }
         dropDockTerm(id)
         guard let projectId else { return }
@@ -1376,6 +1408,16 @@ final class AppState {
         let (next, exits) = ScriptRun.merging(runs: scriptRuns, observed: settled,
                                               registered: trackedLocatedScripts, now: Date())
         if next != scriptRuns { scriptRuns = next }
+        // 방금 종료 확정된 실행은 마지막 화면을 스냅샷해 둔다 — 재실행이 세션을 갈아엎거나 tmux가 죽어도
+        // 종료 로그가 남게(③). 실패뿐 아니라 성공 로그도 보존한다(둘 다 봐야 할 수 있다).
+        for run in exits {
+            guard let session = ScriptSession.name(projectId: run.projectId, scriptId: run.scriptId) else { continue }
+            let id = run.scriptId
+            Task {
+                let raw = await TmuxService.capture(session: session, lines: 400)
+                if !ServiceLogView.tidy(raw).isEmpty { finalLogs[id] = raw }
+            }
+        }
         for run in exits where run.isFailure {
             guard case .finished(let code?, _) = run.state else { continue }
             guard let location = located(run.projectId) else { continue }

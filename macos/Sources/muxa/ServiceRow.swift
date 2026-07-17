@@ -13,52 +13,70 @@ struct ServiceRow: View {
     /// 보조 줄(명령). 폭이 좁은 도크 목록은 nil — 이름만으로 충분하고, 명령은 헤더에 이미 있다.
     var subtitle: String?
     var selected = false
-    /// 행 전체가 버튼이다(도크: 선택 / 팝오버: 그 서비스로 이동).
+    /// 사용자가 중단했나 — `.missing`을 "실행 전"이 아니라 "중단됨"으로 갈라 표시한다(`ServiceDisplay`).
+    var stopped = false
+    /// 행 전체 클릭(도크: 선택).
     let action: () -> Void
+    /// hover 토글 — 실행 중이면 중단, 아니면 시작(비파괴). nil이면 hover 액션 없음.
+    var onToggleRun: (() -> Void)? = nil
+
+    @State private var hovered = false
+
+    private var isRunning: Bool { status == .running }
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: Space.sm) {
-                // 표식은 **글리프**다 — 상태가 바뀌면 모양 자체가 바뀐다(색맹 안전, DESIGN.md).
-                Image(systemName: ServiceStatusStyle.glyph(status))
-                    .font(.muxa(.micro))
-                    .foregroundStyle(ServiceStatusStyle.color(status))
-                    .frame(width: IconSize.statusSlot)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(service.name)
-                        .font(.muxa(.label))
-                        .foregroundStyle(Color.pFg)
-                        .lineLimit(1)
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(.muxaMono(.caption))
-                            .foregroundStyle(Color.pMuted)
+        HStack(spacing: 0) {
+            Button(action: action) {
+                HStack(spacing: Space.sm) {
+                    // 표식은 **글리프**다 — 상태가 바뀌면 모양 자체가 바뀐다(색맹 안전, DESIGN.md).
+                    Image(systemName: ServiceDisplay.glyph(status, stopped: stopped))
+                        .font(.muxa(.micro))
+                        .foregroundStyle(ServiceDisplay.color(status, stopped: stopped))
+                        .frame(width: IconSize.statusSlot)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(service.name)
+                            .font(.muxa(.label))
+                            .foregroundStyle(Color.pFg)
                             .lineLimit(1)
-                            // **`.tail`이다(`.middle` 아님)** — 가운데를 접으면 긴 명령의 뒷부분(진짜 실행되는 것)이
-                            // 사라져 악의적인 명령이 평범해 보인다. 앞부터 보이고 뒤가 잘리는 편이 정직하다.
-                            .truncationMode(.tail)
+                        if let subtitle {
+                            Text(subtitle)
+                                .font(.muxaMono(.caption))
+                                .foregroundStyle(Color.pMuted)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                    }
+                    Spacer(minLength: Space.sm)
+                    // hover에 토글이 뜨면 꼬리표는 자리를 내준다(출렁임 없이).
+                    if !(hovered && onToggleRun != nil),
+                       let tail = ServiceDisplay.tail(status, port: port, stopped: stopped) {
+                        Text(tail)
+                            .font(.muxaMono(.caption))
+                            .foregroundStyle(ServiceDisplay.color(status, stopped: stopped))
                     }
                 }
-                Spacer(minLength: Space.sm)
-                if let tail = ServiceStatusStyle.tail(status, port: port) {
-                    Text(tail)
-                        .font(.muxaMono(.caption))
-                        .foregroundStyle(ServiceStatusStyle.color(status))
-                }
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, Space.sm)
-            .padding(.vertical, Space.xs)
-            .frame(minHeight: RowHeight.row)
-            // 선택 채움은 둥근 알약이다(각지지 않게). 좌우 여백은 **감싸는 스코프**가 준다
-            // (카드/스코프의 가로 인셋) — 여기선 행 폭을 채우되 모서리만 둥글린다.
-            .background {
-                if selected { RoundedRectangle(cornerRadius: Radius.sm).fill(Color.pBtnActive) }
+            .buttonStyle(.plain)
+            .clickCursor()
+            .accessibilityRow(label: "\(service.name), \(ServiceDisplay.label(status, stopped: stopped))",
+                              selected: selected)
+
+            // hover 시 중단/시작 — 삭제 없이도 껐다 켜지게(파괴는 상세 헤더에만).
+            if let onToggleRun {
+                FooterAction(icon: isRunning ? "stop.fill" : "play.fill",
+                             help: isRunning ? "중단 — 등록은 유지" : "시작",
+                             action: onToggleRun)
+                    .opacity(hovered ? 1 : 0)
             }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .clickCursor()
-        // 색도 글리프도 스크린리더엔 없다 — 상태를 말로 읽어준다.
-        .accessibilityRow(label: "\(service.name), \(ServiceStatusStyle.label(status))", selected: selected)
+        .padding(.horizontal, Space.sm)
+        .padding(.vertical, Space.xs)
+        .frame(minHeight: RowHeight.row)
+        .background {
+            if selected { RoundedRectangle(cornerRadius: Radius.sm).fill(Color.pBtnActive) }
+        }
+        .onHover { hovered = $0 }
+        .animation(Motion.fast, value: hovered)
     }
 }

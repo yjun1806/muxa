@@ -52,3 +52,26 @@ enum ServiceStatusStyle {
         return statuses.first ?? .missing
     }
 }
+
+/// **사용자 중단**을 표시에 얹는 한 겹 — `ServiceState`(순수 SSOT)는 그대로 두고, "내가 껐다"(세션 kill →
+/// `.missing`)를 "실행 전"이 아니라 **중단됨**(stop.circle 무채)으로 갈라 보여준다. 순진하게 프로세스만
+/// 죽이면 tmux가 exit 143으로 읽어 `isFailure` → 거짓 실패 알림이 나므로, 중단은 세션 kill + 이 오버레이로
+/// 처리한다(AppState.userStoppedServiceIds). 상태가 실제로 `.running`이면 중단 플래그가 있어도 무시된다.
+enum ServiceDisplay {
+    /// 중단됨으로 그릴 조건 — 사용자 중단 표시가 있고, 실제로도 세션이 없다(`.missing`).
+    private static func isStopped(_ state: ServiceState, _ stopped: Bool) -> Bool {
+        stopped && state == .missing
+    }
+    static func glyph(_ state: ServiceState, stopped: Bool) -> String {
+        isStopped(state, stopped) ? "stop.circle" : ServiceStatusStyle.glyph(state)
+    }
+    static func color(_ state: ServiceState, stopped: Bool) -> Color {
+        isStopped(state, stopped) ? .pMuted : ServiceStatusStyle.color(state)
+    }
+    static func label(_ state: ServiceState, stopped: Bool) -> String {
+        isStopped(state, stopped) ? "중단됨" : ServiceStatusStyle.label(state)
+    }
+    static func tail(_ state: ServiceState, port: Int?, stopped: Bool) -> String? {
+        isStopped(state, stopped) ? nil : ServiceStatusStyle.tail(state, port: port)
+    }
+}
