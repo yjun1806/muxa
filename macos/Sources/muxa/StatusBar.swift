@@ -13,10 +13,9 @@ struct StatusBar: View {
 
     private let settings = StatusBarSettings.shared
 
-    /// 스크립트 추가 시트 — **칩(ScriptStrip)이 아니라 여기서** 띄운다. 칩은 등록 0개면 뷰 트리에서
-    /// 사라지므로(ScriptChipMode .hidden), 시트를 칩에 두면 첫 스크립트를 영영 등록할 수 없다
-    /// (0→1 경로 부재). 푸터는 항상 렌더되니 원샷 플래그(requestAddScript)의 소비자로 안전하다.
-    /// 팝오버는 별도 NSWindow(FloatingPanelHost)라 그 안의 `.sheet`는 메인 창에 붙지 못한다.
+    /// 스크립트 추가 시트 — **칩(ScriptStrip)이 아니라 여기서** 띄운다. 팝오버는 별도
+    /// NSWindow(FloatingPanelHost)라 그 안의 `.sheet`는 메인 창에 붙지 못한다. 푸터는 항상
+    /// 렌더되니 원샷 플래그(requestAddScript)의 소비자로 안전하다(⌘K 경로도 여기로 온다).
     @State private var showAddScript = false
 
     /// 포커스된 칸의 에이전트가 지금 뭘 하고 있나("편집 중: TermView.swift") — 훅의 도구 이벤트에서 온다.
@@ -46,8 +45,8 @@ struct StatusBar: View {
             if let ws = state.activeWorkspace, let project = ws.activeProject {
                 // 닫았지만 살아 있는 터미널 세션 — 있을 때만 나타난다(없으면 자리도 안 차지한다).
                 DetachedStrip(state: state, project: project)
-                // 스크립트(끝이 있는 명령) — 등록 0개면 안 그린다. 스토어는 agentDetail과 같은 조회.
-                ScriptStrip(state: state, project: project, store: state.store(for: project, in: ws))
+                // 스크립트(끝이 있는 명령) — 등록 0개여도 상시(서비스 칩과 같은 발견성 철학).
+                ScriptStrip(state: state, project: project)
                 ServiceStrip(state: state, project: project)
             }
             // 사용량 칩이 푸터 오른쪽 설정이면 떠 있는 것들 뒤(가장 오른쪽)에 둔다.
@@ -72,7 +71,7 @@ struct StatusBar: View {
         ServiceAddSheet(
             cwd: state.activeProjectCwd,
             title: "스크립트 추가",
-            footnote: "프로젝트 폴더에서 로그인 셸로 1회 실행됩니다. 성공(exit 0)하면 탭이 저절로 닫히고, 실패하면 탭이 남아 로그를 그 자리에서 봅니다.\n명령은 평문으로 저장됩니다 — 토큰·API 키는 명령에 적지 말고 .env에 두세요."
+            footnote: "프로젝트 폴더에서 로그인 셸로 1회, 백그라운드에서 실행됩니다(탭이 뜨지 않습니다). 출력과 종료 로그는 서비스 도크(⌘J)에서 봅니다.\n명령은 평문으로 저장됩니다 — 토큰·API 키는 명령에 적지 말고 .env에 두세요."
         ) { name, command in
             guard let projectId = state.activeProject?.id else { return }
             state.addScript(name: name, command: command, to: projectId)

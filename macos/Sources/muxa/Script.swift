@@ -1,13 +1,13 @@
-import Bonsplit
 import Foundation
 
 /// 스크립트 = 프로젝트에 등록된 **끝이 있는 명령**(`make build`·`pnpm test` 등).
-/// 서비스(Service.swift)와 반대 축이다 — 서비스는 끝이 없는 프로세스(tmux·도크·▶),
-/// 스크립트는 일반 탭에서 1회 돌고 끝나면 소멸한다:
-/// 성공(exit 0) → 프로세스 종료 → close_surface_cb → 탭 자동 닫힘.
-/// 실패 → `exec -l $SHELL`로 셸 전환 → 탭 잔류, 에러 로그를 그 자리에서 본다.
+/// 서비스(Service.swift)와 반대 축이다 — 서비스는 끝이 없는 프로세스, 스크립트는 1회 돌고 끝난다.
 ///
-/// `ProjectScript`(ProjectScripts.swift:42)와 혼동 금지 — 그쪽은 package.json·Makefile·scripts/
+/// 실행은 서비스와 **같은 tmux 백엔드**에 위임한다(탭을 띄우지 않는다 — 백그라운드 실행).
+/// `remain-on-exit` 덕에 프로세스가 끝나도 pane이 남아 **exit code와 마지막 로그가 보존**되고,
+/// 서비스 도크가 그 자리에서 보여준다(실행 중 = attach 터미널, 종료 = 읽기 전용 로그).
+///
+/// `ProjectScript`(ProjectScripts.swift)와 혼동 금지 — 그쪽은 package.json·Makefile·scripts/
 /// **디렉터리 스캔 후보**(휘발, 목록 표시용)이고, 사용자가 **등록**하면 이 Script(영속,
 /// `Project.scripts`에 실려 저장)로 승격된다.
 struct Script: Codable, Identifiable, Equatable {
@@ -16,84 +16,65 @@ struct Script: Codable, Identifiable, Equatable {
     var command: String // 실행 명령 ("make build")
 }
 
-/// Script → ghostty `command` 필드에 실을 **래퍼 명령 문자열** 조립(순수).
-///
-/// ghostty의 command는 `exec -l <cmd>`로 태워 **단일 실행 파일**만 받는다 — 복합 명령은
-/// `/bin/sh -c '…'`로 감싸야 한다(TerminalSession.execCommand:107-112와 같은 이유·같은 레시피).
-/// 래퍼가 지키는 것 세 가지:
-///  1. 사용자 명령은 **로그인 셸(-l)**로 실행 — .app은 로그인 PATH를 상속하지 않아(launchd 소속)
-///     안 감싸면 `pnpm` 등이 `command not found`로 즉사한다(CLAUDE.md 규약).
-///  2. exit code를 muxa-notify(`script-exit --code`)로 앱에 보고 — muxa-notify는 모든 실패가
-///     exit 0(fire-and-forget)이라 소켓이 죽어 있어도 래퍼를 죽이지 않는다. 소켓 경로는
-///     하드코딩하지 않고 env(`$MUXA_SOCK`, TermView가 주입)로만 해석한다 — 개발빌드는
-///     워크트리별로 소켓 경로가 다르다.
-///  3. 성공(0)이면 그대로 종료 → 탭 자동 닫힘. 실패면 `exec -l $SHELL` → 탭 잔류.
-///     `exec -l`은 POSIX 표준이 아니라 bash/zsh 빌트인이다 — macOS `/bin/sh`가 bash라 동작한다.
-enum ScriptRunCommand {
-    /// 인용은 전부 `ShellQuote.single` — 사용자 명령(작은따옴표·공백·`$` 포함 가능)과
-    /// notify 경로(앱 위치에 공백 가능)를 셸 코드에 안전하게 보간한다.
-    static func wrap(command: String, tabId: String, notifyPath: String) -> String {
-        // MUXA_TAB_ID는 TermView가 서피스 env로 이미 심지만(TermView.swift:92-101), 프레임의
-        // 수신 키이므로 래퍼가 한 번 더 명시한다 — env 상속에 기대지 않아 이 함수 혼자서도
-        // 결정론적이고, 테스트가 문자열만으로 배달 키를 검증할 수 있다.
-        let script = "\"${SHELL:-/bin/zsh}\" -l -c \(ShellQuote.single(command)); s=$?; "
-            + "MUXA_TAB_ID=\(ShellQuote.single(tabId)) \(ShellQuote.single(notifyPath)) "
-            + "script-exit --code \"$s\"; "
-            + "[ \"$s\" -eq 0 ] || exec -l \"${SHELL:-/bin/zsh}\""
-        return "/bin/sh -c \(ShellQuote.single(script))"
+/// 스크립트 하나 + **어디에 속하는가** — `LocatedService`와 같은 이유(도크는 창 전체를 본다).
+struct LocatedScript: Identifiable {
+    var id: String { script.id }
+    let script: Script
+    let workspaceId: String
+    let workspaceName: String
+    let projectId: String
+    let projectName: String
+    /// 실행 cwd — 프로젝트 자체 경로(워크트리)가 있으면 그것, 없으면 워크스페이스 경로 상속(서비스와 같은 규칙).
+    let cwd: String?
+}
+
+/// 모든 워크스페이스·프로젝트의 스크립트를 소속과 함께 한 목록으로 편다(선언 순서 유지).
+/// 모니터 폴링·도크 목록·고아 정리가 전부 이 순회 하나를 쓴다(collectAllServices와 같은 원칙).
+func collectAllScripts(in workspaces: [Workspace]) -> [LocatedScript] {
+    workspaces.flatMap { ws in
+        ws.projects.flatMap { project in
+            (project.scripts ?? []).map {
+                LocatedScript(script: $0,
+                              workspaceId: ws.id, workspaceName: ws.name,
+                              projectId: project.id, projectName: project.name,
+                              cwd: project.path ?? ws.path)
+            }
+        }
     }
 }
 
-/// 실행 1회의 상태(순수 값) — 푸터 칩·팝오버가 관측한다.
+/// 등록된 스크립트 id 전부 — 고아 정리(TmuxService.collectScriptGarbage)의 입력.
+/// **활성 워크스페이스만 훑으면 안 된다**(collectLiveServiceIds와 같은 함정) — 반드시 전체를 훑는다.
+func collectLiveScriptIds(in workspaces: [Workspace]) -> Set<String> {
+    Set(workspaces.flatMap(\.projects).flatMap { $0.scripts ?? [] }.map(\.id))
+}
+
+/// 실행 1회의 상태(순수 값) — 푸터 칩·팝오버·도크가 관측한다.
 ///
-/// 저장 키는 **scriptId**(탭 생존과 분리) — 성공 프레임(script-exit)과 탭 자동 닫힘
-/// (close_surface_cb)이 메인 큐에서 경합해도, 탭이 먼저 닫혔다고 결과가 버려지지 않는다.
+/// **진실 원천은 tmux다**(ServiceMonitor 폴링) — 저장 키는 scriptId, 탭·서피스와 무관하다.
+/// muxa가 재시작해도 tmux 세션은 살아 있으므로, 폴링이 다시 관측하면 레지스트리가 복원된다(채택).
 struct ScriptRun: Equatable {
     enum RunState: Equatable {
         case running
-        /// code nil = 프레임 유실 폴백(⌘W·소켓 유실로 exit code를 끝내 못 받음) —
+        /// code nil = 결과 미상(세션이 관측 전에 사라짐 — 외부 kill·tmux 서버 사망).
         /// **성공으로 단정하지 않는다**(칩이 ✓를 지어내면 안 된다).
-        case finished(code: Int32?, duration: TimeInterval)
+        /// duration nil = 걸린 시간 미상(재시작 후 채택 등) — 지어내지 않고 표기를 생략한다.
+        case finished(code: Int32?, duration: TimeInterval?)
     }
 
     let scriptId: String
-    let tabId: TabID
+    /// 소속 프로젝트 — 푸터 칩(프로젝트 단위)이 전역 레지스트리에서 제 것만 거르는 키.
+    let projectId: String
     let name: String
-    let startedAt: Date
+    /// nil = 시작 시각 미상(muxa 재시작 후 도는 세션을 채택한 경우) — 경과를 지어내지 않는다.
+    var startedAt: Date?
     var state: RunState
+    /// 잔류(✓/✗ 칩)를 사용자가 확인했다 — 칩은 내려가되 **레지스트리·세션·로그는 남는다**
+    /// (종료 로그를 봐야 하므로 결과 확인이 곧 삭제면 안 된다).
+    var acknowledged: Bool = false
 }
 
-// MARK: 전이 규칙(순수) — 프레임 도착과 탭 닫힘이 어느 순서로 와도 결과가 뒤집히지 않는다
-
-extension ScriptRun {
-    /// script-exit 프레임 도착 전이. 세 경우를 순서 무관하게 수렴시킨다:
-    ///  - .running → .finished(code) — 정상 경로(프레임이 닫힘보다 먼저).
-    ///  - .finished(code: nil) → code만 덮어쓴다 — 폴백 선마감(탭이 먼저 닫힘) 후 늦은 프레임.
-    ///    duration은 선마감 값을 유지한다(닫힘 시점이 실제 종료에 더 가깝고, 프레임 도착은 큐 지연을 탄다).
-    ///  - 이미 code가 확정된 run은 그대로 — 중복 프레임은 첫 판정을 못 뒤집는다.
-    func receivingExit(code: Int32, at now: Date) -> ScriptRun {
-        var next = self
-        switch state {
-        case .running:
-            next.state = .finished(code: code, duration: now.timeIntervalSince(startedAt))
-        case .finished(let existing, let duration):
-            guard existing == nil else { return self }
-            next.state = .finished(code: code, duration: duration)
-        }
-        return next
-    }
-
-    /// 탭 닫힘 폴백 마감. 프레임 없이 닫히면(⌘W·소켓 유실) code nil로 마감한다 —
-    /// **성공으로 단정하지 않는다.** 이미 finished면 무동작(프레임이 먼저 온 정상 경로를 안 덮는다).
-    func closingFallback(at now: Date) -> ScriptRun {
-        guard case .running = state else { return self }
-        var next = self
-        next.state = .finished(code: nil, duration: now.timeIntervalSince(startedAt))
-        return next
-    }
-}
-
-// MARK: 표시 판정용 파생값(순수) — 칩(ScriptChipMode)·잔류 해제가 같은 정의를 쓴다
+// MARK: 표시 판정용 파생값(순수) — 칩(ScriptChipMode)·도크가 같은 정의를 쓴다
 
 extension ScriptRun {
     var isRunning: Bool {
@@ -107,11 +88,92 @@ extension ScriptRun {
         if case .finished(let code, _) = state, let code, code != 0 { return true }
         return false
     }
+}
 
-    /// 새 실행이 시작될 때 레지스트리에서 치울 잔류(finished) 엔트리를 걸러낸다(순수) —
-    /// 칩의 완료 잔류(✓/✗)는 "가장 최근 일" 하나만 말하므로, 새 일이 시작되면 옛 결과는 내린다.
-    /// running은 남긴다(실행 사실이 사라지면 dedup·프레임 배달이 근거를 잃는다).
-    static func clearingFinished(_ runs: [String: ScriptRun]) -> [String: ScriptRun] {
-        runs.filter { $0.value.isRunning }
+// MARK: 전이 규칙(순수) — tmux 관측 1회를 레지스트리에 합친다
+
+extension ScriptRun {
+    /// 방금 시작한 실행이 폴 스냅샷에 아직 안 보여도 봐주는 유예 — `new-session`과 in-flight
+    /// `list-panes`가 경합하면 한 바퀴(2s) 정도 관측이 늦는다. 이 유예가 없으면 merge가
+    /// 갓 시작한 실행을 "세션 없음 = 결과 미상"으로 오판해 즉시 마감한다.
+    static let missingGrace: TimeInterval = 10
+
+    /// 폴링 관측 1회를 레지스트리에 합친다(순수). 반환은 (다음 레지스트리, 이번에 **새로 확정된 종료**).
+    ///
+    /// 규칙 — 어느 순서로 관측돼도 결과가 뒤집히지 않는다:
+    ///  - 관측 .running: 레지스트리도 running이면 유지(startedAt 보존). 아니면 **채택** —
+    ///    muxa 재시작 후 도는 세션. startedAt은 모른다(nil — 경과를 지어내지 않는다).
+    ///  - 관측 .exited(code): running → finished(code) 확정 + exits에 실림(알림은 이 목록만).
+    ///    이미 finished면 유지(첫 판정이 이긴다). 레지스트리에 없으면 **조용히 채택**(acknowledged) —
+    ///    재시작 전의 결과를 재알림·재잔류시키지 않는다(ServiceMonitor baseline과 같은 원칙).
+    ///  - 관측 없음(세션 소멸): running이던 것은 유예(missingGrace) 안이면 유지(막 시작 — 관측 지연),
+    ///    지났으면 finished(code nil) — 결과 미상으로 마감하되 exits에는 안 싣는다(지어내지 않는다).
+    ///    finished는 그대로 — 세션이 정리돼도 확정된 결과는 남는다.
+    ///  - 등록이 사라진 스크립트의 run은 버린다(레지스트리는 등록의 그림자다).
+    static func merging(runs: [String: ScriptRun],
+                        observed: [String: ServiceState],
+                        registered: [LocatedScript],
+                        now: Date) -> (runs: [String: ScriptRun], exits: [ScriptRun]) {
+        var next: [String: ScriptRun] = [:]
+        var exits: [ScriptRun] = []
+        for located in registered {
+            let id = located.script.id
+            let prev = runs[id]
+            switch observed[id] {
+            case .running:
+                if let prev, prev.isRunning {
+                    next[id] = prev
+                } else {
+                    next[id] = ScriptRun(scriptId: id, projectId: located.projectId,
+                                         name: located.script.name, startedAt: nil, state: .running)
+                }
+            case .exited(let code):
+                if let prev {
+                    if prev.isRunning {
+                        var done = prev
+                        done.state = .finished(code: code,
+                                               duration: prev.startedAt.map { now.timeIntervalSince($0) })
+                        next[id] = done
+                        exits.append(done)
+                    } else {
+                        next[id] = prev // 첫 판정 유지 — 같은 pane의 중복 관측이 결과를 못 뒤집는다
+                    }
+                } else {
+                    next[id] = ScriptRun(scriptId: id, projectId: located.projectId,
+                                         name: located.script.name, startedAt: nil,
+                                         state: .finished(code: code, duration: nil),
+                                         acknowledged: true)
+                }
+            case .missing, .none:
+                guard let prev else { break }
+                if prev.isRunning {
+                    if let started = prev.startedAt, now.timeIntervalSince(started) < missingGrace {
+                        next[id] = prev
+                    } else {
+                        var done = prev
+                        done.state = .finished(code: nil,
+                                               duration: prev.startedAt.map { now.timeIntervalSince($0) })
+                        next[id] = done
+                    }
+                } else {
+                    next[id] = prev
+                }
+            }
+        }
+        return (next, exits)
+    }
+
+    /// 새 실행이 시작될 때 같은 프로젝트의 잔류(finished) 칩을 내린다(순수) — 칩의 완료 잔류(✓/✗)는
+    /// "가장 최근 일" 하나만 말하므로, 새 일이 시작되면 옛 결과는 확인된 것으로 친다.
+    /// **지우지 않고 acknowledge만 한다** — 지우면 다음 폴링이 살아있는 pane을 다시 채택해 잔류가 되살아나고,
+    /// 도크의 로그 진입점도 함께 사라진다.
+    static func acknowledgingFinished(_ runs: [String: ScriptRun],
+                                      projectId: String) -> [String: ScriptRun] {
+        runs.mapValues { run in
+            guard run.projectId == projectId, !run.isRunning else { return run }
+            var next = run
+            next.acknowledged = true
+            return next
+        }
     }
 }

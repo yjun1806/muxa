@@ -24,6 +24,12 @@ final class ServiceMonitor {
     /// 서비스가 죽었을 때 부른다(running → exited 전이 순간 1회). 알림·배지 배선은 AppState가 소유.
     var onExit: ((Service, Int32) -> Void)?
 
+    /// **스크립트** 세션 관측 1회분 — 폴링마다 scriptId 키로 배달한다(관측이 없어도 빈 딕셔너리로
+    /// 발화한다 — "세션이 사라졌다"도 정보다: 유예 지난 running을 결과 미상으로 마감하는 근거).
+    /// 전이 판정(running→finished·채택·유예)은 순수 함수 `ScriptRun.merging`이 하고 AppState가 배선한다
+    /// — 모니터는 서비스 축과 마찬가지로 "tmux를 읽는 눈"까지만 맡는다.
+    var onScriptsPoll: (([String: ServiceState]) -> Void)?
+
     /// 폴링 주기. 로그를 스트리밍하는 게 아니라 상태 점을 갱신하는 용도라 2초면 충분하다
     /// (사람이 "죽었네"를 알아채는 데 필요한 지연이지, 실시간성이 필요한 값이 아니다).
     static let pollInterval: Duration = .seconds(2)
@@ -84,11 +90,12 @@ final class ServiceMonitor {
         guard active != isActive else { return }
         isActive = active
         guard task != nil else { return } // 폴링 중일 때만(서비스 0개면 아무것도 안 한다)
-        sync(services: tracked)
+        sync(services: tracked, scriptIds: trackedScriptIds)
     }
 
     private var task: Task<Void, Never>?
     private var tracked: [Service] = []
+    private var trackedScriptIds: Set<String> = []
 
     /// **세대 카운터** — in-flight refresh의 stale write를 막는다.
     ///
@@ -103,13 +110,16 @@ final class ServiceMonitor {
     /// (서비스를 새로 추가한 직후 그게 즉사하면 baseline이 아니라 진짜 죽음으로 잡혀야 하므로).
     private var hasBaselined = false
 
-    /// 등록된 서비스 전체(모든 워크스페이스)를 넘겨 폴링을 시작·갱신한다.
-    /// 서비스가 하나도 없으면 폴링을 멈춘다 — 아무도 안 쓰는 기능이 2초마다 프로세스를 띄우지 않게.
-    func sync(services: [Service]) {
+    /// 등록된 서비스·스크립트 전체(모든 워크스페이스)를 넘겨 폴링을 시작·갱신한다.
+    /// 둘 다 하나도 없으면 폴링을 멈춘다 — 아무도 안 쓰는 기능이 2초마다 프로세스를 띄우지 않게.
+    /// (스크립트는 등록만으론 세션이 없지만, 폴링해야 재시작 후 채택·종료 감지가 된다 — 값싸다:
+    /// 어차피 한 번의 `list-panes -a`가 두 축을 다 준다.)
+    func sync(services: [Service], scriptIds: Set<String> = []) {
         task?.cancel()
         generation &+= 1
         tracked = services
-        guard TmuxService.isAvailable, !services.isEmpty else {
+        trackedScriptIds = scriptIds
+        guard TmuxService.isAvailable, !(services.isEmpty && scriptIds.isEmpty) else {
             task = nil
             states = [:]
             ports = [:]
@@ -118,7 +128,7 @@ final class ServiceMonitor {
         }
         task = Task { [weak self] in
             while !Task.isCancelled {
-                await self?.refresh(services: services)
+                await self?.refresh(services: services, scriptIds: scriptIds)
                 guard let interval = self?.pollInterval else { return }
                 try? await Task.sleep(for: interval)
             }
@@ -131,8 +141,8 @@ final class ServiceMonitor {
         generation &+= 1 // 진행 중이던 refresh의 결과를 버린다(취소 후 stale write 금지)
     }
 
-    /// 한 번 훑는다 — 상태 갱신 + 죽음 전이 감지 + (아직 모르는) 포트 조회.
-    func refresh(services: [Service]) async {
+    /// 한 번 훑는다 — 상태 갱신 + 죽음 전이 감지 + (아직 모르는) 포트 조회 + 스크립트 관측 배달.
+    func refresh(services: [Service], scriptIds: Set<String> = []) async {
         let generation = self.generation
         let byId = Self.index(services)
         let bySession = await readStates()
@@ -147,6 +157,15 @@ final class ServiceMonitor {
             next[parsed.serviceId] = state
             projectOf[parsed.serviceId] = parsed.projectId
         }
+
+        // 스크립트 세션은 scriptId 키로 골라 그대로 배달한다 — 전이 판정은 받는 쪽(ScriptRun.merging)의
+        // 몫이다. 관측이 0건이어도 발화한다(빈 관측 = "세션이 사라졌다"는 판정 입력).
+        var scriptNext: [String: ServiceState] = [:]
+        for (session, state) in bySession {
+            guard let parsed = ScriptSession.parse(session), scriptIds.contains(parsed.scriptId) else { continue }
+            scriptNext[parsed.scriptId] = state
+        }
+        onScriptsPoll?(scriptNext)
 
         // 죽음 전이를 1회만 알린다. running→exited뿐 아니라 **첫 폴링 전에 즉사한** missing→exited도 잡는다
         // — dev 서버가 오타·포트선점으로 1초 안에 죽는 게 가장 흔한 실패인데 종전엔 이게 침묵했다.

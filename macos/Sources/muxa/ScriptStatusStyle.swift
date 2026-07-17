@@ -9,6 +9,10 @@ import SwiftUI
 /// 실패 `xmark.square`. 성공은 **무채**(pMuted) — 에이전트 완료의 세이지 ✓(`checkmark`)와
 /// 색·모양 둘 다 갈라 한 푸터에 나란히 떠도 안 헷갈린다.
 enum ScriptStatusStyle {
+    /// 스크립트 축의 대표 글리프 — 칩·팝오버·도크 빈 상태가 같은 것을 쓴다.
+    /// 서비스(play.circle)·에이전트 활동(bolt)과 글리프 축을 가른다(사각형 가족).
+    static let icon = "play.square"
+
     /// **색만으로 구분하지 않는다**(색맹 안전) — 결과가 갈리면 글리프 자체가 바뀐다.
     /// `nil` state = 등록만 되고 실행 이력이 없는 스크립트(팝오버 목록의 평시 행).
     /// code nil(결과 미상 — ⌘W·프레임 유실)은 **✓를 지어내지 않고** 물음표로 남긴다.
@@ -46,39 +50,44 @@ enum ScriptStatusStyle {
     }
 
     /// 꼬리표 — 실행중은 경과("12s"), 성공·미상은 걸린 시간("8s"), 실패는 exit code("exit 2").
-    /// 실행 이력이 없으면 아무것도 안 붙인다(지어내지 않는다).
+    /// 실행 이력이 없거나 **시각을 모르면**(재시작 후 채택 — startedAt·duration nil) 아무것도
+    /// 안 붙인다(지어내지 않는다).
     static func tail(_ run: ScriptRun?, now: Date) -> String? {
         guard let run else { return nil }
         switch run.state {
         case .running:
-            return RelativeTime.compact(now.timeIntervalSince(run.startedAt))
+            return run.startedAt.map { RelativeTime.compact(now.timeIntervalSince($0)) }
         case .finished(let code, let duration):
             if let code, code != 0 { return "exit \(code)" }
-            return RelativeTime.compact(duration)
+            return duration.map(RelativeTime.compact)
         }
     }
 }
 
 /// 푸터 스크립트 칩이 지금 어떤 모습이어야 하나 — 순수 판정(칩 뷰는 이 결과를 그리기만 한다).
 enum ScriptChipMode: Equatable {
-    /// 등록 0개 — 칩 자체를 안 그린다(DetachedStrip과 같은 규칙 — 있을 때만 의미가 있다).
-    case hidden
+    /// 등록 0개 — **그래도 그린다**(플레이스홀더). 서비스 칩과 같은 철학으로 바뀌었다:
+    /// 이 칩이 스크립트 기능의 상시 발견 지점이다(숨기면 있는지도 모른다).
+    case empty
     /// 등록 ≥1, 실행 0, 잔류 0 — 개수만 말하는 조용한 칩(클릭 = 팝오버).
     case idle(count: Int)
-    /// 실행 ≥1 — 최신 시작 순. 잔류가 있어도 실행이 우선이다("지금 도는 것"이 헤드라인).
+    /// 실행 ≥1 — 최신 시작 순(시작 시각 미상 = 재시작 후 채택은 뒤로). 잔류가 있어도 실행이
+    /// 우선이다("지금 도는 것"이 헤드라인).
     case running([ScriptRun])
     /// 실행 0, 완료 잔류 ≥1 — 하나만 고른다: **실패 최우선**(ServiceStatusStyle.summarize와
     /// 같은 원칙 — 성공 다수에 실패가 묻히면 안 된다), 같은 급이면 최신.
+    /// 확인된(acknowledged) 잔류는 세지 않는다 — 클릭·새 실행으로 이미 내려간 칩이다.
     case lingering(ScriptRun)
 
     static func judge(scriptCount: Int, runs: [ScriptRun]) -> ScriptChipMode {
-        guard scriptCount > 0 else { return .hidden }
-        let running = runs.filter(\.isRunning).sorted { $0.startedAt > $1.startedAt }
+        guard scriptCount > 0 else { return .empty }
+        let running = runs.filter(\.isRunning)
+            .sorted { ($0.startedAt ?? .distantPast) > ($1.startedAt ?? .distantPast) }
         if !running.isEmpty { return .running(running) }
         // code nil(결과 미상)은 실패로 세지 않는다 — ✗를 지어내지 않는 것과 같은 원칙.
-        let linger = runs.filter { !$0.isRunning }.max { a, b in
+        let linger = runs.filter { !$0.isRunning && !$0.acknowledged }.max { a, b in
             if a.isFailure != b.isFailure { return b.isFailure }
-            return a.startedAt < b.startedAt
+            return (a.startedAt ?? .distantPast) < (b.startedAt ?? .distantPast)
         }
         if let linger { return .lingering(linger) }
         return .idle(count: scriptCount)

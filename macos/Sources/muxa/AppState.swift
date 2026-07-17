@@ -286,9 +286,6 @@ final class AppState {
         notifyServer.onHook = { [weak self] msg in
             MainActor.assumeIsolated { self?.routeHook(msg) }
         }
-        notifyServer.onScriptExit = { [weak self] msg in
-            MainActor.assumeIsolated { self?.routeScriptExit(msg) }
-        }
         notifyServer.start()
         refreshHookInstallState()
     }
@@ -340,16 +337,6 @@ final class AppState {
         for store in stores.values {
             if store.deliverNotify(tabId: tabId, state: msg.state, title: msg.title,
                                    body: msg.body, category: msg.category, resume: msg.resume) { break }
-        }
-    }
-
-    /// script-exit 프레임(스크립트 exit code)을 tabId 소유 store로 라우팅한다(routeNotify와 같은 순회 규칙).
-    /// 결과 판정(running→finished 전이·배지)은 소유 store의 deliverScriptExit가 한다.
-    private func routeScriptExit(_ msg: ScriptExitMessage) {
-        guard let uuid = UUID(uuidString: msg.tabId) else { return }
-        let tabId = TabID(uuid: uuid)
-        for store in stores.values {
-            if store.deliverScriptExit(tabId: tabId, exitCode: msg.exitCode) { break }
         }
     }
 
@@ -417,6 +404,13 @@ final class AppState {
         // Git 패널이 열려 정작 봐야 할 로그(도크)는 안 뜬다. 서비스면 서비스 동선으로 보낸다.
         if let tabId, let service = locateService(tabId, in: workspaces) {
             revealService(service)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        // **스크립트도 탭이 아니다** — 실패 알림은 tabId 자리에 스크립트 id를 담는다(onScriptsPoll).
+        // 로그는 서비스 도크의 스크립트 상세에 있다(서비스와 같은 동선·같은 이유).
+        if let tabId, allLocatedScripts.contains(where: { $0.id == tabId }) {
+            revealScript(scriptId: tabId)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
@@ -1131,8 +1125,28 @@ final class AppState {
 
     // MARK: 스크립트 (끝이 있는 명령 — Script.swift)
     //
-    // 서비스 CRUD의 미러지만 tmux 호출이 없다 — 스크립트는 등록만 하고, 실행은 사용자가
-    // 그때그때 명시적으로 시킨다(TerminalStore.runScript). 자동 기동·좀비 청소도 없다.
+    // 서비스 CRUD의 미러. 실행도 서비스와 **같은 tmux 백엔드**지만(탭 없음 — 백그라운드),
+    // 자동 기동은 없다 — 사용자가 그때그때 명시적으로 시킨다. 결과는 scriptRuns 레지스트리가 들고,
+    // 관측은 serviceMonitor의 같은 폴링(onScriptsPoll)이, 전이는 순수 함수(ScriptRun.merging)가 한다.
+
+    /// 실행 레지스트리 — scriptId 키, **창 전체**(도크가 전역이므로). 푸터 칩은 프로젝트로 거른다.
+    private(set) var scriptRuns: [String: ScriptRun] = [:]
+
+    /// 기동 중(킬→새 세션 생성이 아직 안 끝난) 스크립트 — 이 동안의 tmux 관측은 **버린다**.
+    /// 안 버리면 in-flight 폴 스냅샷이 **이전 실행의 종료 pane**을 보고 새 실행을 그 exit code로
+    /// 오판한다(가짜 ✗ + 가짜 실패 알림, 다음 폴에서야 running으로 복구되는 깜빡임).
+    /// 보류 중 관측은 "없음"으로 취급되고, 갓 심은 running은 merge의 유예(missingGrace)가 지켜준다.
+    @ObservationIgnored private var pendingScriptStarts: Set<String> = []
+
+    /// 이 프로젝트의 실행들 — 푸터 칩(프로젝트 단위)이 제 것만 본다.
+    func scriptRuns(of projectId: String) -> [ScriptRun] {
+        scriptRuns.values.filter { $0.projectId == projectId }
+    }
+
+    /// **창 전체**의 스크립트 — 소속을 달고 온다(도크 목록·모니터 폴링·GC 입력이 이 하나를 쓴다).
+    var allLocatedScripts: [LocatedScript] {
+        collectAllScripts(in: workspaces)
+    }
 
     /// 프로젝트에 등록된 스크립트 목록.
     func scripts(of projectId: String) -> [Script] {
@@ -1147,21 +1161,105 @@ final class AppState {
             next.scripts = (p.scripts ?? []) + [script]
             return next
         }
+        syncServiceMonitor() // 폴링 추적 대상 갱신 — 다른 인스턴스의 실행도 이제 관측된다
     }
 
-    /// 스크립트 등록을 해제한다. 실행 중이던 탭은 건드리지 않는다 — 이미 뜬 프로세스는
-    /// 사용자 것이고, 어차피 끝나면 스스로 소멸한다(서비스의 좀비 문제가 없다).
+    /// 스크립트 등록을 해제한다 — **세션도 함께 죽인다**(removeService와 대칭). 등록만 지우면
+    /// 실행 중이던 프로세스·종료 로그 pane이 좀비로 남는다(놓친 것은 시작 시 GC가 쓸어간다 — 두 겹 방어).
     func removeScript(_ scriptId: String, from projectId: String) {
         updateProject(projectId) { p in
             var next = p
             next.scripts = (p.scripts ?? []).filter { $0.id != scriptId }
             return next
         }
+        scriptRuns[scriptId] = nil
+        if selectedServiceId == scriptId { selectedServiceId = nil }
+        dropDockTerm(scriptId)
+        Task {
+            await TmuxService.killScript(projectId: projectId, scriptId: scriptId)
+            syncServiceMonitor()
+        }
     }
 
-    /// 등록된 서비스가 바뀔 때마다 모니터에 알린다(폴링 대상 갱신). 서비스가 0개면 폴링이 멈춘다.
+    /// 스크립트를 **백그라운드(tmux)** 에서 1회 실행한다 — 탭을 띄우지 않는다. 출력은 서비스 도크에서
+    /// 본다(실행 중 = 라이브 터미널, 종료 = 보존된 로그). 같은 스크립트가 이미 도는 중이면 새로 띄우지
+    /// 않고 그 출력만 보여준다(dedup — 두 번 눌렀다고 빌드가 두 개 돌면 안 된다).
+    func runScript(_ script: Script, in projectId: String) {
+        // tmux가 없으면 실행 백엔드가 없다 — 숨기는 대신 도크의 설치 안내(ServiceSetupView)로 보낸다.
+        guard TmuxService.isAvailable else {
+            openServiceDock(serviceId: nil, projectId: projectId)
+            return
+        }
+        if let run = scriptRuns[script.id], run.isRunning {
+            revealScript(scriptId: script.id)
+            return
+        }
+        guard let located = allLocatedScripts.first(where: { $0.id == script.id }),
+              let cwd = located.cwd else {
+            attention.recordSystem(title: "\(script.name) 실행 실패 — 프로젝트 경로가 없습니다")
+            return
+        }
+        // 새 실행 시작 = 이 프로젝트의 잔류(✓/✗) 확인 처리 — 칩은 "가장 최근 일"만 말한다.
+        scriptRuns = ScriptRun.acknowledgingFinished(scriptRuns, projectId: projectId)
+        // 폴링(2s)을 기다리지 않고 낙관적으로 심는다 — 버튼을 눌렀는데 칩이 조용하면 두 번 누른다.
+        scriptRuns[script.id] = ScriptRun(scriptId: script.id, projectId: projectId,
+                                          name: script.name, startedAt: Date(), state: .running)
+        pendingScriptStarts.insert(script.id) // 기동이 끝날 때까지 옛 pane 관측을 차단
+        dropDockTerm(script.id) // 옛 세션에 붙은 attach 터미널·로그 뷰 무효화(재시작과 같은 이유)
+        Task {
+            let reason = await TmuxService.startScript(script, projectId: projectId, cwd: cwd)
+            pendingScriptStarts.remove(script.id)
+            if let reason {
+                attention.recordSystem(title: "\(script.name) 실행 실패 — \(reason)")
+                scriptRuns[script.id] = nil // 시작 자체가 실패 — running을 남기면 칩이 유령을 돈다
+            }
+            syncServiceMonitor()
+        }
+    }
+
+    /// 잔류(✓/✗ 칩) 확인 — 칩만 내리고 **결과·세션·로그는 남긴다**(종료 로그를 봐야 하므로
+    /// 확인이 곧 삭제면 안 된다). 다음 실행이 시작되면 세션이 갈아엎어진다.
+    func acknowledgeScriptRun(_ scriptId: String) {
+        guard var run = scriptRuns[scriptId], !run.isRunning else { return }
+        run.acknowledged = true
+        scriptRuns[scriptId] = run
+    }
+
+    /// 어느 워크스페이스·프로젝트의 스크립트든 **그리로 데려가서** 도크의 출력(라이브/로그)을 연다
+    /// — revealService와 같은 동선·같은 창 규칙.
+    func revealScript(scriptId: String) {
+        guard let located = allLocatedScripts.first(where: { $0.id == scriptId }) else { return }
+        if owner(of: located.projectId).isMain {
+            if activeId != located.workspaceId { setActiveId(located.workspaceId) }
+            if activeProject?.id != located.projectId { setActiveProject(located.projectId) }
+        } else {
+            windowHost?.raise(.main)
+        }
+        openServiceDock(serviceId: located.id, projectId: located.projectId)
+    }
+
+    /// 폴링 관측 → 레지스트리 병합 + 이번에 **새로 확정된 실패**만 알린다(startServices가 배선).
+    /// 판정은 전부 순수(ScriptRun.merging) — 여기는 배관과 알림뿐이다.
+    private func mergeScriptObservation(_ observed: [String: ServiceState]) {
+        // 기동 중인 스크립트의 관측은 버린다(pendingScriptStarts 주석) — 이전 실행의 pane일 수 있다.
+        let settled = observed.filter { !pendingScriptStarts.contains($0.key) }
+        let (next, exits) = ScriptRun.merging(runs: scriptRuns, observed: settled,
+                                              registered: allLocatedScripts, now: Date())
+        if next != scriptRuns { scriptRuns = next }
+        for run in exits where run.isFailure {
+            guard case .finished(let code?, _) = run.state else { continue }
+            guard let location = located(run.projectId) else { continue }
+            // tabId 자리에 스크립트 id — revealActivity가 스크립트 동선(도크)으로 되돌린다(서비스와 동일).
+            attention.record(workspaceId: location.workspace.id, projectId: run.projectId,
+                             tabId: run.scriptId, kind: .system,
+                             title: "\(run.name) 실패 (exit \(code))")
+            markProjectBadge(run.projectId)
+        }
+    }
+
+    /// 등록된 서비스·스크립트가 바뀔 때마다 모니터에 알린다(폴링 대상 갱신). 둘 다 0개면 폴링이 멈춘다.
     func syncServiceMonitor() {
-        serviceMonitor.sync(services: allServices)
+        serviceMonitor.sync(services: allServices, scriptIds: collectLiveScriptIds(in: workspaces))
     }
 
     /// 프로젝트가 사라질 때(프로젝트 닫기·워크스페이스 제거) 그 서비스 프로세스도 함께 죽인다.
@@ -1180,6 +1278,20 @@ final class AppState {
         }
         // 폴링 대상 갱신은 workspaces가 실제로 줄어든 뒤에 유효하다 — 다음 런루프에 맞춘다.
         Task { @MainActor in syncServiceMonitor() }
+    }
+
+    /// 프로젝트가 사라질 때 그 스크립트 세션(실행 중·종료 로그 pane)도 함께 죽인다 — killServices와
+    /// 대칭. 프로젝트가 workspaces에서 빠지면 GC가 **모르는 프로젝트**로 보고 보존해 영영 안 정리된다.
+    private func killScripts(of project: Project) {
+        let scripts = project.scripts ?? []
+        guard !scripts.isEmpty, TmuxService.isAvailable else { return }
+        for script in scripts {
+            dropDockTerm(script.id)
+            if selectedServiceId == script.id { selectedServiceId = nil }
+            scriptRuns[script.id] = nil
+            Task { await TmuxService.killScript(projectId: project.id, scriptId: script.id) }
+        }
+        Task { @MainActor in syncServiceMonitor() } // killServices와 같은 이유(다음 런루프)
     }
 
     /// 프로젝트가 사라질 때 그 **터미널** tmux 세션(지속 세션 ∞ 탭·detached)도 함께 죽인다.
@@ -1206,6 +1318,10 @@ final class AppState {
     /// 없고(그게 보통), 앱을 재부팅하거나 tmux 서버가 죽은 뒤에만 실제로 다시 뜬다.
     func startServices() {
         guard TmuxService.isAvailable else { return }
+        // 스크립트 관측 배선 — 같은 폴링이 두 축을 다 배달한다. 병합·알림은 한 곳(merge)에 모은다.
+        serviceMonitor.onScriptsPoll = { [weak self] observed in
+            self?.mergeScriptObservation(observed)
+        }
         serviceMonitor.onExit = { [weak self] service, code in
             // "정상 종료(0)는 알리지 않는다"는 판정은 배지·요약·칩과 **같은 한 곳**에서 온다(ServiceState.isFailure).
             guard let self, ServiceState.exited(code: code).isFailure else { return }
@@ -1256,6 +1372,19 @@ final class AppState {
         }
         let term = TermView(app: app, cwd: cwd, initialCommand: attach)
         dockTerms[serviceId] = term
+        return term
+    }
+
+    /// **실행 중인** 스크립트의 attach 터미널 — dockTerm과 같은 수명 규칙(도크가 열려 있는 동안만),
+    /// 같은 맵(dockTerms — id는 UUID라 서비스와 충돌하지 않는다). 세션명 규약만 스크립트 축이다.
+    func dockScriptTerm(scriptId: String, projectId: String, cwd: String?) -> TermView {
+        if let existing = dockTerms[scriptId] { return existing }
+        let attach = TmuxService.scriptAttachCommand(projectId: projectId, scriptId: scriptId)
+        if attach == nil { // dockTerm과 같은 이유 — nil을 삼키면 "그냥 셸"이 떠서 침묵 실패다
+            attention.recordSystem(title: "스크립트 출력을 열 수 없습니다 — 스크립트 id가 세션명 규약을 벗어납니다 (\(scriptId))")
+        }
+        let term = TermView(app: app, cwd: cwd, initialCommand: attach)
+        dockTerms[scriptId] = term
         return term
     }
 
@@ -1340,8 +1469,13 @@ final class AppState {
     func collectServiceGarbage() {
         guard TmuxService.isAvailable else { return }
         let live = collectLiveServiceIds(in: workspaces)
+        let liveScripts = collectLiveScriptIds(in: workspaces)
         let known = collectKnownProjectIds(in: workspaces)
-        Task { await TmuxService.collectGarbage(liveServiceIds: live, knownProjectIds: known) }
+        Task {
+            await TmuxService.collectGarbage(liveServiceIds: live, knownProjectIds: known)
+            // 스크립트 좀비도 같은 원칙으로 — 등록이 살아 있는 세션(종료 로그 포함)은 보존된다.
+            await TmuxService.collectScriptGarbage(liveScriptIds: liveScripts, knownProjectIds: known)
+        }
     }
 
     /// 고아 **터미널** tmux 세션 정리(L3) — 닫힌 탭이 남긴 세션을 죽인다. 복원 직후 1회.
@@ -1540,6 +1674,7 @@ final class AppState {
         guard workspaces.count > 1, let idx = workspaces.firstIndex(where: { $0.id == id }) else { return }
         for project in workspaces[idx].projects {
             killServices(of: project) // 등록만 지우면 dev 서버가 포트를 문 채 살아남는다
+            killScripts(of: project) // 스크립트 세션(실행 중·종료 로그)도 대칭으로
             killTerminalSessions(of: project) // 지속 세션·detached도 함께 — 스토어·레이아웃 버리기 전에
             stores[project.id] = nil
             savedLayouts[project.id] = nil
@@ -1805,6 +1940,7 @@ final class AppState {
         if owner.projects.count > 1,
            let project = owner.projects.first(where: { $0.id == projectId }) {
             killServices(of: project)
+            killScripts(of: project)
             killTerminalSessions(of: project) // 스토어·레이아웃을 버리기 전에 — 세션명을 여기서 읽는다
         }
         stores[projectId] = nil

@@ -178,6 +178,34 @@ struct ServiceMonitorTests {
 
         #expect(m.states == ["S": .running])
     }
+
+    // MARK: 스크립트 관측 — 같은 폴링이 두 축을 다 배달한다
+
+    /// 스크립트 세션은 scriptId 키로 골라 콜백에 싣고, 서비스 상태에는 섞이지 않는다.
+    /// 추적 안 된 스크립트(타 인스턴스)·서비스 세션은 걸러진다.
+    @Test func 스크립트_세션은_콜백으로만_배달한다() async {
+        let m = monitor(states: { [self.session: ServiceState.running,
+                                   "muxa__P__script__SC": .exited(code: 2),
+                                   "muxa__P__script__OTHER": .running] })
+        var polls: [[String: ServiceState]] = []
+        m.onScriptsPoll = { polls.append($0) }
+
+        await m.refresh(services: [svc], scriptIds: ["SC"])
+
+        #expect(polls == [["SC": .exited(code: 2)]])
+        #expect(m.states == ["S": .running]) // 서비스 축 오염 없음
+    }
+
+    /// 관측 0건이어도 발화한다 — "세션이 사라졌다"는 유예 지난 running을 마감하는 판정 입력이다.
+    @Test func 스크립트_관측이_없어도_빈_관측을_발화한다() async {
+        let m = monitor(states: { [:] })
+        var polls: [[String: ServiceState]] = []
+        m.onScriptsPoll = { polls.append($0) }
+
+        await m.refresh(services: [], scriptIds: ["SC"])
+
+        #expect(polls == [[:]])
+    }
 }
 
 /// 주입한 클로저 안에서 모니터 자신을 다시 부르기 위한 상자(init 시점엔 아직 없어 캡처할 수 없다).

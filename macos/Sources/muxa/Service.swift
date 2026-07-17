@@ -68,32 +68,48 @@ func locateService(_ serviceId: String, in workspaces: [Workspace]) -> LocatedSe
     collectAllServices(in: workspaces).first { $0.id == serviceId }
 }
 
-/// 프로젝트 하나에 묶인 서비스들 — 팝오버가 프로젝트별로 나눠 보여주는 단위.
+/// 프로젝트 하나에 묶인 서비스·스크립트 — 도크가 프로젝트별로 나눠 보여주는 단위.
+/// 두 축이 한 그룹에 사는 이유: 도크는 "이 프로젝트에서 도는(돌았던) 것"의 단일 목록이다 —
+/// 서비스만 그룹을 만들면 스크립트뿐인 프로젝트·워크스페이스가 목록에서 통째로 사라진다.
 struct ServiceGroup: Identifiable {
     var id: String { projectId }
     let projectId: String
     /// 사람이 읽을 묶음 이름 — 워크스페이스가 여럿이면 어느 워크스페이스인지도 밝힌다("front › 웹").
     let title: String
     let services: [LocatedService]
+    let scripts: [LocatedScript]
 }
 
-/// 서비스를 프로젝트별로 묶는다 — **현재 프로젝트가 맨 앞**, 나머지는 선언 순서 그대로(순수).
+/// 서비스·스크립트를 프로젝트별로 묶는다 — **현재 프로젝트가 맨 앞**, 나머지는 선언 순서 그대로
+/// (서비스가 먼저 나온 프로젝트 순, 스크립트뿐인 프로젝트는 그 뒤). 순수.
 ///
 /// 정렬로 앞에 세우면 안 된다. `sorted { a, _ in a == current }`는 엄격 약순서가 아니라
 /// (a<b와 b<a가 동시에 거짓/참일 수 있다) 정렬 알고리즘이 비교자를 어떻게 호출하느냐에 따라
 /// **현재 프로젝트가 맨 앞에 안 오는 배치가 나온다.** 분할(filter 두 번)은 그 자체로 결정적이다.
-func groupServices(_ items: [LocatedService], current: String, showWorkspace: Bool) -> [ServiceGroup] {
+func groupServices(_ items: [LocatedService], scripts: [LocatedScript] = [],
+                   current: String, showWorkspace: Bool) -> [ServiceGroup] {
     var order: [String] = []
     var byProject: [String: [LocatedService]] = [:]
+    var scriptsByProject: [String: [LocatedScript]] = [:]
     for item in items {
         if byProject[item.projectId] == nil { order.append(item.projectId) }
         byProject[item.projectId, default: []].append(item)
     }
+    for item in scripts {
+        if byProject[item.projectId] == nil, scriptsByProject[item.projectId] == nil {
+            order.append(item.projectId)
+        }
+        scriptsByProject[item.projectId, default: []].append(item)
+    }
     return (order.filter { $0 == current } + order.filter { $0 != current })
         .compactMap { pid in
-            guard let group = byProject[pid], let first = group.first else { return nil }
-            let title = showWorkspace ? "\(first.workspaceName) › \(first.projectName)" : first.projectName
-            return ServiceGroup(projectId: pid, title: title, services: group)
+            let group = byProject[pid] ?? []
+            let scriptGroup = scriptsByProject[pid] ?? []
+            // 이름은 어느 쪽이든 첫 항목에서 얻는다 — 둘 다 비면 그룹 자체가 없다.
+            guard let title = group.first.map({ showWorkspace ? "\($0.workspaceName) › \($0.projectName)" : $0.projectName })
+                ?? scriptGroup.first.map({ showWorkspace ? "\($0.workspaceName) › \($0.projectName)" : $0.projectName })
+            else { return nil }
+            return ServiceGroup(projectId: pid, title: title, services: group, scripts: scriptGroup)
         }
 }
 
@@ -105,29 +121,41 @@ struct ServiceScope: Identifiable {
     let workspaceName: String
     let isCurrent: Bool
     let groups: [ServiceGroup]
-    /// 이 워크스페이스의 서비스 총 개수 — 접힌 줄이 "⚠ 3"처럼 요약할 때 쓴다.
-    var serviceCount: Int { groups.reduce(0) { $0 + $1.services.count } }
+    /// 이 워크스페이스의 항목(서비스+스크립트) 총 개수 — 접힌 줄이 "⚠ 3"처럼 요약할 때 쓴다.
+    var serviceCount: Int { groups.reduce(0) { $0 + $1.services.count + $1.scripts.count } }
     /// 접힌 줄의 롤업 대상 — 모든 서비스를 편평하게(상태는 뷰가 monitor로 채운다).
     var allServices: [LocatedService] { groups.flatMap(\.services) }
+    /// 접힌 줄의 롤업 대상(스크립트 축) — 실패한 실행이 접힌 워크스페이스에 묻히지 않게.
+    var allScripts: [LocatedScript] { groups.flatMap(\.scripts) }
 }
 
-/// 서비스를 **워크스페이스**로 묶는다 — 현재 워크스페이스가 맨 앞, 그 안은 `groupServices` 규칙
-/// (현재 프로젝트 먼저). 순수. 정렬이 아니라 분할(filter 두 번)을 쓰는 이유는 `groupServices`와 같다.
-func groupByWorkspace(_ items: [LocatedService],
+/// 서비스·스크립트를 **워크스페이스**로 묶는다 — 현재 워크스페이스가 맨 앞, 그 안은 `groupServices`
+/// 규칙(현재 프로젝트 먼저). 순수. 정렬이 아니라 분할(filter 두 번)을 쓰는 이유는 `groupServices`와 같다.
+func groupByWorkspace(_ items: [LocatedService], scripts: [LocatedScript] = [],
                       currentWorkspaceId: String, currentProjectId: String) -> [ServiceScope] {
     var order: [String] = []
     var byWorkspace: [String: [LocatedService]] = [:]
+    var scriptsByWorkspace: [String: [LocatedScript]] = [:]
     for item in items {
         if byWorkspace[item.workspaceId] == nil { order.append(item.workspaceId) }
         byWorkspace[item.workspaceId, default: []].append(item)
     }
+    for item in scripts {
+        if byWorkspace[item.workspaceId] == nil, scriptsByWorkspace[item.workspaceId] == nil {
+            order.append(item.workspaceId)
+        }
+        scriptsByWorkspace[item.workspaceId, default: []].append(item)
+    }
     return (order.filter { $0 == currentWorkspaceId } + order.filter { $0 != currentWorkspaceId })
         .compactMap { wsId in
-            guard let group = byWorkspace[wsId], let first = group.first else { return nil }
+            let group = byWorkspace[wsId] ?? []
+            let scriptGroup = scriptsByWorkspace[wsId] ?? []
+            guard let name = group.first?.workspaceName ?? scriptGroup.first?.workspaceName else { return nil }
             // 워크스페이스 이름은 스코프 헤더가 말하므로 프로젝트 그룹은 showWorkspace=false.
-            return ServiceScope(workspaceId: wsId, workspaceName: first.workspaceName,
+            return ServiceScope(workspaceId: wsId, workspaceName: name,
                                 isCurrent: wsId == currentWorkspaceId,
-                                groups: groupServices(group, current: currentProjectId, showWorkspace: false))
+                                groups: groupServices(group, scripts: scriptGroup,
+                                                      current: currentProjectId, showWorkspace: false))
         }
 }
 

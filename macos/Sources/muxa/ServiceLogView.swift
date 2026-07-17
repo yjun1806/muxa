@@ -1,16 +1,17 @@
 import SwiftUI
 
-/// 죽은 서비스의 로그 — 읽기 전용 텍스트.
+/// 죽은 서비스·끝난 스크립트의 로그 — 읽기 전용 텍스트.
 ///
-/// **죽은 서비스에 터미널을 붙이지 않는다.** 두 가지 이유가 있다:
+/// **죽은 프로세스에 터미널을 붙이지 않는다.** 두 가지 이유가 있다:
 ///  1) 상호작용할 게 없다. 프로세스가 끝났으니 Ctrl+C도 스크롤 외 입력도 의미가 없다.
 ///  2) 살아있다가 죽는 순간 터미널을 갈아끼우면(뷰 교체) 새 ghostty 서피스가 빈 화면으로 뜨는
 ///     레이스를 밟는다 — 정작 "왜 죽었는지"를 봐야 할 때 아무것도 안 보인다.
 ///
 /// tmux가 `remain-on-exit`로 마지막 화면을 보존하고 있으므로, capture-pane으로 읽어 그대로 보여준다.
 struct ServiceLogView: View {
-    let projectId: String
-    let serviceId: String
+    /// 읽을 tmux 세션명(서비스·스크립트 규약 무관 — 이름 조립은 호출부의 몫).
+    /// nil = id가 규약을 벗어나 세션이 없다("남은 로그가 없습니다"로 정직하게 표시).
+    let session: String?
     /// 재시작 등으로 세션이 갈아엎어지면 다시 읽어야 한다.
     let reloadToken: String
 
@@ -46,7 +47,8 @@ struct ServiceLogView: View {
         .background(Color.pBg)
         .task(id: reloadToken) {
             loading = true
-            let raw = await TmuxService.capture(projectId: projectId, serviceId: serviceId, lines: 400)
+            var raw = ""
+            if let session { raw = await TmuxService.capture(session: session, lines: 400) }
             log = ServiceLogView.tidy(raw)
             loading = false
         }

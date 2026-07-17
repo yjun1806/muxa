@@ -226,6 +226,30 @@ enum TmuxService {
         await run(["has-session", "-t", "=\(session)"]).exitCode == 0
     }
 
+    /// 스크립트를 백그라운드 tmux 세션에서 1회 실행한다 — 탭을 띄우지 않는다.
+    ///
+    /// 서비스 `start`와 같은 레시피(로그인 셸 래핑·`remain-on-exit`·경로 가드)를 쓰지만 멱등이 아니라
+    /// **갈아엎기**다: 스크립트는 "다시 실행"이 기본 동작이라, 같은 세션이 남아 있으면(이전 실행의
+    /// 종료 pane) 죽이고 새로 만든다(restartService와 같은 순서). 이전 로그는 이때 사라진다 —
+    /// 잔류 로그의 수명은 "다음 실행 전까지"다.
+    /// - Returns: 성공이면 nil, 실패면 사용자용 사유(start와 같은 계약 — 버리면 침묵 실패다).
+    @discardableResult
+    static func startScript(_ script: Script, projectId: String, cwd: String) async -> String? {
+        guard cwd != "/", !cwd.trimmingCharacters(in: .whitespaces).isEmpty else {
+            return "스크립트를 루트(/)에서 실행할 수 없습니다 — 워크스페이스/프로젝트 경로를 프로젝트 폴더로 바꾸세요."
+        }
+        guard let session = ScriptSession.name(projectId: projectId, scriptId: script.id) else {
+            return "스크립트 id가 세션명 규약을 벗어납니다 (\(script.id))"
+        }
+        await kill(session: session) // 이전 실행의 종료 pane 정리 — 없으면 멱등 무시
+        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        let result = await runResult(startArgs(session: session, cwd: cwd,
+                                               shell: shell, command: script.command))
+        guard result.exitCode != 0 else { return nil }
+        let reason = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        return reason.isEmpty ? "tmux 세션 생성 실패 (exit \(result.exitCode))" : reason
+    }
+
     /// 도크가 펼쳐질 때 터미널에서 실행할 attach 명령. 접으면 서피스만 해제하면 되고,
     /// 프로세스는 tmux가 계속 붙잡고 있다(재부착 레이스를 안 밟는 이유).
     ///
@@ -240,7 +264,16 @@ enum TmuxService {
     /// (`ServiceSession.isValidId`)가 애초에 그런 id를 막지만, 인용은 그것과 별개의 방어선이다.
     /// - Returns: id가 규약을 벗어나면 nil(= 붙일 세션이 없다).
     static func attachCommand(projectId: String, serviceId: String) -> String? {
-        guard let session = ServiceSession.name(projectId: projectId, serviceId: serviceId) else { return nil }
+        ServiceSession.name(projectId: projectId, serviceId: serviceId).map(attachCommand(session:))
+    }
+
+    /// 스크립트 세션용 attach 명령 — 도크가 실행 중 스크립트의 라이브 출력을 붙일 때.
+    static func scriptAttachCommand(projectId: String, scriptId: String) -> String? {
+        ScriptSession.name(projectId: projectId, scriptId: scriptId).map(attachCommand(session:))
+    }
+
+    /// 세션명 → attach 명령(공통 꼴). 인용 규칙은 위 주석(zsh EQUALS 확장·신뢰 경계) 그대로다.
+    private static func attachCommand(session: String) -> String {
         let tmux = ShellQuote.single(executable ?? "tmux")
         return "\(tmux) -L \(ShellQuote.single(socket)) attach -t \(ShellQuote.single("=\(session)"))"
     }
@@ -272,7 +305,12 @@ enum TmuxService {
     /// 엉뚱한 pane에서 읽는다. 서비스 명령은 언제나 pane 0에서 돈다(parsePanes와 같은 규약).
     static func capture(projectId: String, serviceId: String, lines: Int = 100) async -> String {
         guard let session = ServiceSession.name(projectId: projectId, serviceId: serviceId) else { return "" }
-        return await run(["capture-pane", "-p", "-t", "=\(session):.0", "-S", "-\(lines)"]).stdout
+        return await capture(session: session, lines: lines)
+    }
+
+    /// 세션명 → pane 0의 로그 꼬리(공통 꼴) — 스크립트 로그 뷰가 세션명으로 직접 읽는다.
+    static func capture(session: String, lines: Int = 100) async -> String {
+        await run(["capture-pane", "-p", "-t", "=\(session):.0", "-S", "-\(lines)"]).stdout
     }
 
     // MARK: 종료·정리
@@ -283,6 +321,11 @@ enum TmuxService {
 
     static func kill(projectId: String, serviceId: String) async {
         guard let session = ServiceSession.name(projectId: projectId, serviceId: serviceId) else { return }
+        await kill(session: session)
+    }
+
+    static func killScript(projectId: String, scriptId: String) async {
+        guard let session = ScriptSession.name(projectId: projectId, scriptId: scriptId) else { return }
         await kill(session: session)
     }
 
@@ -327,6 +370,19 @@ enum TmuxService {
         // 자체 pty를 만들어 실제 셸을 그 안에서 돌리면, pane의 tty에는 래퍼만 보이고 진짜 작업은
         // 그 아래 숨는다(실측). pane 프로세스의 모든 자손을 봐야 안에서 뭐가 도는지 알 수 있다.
         return AgentProcessDetector.descendantNames(of: root)
+    }
+
+    /// 좀비 **스크립트** 세션 정리 — 등록이 사라졌는데 살아남은 실행(과 그 로그 pane)을 죽인다.
+    /// 판정은 `ScriptSession.orphans`(순수)에 위임한다 — 등록된 스크립트의 세션은 종료됐어도
+    /// 보존된다(종료 로그가 살아야 하므로), 남의 인스턴스·서비스·터미널 세션은 판정에서 걸러진다.
+    @discardableResult
+    static func collectScriptGarbage(liveScriptIds: Set<String>,
+                                     knownProjectIds: Set<String>) async -> [String] {
+        let orphans = ScriptSession.orphans(sessions: await sessions(),
+                                            liveScriptIds: liveScriptIds,
+                                            knownProjectIds: knownProjectIds)
+        for session in orphans { await kill(session: session) }
+        return orphans
     }
 
     /// 고아 **터미널** 세션 정리(L3) — 닫힌 탭이 남긴 셸을 죽인다. 판정은 순수([[TerminalSession]]),

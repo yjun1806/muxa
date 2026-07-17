@@ -2,21 +2,17 @@ import SwiftUI
 
 /// 푸터의 스크립트 칩 — 등록된 스크립트(끝이 있는 명령)의 실행 진입점 + 실행 상태 요약.
 ///
-/// **등록 0개면 자리도 차지하지 않는다**(DetachedStrip과 같은 근거 — 있을 때만 의미가 있다).
-/// ServiceStrip의 "숨기지 않는다" 철학과 일부러 다르다: 서비스 칩은 그 기능의 유일한 상시
-/// 발견 지점이지만, 스크립트 등록의 발견성은 상시 진입점(⌘K "스크립트 추가")이 맡고 칩은
-/// 등록된 것의 상태만 말한다 — 빈 칩을 상시로 두면 푸터가 소음이 된다.
-/// 그래서 추가 시트·원샷 플래그 소비는 항상 렌더되는 StatusBar에 있다(칩은 0개면 사라지니
-/// 여기 두면 첫 등록 경로가 막힌다).
+/// **등록 0개여도 그린다** — 서비스 칩의 "숨기지 않는다" 철학과 같아졌다: 이 칩이 스크립트
+/// 기능의 상시 발견 지점이고, 실행 버튼이 항상 서비스 칩 옆 이 자리에 있다.
+/// (추가 시트·원샷 플래그 소비는 여전히 StatusBar에 있다 — 팝오버는 별도 NSWindow라 시트를 못 띄운다.)
 ///
-/// 세 모드(`ScriptChipMode` 순수 판정): **평시** = 개수 칩(클릭 = 팝오버) / **실행 중** =
-/// [⟳ 이름 · 경과(클릭 = 탭 포커스) | 팝오버 세그먼트] / **완료 잔류** = ✓ 무채(클릭 = 팝오버) ·
-/// ✗ 빨강(클릭 = 잔류 탭 포커스 — 로그가 거기 있다). 잔류는 클릭·새 실행 시작 시 해제된다.
+/// 네 모드(`ScriptChipMode` 순수 판정): **빈 칩** = 플레이스홀더(클릭 = 팝오버 → ＋추가) /
+/// **평시** = 개수 칩(클릭 = 팝오버) / **실행 중** = [⟳ 이름 · 경과(클릭 = 도크 출력) | 팝오버 세그먼트] /
+/// **완료 잔류** = ✓ 무채 · ✗ 빨강(클릭 = 확인 + 도크 로그 — 종료 로그가 거기 보존돼 있다).
+/// 잔류는 클릭·새 실행 시작 시 내려간다(acknowledge — 레지스트리·로그는 남는다).
 struct ScriptStrip: View {
     let state: AppState
     let project: Project
-    /// 실행 레지스트리(`scriptRuns`)의 소유자 — StatusBar가 활성 프로젝트의 스토어를 넘긴다.
-    let store: TerminalStore
 
     @State private var showPopover = false
     @State private var hovered = false
@@ -30,24 +26,22 @@ struct ScriptStrip: View {
     private var scripts: [Script] { state.scripts(of: project.id) }
 
     private var mode: ScriptChipMode {
-        ScriptChipMode.judge(scriptCount: scripts.count, runs: Array(store.scriptRuns.values))
+        ScriptChipMode.judge(scriptCount: scripts.count, runs: state.scriptRuns(of: project.id))
     }
 
     var body: some View {
-        if mode != .hidden {
-            chip
-                .muxaPopover(isPresented: $showPopover) {
-                    ScriptPopover(state: state, project: project, store: store) { showPopover = false }
-                }
-        }
+        chip
+            .muxaPopover(isPresented: $showPopover) {
+                ScriptPopover(state: state, project: project) { showPopover = false }
+            }
     }
 
     // MARK: 모드별 칩
 
     @ViewBuilder private var chip: some View {
         switch mode {
-        case .hidden:
-            EmptyView()
+        case .empty:
+            placeholder
         case .idle(let count):
             idleChip(count: count)
         case .running(let active):
@@ -57,11 +51,24 @@ struct ScriptStrip: View {
         }
     }
 
+    /// 등록 0개 — 이름만 말하는 플레이스홀더(ServiceStrip.placeholder와 같은 문법).
+    /// 클릭 = 팝오버(빈 목록 + ＋추가) — 첫 등록 경로가 칩에서 바로 열린다.
+    private var placeholder: some View {
+        FooterChip(isOpen: $showPopover, help: "스크립트 추가 — 빌드·테스트처럼 끝이 있는 명령") {
+            HStack(alignment: .center, spacing: Space.xs) {
+                Image(systemName: ScriptStatusStyle.icon).font(.muxa(.micro))
+                Text("스크립트").font(.muxa(.label))
+            }
+            .foregroundStyle(Color.pMuted)
+        }
+        .accessibilityLabel("스크립트 추가")
+    }
+
     /// 평시 — 개수만 말하는 조용한 칩. 클릭 = 팝오버(FooterChip이 열림 배경까지 관리).
     private func idleChip(count: Int) -> some View {
         FooterChip(isOpen: $showPopover, help: "스크립트 \(count)개 — 클릭해 실행·추가") {
             HStack(alignment: .center, spacing: Space.xs) {
-                Image(systemName: TerminalStore.scriptTabIcon)
+                Image(systemName: ScriptStatusStyle.icon)
                     .font(.muxa(.micro))
                     .foregroundStyle(Color.pMuted)
                 Text("\(count)")
@@ -72,7 +79,7 @@ struct ScriptStrip: View {
         .accessibilityLabel("스크립트 \(count)개")
     }
 
-    /// 실행 중 — 클릭 의미가 "탭 포커스"로 바뀌므로 FooterChip(팝오버 토글 고정)을 못 쓴다.
+    /// 실행 중 — 클릭 의미가 "도크에서 출력 보기"로 바뀌므로 FooterChip(팝오버 토글 고정)을 못 쓴다.
     /// ServiceStrip의 2세그먼트 문법: [실행 세그먼트 | 세로선 | 팝오버 세그먼트].
     private func runningChip(_ active: [ScriptRun]) -> some View {
         HStack(spacing: 0) {
@@ -89,12 +96,12 @@ struct ScriptStrip: View {
         .tick(every: 1, into: $now) // 경과 초 갱신 — 이 칩 안에서만 리렌더된다
     }
 
-    /// [⟳ (N ·) 최신이름 · 12s] — 클릭하면 최신 실행 탭으로.
+    /// [⟳ (N ·) 최신이름 · 12s] — 클릭하면 도크가 열려 그 실행의 라이브 출력이 보인다.
     private func runningSegment(_ active: [ScriptRun]) -> some View {
         // judge가 최신 시작 순으로 정렬해 준다 — 첫 번째가 헤드라인.
         let latest = active[0]
         return Button {
-            state.focusAgentTab(project.id, latest.tabId)
+            state.revealScript(scriptId: latest.scriptId)
         } label: {
             HStack(alignment: .center, spacing: Space.xs) {
                 Image(systemName: ScriptStatusStyle.glyph(latest.state))
@@ -134,7 +141,7 @@ struct ScriptStrip: View {
     private var popoverSegment: some View {
         Button { showPopover.toggle() } label: {
             HStack(alignment: .center, spacing: Space.xs) {
-                Image(systemName: TerminalStore.scriptTabIcon)
+                Image(systemName: ScriptStatusStyle.icon)
                     .font(.muxa(.micro))
                     .foregroundStyle(Color.pMuted)
                 Text("\(scripts.count)")
@@ -151,7 +158,8 @@ struct ScriptStrip: View {
     }
 
     /// 완료 잔류 — [✓ 이름 8s](무채) / [✗ 이름 exit 2](빨강). 색+글리프 이중 신호(DESIGN §2).
-    /// 클릭 = 잔류 해제("확인했다") + 실패는 잔류 탭으로(로그가 거기 있다), 성공·미상은 팝오버.
+    /// 클릭 = 확인(acknowledge — 칩만 내려간다) + 도크 로그 열기: 성공·실패 모두 종료 로그가
+    /// tmux pane에 보존돼 있다(백그라운드 실행이라 화면 어디에도 흔적이 없다 — 여기가 유일한 다리).
     private func lingerChip(_ run: ScriptRun) -> some View {
         Button { lingerClicked(run) } label: {
             HStack(alignment: .center, spacing: Space.xs) {
@@ -188,12 +196,8 @@ struct ScriptStrip: View {
     }
 
     private func lingerClicked(_ run: ScriptRun) {
-        store.removeScriptRun(run.scriptId) // 클릭 = 확인 — 잔류를 내린다
-        if run.isFailure {
-            state.focusAgentTab(project.id, run.tabId) // 실패 탭은 셸로 잔류 — 로그가 거기 있다
-        } else {
-            showPopover = true // 성공·미상은 탭이 이미 없다 — 목록으로
-        }
+        state.acknowledgeScriptRun(run.scriptId) // 클릭 = 확인 — 칩만 내리고 결과·로그는 남는다
+        state.revealScript(scriptId: run.scriptId) // 종료 로그는 도크에 있다
     }
 
     // MARK: 문구
@@ -201,14 +205,12 @@ struct ScriptStrip: View {
     private func runningHelp(_ active: [ScriptRun]) -> String {
         let latest = active[0]
         if active.count > 1 {
-            return "스크립트 \(active.count)개 실행 중 (최신: \(latest.name)) — 클릭해 탭 보기"
+            return "스크립트 \(active.count)개 실행 중 (최신: \(latest.name)) — 클릭해 출력 보기"
         }
-        return "‘\(latest.name)’ 실행 중 — 클릭해 탭 보기"
+        return "‘\(latest.name)’ 실행 중 — 클릭해 출력 보기"
     }
 
     private func lingerHelp(_ run: ScriptRun) -> String {
-        run.isFailure
-            ? "‘\(run.name)’ \(ScriptStatusStyle.label(run.state)) — 클릭해 로그 보기"
-            : "‘\(run.name)’ \(ScriptStatusStyle.label(run.state)) — 클릭해 목록 열기"
+        "‘\(run.name)’ \(ScriptStatusStyle.label(run.state)) — 클릭해 로그 보기"
     }
 }

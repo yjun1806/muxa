@@ -12,16 +12,33 @@ struct ServiceDock: View {
     let state: AppState
 
     @State private var showAdd = false
+    /// 스크립트 헤더의 경과("12s") 갱신 기준 — 실행 중 상세를 볼 때만 tick이 붙는다.
+    @State private var now = Date()
 
     /// 창 전체 서비스(모든 워크스페이스·프로젝트).
     private var all: [LocatedService] { state.allLocatedServices }
-    /// 지금 상세로 보고 있는 서비스 — 없으면 첫 번째.
-    private var selected: LocatedService? {
-        all.first { $0.id == state.selectedServiceId } ?? all.first
+    /// 창 전체 스크립트 — 서비스와 한 목록에 산다(끝이 있는 명령이라 상태 어휘만 다르다).
+    private var allScripts: [LocatedScript] { state.allLocatedScripts }
+
+    /// 도크가 상세로 보여줄 수 있는 것 — 서비스 또는 스크립트(선택 id는 한 필드를 공유한다. id는 UUID라
+    /// 충돌하지 않고, "지금 보는 것 하나"라는 의미도 같다).
+    private enum Selection {
+        case service(LocatedService)
+        case script(LocatedScript)
     }
+
+    /// 지금 상세로 보고 있는 것 — 없으면 첫 서비스, 그것도 없으면 첫 스크립트.
+    private var selected: Selection? {
+        if let id = state.selectedServiceId {
+            if let service = all.first(where: { $0.id == id }) { return .service(service) }
+            if let script = allScripts.first(where: { $0.id == id }) { return .script(script) }
+        }
+        return all.first.map(Selection.service) ?? allScripts.first.map(Selection.script)
+    }
+
     /// 워크스페이스 2단으로 묶는다 — 현재 워크스페이스 위·풀강도, 타 워크스페이스는 muted 헤더로 강등.
     private var scopes: [ServiceScope] {
-        groupByWorkspace(all, currentWorkspaceId: state.activeId,
+        groupByWorkspace(all, scripts: allScripts, currentWorkspaceId: state.activeId,
                          currentProjectId: state.activeProject?.id ?? "")
     }
 
@@ -48,7 +65,7 @@ struct ServiceDock: View {
     private var content: some View {
         if !state.servicesAvailable {
             VStack(spacing: 0) { toolbar(showAdd: false); HDivider(); setup }
-        } else if all.isEmpty {
+        } else if all.isEmpty, allScripts.isEmpty {
             VStack(spacing: 0) { toolbar(showAdd: true); HDivider(); emptyState }
         } else {
             HStack(spacing: 0) {
@@ -58,7 +75,11 @@ struct ServiceDock: View {
                 } content: {
                     listColumn
                 }
-                if let service = selected { detail(service) }
+                switch selected {
+                case .service(let service): detail(service)
+                case .script(let script): scriptDetail(script)
+                case .none: EmptyView()
+                }
             }
         }
     }
@@ -159,7 +180,8 @@ struct ServiceDock: View {
         .contentShape(Rectangle())
     }
 
-    /// 스코프의 프로젝트 그룹 + 서비스 행.
+    /// 스코프의 프로젝트 그룹 + 서비스·스크립트 행. 서비스가 위, 스크립트가 아래 —
+    /// "늘 도는 것"과 "돌렸던 것"의 구분은 행의 상태 글리프 축(원형 vs 사각형)이 이미 말한다.
     @ViewBuilder
     private func scopeItems(_ scope: ServiceScope) -> some View {
         ForEach(scope.groups) { group in
@@ -173,12 +195,24 @@ struct ServiceDock: View {
                     .padding(.top, Space.tight)
             }
             ForEach(group.services) { item in row(item) }
+            ForEach(group.scripts) { item in scriptRow(item) }
         }
     }
 
     /// 접힌 스코프의 롤업 상태 — 죽은 게 하나라도 있으면 그게 이긴다(칩 요약과 같은 규칙).
+    /// 스크립트도 롤업에 넣는다: 실패 확정은 exited로, 실행 중은 running으로 — 접힌 다른
+    /// 워크스페이스에서 빌드가 실패해도 여기서 바로 보인다(도크의 존재 이유).
     private func rollup(_ scope: ServiceScope) -> ServiceState {
-        ServiceStatusStyle.summarize(scope.allServices.map { state.serviceMonitor.state(of: $0.service.id) })
+        var states = scope.allServices.map { state.serviceMonitor.state(of: $0.service.id) }
+        for script in scope.allScripts {
+            guard let run = state.scriptRuns[script.id] else { continue }
+            switch run.state {
+            case .running: states.append(.running)
+            case .finished(let code, _):
+                if let code, code != 0 { states.append(.exited(code: code)) }
+            }
+        }
+        return ServiceStatusStyle.summarize(states)
     }
 
     /// 목록 행 — 팝오버와 같던 `ServiceRow`. 클릭하면 **전환 없이** 상세를 이 서비스로 바꾼다.
@@ -186,8 +220,25 @@ struct ServiceDock: View {
         ServiceRow(service: item.service,
                    status: state.serviceMonitor.state(of: item.service.id),
                    port: state.serviceMonitor.ports[item.service.id],
-                   selected: selected?.id == item.service.id) {
+                   selected: selectedId == item.service.id) {
             state.selectedServiceId = item.service.id
+        }
+    }
+
+    /// 스크립트 목록 행 — 서비스 행과 같은 문법, 상태 어휘만 스크립트 축(ScriptStatusStyle).
+    private func scriptRow(_ item: LocatedScript) -> some View {
+        ScriptDockRow(script: item.script, run: state.scriptRuns[item.id],
+                      selected: selectedId == item.id) {
+            state.selectedServiceId = item.id
+        }
+    }
+
+    /// 지금 선택된 항목의 id — 행 강조가 서비스·스크립트 어느 쪽인지 몰라도 되게 한 겹 벗긴다.
+    private var selectedId: String? {
+        switch selected {
+        case .service(let s): return s.id
+        case .script(let s): return s.id
+        case .none: return nil
         }
     }
 
@@ -199,7 +250,8 @@ struct ServiceDock: View {
             header(item)
             if isDead(item) {
                 // 죽었으면 읽기 전용 로그 — 터미널을 붙이지 않는다(ServiceLogView 주석).
-                ServiceLogView(projectId: item.projectId, serviceId: item.service.id,
+                ServiceLogView(session: ServiceSession.name(projectId: item.projectId,
+                                                            serviceId: item.service.id),
                                reloadToken: "\(item.service.id)|\(state.serviceRestartSeq)")
             } else {
                 // 살아있으면 진짜 터미널(tmux attach) — Ctrl+C로 죽이고 그 자리에서 디버깅한다.
@@ -251,6 +303,74 @@ struct ServiceDock: View {
         }
         .panelBar(height: RowHeight.panelHeader)
         .background(Color.pPanel)
+    }
+
+    // MARK: 우 — 스크립트 상세 (실행 중 = attach 터미널 / 종료 = 보존된 로그 / 실행 전 = 안내)
+
+    @ViewBuilder
+    private func scriptDetail(_ item: LocatedScript) -> some View {
+        let run = state.scriptRuns[item.id]
+        VStack(spacing: 0) {
+            scriptHeader(item, run: run)
+            if run?.isRunning == true {
+                // 실행 중이면 진짜 터미널(tmux attach) — Ctrl+C로 중단하고 그 자리에서 본다.
+                TerminalRepresentable(
+                    term: state.dockScriptTerm(scriptId: item.id, projectId: item.projectId, cwd: item.cwd),
+                    onFocus: {}
+                )
+                .id(item.id) // 스크립트를 바꾸면 그 스크립트의 터미널로 갈아 끼운다
+            } else if run != nil {
+                // 끝났으면 읽기 전용 로그 — remain-on-exit가 보존한 마지막 화면(exit 사유가 여기 있다).
+                ServiceLogView(session: ScriptSession.name(projectId: item.projectId, scriptId: item.id),
+                               reloadToken: "\(item.id)|\(state.serviceRestartSeq)")
+            } else {
+                EmptyState(icon: ScriptStatusStyle.icon,
+                           title: "아직 실행한 적이 없습니다",
+                           subtitle: "실행하면 백그라운드에서 돌고, 출력·종료 로그를 여기서 봅니다.") {
+                    Button("실행") { state.runScript(item.script, in: item.projectId) }
+                        .font(.muxa(.label))
+                }
+                .background(Color.pBg)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// 스크립트 상세 헤더 — 서비스 헤더와 같은 문법, 상태 어휘만 스크립트 축.
+    /// 실행 중이면 "실행"이 dedup(그 출력이 이미 여기 있다)이라 버튼을 감춘다 — 대신 ⟳ 재실행만 남긴다.
+    private func scriptHeader(_ item: LocatedScript, run: ScriptRun?) -> some View {
+        HStack(spacing: Space.sm) {
+            Image(systemName: ScriptStatusStyle.glyph(run?.state))
+                .font(.muxa(.micro))
+                .foregroundStyle(ScriptStatusStyle.color(run?.state))
+                .frame(width: IconSize.statusSlot)
+            Text(item.script.name)
+                .font(.muxa(.label, weight: .semibold))
+                .foregroundStyle(Color.pFg)
+                .fixedSize()
+            if let tail = ScriptStatusStyle.tail(run, now: now) {
+                Text(tail).font(.muxaMono(.caption)).foregroundStyle(ScriptStatusStyle.color(run?.state))
+            }
+            Text(item.script.command)
+                .font(.muxaMono(.caption))
+                .foregroundStyle(Color.pMuted)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .layoutPriority(-1) // 자리가 모자라면 여기부터 줄인다(버튼은 끝까지 남는다)
+            Spacer(minLength: Space.sm)
+            if run?.isRunning != true {
+                IconButton(icon: run == nil ? "play.fill" : "arrow.clockwise",
+                           help: run == nil ? "실행" : "다시 실행 — 이전 로그는 사라집니다") {
+                    state.runScript(item.script, in: item.projectId)
+                }
+            }
+            IconButton(icon: "trash", help: "등록 해제 — 실행 중이면 종료하고 로그도 지웁니다") {
+                state.removeScript(item.id, from: item.projectId)
+            }
+        }
+        .panelBar(height: RowHeight.panelHeader)
+        .background(Color.pPanel)
+        .tick(every: 1, into: $now) // 실행 중 경과("12s") — 이 헤더 안에서만 리렌더된다
     }
 
     // MARK: 빈/미설치 상태 (목록이 없을 때 detail 자리를 채운다)
