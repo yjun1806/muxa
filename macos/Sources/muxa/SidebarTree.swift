@@ -67,23 +67,31 @@ enum SidebarTree {
         expanded.intersection(workspaceIds)
     }
 
-    // MARK: 주의 큐 (트리 맨 위 한 줄)
+    // MARK: 주의 큐 (트리 맨 위 카드)
 
-    /// 큐 헤더가 가리킬 "지금 나를 기다리는 첫 프로젝트".
+    /// 큐 카드 한 행이 가리키는 "나를 기다리는 프로젝트" — 워크스페이스 **이름**까지 실어
+    /// "어느 워크스페이스의 메인인가"를 행이 말할 수 있게 한다(id만 주면 뷰가 조회를 재구현한다).
     struct WaitingRef: Equatable {
         let workspaceId: String
+        let workspaceName: String
         let projectId: String
         let projectName: String
     }
 
+    /// 배지 있는 프로젝트 **전부**를 순서대로 — 큐 카드의 행 목록.
     /// 순회 순서는 `AppState.waitingSlots`와 같다(워크스페이스 선언 순 → 프로젝트 선언 순) —
-    /// 헤더가 가리키는 곳과 ⌘⇧A가 가는 곳이 어긋나지 않게.
-    static func firstWaiting(workspaces: [Workspace], badged: Set<String>) -> WaitingRef? {
-        for ws in workspaces {
-            for project in ws.projects where badged.contains(project.id) {
-                return WaitingRef(workspaceId: ws.id, projectId: project.id, projectName: project.name)
+    /// 카드가 나열하는 곳과 ⌘⇧A가 가는 곳이 어긋나지 않게.
+    static func allWaiting(workspaces: [Workspace], badged: Set<String>) -> [WaitingRef] {
+        workspaces.flatMap { ws in
+            ws.projects.filter { badged.contains($0.id) }.map {
+                WaitingRef(workspaceId: ws.id, workspaceName: ws.name,
+                           projectId: $0.id, projectName: $0.name)
             }
         }
-        return nil
+    }
+
+    /// 첫 대기 프로젝트 — ⌘⇧A 폴백(`jumpToNextWaiting`)이 쓴다.
+    static func firstWaiting(workspaces: [Workspace], badged: Set<String>) -> WaitingRef? {
+        allWaiting(workspaces: workspaces, badged: badged).first
     }
 }

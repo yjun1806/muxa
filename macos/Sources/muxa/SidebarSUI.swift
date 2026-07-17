@@ -5,7 +5,7 @@ import SwiftUI
 /// 밀지 않고 위에 뜬다(오버레이, ContentView가 접힌 폭만 예약). peek 중엔 우측 경계선으로 떠 있음을 표시한다.
 ///
 /// 여기는 **컨테이너**다: 모드 분기와 hover/메뉴 상태만 소유하고, 행은 각자의 뷰가 그린다
-/// (`SidebarQueueHeader` · `SidebarWorkspaceRow` · `SidebarProjectRow` · `SidebarIconItem`).
+/// (`SidebarQueueCard` · `SidebarWorkspaceRow` · `SidebarProjectRow` · `SidebarIconItem`).
 /// 펼침 상태는 뷰가 아니라 `AppState`가 소유한다(영속 — 규칙은 순수 함수 `SidebarTree`).
 struct SidebarSUI: View {
     let state: AppState
@@ -82,7 +82,7 @@ struct SidebarSUI: View {
     /// 2단 트리 — 그룹 사이는 벌리고(groupGap), 그룹 안은 촘촘히(tight). **간격이 위계다.**
     private var tree: some View {
         VStack(alignment: .leading, spacing: Space.groupGap) {
-            SidebarQueueHeader(state: state) // 주의가 없으면 아무것도 그리지 않는다
+            SidebarQueueCard(state: state) // 주의가 없으면 아무것도 그리지 않는다
             ForEach(Array(state.workspaces.enumerated()), id: \.element.id) { index, ws in
                 VStack(alignment: .leading, spacing: Space.tight) {
                     SidebarWorkspaceRow(state: state, workspace: ws, index: index,

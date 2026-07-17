@@ -66,11 +66,21 @@ struct SidebarTreeTests {
         let ws = fixture()
         // ws0의 두 번째 프로젝트와 ws1의 첫 프로젝트가 모두 배지 → 앞선 워크스페이스가 이긴다.
         let ref = SidebarTree.firstWaiting(workspaces: ws, badged: ["p0b", "p1a"])
-        #expect(ref == SidebarTree.WaitingRef(workspaceId: "w0", projectId: "p0b", projectName: "beta"))
+        #expect(ref == SidebarTree.WaitingRef(workspaceId: "w0", workspaceName: "one",
+                                              projectId: "p0b", projectName: "beta"))
     }
 
-    @Test func 배지가_없으면_큐_헤더는_없다() {
+    @Test func 대기_큐는_배지_전부를_선언_순서로_나열한다() {
+        // ⌘⇧A 순회 순서(waitingSlots)와 같은 순서여야 카드의 행과 점프가 어긋나지 않는다.
+        let refs = SidebarTree.allWaiting(workspaces: fixture(), badged: ["p1a", "p0a", "p0b"])
+        #expect(refs.map(\.projectId) == ["p0a", "p0b", "p1a"])
+        // 카드 행이 "어느 워크스페이스의 프로젝트인가"를 말할 수 있어야 한다 — 이름이 실려 온다.
+        #expect(refs.map(\.workspaceName) == ["one", "one", "two"])
+    }
+
+    @Test func 배지가_없으면_큐_카드는_없다() {
         #expect(SidebarTree.firstWaiting(workspaces: fixture(), badged: []) == nil)
+        #expect(SidebarTree.allWaiting(workspaces: fixture(), badged: []).isEmpty)
     }
 
     private func fixture() -> [Workspace] {

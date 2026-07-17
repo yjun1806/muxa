@@ -1,4 +1,4 @@
-# muxa 진행 상태 · 인수인계 (2026-07-16 · rev13)
+# muxa 진행 상태 · 인수인계 (2026-07-17 · rev14)
 
 > 다음 세션이 여기서 이어간다. 아키텍처·결정은 [ARCHITECTURE.md](ARCHITECTURE.md), UI 디자인 시스템은
 > [DESIGN.md](DESIGN.md). 이 문서는 **현재 상태·다음 할 일**만.
@@ -65,6 +65,31 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 **데이터 준비(전부 있음):** 라이브 활동 = `ToolActivity`(편집/실행/검색) + 탭 제목(Claude OSC) · 경과/대기시간 =
 추정기 `lastOutputAt`(systemUptime 경과) · 에이전트 판정 = `hookedTabs`. **경량 가드**: 접힘 기본 + 유휴 접기로 절제
 (muxa 우위=가벼움, [[muxa-vs-orca-positioning]]).
+
+## 최근 완료 (2026-07-17) — 주의 큐 헤더 → 주의 큐 카드 (QUEUE-CARD)
+
+한 줄 헤더("메인 가 입력을 기다립니다")가 ① 어느 워크스페이스의 "메인"인지 침묵하고
+② 여럿이면 "N개 프로젝트"로 뭉개던 걸 **카드**로 재설계했다. 시안 3안(레일·틴트·펄스 링) 중
+사용자가 **C안(펄스 링)** 채택 — 칸 테두리의 대기 어휘("전체 링 + 펄스")를 카드가 공유한다.
+→ DESIGN 용어표·컴포넌트 갱신.
+
+- **순수 판정** — `SidebarTree.allWaiting`(배지 전부, ⌘⇧A 순회와 같은 순서) + `WaitingRef.workspaceName`.
+  `firstWaiting`은 `allWaiting().first`로 축소. 테스트 2개 추가(순서·이름 적재, 306개 green).
+- **경계 수확** — `AppState.waitingQueue`(`WaitingQueueEntry` = ref + `usesMonoName` + 대기 경과 초).
+  경과는 그 프로젝트 대기 탭 중 최장(`agentRows`의 `waitingSeconds` 재사용) — **못 재면 nil**(지어내지 않는다).
+  행 클릭용 `jumpToWaiting(projectId:)` = 대기 탭 지목(`revealNextTab`) → `revealActivity` 폴백.
+- **카드 뷰** — `SidebarQueueHeader.swift` → `SidebarQueueCard.swift`(rename). bg 면 + **로즈 링 펄스**
+  (`TimelineView` 시간구동 사인, reduce-motion이면 정적 링). 행 = ⏸(첫 행만 펄스) + **워크스페이스 › 프로젝트**
+  (워크트리는 모노) + 경과(모노, 첫 행만 로즈). 2곳부터 머리글 "입력 대기 N"+⌘⇧A, 4행 초과는 "그 외 N곳"
+  (클릭=순환 점프). 경과 갱신은 카드 로컬 1초 tick(ScriptStrip 규칙).
+- **공용화** — `ListRowFill`(hover·선택 채움)을 `SidebarProjectRow` private → `Design/ListRowFill.swift`로 추출.
+
+### ★ 육안 검증 필요 (QUEUE-CARD — `make relaunch`)
+1. ★ 단일 대기: 카드에 행 하나(머리글 없음), 링 펄스가 거슬리지 않는 밝기·주기인지(라이트/다크 둘 다).
+2. ★ 다수 대기: 머리글 "입력 대기 N" + 행별 `워크스페이스 › 프로젝트` + 경과가 1초마다 갱신되는지.
+3. ★ 행 클릭 → **그 프로젝트의 대기 탭**이 실제 선택되는지(배지만 남은 프로젝트는 프로젝트 이동만).
+4. ★ 5곳 이상 대기 시 "그 외 N곳" 행 + 클릭 순환. 좁은 사이드바에서 워크스페이스명이 먼저 잘리는지(주어 보존).
+5. ★ 링 펄스(TimelineView)가 사이드바 hover·트리 리렌더와 간섭 없는지, reduce-motion에서 정적 링인지.
 
 ## 최근 완료 (2026-07-17) — 사용량 429 레이트리밋 존중 + 오진 수정
 

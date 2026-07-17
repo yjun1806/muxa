@@ -857,9 +857,39 @@ final class AppState {
         ServiceStatusStyle.summarize(serviceStatuses(of: projectId)).isFailure
     }
 
-    /// 주의 큐 헤더가 가리킬 대상 — nil이면 헤더를 아예 그리지 않는다.
+    /// ⌘⇧A 폴백이 가리킬 첫 대기 프로젝트(`jumpToNextWaiting`).
     var nextWaiting: SidebarTree.WaitingRef? {
         SidebarTree.firstWaiting(workspaces: workspaces, badged: badgedProjects)
+    }
+
+    /// 주의 큐 카드 한 행의 표시 스냅샷 — 순수 참조(`WaitingRef`) 위에 경계만 아는 표시 정보를 얹는다.
+    struct WaitingQueueEntry: Equatable, Identifiable {
+        let ref: SidebarTree.WaitingRef
+        /// 워크트리처럼 경로가 신원인 프로젝트 — 이름을 모노로(`Project.usesMonoName`).
+        let usesMonoName: Bool
+        /// 대기 경과(초) — 그 프로젝트 대기 탭 중 가장 오래된 것. 못 재면 nil(**지어내지 않는다** —
+        /// 배지만 남고 스토어가 없는 프로젝트 등).
+        let waitingSeconds: TimeInterval?
+        var id: String { ref.projectId }
+    }
+
+    /// 주의 큐 카드의 행 목록 — 비면 카드를 아예 그리지 않는다. 순서는 ⌘⇧A 순회(`waitingSlots`)와 같다.
+    var waitingQueue: [WaitingQueueEntry] {
+        SidebarTree.allWaiting(workspaces: workspaces, badged: badgedProjects).map { ref in
+            let project = workspace(containing: ref.projectId)?.projects.first { $0.id == ref.projectId }
+            let seconds = stores[ref.projectId]?.agentRows().compactMap(\.waitingSeconds).max()
+            return WaitingQueueEntry(ref: ref, usesMonoName: project?.usesMonoName ?? false,
+                                     waitingSeconds: seconds)
+        }
+    }
+
+    /// 큐 카드 행 클릭 — 그 프로젝트의 **대기 탭**으로 지목 이동. 대기 탭이 안 잡히면(배지만 남은
+    /// 프로젝트 등) 프로젝트 이동으로만 폴백한다 — 떠 있는 행이 눌러도 무동작이면 거짓말이 된다.
+    func jumpToWaiting(projectId: String) {
+        if let store = stores[projectId] {
+            _ = store.revealNextTab(matching: [.waiting]) // 탭 선택은 소유 창과 무관하게 먼저(§5.3)
+        }
+        revealActivity(projectId: projectId, openGitPanel: false) // 배지 해제·창 라우팅·활성화까지
     }
 
     /// **메인 창이 실제로 그리고 있는** 프로젝트의 스토어(단축키 대상 — ⌘T/⌘D/⌘W/⌘F).
