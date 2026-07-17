@@ -23,7 +23,7 @@ struct SidebarQueueCard: View {
             VStack(alignment: .leading, spacing: 0) {
                 if entries.count > 1 { header(entries.count) } // 하나일 땐 행이 곧 머리글 — 개수는 소음
                 ForEach(entries.prefix(Self.maxRows)) { entry in
-                    row(entry, isNext: entry.id == entries.first?.id)
+                    row(entry, isFirst: entry.id == entries.first?.id)
                 }
                 if entries.count > Self.maxRows { overflowRow(entries.count - Self.maxRows) }
             }
@@ -55,14 +55,16 @@ struct SidebarQueueCard: View {
     }
 
     /// 대기 한 행 — ⏸ + 워크스페이스 › **프로젝트** + 경과(모노). 클릭 = 그 프로젝트 대기 탭으로.
-    /// **다음 점프 대상(첫 행)만 펄스·로즈 경과** — 전부 펄스면 아무것도 강조되지 않는다.
-    private func row(_ entry: AppState.WaitingQueueEntry, isNext: Bool) -> some View {
+    /// **큐의 머리(첫 행 = `nextWaiting`)만 펄스·로즈 경과** — 전부 펄스면 아무것도 강조되지 않는다.
+    /// ("다음 ⌘⇧A 목적지"라고는 말하지 않는다 — 순환은 커서 뒤 첫 슬롯이라 첫 행이 아닐 수 있다.)
+    private func row(_ entry: AppState.WaitingQueueEntry, isFirst: Bool) -> some View {
         let elapsed = entry.waitingSeconds.map(RelativeTime.compact)
-        let desc = "\(entry.ref.workspaceName) \(entry.ref.projectName) 입력 대기"
-            + (elapsed.map { " \($0)째" } ?? "")
+        // 상태 문구는 사이드바 행과 같은 헬퍼(`RelativeTime.waitingLabel`) — 포맷이 갈라지지 않게.
+        let desc = "\(entry.ref.workspaceName) \(entry.ref.projectName) — "
+            + (entry.waitingSeconds.map { RelativeTime.waitingLabel(seconds: $0) } ?? "입력 대기")
         return Button { state.jumpToWaiting(projectId: entry.ref.projectId) } label: {
             HStack(spacing: Space.sm) {
-                glyph(pulsing: isNext)
+                glyph(pulsing: isFirst)
                 // 워크스페이스는 문맥(무채), 프로젝트가 주어(semibold) — 브레드크럼과 같은 순서.
                 Text(entry.ref.workspaceName)
                     .font(.muxa(.label))
@@ -81,7 +83,7 @@ struct SidebarQueueCard: View {
                 if let elapsed {
                     Text(elapsed)
                         .font(.muxaMono(.caption))
-                        .foregroundStyle(isNext ? Color.pWaiting : Color.pMuted)
+                        .foregroundStyle(isFirst ? Color.pWaiting : Color.pMuted)
                 }
             }
             .padding(.horizontal, Space.sm)
@@ -147,7 +149,9 @@ private struct QueuePulseRing: View {
         if reduceMotion {
             ring(alpha: Self.baseAlpha)
         } else {
-            TimelineView(.animation) { ctx in
+            // 30fps 상한 — 1.8s 알파 페이드에 주사율(최대 120fps)은 낭비다.
+            // (SpinnerArc는 **회전**이라 무상한이 맞다 — 펄스는 아니다.)
+            TimelineView(.animation(minimumInterval: 1 / 30)) { ctx in
                 // 시간구동 사인 펄스 — `repeatForever`와 달리 뷰 재활용에도 위상이 끊기거나 남지 않는다(SpinnerArc와 동일).
                 let t = ctx.date.timeIntervalSinceReferenceDate
                 let phase = (sin(t / Self.period * 2 * .pi) + 1) / 2
