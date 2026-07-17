@@ -7,9 +7,9 @@ import Testing
 struct ScriptTests {
     // MARK: Script 모델 — Codable 왕복·Project.scripts 하위호환
 
-    @Test("Script는 Codable 왕복에서 그대로 돌아온다")
+    @Test("Script는 Codable 왕복에서 그대로 돌아온다 — cwd 지정 포함")
     func 스크립트왕복() throws {
-        let s = Script(id: "s1", name: "build", command: "make build")
+        let s = Script(id: "s1", name: "build", command: "make build", cwd: "/repo/apps/admin")
         let back = try JSONDecoder().decode(Script.self, from: JSONEncoder().encode(s))
         #expect(back == s)
     }

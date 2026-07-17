@@ -131,6 +131,18 @@ final class ServiceTests: XCTestCase {
         XCTAssertNil(runCwdOverride(entered: "~/repo", defaultCwd: "/Users/u/repo", home: "/Users/u"))
     }
 
+    /// 상대 경로는 **기본값(프로젝트 경로) 기준**으로 편다 — 모노레포에서 가장 자연스러운 입력이
+    /// `apps/admin`이다. 안 펴면 존재 검증이 앱 프로세스 cwd 기준으로 돌아 항상 실패한다.
+    func testRunCwdOverrideResolvesRelativeAgainstDefault() {
+        XCTAssertEqual(runCwdOverride(entered: "apps/admin", defaultCwd: "/repo", home: "/Users/u"),
+                       "/repo/apps/admin")
+        XCTAssertEqual(runCwdOverride(entered: "./apps/admin", defaultCwd: "/repo", home: "/Users/u"),
+                       "/repo/./apps/admin") // FileManager·tmux 둘 다 `.` 세그먼트를 이해한다
+        // 기본값이 없으면 기준이 없다 — 입력 그대로 두고 존재 검증이 걸러낸다(지어내지 않는다).
+        XCTAssertEqual(runCwdOverride(entered: "apps/admin", defaultCwd: nil, home: "/Users/u"),
+                       "apps/admin")
+    }
+
     // MARK: 고아 판정 — 좀비 tmux 세션 정리 (ScrollbackStore.orphans 와 같은 원칙: 의심되면 안 지운다)
 
     func testOrphanIsUnregisteredServiceOfAKnownProject() {

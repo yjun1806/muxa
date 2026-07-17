@@ -20,7 +20,9 @@ struct Service: Codable, Identifiable, Equatable {
 
 /// 서비스·스크립트 추가 시트의 실행 폴더 입력 → 저장할 지정값(순수). **nil = 상속**(프로젝트 경로).
 ///
-/// `~`는 홈으로 편다 — tmux `new-session -c`는 셸을 안 거치므로 틸드를 모른다. 뒤 슬래시를 정리한 뒤
+/// `~`는 홈으로, **상대 경로는 기본값(프로젝트 경로) 기준으로** 편다 — 모노레포에서 가장 자연스러운
+/// 입력이 `apps/admin`이고, tmux `new-session -c`는 셸을 안 거치므로 틸드도 상대 기준도 모른다.
+/// (기본값이 없으면 기준이 없다 — 입력 그대로 두고 존재 검증이 걸러낸다.) 뒤 슬래시를 정리한 뒤
 /// **기본값과 같으면 nil을 돌려준다** — 같은 값을 저장해두면 프로젝트 경로가 바뀔 때(워크트리 이동 등)
 /// 이 서비스만 옛 경로에 얼어붙는다. 지정은 "다를 때만" 저장한다.
 func runCwdOverride(entered: String, defaultCwd: String?, home: String) -> String? {
@@ -31,6 +33,8 @@ func runCwdOverride(entered: String, defaultCwd: String?, home: String) -> Strin
         expanded = home
     } else if trimmed.hasPrefix("~/") {
         expanded = home + trimmed.dropFirst(1)
+    } else if !trimmed.hasPrefix("/"), let base = defaultCwd.map(normalizePath) {
+        expanded = base + "/" + trimmed
     } else {
         expanded = trimmed
     }
