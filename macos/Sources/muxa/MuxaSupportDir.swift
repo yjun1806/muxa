@@ -21,6 +21,18 @@ enum MuxaSupportDir {
         return dir
     }()
 
+    /// **모든 빌드가 공유하는** 단일 경로(`~/Library/Application Support/muxa-shared`).
+    /// `url`과 달리 빌드별로 갈리지 않는다 — 릴리스·개발·워크트리가 전부 한 파일을 봐야 하는
+    /// 좌표(사용량 백오프 등)를 여기 둔다. 여러 muxa가 각자 API를 두드려 리밋 창을 서로 연장시키는 걸 막는다.
+    ///
+    /// 폴더명을 `muxa-dev-` 접두사와 겹치지 않게 잡아 개발 저장소 GC(collectGarbage)의 사정권 밖에 둔다.
+    static let sharedURL: URL = {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let dir = base.appendingPathComponent("muxa-shared", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
     /// muxa 베이스 아래 하위 디렉터리(없으면 생성).
     static func subdirectory(_ name: String) -> URL {
         let dir = url.appendingPathComponent(name, isDirectory: true)

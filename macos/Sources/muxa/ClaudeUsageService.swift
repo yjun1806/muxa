@@ -32,7 +32,10 @@ enum UsageState: Equatable {
 /// **토큰 갱신(refresh)은 하지 않는다.** 만료면 조용히 실패 표시만 한다 — 돌고 있는 claude 세션이
 /// 토큰을 회전시키는 중에 muxa가 끼어들면 서로 덮어써 로그인이 깨질 수 있다. 갱신은 claude에게 맡긴다.
 ///
-/// 조회(네트워크·키체인)와 시각(now)은 주입 가능하다 — 캐시·백오프 규칙을 테스트로 검증하기 위해서다.
+/// **백오프·성공 캐시·single-flight는 인스턴스 간에 공유한다**(`UsageCacheStore` → `MuxaSupportDir.sharedURL`).
+/// 여러 muxa가 각자 API를 두드려 리밋 창을 서로 연장시키던 자충수를 막는다 — 판정은 순수 `UsageCoordinator`.
+///
+/// 조회(네트워크·키체인)·시각(now)·저장소(store)는 주입 가능하다 — 캐시·백오프 규칙을 테스트로 검증하기 위해서다.
 @MainActor
 @Observable
 final class ClaudeUsageService {
@@ -46,68 +49,73 @@ final class ClaudeUsageService {
     /// 레이트리밋 해제 예정 시각 — 팝오버가 "N분 후 자동 재시도"로 보여준다.
     private(set) var rateLimitedUntil: Date?
 
-    /// 마지막 시도 시각(실패 포함) — 백오프 기준.
-    @ObservationIgnored private var lastAttempt: Date?
-    /// 성공 후 재조회 간격. 사용량 API를 자주 때리면 계정에 이상 신호가 될 수 있어 캐시로 막는다.
-    @ObservationIgnored private let successInterval: TimeInterval = 300
-    /// 실패 후 재시도 간격. 성공과 같은 5분을 쓰면 순단 한 번이 5분간의 "—"로 굳는다(랩탑 깨어난 직후 등).
-    @ObservationIgnored private let retryInterval: TimeInterval = 45
-    /// 429인데 retry-after 헤더가 없을 때의 기본 대기 — 일반 실패(45초)보다 훨씬 보수적으로.
-    @ObservationIgnored private let rateLimitDefaultWait: TimeInterval = 900
-    /// retry-after 상한 — 서버가 터무니없는 값을 줘도 "영영 안 물어봄"으로 굳지 않게.
-    @ObservationIgnored private let rateLimitMaxWait: TimeInterval = 3600
+    /// 캐시·백오프 간격. 판정은 `UsageCoordinator`(순수)가 이 값으로 내린다.
+    @ObservationIgnored private let policy: UsagePolicy
+
+    /// 인스턴스 간 공유 스냅샷 저장소 — 백오프·성공 캐시·single-flight를 모든 빌드가 함께 본다.
+    @ObservationIgnored private let store: any UsageStore
 
     @ObservationIgnored private let fetcher: @Sendable () async -> UsageFetch
     @ObservationIgnored private let now: @Sendable () -> Date
 
     init(fetcher: @escaping @Sendable () async -> UsageFetch = ClaudeUsageService.liveFetch,
-         now: @escaping @Sendable () -> Date = Date.init) {
+         now: @escaping @Sendable () -> Date = Date.init,
+         store: any UsageStore = UsageFileStore.default,
+         policy: UsagePolicy = .live) {
         self.fetcher = fetcher
         self.now = now
+        self.store = store
+        self.policy = policy
     }
 
     var failed: Bool { state == .failed }
     /// 마지막 갱신이 실패(레이트리밋 포함) — 칩이 "지금 보이는 건 이전 값" 경고를 띄우는 기준.
     var stale: Bool { state == .failed || state == .rateLimited }
 
-    /// 캐시가 만료됐을 때만 조회. 마지막 결과에 따라 대기 시간이 다르다
-    /// (성공 5분 · 실패 45초 · 레이트리밋은 서버가 준 retry-after까지).
+    /// 캐시가 만료됐을 때만 조회. 판정은 **공유 스냅샷**을 근거로 내린다 — 다른 muxa 인스턴스가
+    /// 방금 성공했거나(캐시 서빙) 429를 받았으면(백오프 존중) 이 인스턴스는 네트워크를 아예 건드리지 않는다.
     func refreshIfStale() async {
-        if state == .rateLimited, let until = rateLimitedUntil, now() < until { return }
-        if state != .rateLimited, let lastAttempt {
-            let wait = state == .failed ? retryInterval : successInterval
-            if now().timeIntervalSince(lastAttempt) < wait { return }
+        guard !loading else { return }
+        let snapshot = store.load()
+        switch UsageCoordinator.plan(snapshot: snapshot, now: now(), policy: policy) {
+        case .serve(let resolution):
+            apply(resolution) // 공유 캐시 값을 그대로 화면에 얹는다(프로브 없음)
+        case .probe:
+            await probe()
         }
-        await refresh()
     }
 
-    /// 강제 조회(새로고침 버튼).
+    /// 강제 조회(새로고침 버튼) — 사용자가 눌렀으면 백오프를 무시하고 지금 물어본다.
     func refresh() async {
         guard !loading else { return }
+        await probe()
+    }
+
+    /// 실제 조회 한 번. single-flight를 claim(공유 파일에 inflight 표식)한 뒤 fetcher를 부르고,
+    /// 결과를 공유 스냅샷에 반영한다 — 그동안 다른 인스턴스는 inflight를 보고 프로브를 미룬다.
+    private func probe() async {
         loading = true
         defer { loading = false }
 
-        let result = await fetcher()
-        lastAttempt = now()
+        let base = store.load()
+        // claim: 프로브 직전에 inflight 창을 써 둔다. 동시에 뜬 다른 인스턴스가 겹쳐 두드리는 걸 줄인다.
+        let claimedAt = now()
+        store.save((base ?? .blank).blocking(until: claimedAt.addingTimeInterval(policy.singleFlight),
+                                              reason: "inflight"))
 
-        switch result {
-        case .ok(let fetched):
-            limits = fetched
-            state = .ok
-            lastSuccess = now()
-            rateLimitedUntil = nil
-        case .empty:
-            limits = []
-            state = .empty
-            lastSuccess = now() // 서버는 정상 응답했다 — 갱신 시각으로는 유효
-            rateLimitedUntil = nil
-        case .rateLimited(let retryAfter):
-            state = .rateLimited // 이전 limits는 유지(실패와 동일)
-            let wait = min(max(retryAfter ?? rateLimitDefaultWait, retryInterval), rateLimitMaxWait)
-            rateLimitedUntil = now().addingTimeInterval(wait)
-        case .failure:
-            state = .failed // 이전 limits는 유지 — 일시적 실패로 화면이 비지 않게
-        }
+        let result = await fetcher()
+        let finishedAt = now()
+        let next = UsageCoordinator.reduce(base: base, result: result, now: finishedAt, policy: policy)
+        store.save(next)
+        apply(UsageCoordinator.resolve(next, now: finishedAt))
+    }
+
+    /// 좌표 판정 결과를 관측 상태에 반영 — 뷰가 그릴 단일 값들.
+    private func apply(_ resolution: UsageCoordinator.Resolution) {
+        limits = resolution.limits
+        state = resolution.state
+        lastSuccess = resolution.lastSuccess
+        rateLimitedUntil = resolution.rateLimitedUntil
     }
 
     // MARK: 부작용 경계 (메인 액터 밖에서 실행)

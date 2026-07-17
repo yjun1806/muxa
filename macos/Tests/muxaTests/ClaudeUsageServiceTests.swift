@@ -14,15 +14,24 @@ final class ClaudeUsageServiceTests: XCTestCase {
         var calls = 0
     }
 
+    /// 인메모리 공유 저장소 — 파일 없이 좌표 로직을 검증한다(한 서비스당 하나).
+    private final class MemoryStore: UsageStore, @unchecked Sendable {
+        private var snapshot: UsageSnapshot?
+        func load() -> UsageSnapshot? { snapshot }
+        func save(_ s: UsageSnapshot) { snapshot = s }
+    }
+
     private func makeService(_ clock: Clock,
-                             results: [UsageFetch]) -> ClaudeUsageService {
+                             results: [UsageFetch],
+                             store: UsageStore = MemoryStore()) -> ClaudeUsageService {
         ClaudeUsageService(
             fetcher: { [clock] in
                 let index = min(clock.calls, results.count - 1)
                 clock.calls += 1
                 return results[index]
             },
-            now: { [clock] in clock.now }
+            now: { [clock] in clock.now },
+            store: store
         )
     }
 
@@ -165,5 +174,55 @@ final class ClaudeUsageServiceTests: XCTestCase {
         XCTAssertEqual(service.state, .empty)
         XCTAssertFalse(service.failed, "서버는 정상 응답했다 — 네트워크 실패와 같게 취급하면 진단이 막힌다")
         XCTAssertTrue(service.limits.isEmpty)
+    }
+
+    // MARK: 인스턴스 간 공유 — 한 저장소를 두 서비스가 함께 본다
+
+    /// 인스턴스 A가 성공하면, B는 프로브 없이 공유 캐시에서 값을 읽는다 — 전체 요청률이 한 인스턴스분으로 준다.
+    func testSharedCacheServedToOtherInstance() async {
+        let store = MemoryStore()
+        let clockA = Clock()
+        let serviceA = makeService(clockA, results: [.ok(sample)], store: store)
+        await serviceA.refreshIfStale()
+        XCTAssertEqual(clockA.calls, 1)
+
+        let clockB = Clock() // 같은 시각(t0)에서 출발
+        let serviceB = makeService(clockB, results: [.ok(sample)], store: store)
+        await serviceB.refreshIfStale()
+        XCTAssertEqual(clockB.calls, 0, "A의 신선한 캐시가 있으면 B는 네트워크를 건드리지 않는다")
+        XCTAssertEqual(serviceB.state, .ok)
+        XCTAssertEqual(serviceB.limits, sample, "B는 공유 캐시 값을 그대로 보여준다")
+    }
+
+    /// 인스턴스 A가 429를 받으면, B는 같은 백오프 창을 존중한다 — 서로 리밋을 연장시키지 않는다(핵심 목적).
+    func testRateLimitBackoffSharedAcrossInstances() async {
+        let store = MemoryStore()
+        let clockA = Clock()
+        let serviceA = makeService(clockA, results: [.rateLimited(retryAfter: 1800)], store: store)
+        await serviceA.refreshIfStale()
+        XCTAssertEqual(serviceA.state, .rateLimited)
+
+        let clockB = Clock() // t0 — A의 백오프 창(1800초) 한참 안쪽
+        let serviceB = makeService(clockB, results: [.ok(sample)], store: store)
+        await serviceB.refreshIfStale()
+        XCTAssertEqual(clockB.calls, 0, "A가 429 백오프 중이면 B는 프로브하지 않는다 — 이게 리밋 연장을 막는다")
+        XCTAssertEqual(serviceB.state, .rateLimited, "B도 제한 상태로 표시(로그인 문제가 아니다)")
+    }
+
+    /// 429 백오프 중인 인스턴스가 갓 떠도(idle) 공유 캐시의 이전 값을 화면에 보여준다 — "—"로 비지 않게.
+    func testFreshInstanceShowsCachedLimitsWhileRateLimited() async {
+        let store = MemoryStore()
+        let seed = Clock()
+        // 먼저 한 번 성공시켜 공유 캐시에 값을 심는다.
+        await makeService(seed, results: [.ok(sample)], store: store).refreshIfStale()
+
+        // 캐시가 만료된 뒤(5분+) 새 인스턴스가 프로브했다가 429를 받는다.
+        let late = Clock()
+        late.now.addTimeInterval(400)
+        let service = makeService(late, results: [.rateLimited(retryAfter: 600)], store: store)
+        await service.refreshIfStale()
+
+        XCTAssertEqual(service.state, .rateLimited)
+        XCTAssertEqual(service.limits, sample, "제한 중에도 공유 캐시의 이전 값을 보여준다")
     }
 }
