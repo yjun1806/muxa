@@ -13,11 +13,6 @@ struct StatusBar: View {
 
     private let settings = StatusBarSettings.shared
 
-    /// 스크립트 추가 시트 — **칩(ScriptStrip)이 아니라 여기서** 띄운다. 팝오버는 별도
-    /// NSWindow(FloatingPanelHost)라 그 안의 `.sheet`는 메인 창에 붙지 못한다. 푸터는 항상
-    /// 렌더되니 원샷 플래그(requestAddScript)의 소비자로 안전하다(⌘K 경로도 여기로 온다).
-    @State private var showAddScript = false
-
     /// 포커스된 칸의 에이전트가 지금 뭘 하고 있나("편집 중: TermView.swift") — 훅의 도구 이벤트에서 온다.
     /// 훅이 없으면 nil이다. 추정(출력 idle)으로는 "작업 중"까지만 알지 "무엇을"은 알 수 없다.
     private var agentDetail: String? {
@@ -54,27 +49,7 @@ struct StatusBar: View {
         }
         .panelBar(height: RowHeight.toolbar) // 내용이 세로 중앙에 오도록 여유를 준다
         .background(Color.pPanel)
-        .sheet(isPresented: $showAddScript) { scriptAddSheet }
-        .onChange(of: state.scriptAddRequested, initial: true) { _, requested in
-            guard requested else { return }
-            state.scriptAddRequested = false
-            // 등록할 프로젝트가 없으면 시트를 못 띄운다 — 요청만 내린다(⌘K는 빈 상태에서도 부를 수 있다).
-            guard state.activeProject != nil else { return }
-            showAddScript = true
-        }
-    }
-
-    // MARK: 스크립트 추가 시트 — 서비스 추가 시트를 문구만 바꿔 재사용(스캔·매니저 감지 로직이 같다)
-
-    /// 시트는 창 모달이라 떠 있는 동안 프로젝트가 못 바뀐다 — 확정 시점의 활성 프로젝트가 곧 대상이다.
-    private var scriptAddSheet: some View {
-        ServiceAddSheet(
-            cwd: state.activeProjectCwd,
-            title: "스크립트 추가",
-            footnote: "실행 경로에서 로그인 셸로 1회, 백그라운드에서 실행됩니다(탭이 뜨지 않습니다). 출력과 종료 로그는 서비스 도크(⌘J)에서 봅니다.\n명령은 평문으로 저장됩니다 — 토큰·API 키는 명령에 적지 말고 .env에 두세요."
-        ) { name, command, cwd in
-            guard let projectId = state.activeProject?.id else { return }
-            state.addScript(name: name, command: command, to: projectId, cwd: cwd)
-        }
+        // 스크립트 추가 시트는 이제 **서비스 도크가 호스팅**한다(도크는 메인 창이라 .sheet 정상) —
+        // 팝오버가 별도 NSWindow라 시트를 못 띄우던 제약이 사라져 여기(StatusBar)의 우회가 필요 없어졌다.
     }
 }

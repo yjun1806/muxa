@@ -160,4 +160,26 @@ struct ScriptRunTests {
         #expect(next["s3"]?.acknowledged == false) // running은 잔류가 아니다
         #expect(next["s1"]?.state == done.state) // 결과 자체는 그대로 — 로그 진입점이 산다
     }
+
+    // MARK: 일회용 불변식 — 일회용도 merge의 `registered`에 있어야 살아남는다
+    //
+    // 일회용 명령은 Project.scripts에 저장하지 않으므로 `allLocatedScripts`엔 없다. AppState가
+    // `trackedLocatedScripts`(= 등록 + 일회용)를 넘기지 않으면, 갓 심은 일회용 running이 다음 폴에서
+    // "등록 사라짐"으로 즉시 증발한다. 그 불변식을 여기서 못 박는다(회귀 방지).
+
+    @Test("일회용이 registered에 있으면: running 관측이 유지된다(스크립트와 동일 취급)")
+    func 일회용_registered포함_유지() {
+        let one = located("one1", name: "brew install") // 일회용도 한낱 LocatedScript다
+        let (next, _) = ScriptRun.merging(runs: ["one1": running("one1")], observed: ["one1": .running],
+                                          registered: [one], now: Self.t0.addingTimeInterval(5))
+        #expect(next["one1"]?.isRunning == true)
+    }
+
+    @Test("일회용이 registered에서 빠지면: run이 증발한다 — 그래서 trackedLocatedScripts에 넣어야 한다")
+    func 일회용_registered누락_증발() {
+        // observed엔 아직 running이 보이는데, registered에 없으면 merge가 그 run을 통째로 버린다.
+        let (next, _) = ScriptRun.merging(runs: ["one1": running("one1")], observed: ["one1": .running],
+                                          registered: [], now: Self.t0.addingTimeInterval(5))
+        #expect(next["one1"] == nil)
+    }
 }

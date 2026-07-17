@@ -29,6 +29,7 @@ enum KeymapAction {
     case toggleServiceDock              // ⌘J — 서비스 도크(장수 프로세스 로그)
     case separateProject                // 활성 프로젝트를 새 창으로 분리(기본 바인딩 없음 — ⌘K·우클릭 메뉴에서)
     case addScript                      // 스크립트 등록 시트(기본 바인딩 없음 — ⌘K에서. 칩은 0개면 숨어 첫 등록 진입점이 이것뿐)
+    case runOneOff                      // 일회용 명령 실행(기본 바인딩 없음 — ⌘K에서. 도크 일회용 탭 + 입력창 포커스)
 }
 
 /// (keyCode, 수정자) → KeymapAction 매핑 테이블 + 순수 판정 함수. 설정의 재정의를 기본 위에 얹는다.
@@ -145,6 +146,7 @@ extension KeymapAction {
         case "toggle_service_dock": return .toggleServiceDock
         case "separate_project": return .separateProject
         case "add_script": return .addScript
+        case "run_one_off": return .runOneOff
         case "focus_left": return .focusPane(.left)
         case "focus_right": return .focusPane(.right)
         case "focus_up": return .focusPane(.up)

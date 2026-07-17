@@ -1,71 +1,110 @@
 import SwiftUI
 
-/// 서비스 도크 — 탐색기·Git과 같은 **우측 도킹 패널**. 본문(터미널)을 밀어내고 좌측 경계로 너비를
+/// 서비스 도크 — 탐색기·Git과 같은 **우측 도킹 패널**(⌘J). 본문(터미널)을 밀어내고 좌측 경계로 너비를
 /// 조절한다(`ContentView.serviceDock`이 `ResizablePanel`로 감싼다).
 ///
-/// **[좌: 서비스 목록 | 우: 로그/터미널]** 좌우로 나눈다 — 목록은 얇은 사이드바(이름·상태),
-/// 터미널은 전체 높이를 써 로그가 넓게 읽힌다. 목록↔터미널 사이는 `ResizableLeftColumn`으로 폭 조절.
+/// **[좌: 목록 | 우: 로그/터미널]** — 좌측 상단의 **탭 스위처**가 세 축을 가른다:
+///  - **서비스**(끝없는 프로세스·등록·자동기동) · **스크립트**(끝있는 명령·등록·반복) ·
+///    **일회용**(즉석 명령·등록 안 함·1회 — 입력창 + 최근 실행 기록).
+/// 스크립트·일회용은 서비스와 **같은 tmux 백엔드**를 재사용하고, 우측 상세도 같다(실행 중 attach·종료 로그).
 ///
-/// **목록은 창 전체다**(모든 워크스페이스·프로젝트). 다른 워크스페이스의 dev 서버가 죽어도 여기서
-/// 바로 보이고, 클릭하면 **활성 프로젝트 전환 없이** 그 자리에서 로그/터미널이 뜬다(`LocatedService.cwd`).
+/// **목록은 창 전체다**(모든 워크스페이스·프로젝트, 활성 탭 종류로 필터). 다른 워크스페이스의 dev
+/// 서버가 죽어도 여기서 바로 보이고, 클릭하면 활성 프로젝트 전환 없이 그 자리에서 로그가 뜬다.
 struct ServiceDock: View {
     let state: AppState
 
-    @State private var showAdd = false
+    /// 추가 시트 — 서비스·스크립트가 같은 시트를 문구만 바꿔 쓴다(도크는 메인 창이라 `.sheet` 정상).
+    @State private var showServiceAdd = false
+    @State private var showScriptAdd = false
+    /// 스크립트 시트 프리필(일회용 승격 시 명령을 미리 채움).
+    @State private var scriptPrefill = ""
+    /// 일회용 입력창 명령 + 경과 tick + 포커스 + 프로젝트 감지 제안.
+    @State private var oneOffCommand = ""
+    @State private var now = Date()
+    @FocusState private var oneOffFocused: Bool
+    @State private var suggestions: [String] = []
 
-    /// 창 전체 서비스(모든 워크스페이스·프로젝트).
+    /// 창 전체 서비스·스크립트·일회용(소속 포함).
     private var all: [LocatedService] { state.allLocatedServices }
-    /// 창 전체 스크립트 — 서비스와 한 목록에 산다(끝이 있는 명령이라 상태 어휘만 다르다).
     private var allScripts: [LocatedScript] { state.allLocatedScripts }
+    private var oneOff: [LocatedScript] { state.oneOffLocatedScripts }
+    private var tab: DockTab { state.dockTab }
 
-    /// 도크가 상세로 보여줄 수 있는 것 — 서비스 또는 스크립트(선택 id는 한 필드를 공유한다. id는 UUID라
-    /// 충돌하지 않고, "지금 보는 것 하나"라는 의미도 같다).
+    /// 도크가 상세로 보여줄 수 있는 것 — 서비스·스크립트·일회용(선택 id `selectedServiceId` 공유).
     private enum Selection {
         case service(LocatedService)
         case script(LocatedScript)
+        case oneoff(LocatedScript)
     }
 
-    /// 지금 상세로 보고 있는 것 — 없으면 첫 서비스, 그것도 없으면 첫 스크립트.
+    /// **활성 탭 기준** 상세 대상 — 선택 id가 그 탭 것이면 그것, 아니면 그 탭 첫 항목(일회용은 최근).
+    /// 탭이 선택을 거르므로 "다른 탭 항목을 보는 중인데 목록은 이 탭" 모순이 안 생긴다.
     private var selected: Selection? {
-        if let id = state.selectedServiceId {
-            if let service = all.first(where: { $0.id == id }) { return .service(service) }
-            if let script = allScripts.first(where: { $0.id == id }) { return .script(script) }
+        switch tab {
+        case .services:
+            if let id = state.selectedServiceId, let s = all.first(where: { $0.id == id }) { return .service(s) }
+            return all.first.map(Selection.service)
+        case .scripts:
+            if let id = state.selectedServiceId, let s = allScripts.first(where: { $0.id == id }) { return .script(s) }
+            return allScripts.first.map(Selection.script)
+        case .oneoff:
+            if let id = state.selectedServiceId, let s = oneOff.first(where: { $0.id == id }) { return .oneoff(s) }
+            return oneOff.last.map(Selection.oneoff) // 최근이 뒤 → 기본은 최근 실행
         }
-        return all.first.map(Selection.service) ?? allScripts.first.map(Selection.script)
     }
 
-    /// 워크스페이스 2단으로 묶는다 — 현재 워크스페이스 위·풀강도, 타 워크스페이스는 muted 헤더로 강등.
+    /// 지금 선택된 항목의 id — 행 강조가 어느 종류인지 몰라도 되게 한 겹 벗긴다.
+    private var selectedId: String? {
+        switch selected {
+        case .service(let s): return s.id
+        case .script(let s): return s.id
+        case .oneoff(let s): return s.id
+        case .none: return nil
+        }
+    }
+
+    /// 활성 탭 종류로 거른 워크스페이스 2단 스코프(서비스만 / 스크립트만). 일회용은 스코프를 안 쓴다
+    /// (소수·휘발이라 워크스페이스 위계가 과하다 — 입력창 + 최근순 flat).
     private var scopes: [ServiceScope] {
-        groupByWorkspace(all, scripts: allScripts, currentWorkspaceId: state.activeId,
-                         currentProjectId: state.activeProject?.id ?? "")
+        let cur = state.activeProject?.id ?? ""
+        switch tab {
+        case .services: return groupByWorkspace(all, scripts: [], currentWorkspaceId: state.activeId, currentProjectId: cur)
+        case .scripts:  return groupByWorkspace([], scripts: allScripts, currentWorkspaceId: state.activeId, currentProjectId: cur)
+        case .oneoff:   return []
+        }
     }
 
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(Color.pPanel)
-            .sheet(isPresented: $showAdd) {
-                // 추가 대상은 **활성 프로젝트**다 — 기본 cwd를 넘겨 package.json 스크립트를 찾게 한다.
-                // cwd는 시트의 실행 경로 지정(nil = 프로젝트 경로 상속) — 시작 경로 해석은 addService가 한다.
-                ServiceAddSheet(cwd: state.activeProjectCwd) { name, command, cwd in
-                    guard let pid = state.activeProject?.id else { return }
-                    state.addService(name: name, command: command, to: pid, cwd: cwd)
-                }
-            }
-            // 팝오버 대신 이 도크의 "+"로만 추가한다. 요청은 원샷(두 번 뜨지 않게 소비).
-            .onChange(of: state.serviceAddRequested, initial: true) { _, requested in
-                guard requested else { return }
+            .sheet(isPresented: $showServiceAdd) { serviceAddSheet }
+            .sheet(isPresented: $showScriptAdd) { scriptAddSheet }
+            // 추가·승격 요청은 원샷(도크가 소비하고 내린다). ⌘K·일회용 승격이 여기로 온다.
+            .onChange(of: state.serviceAddRequested, initial: true) { _, req in
+                guard req else { return }
                 state.serviceAddRequested = false
-                showAdd = true
+                showServiceAdd = true
+            }
+            .onChange(of: state.scriptAddRequested, initial: true) { _, req in
+                guard req else { return }
+                state.scriptAddRequested = false
+                scriptPrefill = state.scriptAddPrefillCommand ?? ""
+                state.scriptAddPrefillCommand = nil
+                showScriptAdd = true
+            }
+            .onChange(of: state.oneOffFocusRequested, initial: true) { _, req in
+                guard req else { return }
+                state.oneOffFocusRequested = false
+                oneOffFocused = true
             }
     }
 
     @ViewBuilder
     private var content: some View {
         if !state.servicesAvailable {
-            VStack(spacing: 0) { toolbar(showAdd: false); HDivider(); setup }
-        } else if all.isEmpty, allScripts.isEmpty {
-            VStack(spacing: 0) { toolbar(showAdd: true); HDivider(); emptyState }
+            // tmux 미설치는 두 축 공통 엔진의 부재 — 탭 줄은 보이되(구조는 학습됨) 아래는 설치 안내로 채운다.
+            VStack(spacing: 0) { toolbar; HDivider(); setup }
         } else {
             HStack(spacing: 0) {
                 ResizableLeftColumn(width: state.serviceListWidth,
@@ -74,21 +113,102 @@ struct ServiceDock: View {
                 } content: {
                     listColumn
                 }
-                switch selected {
-                case .service(let service): detail(service)
-                case .script(let script): scriptDetail(script)
-                case .none: EmptyView()
-                }
+                detailColumn
             }
         }
     }
 
-    // MARK: 좌 — 서비스 목록(창 전체 · 워크스페이스 2단)
+    // MARK: 좌 — 탭 스위처 + (탭별) 목록
 
     private var listColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
-            toolbar(showAdd: true)
+            toolbar
             HDivider()
+            switch tab {
+            case .services, .scripts: scopeList
+            case .oneoff: oneOffColumn
+            }
+        }
+    }
+
+    /// 목록 상단 바 — [탭 스위처] ····· [＋(탭별 대상)/🗑(일회용 비우기)] [✕(⌘J)].
+    private var toolbar: some View {
+        HStack(spacing: Space.sm) {
+            tabSwitcher
+            Spacer(minLength: Space.xs)
+            if state.servicesAvailable, tab != .oneoff {
+                // ＋는 탭 문맥이 대상을 말한다(아이콘은 공통 plus, help로만 구분).
+                IconButton(icon: "plus", help: tab == .scripts ? "스크립트 추가" : "서비스 추가") {
+                    if tab == .scripts { scriptPrefill = ""; showScriptAdd = true } else { showServiceAdd = true }
+                }
+            }
+            if tab == .oneoff, oneOff.contains(where: { state.scriptRuns[$0.id]?.isRunning != true }) {
+                IconButton(icon: "trash", help: "완료된 일회용 기록 비우기") { state.clearOneOffHistory() }
+            }
+            IconButton(icon: "xmark", help: "서랍 닫기 (⌘J) — 프로세스는 계속 돕니다") {
+                state.closeServiceDock()
+            }
+        }
+        .panelBar(height: RowHeight.panelHeader)
+    }
+
+    /// 탭 스위처 — 좁으면(목록 열 하한 150) 라벨을 접어 **글리프만** 남긴다(잘린 "스크립…"을 만들지 않는다).
+    private var tabSwitcher: some View {
+        ViewThatFits(in: .horizontal) {
+            tabRow(labeled: true)
+            tabRow(labeled: false)
+        }
+    }
+
+    private func tabRow(labeled: Bool) -> some View {
+        HStack(spacing: Space.tight) {
+            ForEach(DockTab.allCases) { tabPill($0, labeled: labeled) }
+        }
+    }
+
+    /// 탭 한 개 — FooterChip 알약과 같은 색규칙(선택=`pBtnActive` 눌린 상태 유지). 글리프는 **카테고리
+    /// 마커**(상태색 아님)라 텍스트색을 따른다. 실패가 있을 때만 빨간 롤업 점(개수 배지는 없다).
+    private func tabPill(_ t: DockTab, labeled: Bool) -> some View {
+        let sel = tab == t
+        return Button { state.dockTab = t } label: {
+            HStack(spacing: Space.xs) {
+                Image(systemName: t.icon).font(.muxa(.label))
+                if labeled {
+                    Text(t.title).font(.muxa(.label, weight: sel ? .semibold : .regular))
+                }
+                if tabHasFailure(t) {
+                    Circle().fill(Color.pServiceExited)
+                        .frame(width: IconSize.dotSmall, height: IconSize.dotSmall)
+                }
+            }
+            .foregroundStyle(sel ? Color.pFg : Color.pMuted)
+            .padding(.horizontal, Space.xs)
+            .frame(height: RowHeight.tight)
+            .background(Color.footerChip(isOpen: sel, hovered: false), in: RoundedRectangle(cornerRadius: Radius.sm))
+            .contentShape(RoundedRectangle(cornerRadius: Radius.sm))
+        }
+        .buttonStyle(.plain)
+        .clickCursor()
+        .help(t.title)
+        .accessibilityLabel("\(t.title) 탭\(sel ? ", 선택됨" : "")\(tabHasFailure(t) ? ", 실패 있음" : "")")
+    }
+
+    /// 그 탭 종류에 **창 전체** 기준 실패가 하나라도 있나 — 다른 탭을 보는 중에도 건너갈 신호를 준다.
+    private func tabHasFailure(_ t: DockTab) -> Bool {
+        switch t {
+        case .services: return all.contains { state.serviceMonitor.state(of: $0.id).isFailure }
+        case .scripts:  return allScripts.contains { state.scriptRuns[$0.id]?.isFailure == true }
+        case .oneoff:   return oneOff.contains { state.scriptRuns[$0.id]?.isFailure == true }
+        }
+    }
+
+    // MARK: 좌 — 서비스·스크립트 탭의 스코프 목록
+
+    @ViewBuilder
+    private var scopeList: some View {
+        if scopes.isEmpty {
+            tabEmptyState
+        } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Space.groupGap) {
                     ForEach(scopes) { scope in
@@ -100,42 +220,24 @@ struct ServiceDock: View {
         }
     }
 
-    /// 목록 상단 바 — 제목 · 추가 · 닫기(항상 보이는 이 바가 닫기를 소유한다).
-    private func toolbar(showAdd add: Bool) -> some View {
-        HStack(spacing: Space.sm) {
-            Text("서비스").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
-            Spacer(minLength: Space.xs)
-            if add, state.servicesAvailable {
-                IconButton(icon: "plus", help: "서비스 추가") { showAdd = true }
-            }
-            IconButton(icon: "xmark", help: "서랍 닫기 (⌘J) — 프로세스는 계속 돕니다") {
-                state.closeServiceDock()
-            }
-        }
-        .panelBar(height: RowHeight.panelHeader)
-    }
-
-    /// 현재 워크스페이스 — pPanel(크롬) 위에 pBg **콘텐츠 카드**로 묶어 "여기/내 것" 영역을 만든다
-    /// (색이 아니라 명도·경계 — 색맹 안전, DESIGN §2 "콘텐츠는 그 위에 카드로 떠 있다"). 늘 펼침.
+    /// 현재 워크스페이스 — pBg 콘텐츠 카드로 "여기/내 것" 영역을 만든다(명도·경계, 색맹 안전). 늘 펼침.
     private func currentScope(_ scope: ServiceScope) -> some View {
         VStack(alignment: .leading, spacing: Space.tight) {
             scopeHeader(scope, chevron: nil, collapsed: false)
             scopeItems(scope)
         }
         .padding(.vertical, Space.sm)
-        .padding(.horizontal, Space.sm) // 카드 안 선택이 테두리에서 숨 쉴 만큼만(과하지 않게)
+        .padding(.horizontal, Space.sm)
         .background {
             RoundedRectangle(cornerRadius: Radius.sm)
                 .fill(Color.pBg)
                 .overlay(RoundedRectangle(cornerRadius: Radius.sm)
                     .stroke(Color.pBorder, lineWidth: RowHeight.hairline))
         }
-        .padding(.horizontal, Space.xs) // 카드가 도크 벽에서 뜨는 자리
+        .padding(.horizontal, Space.xs)
     }
 
-    /// 다른 워크스페이스 — 기본은 **접힘**(한 줄: chevron · 개수 · 롤업 상태). 펼치면 카드 없이 목록을 편다.
-    /// 접어도 "다른 워크스페이스 죽음을 바로 본다"는 도크 취지가 안 죽게, 접힌 줄이 **롤업 글리프**를 문다
-    /// (죽은 게 있으면 빨간 느낌표로 승격 — `ServiceStatusStyle.summarize` 규칙).
+    /// 다른 워크스페이스 — 기본 접힘(한 줄: chevron·개수·롤업 상태). 펼치면 카드 없이 목록을 편다.
     @ViewBuilder
     private func otherScope(_ scope: ServiceScope) -> some View {
         let expanded = state.expandedServiceScopes.contains(scope.id)
@@ -147,7 +249,7 @@ struct ServiceDock: View {
             .clickCursor()
             if expanded { scopeItems(scope) }
         }
-        .padding(.horizontal, Space.xs) // 카드 없는 스코프는 벽에 가깝게 — 바깥 여백을 넓히지 않는다
+        .padding(.horizontal, Space.xs)
     }
 
     /// 스코프 머리글 — (옵션 chevron) · 레이어 글리프 · 대문자 이름 · (접혔으면 롤업 글리프+개수).
@@ -157,7 +259,6 @@ struct ServiceDock: View {
                 Image(systemName: chevron).font(.muxa(.micro))
                     .foregroundStyle(Color.pMuted).frame(width: IconSize.statusSlot)
             }
-            // 채운 글리프 = "여기/내 것"(현재), 빈 글리프 = 다른 워크스페이스 — 모양으로도 갈라 색맹에 안전(§2).
             Image(systemName: scope.isCurrent ? "square.stack.fill" : "square.stack")
                 .font(.muxa(.micro))
                 .foregroundStyle(scope.isCurrent ? Color.pFg : Color.pMuted)
@@ -174,13 +275,13 @@ struct ServiceDock: View {
                     .font(.muxaMono(.caption)).foregroundStyle(Color.pMuted)
             }
         }
-        .padding(.horizontal, Space.sm) // 아래 행(ServiceRow 내부 인셋)과 글리프 시작선을 맞춘다
+        .padding(.horizontal, Space.sm)
         .frame(minHeight: RowHeight.tight)
         .contentShape(Rectangle())
     }
 
-    /// 스코프의 프로젝트 그룹 + 서비스·스크립트 행. 서비스가 위, 스크립트가 아래 —
-    /// "늘 도는 것"과 "돌렸던 것"의 구분은 행의 상태 글리프 축(원형 vs 사각형)이 이미 말한다.
+    /// 스코프의 프로젝트 그룹 + 행. 탭이 종류를 이미 갈랐으므로 한 그룹엔 한 종류만 있다 —
+    /// 섹션 소제목 없이 그 종류의 행만 편다(둘 중 하나는 비어 아무것도 안 그린다).
     @ViewBuilder
     private func scopeItems(_ scope: ServiceScope) -> some View {
         ForEach(scope.groups) { group in
@@ -199,8 +300,7 @@ struct ServiceDock: View {
     }
 
     /// 접힌 스코프의 롤업 상태 — 죽은 게 하나라도 있으면 그게 이긴다(칩 요약과 같은 규칙).
-    /// 스크립트도 롤업에 넣는다: 실패 확정은 exited로, 실행 중은 running으로 — 접힌 다른
-    /// 워크스페이스에서 빌드가 실패해도 여기서 바로 보인다(도크의 존재 이유).
+    /// 스코프가 이미 탭 종류로 필터돼 있어 그 종류만 집계된다(스크립트 탭 롤업에 서비스 죽음이 안 섞인다).
     private func rollup(_ scope: ServiceScope) -> ServiceState {
         var states = scope.allServices.map { state.serviceMonitor.state(of: $0.service.id) }
         for script in scope.allScripts {
@@ -214,7 +314,7 @@ struct ServiceDock: View {
         return ServiceStatusStyle.summarize(states)
     }
 
-    /// 목록 행 — 팝오버와 같던 `ServiceRow`. 클릭하면 **전환 없이** 상세를 이 서비스로 바꾼다.
+    /// 서비스 행 — 클릭하면 전환 없이 상세를 이 서비스로 바꾼다.
     private func row(_ item: LocatedService) -> some View {
         ServiceRow(service: item.service,
                    status: state.serviceMonitor.state(of: item.service.id),
@@ -224,48 +324,188 @@ struct ServiceDock: View {
         }
     }
 
-    /// 스크립트 목록 행 — 서비스 행과 같은 문법, 상태 어휘만 스크립트 축(ScriptStatusStyle).
+    /// 스크립트 행 — 클릭=상세 선택, hover ▶=백그라운드 실행.
     private func scriptRow(_ item: LocatedScript) -> some View {
         ScriptDockRow(script: item.script, run: state.scriptRuns[item.id],
-                      selected: selectedId == item.id) {
-            state.selectedServiceId = item.id
+                      selected: selectedId == item.id,
+                      action: { state.selectedServiceId = item.id },
+                      onRun: { state.runScript(item.script, in: item.projectId) })
+    }
+
+    /// 서비스·스크립트 탭이 비었을 때 — 축 글리프 아이콘 + 그 탭의 추가 CTA.
+    @ViewBuilder
+    private var tabEmptyState: some View {
+        switch tab {
+        case .services:
+            EmptyState(icon: "play.circle",
+                       title: "등록된 서비스가 없습니다",
+                       subtitle: "dev 서버처럼 오래 도는 명령을 ＋로 등록하면 여기서 로그를 봅니다.\nmuxa를 꺼도 프로세스는 계속 돕니다.") {
+                Button("서비스 추가") { showServiceAdd = true }.font(.muxa(.label))
+            }
+            .background(Color.pBg)
+        case .scripts:
+            EmptyState(icon: ScriptStatusStyle.icon,
+                       title: "등록된 스크립트가 없습니다",
+                       subtitle: "빌드·테스트처럼 끝이 있는 명령을 ＋로 등록합니다.\n실행하면 백그라운드에서 돌고 종료 로그를 여기서 봅니다.") {
+                Button("스크립트 추가") { scriptPrefill = ""; showScriptAdd = true }.font(.muxa(.label))
+            }
+            .background(Color.pBg)
+        case .oneoff:
+            EmptyView() // 일회용 빈 상태는 입력창을 유지해야 해서 oneOffColumn 안에서 처리한다
         }
     }
 
-    /// 지금 선택된 항목의 id — 행 강조가 서비스·스크립트 어느 쪽인지 몰라도 되게 한 겹 벗긴다.
-    private var selectedId: String? {
+    // MARK: 좌 — 일회용 탭 (입력창 + 최근 실행 기록)
+
+    private var oneOffColumn: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            oneOffInput
+            HDivider()
+            if oneOff.isEmpty { oneOffEmpty } else { oneOffHistory }
+        }
+        .tick(every: 1, into: $now)
+        .task(id: state.activeProjectCwd) {
+            // 프로젝트 감지 → 설치 명령 제안(빈 상태의 채움 칩). 매니저를 모르면 제안 없음.
+            let found = ProjectScripts.discover(in: state.activeProjectCwd)
+            suggestions = found.manager.map { ["\($0.rawValue) install"] } ?? []
+        }
+    }
+
+    /// 명령 입력창 + [실행] — Return으로도 실행. 스크래치 스트립은 스크롤에 안 딸려 온다(늘 최상단).
+    private var oneOffInput: some View {
+        HStack(spacing: Space.sm) {
+            HStack(spacing: Space.xs) {
+                Image(systemName: "chevron.right")
+                    .font(.muxa(.micro)).foregroundStyle(Color.pMuted).frame(width: IconSize.statusSlot)
+                TextField("pnpm install · brew install … — 한 번 실행", text: $oneOffCommand)
+                    .textFieldStyle(.plain)
+                    .font(.muxaMono(.body))
+                    .foregroundStyle(Color.pFg)
+                    .focused($oneOffFocused)
+                    .onSubmit(runOneOff)
+                    .accessibilityLabel("한 번 실행할 명령")
+            }
+            .padding(.horizontal, Space.sm)
+            .frame(height: RowHeight.toolbar)
+            .background(Color.pBg, in: RoundedRectangle(cornerRadius: Radius.sm))
+            .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: RowHeight.hairline))
+
+            Button(action: runOneOff) {
+                Text("실행")
+                    .font(.muxa(.label))
+                    .foregroundStyle(canRunOneOff ? Color.pOnBrand : Color.pMuted)
+                    .padding(.horizontal, Space.sm)
+                    .frame(height: RowHeight.toolbar)
+                    .background(canRunOneOff ? Color.pBrand : Color.pBtnHover,
+                                in: RoundedRectangle(cornerRadius: Radius.sm))
+                    .contentShape(RoundedRectangle(cornerRadius: Radius.sm))
+            }
+            .buttonStyle(.plain)
+            .clickCursor()
+            .disabled(!canRunOneOff)
+            .help("한 번 실행 (Return)")
+            .accessibilityLabel("실행")
+        }
+        .padding(.horizontal, Space.sm)
+        .padding(.vertical, Space.sm)
+    }
+
+    private var canRunOneOff: Bool {
+        !oneOffCommand.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    private func runOneOff() {
+        guard canRunOneOff else { return }
+        state.runOneOff(command: oneOffCommand)
+        oneOffCommand = ""
+    }
+
+    /// 최근 실행 기록 — 최신이 위(역시간순 flat). 스코프 카드 없음(소수·휘발).
+    private var oneOffHistory: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(oneOff.reversed())) { item in
+                    OneOffRow(script: item.script, run: state.scriptRuns[item.id], now: now,
+                              selected: selectedId == item.id,
+                              action: { state.selectedServiceId = item.id },
+                              onRun: { state.runOneOff(command: item.script.command) },
+                              onPromote: { state.promoteOneOff(item.id) },
+                              onDelete: { state.removeOneOff(item.id) })
+                }
+            }
+            .padding(.vertical, Space.xs)
+        }
+    }
+
+    /// 기록 0 — 입력창은 위에 그대로 두고, 아래에 가벼운 안내 + 프로젝트 감지 채움 칩(클릭=입력, 실행 아님).
+    private var oneOffEmpty: some View {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            VStack(alignment: .leading, spacing: Space.tight) {
+                Text("아직 실행한 일회용 명령이 없습니다")
+                    .font(.muxa(.label, weight: .semibold)).foregroundStyle(Color.pFg)
+                Text("위에 명령을 적고 실행하면 백그라운드에서 한 번 돌고, 출력·종료 로그가 여기 남습니다. 자주 쓰면 기록에서 등록으로 스크립트에 올립니다.")
+                    .font(.muxa(.caption)).foregroundStyle(Color.pMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !suggestions.isEmpty {
+                Text("이 프로젝트")
+                    .font(.muxa(.micro, weight: .semibold)).tracking(Tracking.label)
+                    .foregroundStyle(Color.pMuted)
+                ForEach(suggestions, id: \.self) { cmd in
+                    Button { oneOffCommand = cmd; oneOffFocused = true } label: {
+                        HStack(spacing: Space.xs) {
+                            Image(systemName: "arrow.up.left").font(.muxa(.micro))
+                            Text(cmd).font(.muxaMono(.caption))
+                        }
+                        .foregroundStyle(Color.pFg)
+                        .padding(.horizontal, Space.sm).padding(.vertical, Space.tight)
+                        .background(Color.pBg, in: RoundedRectangle(cornerRadius: Radius.sm))
+                        .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: RowHeight.hairline))
+                        .contentShape(RoundedRectangle(cornerRadius: Radius.sm))
+                    }
+                    .buttonStyle(.plain).clickCursor()
+                    .help("명령 채우기(실행 아님)")
+                    .accessibilityLabel("명령 채우기: \(cmd)")
+                }
+            }
+        }
+        .padding(.horizontal, Space.sm)
+        .padding(.top, Space.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: 우 — 상세 (선택 종류별)
+
+    @ViewBuilder
+    private var detailColumn: some View {
         switch selected {
-        case .service(let s): return s.id
-        case .script(let s): return s.id
-        case .none: return nil
+        case .service(let s): detail(s)
+        case .script(let s): scriptDetail(s, oneOff: false)
+        case .oneoff(let s): scriptDetail(s, oneOff: true) // 같은 상세(attach·로그), 헤더 액션만 일회용 축
+        case .none: Color.pBg.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
-
-    // MARK: 우 — 로그 헤더 + 실제 터미널(tmux attach)
 
     @ViewBuilder
     private func detail(_ item: LocatedService) -> some View {
         VStack(spacing: 0) {
             header(item)
             if isDead(item) {
-                // 죽었으면 읽기 전용 로그 — 터미널을 붙이지 않는다(ServiceLogView 주석).
                 ServiceLogView(session: ServiceSession.name(projectId: item.projectId,
                                                             serviceId: item.service.id),
                                reloadToken: "\(item.service.id)|\(state.serviceRestartSeq)")
             } else {
-                // 살아있으면 진짜 터미널(tmux attach) — Ctrl+C로 죽이고 그 자리에서 디버깅한다.
                 TerminalRepresentable(
                     term: state.dockTerm(serviceId: item.service.id, projectId: item.projectId, cwd: item.cwd),
                     onFocus: {}
                 )
-                .id(item.service.id) // 서비스를 바꾸면 그 서비스의 터미널로 갈아 끼운다
+                .id(item.service.id)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// 상세 헤더 — 상태 글리프 · 이름 · 포트/코드 꼬리표 · 명령 · 시작/재시작 · 제거.
-    /// 상태를 **모양으로** 말한다(라이브 터미널인지 얼어붙은 로그인지 헤더만 봐도 안다).
     private func header(_ item: LocatedService) -> some View {
         let service = item.service
         let st = state.serviceMonitor.state(of: service.id)
@@ -288,9 +528,8 @@ struct ServiceDock: View {
                 .foregroundStyle(Color.pMuted)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .layoutPriority(-1) // 자리가 모자라면 여기부터 줄인다(버튼은 끝까지 남는다)
+                .layoutPriority(-1)
             Spacer(minLength: Space.sm)
-            // `.missing`(한 번도 안 띄움)이면 "재시작"은 거짓말이라 "시작"으로 — 동작은 같다.
             IconButton(icon: notStarted ? "play.fill" : "arrow.clockwise",
                        help: notStarted ? "시작" : "재시작") {
                 guard let cwd = item.cwd else { return }
@@ -304,24 +543,20 @@ struct ServiceDock: View {
         .background(Color.pPanel)
     }
 
-    // MARK: 우 — 스크립트 상세 (실행 중 = attach 터미널 / 종료 = 보존된 로그 / 실행 전 = 안내)
+    // MARK: 우 — 스크립트·일회용 상세 (실행 중 attach / 종료 로그 / 실행 전 안내)
 
     @ViewBuilder
-    private func scriptDetail(_ item: LocatedScript) -> some View {
+    private func scriptDetail(_ item: LocatedScript, oneOff: Bool) -> some View {
         let run = state.scriptRuns[item.id]
         VStack(spacing: 0) {
-            ScriptDetailHeader(state: state, item: item, run: run)
+            ScriptDetailHeader(state: state, item: item, run: run, oneOff: oneOff)
             if run?.isRunning == true {
-                // 실행 중이면 진짜 터미널(tmux attach) — Ctrl+C로 중단하고 그 자리에서 본다.
                 TerminalRepresentable(
                     term: state.dockScriptTerm(scriptId: item.id, projectId: item.projectId, cwd: item.cwd),
                     onFocus: {}
                 )
-                // 스크립트 전환뿐 아니라 **세션 갈아엎기**(재실행 기동 완료 → restartSeq 증가)에도
-                // 갈아 끼운다 — 기동 중에 만들어진 attach는 옛/부재 세션에 붙은 죽은 서피스다(runScript 주석).
                 .id("\(item.id)|\(state.serviceRestartSeq)")
             } else if run != nil {
-                // 끝났으면 읽기 전용 로그 — remain-on-exit가 보존한 마지막 화면(exit 사유가 여기 있다).
                 ServiceLogView(session: ScriptSession.name(projectId: item.projectId, scriptId: item.id),
                                reloadToken: "\(item.id)|\(state.serviceRestartSeq)")
             } else {
@@ -337,44 +572,53 @@ struct ServiceDock: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: 빈/미설치 상태 (목록이 없을 때 detail 자리를 채운다)
+    // MARK: 미설치 상태 (탭 아래 콘텐츠를 설치 안내로 채운다)
 
     private var setup: some View {
-        // tmux가 없으면 기능을 숨기는 대신 **왜 없는지 말하고 설치를 돕는다**.
         ServiceSetupView(state: state) { command in
             state.mainStore?.injectToTerminal(command) ?? false
         }
     }
 
-    private var emptyState: some View {
-        EmptyState(icon: "square.stack.3d.up",
-                   title: "등록된 서비스가 없습니다",
-                   subtitle: "dev 서버처럼 오래 도는 명령을 등록하면 여기서 로그를 봅니다.\nmuxa를 꺼도 프로세스는 계속 돕니다.") {
-            Button("서비스 추가") { showAdd = true }
-                .font(.muxa(.label))
-        }
-        .background(Color.pBg)
-    }
-
-    /// 죽었나 — tmux가 진실 원천이다. 아직 모르면(missing) 살아있다고 보고 attach를 시도한다
-    /// (폴링 첫 바퀴 전이라도 도크가 빈 화면으로 뜨지 않게). **`isFailure`가 아니다** — 정상 종료(0)한
-    /// pane에 attach하면 죽은 셸에 붙어 빈 화면이 뜨므로 exit 0도 죽음으로 본다.
+    /// 죽었나 — tmux가 진실 원천. 아직 모르면(missing) 살아있다고 보고 attach를 시도한다. exit 0도 죽음으로 본다.
     private func isDead(_ item: LocatedService) -> Bool {
         if case .exited = state.serviceMonitor.state(of: item.service.id) { return true }
         return false
     }
+
+    // MARK: 추가 시트 (서비스·스크립트 — 같은 시트, 문구만 다르다)
+
+    private var serviceAddSheet: some View {
+        ServiceAddSheet(cwd: state.activeProjectCwd) { name, command, cwd in
+            guard let pid = state.activeProject?.id else { return }
+            state.addService(name: name, command: command, to: pid, cwd: cwd)
+        }
+    }
+
+    private var scriptAddSheet: some View {
+        ServiceAddSheet(
+            cwd: state.activeProjectCwd,
+            title: "스크립트 추가",
+            footnote: "실행 경로에서 로그인 셸로 1회, 백그라운드에서 실행됩니다(탭이 뜨지 않습니다). 출력과 종료 로그는 이 도크의 스크립트 탭에서 봅니다.\n명령은 평문으로 저장됩니다 — 토큰·API 키는 명령에 적지 말고 .env에 두세요.",
+            initialCommand: scriptPrefill
+        ) { name, command, cwd in
+            guard let projectId = state.activeProject?.id else { return }
+            state.addScript(name: name, command: command, to: projectId, cwd: cwd)
+        }
+    }
 }
 
-/// 스크립트 상세 헤더 — 서비스 헤더와 같은 문법, 상태 어휘만 스크립트 축.
+/// 스크립트·일회용 상세 헤더 — 서비스 헤더와 같은 문법, 상태 어휘만 스크립트 축.
 /// 실행 중이면 "실행"이 dedup(그 출력이 이미 여기 있다)이라 버튼을 감춘다 — 대신 ⟳ 재실행만 남긴다.
 ///
 /// **별도 뷰인 이유**: 경과("12s")의 1초 tick을 이 헤더에 가둔다 — 도크 루트의 @State였을 땐
-/// 매초 도크 본문 전체(목록·attach 터미널 update)가 리렌더됐다. tick은 **실행 중일 때만** 붙는다
-/// (끝난 스크립트의 duration·exit 꼬리표는 정적이라 시계가 필요 없다).
+/// 매초 도크 본문 전체(목록·attach 터미널 update)가 리렌더됐다. tick은 **실행 중일 때만** 붙는다.
 private struct ScriptDetailHeader: View {
     let state: AppState
     let item: LocatedScript
     let run: ScriptRun?
+    /// 일회용이면 제목=명령(mono, 중복 명령줄 생략)이고, 재실행=새 기록·삭제=기록 삭제로 축이 바뀐다.
+    var oneOff = false
 
     @State private var now = Date()
 
@@ -392,31 +636,50 @@ private struct ScriptDetailHeader: View {
                 .font(.muxa(.micro))
                 .foregroundStyle(ScriptStatusStyle.color(run?.state))
                 .frame(width: IconSize.statusSlot)
-            Text(item.script.name)
-                .font(.muxa(.label, weight: .semibold))
+            // 일회용은 명령이 정체성이라 제목을 명령(mono)으로 — 아래 중복 명령줄은 생략한다.
+            Text(oneOff ? item.script.command : item.script.name)
+                .font(oneOff ? .muxaMono(.label) : .muxa(.label, weight: .semibold))
                 .foregroundStyle(Color.pFg)
-                .fixedSize()
+                .lineLimit(1)
+                .truncationMode(oneOff ? .tail : .middle)
+                .layoutPriority(oneOff ? -1 : 0)
+                .modifier(FixedIf(oneOff == false))
             if let tail = ScriptStatusStyle.tail(run, now: now) {
                 Text(tail).font(.muxaMono(.caption)).foregroundStyle(ScriptStatusStyle.color(run?.state))
             }
-            Text(item.script.command)
-                .font(.muxaMono(.caption))
-                .foregroundStyle(Color.pMuted)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .layoutPriority(-1) // 자리가 모자라면 여기부터 줄인다(버튼은 끝까지 남는다)
+            if !oneOff {
+                Text(item.script.command)
+                    .font(.muxaMono(.caption))
+                    .foregroundStyle(Color.pMuted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .layoutPriority(-1)
+            }
             Spacer(minLength: Space.sm)
             if run?.isRunning != true {
                 IconButton(icon: run == nil ? "play.fill" : "arrow.clockwise",
-                           help: run == nil ? "실행" : "다시 실행 — 이전 로그는 사라집니다") {
-                    state.runScript(item.script, in: item.projectId)
+                           help: oneOff ? "다시 실행 — 같은 명령을 새 기록으로"
+                                        : (run == nil ? "실행" : "다시 실행 — 이전 로그는 사라집니다")) {
+                    if oneOff { state.runOneOff(command: item.script.command) }
+                    else { state.runScript(item.script, in: item.projectId) }
                 }
             }
-            IconButton(icon: "trash", help: "등록 해제 — 실행 중이면 종료하고 로그도 지웁니다") {
-                state.removeScript(item.id, from: item.projectId)
+            IconButton(icon: "trash",
+                       help: oneOff ? "기록 삭제" : "등록 해제 — 실행 중이면 종료하고 로그도 지웁니다") {
+                if oneOff { state.removeOneOff(item.id) }
+                else { state.removeScript(item.id, from: item.projectId) }
             }
         }
         .panelBar(height: RowHeight.panelHeader)
         .background(Color.pPanel)
+    }
+}
+
+/// `fixedSize(horizontal:)`를 조건부로 — 등록 스크립트 이름은 자연 폭(fixedSize), 일회용 명령은 늘여 자른다.
+private struct FixedIf: ViewModifier {
+    let on: Bool
+    init(_ on: Bool) { self.on = on }
+    func body(content: Content) -> some View {
+        if on { content.fixedSize() } else { content }
     }
 }

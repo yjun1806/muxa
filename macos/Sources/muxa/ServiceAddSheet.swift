@@ -16,6 +16,9 @@ struct ServiceAddSheet: View {
     /// "muxa를 꺼도 계속 돕니다"는 거짓말이라 호출부가 갈아 끼운다.
     var title = "서비스 추가"
     var footnote = "실행 경로에서 로그인 셸로 실행되고, muxa를 꺼도 계속 돕니다.\n죽으면 푸터 칩이 빨갛게 바뀌고 알림이 옵니다.\n명령은 평문으로 저장됩니다 — 토큰·API 키는 명령에 적지 말고 .env에 두세요."
+    /// 시트를 열 때 명령을 미리 채운다(빈 문자열 = 안 채움) — 일회용 → 스크립트 승격이 명령을 넘겨
+    /// 사용자가 이름만 짓게 한다.
+    var initialCommand = ""
     /// (이름, 명령, 실행 폴더 지정) — 지정이 nil이면 프로젝트 경로 상속.
     let onAdd: (String, String, String?) -> Void
 
@@ -139,6 +142,7 @@ struct ServiceAddSheet: View {
             scripts = found.scripts
             manager = found.manager
         }
+        .onAppear { if command.isEmpty { command = initialCommand } } // 승격 프리필(한 번만)
     }
 
     // MARK: 실행 경로 — 이 서비스가 어느 폴더에서 도는지 명시하고, 필요하면 바꾼다

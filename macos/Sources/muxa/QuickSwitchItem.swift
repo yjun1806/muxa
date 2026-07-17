@@ -99,6 +99,9 @@ enum QuickCommandCatalog {
         // 첫 스크립트의 상시 진입점 — 푸터 칩은 등록 0개면 숨어서 스스로는 0→1을 못 만든다.
         .command(.addScript, id: "cmd:add-script", title: "스크립트 추가",
                  subtitle: "활성 프로젝트에 1회 실행 명령 등록", icon: "play.square"),
+        // 일회용 명령 — 등록 없이 즉석 1회(brew install·pnpm install). 도크 일회용 탭 입력창을 연다.
+        .command(.runOneOff, id: "cmd:run-one-off", title: "일회용 명령 실행",
+                 subtitle: "brew install·pnpm install처럼 한 번만 돌릴 명령", icon: "terminal"),
     ]
 }
 

@@ -85,7 +85,13 @@ final class AppState {
     /// 서비스 도크(하단 오버레이) 표시 상태와 선택된 서비스.
     /// 오버레이인 이유는 `ServiceDock` 주석과 ARCHITECTURE §4.7(D19)에 한 번만 적는다.
     var showServiceDock = false
+    /// 선택된 상세 대상 — 서비스·스크립트·일회용이 **한 필드를 공유**한다(전부 UUID라 충돌 없음).
     var selectedServiceId: String?
+    /// 지금 보고 있는 도크 탭(서비스/스크립트/일회용). 순간 내비게이션이라 비영속 — 진입점(칩·⌘K)이
+    /// 항상 명시하고, ⌘J(중립 토글)만 직전 탭을 잇는다.
+    var dockTab: DockTab = .services
+    /// ⌘K "일회용 명령 실행" 원샷 — 도크가 일회용 탭 입력창에 포커스를 주고 내린다.
+    var oneOffFocusRequested = false
 
     /// 도크가 그리는 프로젝트 — 도크를 **연 시점에** 못 박는다(nil = 메인의 활성 프로젝트).
     /// 분리 창의 서비스도 로그는 메인 도크에서 보므로(도크는 v1에서 메인 전용 — §6), 도크 스코프가
@@ -558,6 +564,12 @@ final class AppState {
             guard activeProject != nil else { return false }
             raiseMainIfNeeded(from: windowId)
             requestAddScript()
+            return true
+        case .runOneOff:
+            // 등록 프로젝트가 없어도 부를 수 있다 — 실행 시점에 활성 프로젝트를 대상으로 삼는다.
+            // 도크는 메인 전용이라 먼저 메인을 앞으로(⌘J·스크립트 추가와 같은 규칙).
+            raiseMainIfNeeded(from: windowId)
+            requestRunOneOff()
             return true
         case .closeTab where windowId.isMain && showServiceDock:
             // ⌘W 오폭 방지 — 도크가 열려 있으면 ⌘W는 도크를 닫는다.
@@ -1141,9 +1153,40 @@ final class AppState {
     /// 보류 중 관측은 "없음"으로 취급되고, 갓 심은 running은 merge의 유예(missingGrace)가 지켜준다.
     @ObservationIgnored private var pendingScriptStarts: Set<String> = []
 
-    /// 이 프로젝트의 실행들 — 푸터 칩(프로젝트 단위)이 제 것만 본다.
+    // MARK: 일회용 명령 (즉석 1회 실행 — 등록 안 함, 세션 한정 히스토리)
+    //
+    // 스크립트와 **같은 실행 기구**(tmux·ScriptRun·ScriptSession·ScriptStatusStyle)를 재사용하되,
+    // `Project.scripts`에 저장하지 않는다 — 즉석 명령(brew install·pnpm install)이라 "등록해 반복"이
+    // 아니라 "쳐서 한 번"이다. 히스토리는 세션 한정(비영속)·상한(LRU)이고, 다음 실행 세션에서 GC가
+    // 자동 청소한다(collectLiveScriptIds에 안 넣으므로). 실행 중엔 merge 추적집합이 지켜준다.
+
+    /// 일회용 실행 히스토리(최신이 뒤). 세션 한정·비영속. 상한 초과 시 **완료분 중 가장 오래된 것**부터 축출.
+    private(set) var oneOffScripts: [Script] = []
+    /// 히스토리 상한 — 넘으면 완료된 오래된 항목부터 세션·로그·run을 정리한다(실행 중은 보존).
+    static let oneOffHistoryLimit = 20
+
+    /// 일회용을 스크립트와 같은 폴링·병합·상세 경로에 태우기 위한 위치정보. **활성 프로젝트 소속**으로
+    /// 만든다(⌘K·입력창이 raiseMain 후 실행하므로 항상 메인의 활성 프로젝트다). cwd는 프로젝트 경로 상속.
+    var oneOffLocatedScripts: [LocatedScript] {
+        guard let ws = activeWorkspace, let project = ws.activeProject else { return [] }
+        let cwd = activeProjectCwd
+        return oneOffScripts.map {
+            LocatedScript(script: $0, workspaceId: ws.id, workspaceName: ws.name,
+                          projectId: project.id, projectName: project.name, cwd: cwd)
+        }
+    }
+
+    /// 폴링·병합·GC가 추적할 스크립트 전체 = 등록 스크립트 + 일회용. merge의 `registered`에 일회용이
+    /// 빠지면 그 run이 다음 폴(2s)에서 "등록 사라짐"으로 **즉시 증발**한다(Script.merging 규칙).
+    var trackedLocatedScripts: [LocatedScript] {
+        allLocatedScripts + oneOffLocatedScripts
+    }
+
+    /// 이 프로젝트의 **등록 스크립트** 실행들 — 푸터 칩(프로젝트 단위)이 제 것만 본다.
+    /// 일회용 run도 활성 프로젝트 소속이라 여기 섞이면 스크립트 칩에 샌다 → 등록 id로 거른다.
     func scriptRuns(of projectId: String) -> [ScriptRun] {
-        scriptRuns.values.filter { $0.projectId == projectId }
+        let registered = Set(scripts(of: projectId).map(\.id))
+        return scriptRuns.values.filter { $0.projectId == projectId && registered.contains($0.scriptId) }
     }
 
     /// **창 전체**의 스크립트 — 소속을 달고 온다(도크 목록·모니터 폴링·GC 입력이 이 하나를 쓴다).
@@ -1198,11 +1241,18 @@ final class AppState {
             revealScript(scriptId: script.id)
             return
         }
-        guard let located = allLocatedScripts.first(where: { $0.id == script.id }),
+        guard let located = trackedLocatedScripts.first(where: { $0.id == script.id }),
               let cwd = located.cwd else {
             attention.recordSystem(title: "\(script.name) 실행 실패 — 프로젝트 경로가 없습니다")
             return
         }
+        launchScript(script, in: projectId, cwd: cwd)
+    }
+
+    /// 스크립트·일회용 공통 **실행 코어** — dedup·경로 해석을 마친 뒤의 실제 기동(잔류 확인 + 낙관적
+    /// seed + tmux 백그라운드 시작). 두 경로가 이 하나를 공유한다(CLAUDE.md 중복 추출 — 세션 갈아엎기·
+    /// pending 차단·재드롭 규칙이 갈라지면 안 된다).
+    private func launchScript(_ script: Script, in projectId: String, cwd: String) {
         // 새 실행 시작 = 이 프로젝트의 잔류(✓/✗) 확인 처리 — 칩은 "가장 최근 일"만 말한다.
         scriptRuns = ScriptRun.acknowledgingFinished(scriptRuns, projectId: projectId)
         // 폴링(2s)을 기다리지 않고 낙관적으로 심는다 — 버튼을 눌렀는데 칩이 조용하면 두 번 누른다.
@@ -1210,6 +1260,7 @@ final class AppState {
                                           name: script.name, startedAt: Date(), state: .running)
         pendingScriptStarts.insert(script.id) // 기동이 끝날 때까지 옛 pane 관측을 차단
         dropDockTerm(script.id) // 옛 세션에 붙은 attach 터미널·로그 뷰 무효화(재시작과 같은 이유)
+        syncServiceMonitor() // 새 id(특히 일회용)를 폴링 추적에 즉시 넣는다 — 안 그러면 첫 폴이 관측 못 해 증발
         Task {
             let reason = await TmuxService.startScript(script, projectId: projectId, cwd: cwd)
             pendingScriptStarts.remove(script.id)
@@ -1227,6 +1278,73 @@ final class AppState {
         }
     }
 
+    // MARK: 일회용 실행
+
+    /// 일회용 명령을 즉석 1회 실행한다 — 등록 없이 tmux 백그라운드로. 히스토리에 쌓고(상한 LRU),
+    /// 도크 일회용 탭에서 출력·종료 로그를 본다. 스크립트와 같은 실행 코어(`launchScript`)를 탄다.
+    func runOneOff(command: String) {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard TmuxService.isAvailable else { openServiceDock(serviceId: nil, tab: .oneoff); return }
+        guard let project = activeProject, let cwd = activeProjectCwd else {
+            attention.recordSystem(title: "일회용 실행 실패 — 활성 프로젝트가 없습니다")
+            return
+        }
+        // 이름 = 명령 그대로(히스토리 행이 명령을 주인공으로 보여준다 — 등록 스크립트의 친근한 이름과 대비).
+        let script = Script(id: newId(), name: trimmed, command: trimmed, cwd: nil)
+        oneOffScripts.append(script)
+        evictOneOffOverflow()
+        launchScript(script, in: project.id, cwd: cwd)
+        selectedServiceId = script.id
+        openServiceDock(serviceId: script.id, projectId: project.id, tab: .oneoff)
+    }
+
+    /// 상한 초과분 정리 — **완료된 오래된 것부터** 세션·run·터미널을 버린다(실행 중은 보존:
+    /// "의심되면 안 지운다" — 도는 프로세스를 조용히 죽이지 않는다).
+    private func evictOneOffOverflow() {
+        while oneOffScripts.count > Self.oneOffHistoryLimit {
+            guard let idx = oneOffScripts.firstIndex(where: { scriptRuns[$0.id]?.isRunning != true }) else { break }
+            let evicted = oneOffScripts.remove(at: idx)
+            evictOneOff(evicted.id, projectId: activeProject?.id)
+        }
+    }
+
+    /// 일회용 기록 하나를 지운다(행의 🗑) — 세션·run·터미널을 정리한다. 도는 중이면 무시한다
+    /// (행에서 🗑을 숨기지만, 판정을 여기서도 좁힌다 — 파괴적 동작은 판정을 좁게).
+    func removeOneOff(_ id: String) {
+        guard scriptRuns[id]?.isRunning != true else { return }
+        oneOffScripts.removeAll { $0.id == id }
+        evictOneOff(id, projectId: activeProject?.id)
+    }
+
+    /// 일회용 히스토리를 비운다 — 완료분만(실행 중은 남긴다).
+    func clearOneOffHistory() {
+        let pid = activeProject?.id
+        let done = oneOffScripts.filter { scriptRuns[$0.id]?.isRunning != true }
+        oneOffScripts.removeAll { scriptRuns[$0.id]?.isRunning != true }
+        for s in done { evictOneOff(s.id, projectId: pid) }
+    }
+
+    /// 일회용 하나의 세션·run·터미널을 정리한다(오래된 축출·비우기 공통).
+    private func evictOneOff(_ id: String, projectId: String?) {
+        scriptRuns[id] = nil
+        if selectedServiceId == id { selectedServiceId = nil }
+        dropDockTerm(id)
+        guard let projectId else { return }
+        Task {
+            await TmuxService.killScript(projectId: projectId, scriptId: id)
+            syncServiceMonitor()
+        }
+    }
+
+    /// 일회용 → 스크립트 승격. 추가 시트를 명령으로 프리필해 열고(사용자가 이름만 짓게) 스크립트 탭으로.
+    /// 원본 히스토리 항목은 남긴다 — 히스토리는 상태가 아니라 기록이다.
+    func promoteOneOff(_ id: String) {
+        guard let script = oneOffScripts.first(where: { $0.id == id }) else { return }
+        scriptAddPrefillCommand = script.command
+        requestAddScript()
+    }
+
     /// 잔류(✓/✗ 칩) 확인 — 칩만 내리고 **결과·세션·로그는 남긴다**(종료 로그를 봐야 하므로
     /// 확인이 곧 삭제면 안 된다). 다음 실행이 시작되면 세션이 갈아엎어진다.
     func acknowledgeScriptRun(_ scriptId: String) {
@@ -1238,14 +1356,16 @@ final class AppState {
     /// 어느 워크스페이스·프로젝트의 스크립트든 **그리로 데려가서** 도크의 출력(라이브/로그)을 연다
     /// — revealService와 같은 동선·같은 창 규칙.
     func revealScript(scriptId: String) {
-        guard let located = allLocatedScripts.first(where: { $0.id == scriptId }) else { return }
+        guard let located = trackedLocatedScripts.first(where: { $0.id == scriptId }) else { return }
         if owner(of: located.projectId).isMain {
             if activeId != located.workspaceId { setActiveId(located.workspaceId) }
             if activeProject?.id != located.projectId { setActiveProject(located.projectId) }
         } else {
             windowHost?.raise(.main)
         }
-        openServiceDock(serviceId: located.id, projectId: located.projectId)
+        // 일회용이면 일회용 탭, 등록 스크립트면 스크립트 탭으로 데려간다(선택 항목이 안 보이는 탭 방지).
+        let tab: DockTab = oneOffScripts.contains { $0.id == scriptId } ? .oneoff : .scripts
+        openServiceDock(serviceId: located.id, projectId: located.projectId, tab: tab)
     }
 
     /// 폴링 관측 → 레지스트리 병합 + 이번에 **새로 확정된 실패**만 알린다(startServices가 배선).
@@ -1254,7 +1374,7 @@ final class AppState {
         // 기동 중인 스크립트의 관측은 버린다(pendingScriptStarts 주석) — 이전 실행의 pane일 수 있다.
         let settled = observed.filter { !pendingScriptStarts.contains($0.key) }
         let (next, exits) = ScriptRun.merging(runs: scriptRuns, observed: settled,
-                                              registered: allLocatedScripts, now: Date())
+                                              registered: trackedLocatedScripts, now: Date())
         if next != scriptRuns { scriptRuns = next }
         for run in exits where run.isFailure {
             guard case .finished(let code?, _) = run.state else { continue }
@@ -1268,8 +1388,11 @@ final class AppState {
     }
 
     /// 등록된 서비스·스크립트가 바뀔 때마다 모니터에 알린다(폴링 대상 갱신). 둘 다 0개면 폴링이 멈춘다.
+    /// **일회용 id도 함께 추적**한다 — 폴링 대상에서 빠지면 그 run이 다음 폴에서 관측 없이 증발한다.
+    /// (GC 입력 `collectLiveScriptIds`엔 일회용을 넣지 않는다 → 다음 실행 세션에서 자동 청소가 목표.)
     func syncServiceMonitor() {
-        serviceMonitor.sync(services: allServices, scriptIds: collectLiveScriptIds(in: workspaces))
+        let scriptIds = collectLiveScriptIds(in: workspaces).union(oneOffScripts.map(\.id))
+        serviceMonitor.sync(services: allServices, scriptIds: scriptIds)
     }
 
     /// 프로젝트가 사라질 때(프로젝트 닫기·워크스페이스 제거) 그 서비스 프로세스도 함께 죽인다.
@@ -1407,9 +1530,10 @@ final class AppState {
 
     /// 도크를 열고 서비스를 고른다(푸터 칩·팝오버·알림에서 호출).
     /// `projectId` = 그 서비스가 속한 프로젝트(nil이면 메인의 활성 프로젝트 — ⌘J·칩의 기존 동작).
-    func openServiceDock(serviceId: String?, projectId: String? = nil) {
+    func openServiceDock(serviceId: String?, projectId: String? = nil, tab: DockTab? = nil) {
         selectedServiceId = serviceId ?? selectedServiceId
         dockProjectId = projectId ?? activeProject?.id
+        if let tab { dockTab = tab } // nil = 탭 유지(⌘J 중립 토글). 진입점이 주면 그 탭으로.
         showServiceDock = true
     }
 
@@ -1453,14 +1577,26 @@ final class AppState {
         serviceAddRequested = true
     }
 
-    /// 스크립트 추가 시트 원샷 요청(serviceAddRequested 패턴) — 스크립트 팝오버는 별도
-    /// NSWindow(FloatingPanelHost)라 그 안에서 `.sheet`를 못 띄운다. 소비자는 **StatusBar**다
-    /// (항상 렌더 — 칩(ScriptStrip)은 등록 0개면 사라져 첫 등록 요청을 못 받는다).
-    /// 호출처는 팝오버의 ＋과 ⌘K "스크립트 추가"(perform .addScript).
+    /// 스크립트 추가 시트 원샷 요청 — 이제 **도크가 호스팅**한다(도크는 메인 창이라 `.sheet`가 정상;
+    /// 스크립트 팝오버가 별도 NSWindow라 시트를 못 띄우던 제약은 팝오버 폐지로 사라졌다).
+    /// 호출처는 스크립트 탭의 ＋ · ⌘K "스크립트 추가" · 일회용 승격(promoteOneOff, 프리필).
     var scriptAddRequested = false
+    /// 승격 시 명령을 미리 채워 여는 값(사용자는 이름만 짓는다). nil = 빈 시트. 도크가 소비하고 내린다.
+    var scriptAddPrefillCommand: String?
 
     func requestAddScript() {
+        guard activeProject != nil else { return }
+        dockProjectId = activeProject?.id
+        dockTab = .scripts
+        showServiceDock = true
         scriptAddRequested = true
+    }
+
+    /// ⌘K "일회용 명령 실행" — 도크 일회용 탭을 열고 입력창에 포커스를 요청한다(등록 프로젝트 불필요 —
+    /// 실행 시점에 활성 프로젝트를 대상으로 삼는다).
+    func requestRunOneOff() {
+        openServiceDock(serviceId: nil, tab: .oneoff)
+        oneOffFocusRequested = true
     }
 
     /// 재시작·제거로 세션이 갈아엎어지면 그 서비스의 터미널을 버린다(옛 세션에 붙은 채 남지 않게).
