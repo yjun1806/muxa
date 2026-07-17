@@ -121,7 +121,8 @@ final class AppState {
     /// 담으므로 로그가 읽히려면 하한이 넓다.
     private(set) var serviceDockWidth: CGFloat = AppState.defaultServiceDockWidth
     /// 서비스 도크 안 **목록 칼럼** 폭 — [좌: 목록 | 우: 터미널] 분할의 왼쪽. 세션 내 조절(비영속).
-    private(set) var serviceListWidth: CGFloat = 200
+    /// 탭 바가 도크 전폭으로 올라가 목록 열엔 탭이 없으므로, 목록은 좁게(사이드바처럼) 두고 상세를 넓게 쓴다.
+    private(set) var serviceListWidth: CGFloat = 240
 
     static let defaultPanelWidth: CGFloat = 280
     static let panelWidthRange: ClosedRange<CGFloat> = 180 ... 720

@@ -102,39 +102,31 @@ struct ServiceDock: View {
 
     @ViewBuilder
     private var content: some View {
-        if !state.servicesAvailable {
-            // tmux 미설치는 두 축 공통 엔진의 부재 — 탭 줄은 보이되(구조는 학습됨) 아래는 설치 안내로 채운다.
-            VStack(spacing: 0) { toolbar; HDivider(); setup }
-        } else {
-            HStack(spacing: 0) {
-                ResizableLeftColumn(width: state.serviceListWidth,
-                                    range: AppState.serviceListWidthRange) { w in
-                    state.setServiceListWidth(w)
-                } content: {
-                    listColumn
-                }
-                detailColumn
-            }
-        }
-    }
-
-    // MARK: 좌 — 탭 스위처 + (탭별) 목록
-
-    private var listColumn: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            toolbar
+        // **탭 바는 도크 전폭**이다 — [목록|상세] 위를 가로지른다. 탭이 목록 열에 갇히면 닫기가 도크
+        // 한가운데 놓이고 "두 패널"처럼 보인다. 탭은 도크 전체를 지배하므로 상단 전폭이 맞다.
+        VStack(spacing: 0) {
+            dockTopBar
             HDivider()
-            switch tab {
-            case .services, .scripts: scopeList
-            case .oneoff: oneOffColumn
+            if !state.servicesAvailable {
+                // tmux 미설치는 두 축 공통 엔진의 부재 — 탭 줄은 보이되 아래는 설치 안내로 채운다.
+                setup
+            } else {
+                HStack(spacing: 0) {
+                    ResizableLeftColumn(width: state.serviceListWidth,
+                                        range: AppState.serviceListWidthRange) { w in
+                        state.setServiceListWidth(w)
+                    } content: {
+                        listBody
+                    }
+                    detailColumn
+                }
             }
         }
     }
 
-    /// 목록 상단 바 — [탭 스위처] ····· [✕(⌘J)]. **추가·비우기는 여기 두지 않는다** — ＋가 탭 옆에
-    /// 있으면 "탭 추가"로 오독되고, 도크는 창 전체(여러 워크스페이스)를 담아 "어디에 추가되나"가 흐려진다.
-    /// 추가는 **현재 워크스페이스 카드 안**(활성 프로젝트 대상), 일회용 비우기는 그 탭 목록 헤더가 맡는다.
-    private var toolbar: some View {
+    /// 도크 상단 **전폭** 바 — [탭 스위처] ····· [✕(⌘J)]. **추가·비우기는 여기 두지 않는다**(＋가 탭 옆이면
+    /// "탭 추가"로 오독). 추가는 현재 워크스페이스 카드 안, 일회용 비우기는 그 탭 목록 헤더가 맡는다.
+    private var dockTopBar: some View {
         HStack(spacing: Space.sm) {
             tabSwitcher
             Spacer(minLength: Space.xs)
@@ -143,6 +135,20 @@ struct ServiceDock: View {
             }
         }
         .panelBar(height: RowHeight.panelHeader)
+    }
+
+    // MARK: 좌 — (탭별) 목록 본문. 탭 바는 위 전폭이라 여기엔 없다.
+
+    @ViewBuilder
+    private var listBody: some View {
+        Group {
+            switch tab {
+            case .services, .scripts: scopeList
+            case .oneoff: oneOffColumn
+            }
+        }
+        // 높이를 채워 상단 정렬 — 안 하면 내용이 짧을 때(일회용 빈 상태) HStack이 열을 세로 중앙에 놓는다.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     /// 탭 스위처 — 좁으면(목록 열 하한 150) 라벨을 접어 **글리프만** 남긴다(잘린 "스크립…"을 만들지 않는다).
@@ -503,7 +509,14 @@ struct ServiceDock: View {
         case .service(let s): detail(s)
         case .script(let s): scriptDetail(s, oneOff: false)
         case .oneoff(let s): scriptDetail(s, oneOff: true) // 같은 상세(attach·로그), 헤더 액션만 일회용 축
-        case .none: Color.pBg.frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .none:
+            ZStack {
+                Color.pBg
+                Text(tab == .oneoff ? "명령을 실행하면 여기에 출력이 보입니다"
+                                    : "왼쪽에서 항목을 선택하면 로그가 보입니다")
+                    .font(.muxa(.caption)).foregroundStyle(Color.pMuted)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
