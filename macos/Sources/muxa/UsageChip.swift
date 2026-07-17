@@ -40,12 +40,14 @@ struct UsageChip: View {
                             timeView(t)
                         }
                     }
-                    if usage.failed {
-                        // 값은 있지만 마지막 갱신이 실패 — 지금 보이는 건 이전 조회 결과다.
+                    if usage.stale {
+                        // 값은 있지만 마지막 갱신이 실패/제한 — 지금 보이는 건 이전 조회 결과다.
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.muxa(.micro))
                             .foregroundStyle(UsageColor.stale)
-                            .help("갱신 실패 — 이전 값입니다")
+                            .help(usage.state == .rateLimited
+                                  ? "요청 제한됨 — 이전 값입니다. 잠시 후 자동 재시도합니다"
+                                  : "갱신 실패 — 이전 값입니다")
                     }
                 }
                 if usage.loading {
@@ -90,7 +92,7 @@ struct UsageChip: View {
     private var placeholder: String {
         switch usage.state {
         case .idle: return "사용량 …"
-        case .failed: return "사용량 —"
+        case .failed, .rateLimited: return "사용량 —"
         case .empty, .ok: return "사용량 없음"
         }
     }

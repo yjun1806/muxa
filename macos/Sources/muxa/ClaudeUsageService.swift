@@ -8,6 +8,9 @@ enum UsageFetch: Equatable {
     case ok([UsageLimit])
     /// HTTP 200인데 한도 항목이 0개 — 스키마가 바뀌었을 가능성.
     case empty
+    /// HTTP 429 — 서버가 "기다려라"고 말했다. retry-after 헤더(초)를 그대로 존중해야 한다.
+    /// 일반 실패의 45초 백오프로 두드리면 리밋 창이 계속 연장돼 스스로 벗어나지 못한다(실측).
+    case rateLimited(retryAfter: TimeInterval?)
     /// 자격 증명 없음·만료, 네트워크·서버 오류.
     case failure
 }
@@ -18,6 +21,7 @@ enum UsageState: Equatable {
     case ok
     case empty
     case failed
+    case rateLimited // 서버가 요청을 제한 중 — 로그인 문제가 아니다(뷰가 구분해 안내한다)
 }
 
 /// claude 사용량 조회 — 키체인·네트워크 부작용을 여기 한 곳에 가둔다(파싱은 순수 `ClaudeUsage`).
@@ -39,6 +43,8 @@ final class ClaudeUsageService {
     private(set) var loading = false
     /// 마지막 **성공** 시각 — 팝오버가 "N분 전 갱신"으로 보여준다.
     private(set) var lastSuccess: Date?
+    /// 레이트리밋 해제 예정 시각 — 팝오버가 "N분 후 자동 재시도"로 보여준다.
+    private(set) var rateLimitedUntil: Date?
 
     /// 마지막 시도 시각(실패 포함) — 백오프 기준.
     @ObservationIgnored private var lastAttempt: Date?
@@ -46,6 +52,10 @@ final class ClaudeUsageService {
     @ObservationIgnored private let successInterval: TimeInterval = 300
     /// 실패 후 재시도 간격. 성공과 같은 5분을 쓰면 순단 한 번이 5분간의 "—"로 굳는다(랩탑 깨어난 직후 등).
     @ObservationIgnored private let retryInterval: TimeInterval = 45
+    /// 429인데 retry-after 헤더가 없을 때의 기본 대기 — 일반 실패(45초)보다 훨씬 보수적으로.
+    @ObservationIgnored private let rateLimitDefaultWait: TimeInterval = 900
+    /// retry-after 상한 — 서버가 터무니없는 값을 줘도 "영영 안 물어봄"으로 굳지 않게.
+    @ObservationIgnored private let rateLimitMaxWait: TimeInterval = 3600
 
     @ObservationIgnored private let fetcher: @Sendable () async -> UsageFetch
     @ObservationIgnored private let now: @Sendable () -> Date
@@ -57,10 +67,14 @@ final class ClaudeUsageService {
     }
 
     var failed: Bool { state == .failed }
+    /// 마지막 갱신이 실패(레이트리밋 포함) — 칩이 "지금 보이는 건 이전 값" 경고를 띄우는 기준.
+    var stale: Bool { state == .failed || state == .rateLimited }
 
-    /// 캐시가 만료됐을 때만 조회. 마지막 결과에 따라 대기 시간이 다르다(성공 5분·실패 45초).
+    /// 캐시가 만료됐을 때만 조회. 마지막 결과에 따라 대기 시간이 다르다
+    /// (성공 5분 · 실패 45초 · 레이트리밋은 서버가 준 retry-after까지).
     func refreshIfStale() async {
-        if let lastAttempt {
+        if state == .rateLimited, let until = rateLimitedUntil, now() < until { return }
+        if state != .rateLimited, let lastAttempt {
             let wait = state == .failed ? retryInterval : successInterval
             if now().timeIntervalSince(lastAttempt) < wait { return }
         }
@@ -81,10 +95,16 @@ final class ClaudeUsageService {
             limits = fetched
             state = .ok
             lastSuccess = now()
+            rateLimitedUntil = nil
         case .empty:
             limits = []
             state = .empty
             lastSuccess = now() // 서버는 정상 응답했다 — 갱신 시각으로는 유효
+            rateLimitedUntil = nil
+        case .rateLimited(let retryAfter):
+            state = .rateLimited // 이전 limits는 유지(실패와 동일)
+            let wait = min(max(retryAfter ?? rateLimitDefaultWait, retryInterval), rateLimitMaxWait)
+            rateLimitedUntil = now().addingTimeInterval(wait)
         case .failure:
             state = .failed // 이전 limits는 유지 — 일시적 실패로 화면이 비지 않게
         }
@@ -140,7 +160,14 @@ final class ClaudeUsageService {
         req.setValue("claude-code/2.1.0", forHTTPHeaderField: "User-Agent")
         do {
             let (data, response) = try await URLSession.shared.data(for: req)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return .failure }
+            guard let http = response as? HTTPURLResponse else { return .failure }
+            if http.statusCode == 429 {
+                // 서버가 대기 시간을 알려준다(초). 무시하고 일반 백오프로 두드리면 리밋이 연장된다.
+                let retryAfter = http.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init)
+                NSLog("[muxa] claude usage: 429 — retry-after %@초", retryAfter.map { String(Int($0)) } ?? "미지정")
+                return .rateLimited(retryAfter: retryAfter)
+            }
+            guard http.statusCode == 200 else { return .failure }
             let parsed = ClaudeUsage.parse(data)
             if parsed.isEmpty {
                 // 200인데 항목이 0개 = 스키마가 바뀐 신호. 조용히 실패로 뭉개지 말고 남긴다.

@@ -66,6 +66,18 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 추정기 `lastOutputAt`(systemUptime 경과) · 에이전트 판정 = `hookedTabs`. **경량 가드**: 접힘 기본 + 유휴 접기로 절제
 (muxa 우위=가벼움, [[muxa-vs-orca-positioning]]).
 
+## 최근 완료 (2026-07-17) — 사용량 429 레이트리밋 존중 + 오진 수정
+
+상태바 Claude 사용량이 안 뜨는데 팝오버는 "로그인 필요"라고 오진하던 문제. 실측 진단:
+토큰·키체인은 정상, 서버가 `/api/oauth/usage`에 **429 + retry-after 3068초**를 주고 있었다.
+muxa는 429를 일반 실패로 뭉개 **45초마다 재시도** → 리밋 창이 계속 연장되는 자충수.
+(의심했던 oh-my-hud statusline은 무죄 — stdin의 context_window만 읽고 API를 안 때린다.)
+
+- `UsageFetch.rateLimited(retryAfter:)` + `UsageState.rateLimited` 신설 — 429는 retry-after만큼
+  물러난다(헤더 없으면 15분, 상한 1시간). 수동 새로고침은 백오프 무시. 이전 값 유지는 실패와 동일.
+- 팝오버: "로그인 필요" 대신 "요청 제한 중(로그인 문제 아님) · 약 N분 후 자동 재시도".
+  칩 경고 삼각형 툴팁도 구분. XCTest 5개 추가(retry-after 존중·기본 15분·1시간 상한·값 유지·수동 우회).
+
 ## 최근 완료 (2026-07-17) — Shift+Enter 줄바꿈 (tmux extended-keys)
 
 터미널 탭에서 Claude Code 등 안쪽 TUI에 **Shift+Enter가 그냥 Enter로 뭉개지던** 문제.

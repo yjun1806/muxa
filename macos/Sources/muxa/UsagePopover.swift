@@ -48,11 +48,12 @@ struct UsagePopover: View {
         .tick(every: 60, into: $now) // "3분 전 갱신"이 굳지 않게(팝오버가 열려 있는 동안만)
     }
 
-    /// 보여줄 한도가 없을 때 — 조회 전·실패·빈 응답을 구분해 원인을 짐작할 수 있게 한다.
+    /// 보여줄 한도가 없을 때 — 조회 전·실패·레이트리밋·빈 응답을 구분해 원인을 짐작할 수 있게 한다.
     private var emptyTitle: String {
         switch usage.state {
         case .idle: return "불러오는 중…"
         case .failed: return "사용량을 가져오지 못했습니다"
+        case .rateLimited: return "요청이 잠시 제한되고 있습니다"
         case .empty, .ok: return "표시할 한도가 없습니다"
         }
     }
@@ -61,6 +62,13 @@ struct UsagePopover: View {
         switch usage.state {
         case .idle: return "claude CLI에 한도를 물어보는 중입니다."
         case .failed: return "로그인이 필요하거나 일시적인 오류입니다.\n새로고침으로 다시 시도해 보세요."
+        case .rateLimited:
+            // 로그인 문제가 아니다 — 그렇게 안내하면 사용자가 멀쩡한 로그인을 갈아엎는다(실측 오진).
+            if let until = usage.rateLimitedUntil, until > now {
+                let minutes = max(1, Int(until.timeIntervalSince(now)) / 60)
+                return "서버가 사용량 조회를 제한 중입니다(로그인 문제 아님).\n약 \(minutes)분 후 자동으로 다시 시도합니다."
+            }
+            return "서버가 사용량 조회를 제한 중입니다(로그인 문제 아님).\n잠시 후 자동으로 다시 시도합니다."
         case .empty, .ok: return "이 계정에 적용된 사용 한도가 없습니다."
         }
     }
@@ -113,13 +121,21 @@ struct UsagePopover: View {
         }
     }
 
-    /// "3분 전 갱신" — 마지막 **성공** 기준. 그 뒤 실패했으면 그 사실을 덧붙인다.
+    /// "3분 전 갱신" — 마지막 **성공** 기준. 그 뒤 실패/제한됐으면 그 사실을 덧붙인다.
     private var updatedText: String {
         guard let last = usage.lastSuccess else {
-            return usage.failed ? "갱신 실패" : "불러오는 중…"
+            switch usage.state {
+            case .rateLimited: return "요청 제한됨"
+            case .failed: return "갱신 실패"
+            default: return "불러오는 중…"
+            }
         }
         let minutes = Int(now.timeIntervalSince(last)) / 60
         let base = minutes < 1 ? "방금 갱신" : "\(minutes)분 전 갱신"
-        return usage.failed ? "\(base) · 마지막 갱신 실패" : base
+        switch usage.state {
+        case .rateLimited: return "\(base) · 요청 제한됨"
+        case .failed: return "\(base) · 마지막 갱신 실패"
+        default: return base
+        }
     }
 }
