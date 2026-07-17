@@ -22,13 +22,11 @@ struct UsagePopover: View {
         FooterPopover(title: "Claude", subtitle: updatedText) {
             ClaudeMark(size: IconSize.mark)
         } accessory: {
+            // 수동 새로고침 버튼은 없앴다 — 좌표(백오프·429·캐시 TTL)를 우회해 연타로 예산을 갉는 풋건이었다.
+            // 사용량은 정보성이라 15분 주기(라이브 세션 중엔 더 길게)로 자동 갱신되고, 로딩 중일 때만 표시한다.
             HStack(spacing: Space.xs) {
                 if usage.loading {
                     ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 14, height: 14)
-                } else {
-                    FooterAction(icon: "arrow.clockwise", help: "새로고침") {
-                        Task { await usage.refresh(); now = Date() }
-                    }
                 }
                 FooterAction(icon: "gearshape", help: "사용량 표시 설정") { onOpenSettings() }
             }

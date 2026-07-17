@@ -20,15 +20,18 @@ enum UsageCoordinator {
     }
 
     /// `refreshIfStale`의 판정 — 아무 인스턴스도 최근에 조회하지 않았을 때만 프로브.
-    static func plan(snapshot: UsageSnapshot?, now: Date, policy: UsagePolicy) -> Plan {
+    /// `busy`는 라이브 claude 세션이 도는 중인지 — 그러면 재조회 간격을 `busyInterval`까지 늘려
+    /// 그 세션들과 엔드포인트 예산을 두고 겹치지 않게 한다(상한이 유한해 굳지는 않는다).
+    static func plan(snapshot: UsageSnapshot?, now: Date, policy: UsagePolicy, busy: Bool = false) -> Plan {
         guard let snapshot else { return .probe } // 아무도 조회한 적 없음
         if let until = snapshot.blockedUntil, now < until {
             return .serve(resolve(snapshot, now: now)) // 차단 중(inflight·실패·429)
         }
+        let freshWindow = busy ? policy.busyInterval : policy.successInterval
         if let updated = snapshot.updatedAt,
-           now.timeIntervalSince(updated) < policy.successInterval,
+           now.timeIntervalSince(updated) < freshWindow,
            snapshot.state == "ok" || snapshot.state == "empty" {
-            return .serve(resolve(snapshot, now: now)) // 신선한 성공 캐시
+            return .serve(resolve(snapshot, now: now)) // 신선한 성공 캐시(라이브 세션 중이면 더 오래 유효)
         }
         return .probe
     }
@@ -58,6 +61,7 @@ enum UsageCoordinator {
                        policy: UsagePolicy) -> UsageSnapshot {
         switch result {
         case .ok(let fetched):
+            // 성공하면 실패 스트릭을 지운다(failureStreak=nil) — 다음 순단은 다시 짧은 백오프부터.
             return UsageSnapshot(updatedAt: now, limits: fetched.map(PersistedLimit.init),
                                  state: "ok", blockedUntil: nil, blockedReason: nil)
         case .empty:
@@ -69,7 +73,12 @@ enum UsageCoordinator {
             let wait = min(max(retryAfter ?? policy.rateLimitDefault, policy.failureWait), policy.rateLimitMax)
             return (base ?? .blank).blocking(until: now.addingTimeInterval(wait), reason: "ratelimited")
         case .failure:
-            return (base ?? .blank).blocking(until: now.addingTimeInterval(policy.failureWait), reason: "failed")
+            // 연속 실패는 백오프를 지수로 늘린다(×2) — successInterval까지만. 순단 루프가 예산을 갉지 않게.
+            let streak = (base?.failureStreak ?? 0) + 1
+            let wait = min(policy.failureWait * pow(2, Double(streak - 1)), policy.successInterval)
+            var next = (base ?? .blank).blocking(until: now.addingTimeInterval(wait), reason: "failed")
+            next.failureStreak = streak
+            return next
         }
     }
 

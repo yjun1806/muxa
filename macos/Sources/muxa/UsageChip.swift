@@ -11,8 +11,12 @@ struct UsageChip: View {
     private let usage = ClaudeUsageService.shared
     private let settings = StatusBarSettings.shared
 
+    /// 화면 tick 주기 — 리셋 카운트다운 갱신 + 캐시 만료 재점검용. **네트워크 조회 주기가 아니다**(그건
+    /// `UsagePolicy`가 정한다). 사용자 설정으로 두면 "빠를수록 좋다"는 오해로 예산을 갉으므로 코드 상수로 못 박는다.
+    private static let tickInterval: TimeInterval = 60
+
     @State private var showUsage = false
-    /// 리셋 카운트다운("3h 38m")이 굳지 않도록 갱신 주기마다 흐르는 현재 시각.
+    /// 리셋 카운트다운("3h 38m")이 굳지 않도록 tick마다 흐르는 현재 시각.
     @State private var now = Date()
 
     /// 활성 프로젝트의 실효 경로 — 프로젝트를 바꾸면 사용량을 다시 조회하는 `.task`의 트리거.
@@ -62,11 +66,11 @@ struct UsageChip: View {
             })
         }
         .task(id: projectDir) {
-            await usage.refreshIfStale() // 프로젝트를 바꾸면 캐시가 만료됐는지 다시 본다
+            await usage.refreshIfStale(busy: state.hasLiveClaudeSession) // 프로젝트를 바꾸면 만료됐는지 다시 본다
         }
-        .tick(every: settings.refreshIntervalSec, into: $now) // 리셋 카운트다운·갱신 주기
+        .tick(every: Self.tickInterval, into: $now) // 리셋 카운트다운·캐시 만료 재점검(네트워크 주기 아님)
         .onChange(of: now) { _, _ in
-            Task { await usage.refreshIfStale() } // 만료됐으면 조용히 재조회
+            Task { await usage.refreshIfStale(busy: state.hasLiveClaudeSession) } // 만료됐으면 조용히 재조회
         }
     }
 

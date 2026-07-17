@@ -74,10 +74,12 @@ final class ClaudeUsageService {
 
     /// 캐시가 만료됐을 때만 조회. 판정은 **공유 스냅샷**을 근거로 내린다 — 다른 muxa 인스턴스가
     /// 방금 성공했거나(캐시 서빙) 429를 받았으면(백오프 존중) 이 인스턴스는 네트워크를 아예 건드리지 않는다.
-    func refreshIfStale() async {
+    /// `busy`는 라이브 claude 세션이 도는 중인지 — 그러면 재조회를 `busyInterval`까지 미뤄
+    /// 그 세션들과 사용량 엔드포인트 예산을 두고 겹치지 않게 한다(판정은 순수 `UsageCoordinator.plan`).
+    func refreshIfStale(busy: Bool = false) async {
         guard !loading else { return }
         let snapshot = store.load()
-        switch UsageCoordinator.plan(snapshot: snapshot, now: now(), policy: policy) {
+        switch UsageCoordinator.plan(snapshot: snapshot, now: now(), policy: policy, busy: busy) {
         case .serve(let resolution):
             apply(resolution) // 공유 캐시 값을 그대로 화면에 얹는다(프로브 없음)
         case .probe:
@@ -85,7 +87,8 @@ final class ClaudeUsageService {
         }
     }
 
-    /// 강제 조회(새로고침 버튼) — 사용자가 눌렀으면 백오프를 무시하고 지금 물어본다.
+    /// 강제 조회 — 좌표 판정(백오프·429·캐시 TTL)을 **우회하고** 지금 즉시 프로브한다.
+    /// UI에는 노출하지 않는다(연타로 예산을 갉는 풋건이라 새로고침 버튼을 없앴다) — 테스트·진단 전용.
     func refresh() async {
         guard !loading else { return }
         await probe()

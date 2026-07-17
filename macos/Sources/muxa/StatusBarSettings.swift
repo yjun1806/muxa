@@ -44,9 +44,6 @@ final class StatusBarSettings {
         }
     }
 
-    /// 갱신 주기 선택지(초) — 상태바가 이 간격으로 캐시 만료를 다시 본다.
-    static let refreshChoices: [Double] = [30, 60, 120, 300]
-
     /// 5시간 세션 한도 옆에 리셋까지 남은 시간 표시.
     var showSessionReset: Bool { didSet { save(\.showSessionReset, "showSessionReset") } }
     /// 주간 한도 옆에 리셋까지 남은 시간 표시.
@@ -55,8 +52,6 @@ final class StatusBarSettings {
     var showFable: Bool { didSet { save(\.showFable, "showFable") } }
     /// 칩 위치.
     var position: Position { didSet { defaults.set(position.rawValue, forKey: Self.key("position")) } }
-    /// 갱신 주기(초).
-    var refreshIntervalSec: Double { didSet { defaults.set(refreshIntervalSec, forKey: Self.key("refreshInterval")) } }
     /// 사용량 막대의 색 모드(정석 게이지 vs 브랜드색).
     var meterColorMode: MeterColorMode { didSet { defaults.set(meterColorMode.rawValue, forKey: Self.key("meterColorMode")) } }
 
@@ -64,13 +59,11 @@ final class StatusBarSettings {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        // 기본값: 세션 리셋만 표시(기존 동작), 주간·fable 숨김, 푸터 왼쪽, 60초.
+        // 기본값: 세션 리셋만 표시(기존 동작), 주간·fable 숨김, 푸터 왼쪽.
         showSessionReset = defaults.object(forKey: Self.key("showSessionReset")) as? Bool ?? true
         showWeeklyReset = defaults.object(forKey: Self.key("showWeeklyReset")) as? Bool ?? false
         showFable = defaults.object(forKey: Self.key("showFable")) as? Bool ?? false
         position = (defaults.string(forKey: Self.key("position")).flatMap(Position.init(rawValue:))) ?? .footerLeft
-        let stored = defaults.double(forKey: Self.key("refreshInterval"))
-        refreshIntervalSec = Self.refreshChoices.contains(stored) ? stored : 60
         // 기본값: 정석 게이지(브랜드가 버밀리언이라 낮은 %가 빨강으로 읽히는 걸 피한다).
         meterColorMode = (defaults.string(forKey: Self.key("meterColorMode")).flatMap(MeterColorMode.init(rawValue:))) ?? .gauge
     }

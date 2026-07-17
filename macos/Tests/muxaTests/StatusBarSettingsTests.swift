@@ -16,19 +16,7 @@ final class StatusBarSettingsTests: XCTestCase {
         XCTAssertFalse(s.showWeeklyReset)
         XCTAssertFalse(s.showFable)
         XCTAssertEqual(s.position, .footerLeft)
-        XCTAssertEqual(s.refreshIntervalSec, 60)
-    }
-
-    func testInvalidRefreshIntervalFallsBackTo60() {
-        let d = suite()
-        d.set(7, forKey: "muxa.statusbar.refreshInterval") // 선택지 밖
-        XCTAssertEqual(StatusBarSettings(defaults: d).refreshIntervalSec, 60)
-    }
-
-    func testValidRefreshIntervalLoads() {
-        let d = suite()
-        d.set(300, forKey: "muxa.statusbar.refreshInterval")
-        XCTAssertEqual(StatusBarSettings(defaults: d).refreshIntervalSec, 300)
+        // 갱신 주기 설정은 없앴다 — 폴링 주기는 사용자가 아니라 엔드포인트 예산이 정하는 상수다(UsagePolicy).
     }
 
     func testUnknownPositionFallsBackToFooterLeft() {

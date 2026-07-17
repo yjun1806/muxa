@@ -29,12 +29,8 @@ struct UsageSettingsView: View {
                     selection: $settings.meterColorMode
                 )
             }
-            group("갱신 주기") {
-                SegmentedPills(
-                    options: StatusBarSettings.refreshChoices.map { ($0, intervalLabel($0)) },
-                    selection: $settings.refreshIntervalSec
-                )
-            }
+            // 갱신 주기는 설정에서 뺐다 — 사용자가 정할 값이 아니라 엔드포인트 예산이 정하는 상수다(15분,
+            // 라이브 세션 중엔 더 길게). 노출하면 "빠를수록 좋다"는 오해로 최저값이 429를 부른다.
         }
         .footerBlock()
     }
@@ -49,10 +45,6 @@ struct UsageSettingsView: View {
                 .foregroundStyle(Color.pMuted)
             content()
         }
-    }
-
-    private func intervalLabel(_ sec: Double) -> String {
-        sec < 60 ? "\(Int(sec))초" : "\(Int(sec / 60))분"
     }
 }
 

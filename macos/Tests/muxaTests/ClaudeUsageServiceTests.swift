@@ -45,38 +45,76 @@ final class ClaudeUsageServiceTests: XCTestCase {
         XCTAssertEqual(service.lastSuccess, clock.now)
     }
 
-    /// 성공 뒤 5분 안에는 다시 안 때린다 — 사용량 API를 자주 호출하면 계정에 이상 신호가 될 수 있다.
-    func testSuccessIsCachedForFiveMinutes() async {
+    /// 성공 뒤 15분 안에는 다시 안 때린다 — `/api/oauth/usage`는 예산이 빡빡해 자주 두드리면 429가 난다.
+    func testSuccessIsCachedForFifteenMinutes() async {
         let clock = Clock()
         let service = makeService(clock, results: [.ok(sample)])
         await service.refreshIfStale()
         XCTAssertEqual(clock.calls, 1)
 
-        clock.now.addTimeInterval(299)
+        clock.now.addTimeInterval(899)
         await service.refreshIfStale()
-        XCTAssertEqual(clock.calls, 1, "5분 전엔 재조회하지 않아야 한다")
+        XCTAssertEqual(clock.calls, 1, "15분 전엔 재조회하지 않아야 한다")
 
         clock.now.addTimeInterval(2)
         await service.refreshIfStale()
-        XCTAssertEqual(clock.calls, 2, "5분이 지나면 재조회한다")
+        XCTAssertEqual(clock.calls, 2, "15분이 지나면 재조회한다")
     }
 
-    /// 실패는 성공과 같은 5분을 기다리면 안 된다 — 순단 한 번이 5분간의 "—"로 굳는다.
+    /// 실패는 성공과 같은 15분을 기다리면 안 된다 — 순단 한 번이 15분간의 "—"로 굳는다.
     func testFailureRetriesSoonerThanSuccess() async {
         let clock = Clock()
         let service = makeService(clock, results: [.failure, .ok(sample)])
         await service.refreshIfStale()
         XCTAssertEqual(service.state, .failed)
 
-        clock.now.addTimeInterval(44)
+        clock.now.addTimeInterval(119)
         await service.refreshIfStale()
-        XCTAssertEqual(clock.calls, 1, "45초 전엔 재시도하지 않는다")
+        XCTAssertEqual(clock.calls, 1, "첫 실패 백오프(120초) 전엔 재시도하지 않는다")
 
         clock.now.addTimeInterval(2)
         await service.refreshIfStale()
-        XCTAssertEqual(clock.calls, 2, "45초가 지나면 재시도한다")
+        XCTAssertEqual(clock.calls, 2, "120초가 지나면 재시도한다")
         XCTAssertEqual(service.state, .ok)
         XCTAssertEqual(service.limits, sample)
+    }
+
+    /// 연속 실패는 백오프가 지수로 늘어난다(120 → 240 → …) — 순단 루프가 예산을 갉지 않게.
+    func testConsecutiveFailuresBackOffExponentially() async {
+        let clock = Clock()
+        let service = makeService(clock, results: [.failure, .failure, .ok(sample)])
+        await service.refreshIfStale()            // 1차 실패 → 120초 백오프
+        XCTAssertEqual(clock.calls, 1)
+
+        clock.now.addTimeInterval(121)
+        await service.refreshIfStale()            // 2차 실패 → 240초 백오프
+        XCTAssertEqual(clock.calls, 2)
+
+        clock.now.addTimeInterval(121)            // 첫 백오프(120)는 넘겼지만 두 번째(240)는 아직
+        await service.refreshIfStale()
+        XCTAssertEqual(clock.calls, 2, "2연속 실패면 백오프가 240초로 늘어 121초엔 재시도하지 않는다")
+
+        clock.now.addTimeInterval(120)            // 누적 241초 → 240 넘김
+        await service.refreshIfStale()
+        XCTAssertEqual(clock.calls, 3, "240초가 지나면 재시도한다")
+        XCTAssertEqual(service.state, .ok)
+    }
+
+    /// 라이브 claude 세션이 도는 동안엔 15분이 지나도 곧장 재조회하지 않는다(busyInterval까지 유예) —
+    /// 그 세션들이 같은 엔드포인트 예산을 나눠 쓰므로 겹쳐 두드리지 않게. 단 상한이 있어 영영 굳지는 않는다.
+    func testBusyDefersReprobeUntilBusyInterval() async {
+        let clock = Clock()
+        let service = makeService(clock, results: [.ok(sample), .ok(sample)])
+        await service.refreshIfStale()
+        XCTAssertEqual(clock.calls, 1)
+
+        clock.now.addTimeInterval(901)            // successInterval(900)은 넘겼지만 라이브 세션 중
+        await service.refreshIfStale(busy: true)
+        XCTAssertEqual(clock.calls, 1, "라이브 세션 중엔 15분이 지나도 재조회를 미룬다")
+
+        clock.now.addTimeInterval(900)            // 누적 1801초 → busyInterval(1800) 넘김
+        await service.refreshIfStale(busy: true)
+        XCTAssertEqual(clock.calls, 2, "그래도 30분 상한에선 재조회한다 — 영영 굳지 않게")
     }
 
     /// 실패해도 이전 값은 남는다 — 일시적 오류로 화면이 비면 오히려 불안하다.
@@ -102,7 +140,7 @@ final class ClaudeUsageServiceTests: XCTestCase {
 
         clock.now.addTimeInterval(46)
         await service.refreshIfStale()
-        XCTAssertEqual(clock.calls, 1, "실패 백오프(45초)로 재시도하면 안 된다 — 리밋이 연장된다")
+        XCTAssertEqual(clock.calls, 1, "실패 백오프(120초)로 재시도하면 안 된다 — 리밋이 연장된다")
 
         clock.now.addTimeInterval(3000)
         await service.refreshIfStale()
@@ -152,7 +190,7 @@ final class ClaudeUsageServiceTests: XCTestCase {
         XCTAssertEqual(service.limits, sample, "이전 조회 결과가 유지돼야 한다")
     }
 
-    /// 수동 새로고침(refresh)은 백오프를 무시한다 — 사용자가 눌렀으면 지금 물어본다.
+    /// 강제 프로브(refresh)는 백오프를 무시한다 — 테스트·진단용 프리미티브(UI 버튼은 제거됐다).
     func testManualRefreshBypassesRateLimitBackoff() async {
         let clock = Clock()
         let service = makeService(clock, results: [.rateLimited(retryAfter: 3068), .ok(sample)])
@@ -216,9 +254,9 @@ final class ClaudeUsageServiceTests: XCTestCase {
         // 먼저 한 번 성공시켜 공유 캐시에 값을 심는다.
         await makeService(seed, results: [.ok(sample)], store: store).refreshIfStale()
 
-        // 캐시가 만료된 뒤(5분+) 새 인스턴스가 프로브했다가 429를 받는다.
+        // 캐시가 만료된 뒤(15분+) 새 인스턴스가 프로브했다가 429를 받는다.
         let late = Clock()
-        late.now.addTimeInterval(400)
+        late.now.addTimeInterval(1000)
         let service = makeService(late, results: [.rateLimited(retryAfter: 600)], store: store)
         await service.refreshIfStale()
 
