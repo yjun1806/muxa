@@ -79,12 +79,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             isBundled: Bundle.main.bundleIdentifier != nil,
             home: SystemPaths.home
         ))
-        // 좀비 청소 — 서비스 tmux 세션은 muxa를 꺼도 살아남는다(그게 존재 이유다). 그 대가로 등록이
-        // 사라진 세션이 포트를 문 채 남을 수 있어, 복원 직후 등록과 대조해 쓸어낸다. (Service.swift)
-        state.collectServiceGarbage()
-        // 저장된 서비스 재기동(살아 있으면 멱등) + 상태 폴링 시작. 청소 뒤에 와야 방금 지운 세션을
-        // 되살리지 않는다.
-        state.startServices()
+        // 데모 스크린샷 모드(MUXA_DEMO) — tmux·라이브 훅 없이 리치 상태를 코드로 시드하고,
+        // 서비스 폴링은 건너뛴다(폴링이 돌면 시드한 서비스 상태를 실측이 덮는다).
+        var demoSeeded = false
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["MUXA_DEMO"] != nil {
+            state.seedDemo()
+            demoSeeded = true
+        }
+        #endif
+        if !demoSeeded {
+            // 좀비 청소 — 서비스 tmux 세션은 muxa를 꺼도 살아남는다(그게 존재 이유다). 그 대가로 등록이
+            // 사라진 세션이 포트를 문 채 남을 수 있어, 복원 직후 등록과 대조해 쓸어낸다. (Service.swift)
+            state.collectServiceGarbage()
+            // 저장된 서비스 재기동(살아 있으면 멱등) + 상태 폴링 시작. 청소 뒤에 와야 방금 지운 세션을
+            // 되살리지 않는다.
+            state.startServices()
+        }
         state.startNotifyServer() // 훅 알림 소켓 리스너 시작 — `muxa notify`가 결정론적 신호를 보낸다
         // 시스템 알림 클릭 → 프로젝트 활성 + Git 패널(원클릭 검토 동선). 라우팅 소유는 AppState.
         NotificationService.shared.onActivate = { [weak state] ctx in
@@ -137,6 +148,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         host.onFrameChange = { [weak state] id, frame in state?.recordFrame(id, frame) }
         state.windowHost = host
         main.show()
+        #if DEBUG
+        if demoSeeded {
+            // 데모 스크린샷용 — 넉넉한 창 크기로 고정(손쉬운 사용 권한 없이 창을 키운다).
+            main.window.setFrame(NSRect(x: 0, y: 0, width: 1480, height: 940), display: true)
+            main.window.center()
+        }
+        #endif
         // 복원된 분리 창을 실물로 띄운다 — load()는 모델만 채운다(reconcile은 경계가 한다).
         state.syncWindows()
 

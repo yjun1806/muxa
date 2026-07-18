@@ -1937,3 +1937,57 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         return gid
     }
 }
+
+#if DEBUG
+// MARK: - 데모 스크린샷 시드 (MUXA_DEMO) — 같은 파일이라 private 멤버 접근 가능
+extension TerminalStore {
+    /// 초기 터미널 자동 생성을 대신해 데모 레이아웃을 직접 구성한다.
+    /// build 안에서 demoTerminal/demoSplit으로 칸·탭을 만들고, 끝나면 부트스트랩 welcome 탭을 닫고
+    /// `initialized`를 세워 렌더 시 ensureInitialTerminal이 스킵되게 한다.
+    func demoSeedLayout(_ build: () -> Void) {
+        let bootstrap = Set(controller.allTabIds)
+        build()
+        let real = controller.allTabIds.filter { !bootstrap.contains($0) }
+        if !real.isEmpty { for id in bootstrap { _ = controller.closeTab(id) } }
+        if controller.allTabIds.isEmpty {
+            _ = controller.createTab(title: "터미널", icon: Self.terminalTabIcon, inPane: nil)
+        }
+        initialized = true
+        ready = true
+        syncHasTabs()
+    }
+
+    /// 지정(또는 포커스) 칸에 데모 터미널 탭 하나 — 제목·트랜스크립트·에이전트 상태를 붙인다.
+    @discardableResult
+    func demoTerminal(inPane pane: PaneID? = nil, title: String,
+                      transcript: String? = nil, status: NotifyState? = nil) -> TabID? {
+        guard let id = newTerminal(inPane: pane) else { return nil }
+        controller.updateTab(id, title: title, hasCustomTitle: true)
+        demoConfigure(id, transcript: transcript, status: status)
+        return id
+    }
+
+    /// 칸을 분할한다(델리게이트가 새 칸에 터미널을 자동 생성) → 그 터미널을 데모용으로 설정하고 새 PaneID 반환.
+    @discardableResult
+    func demoSplit(_ orientation: SplitOrientation, title: String,
+                   transcript: String? = nil, status: NotifyState? = nil,
+                   from pane: PaneID? = nil, divider: CGFloat? = nil) -> PaneID? {
+        guard let newPane = controller.splitPane(pane, orientation: orientation,
+                                                 initialDividerPosition: divider) else { return nil }
+        if let tabId = controller.tabs(inPane: newPane).first?.id {
+            controller.updateTab(tabId, title: title, hasCustomTitle: true)
+            demoConfigure(tabId, transcript: transcript, status: status)
+        }
+        return newPane
+    }
+
+    /// 데모 탭에 트랜스크립트(셸이 `clear; cat`으로 표시)와 에이전트 상태(explicit pin)를 붙인다.
+    func demoConfigure(_ id: TabID, transcript: String?, status: NotifyState?) {
+        if let transcript { restoredScrollbackFile[id] = transcript }
+        if let status { applyAgentSignal(.explicit(status), to: id) }
+    }
+
+    var demoFocusedPane: PaneID? { controller.focusedPaneId }
+    func demoFocus(_ pane: PaneID) { controller.focusPane(pane) }
+}
+#endif

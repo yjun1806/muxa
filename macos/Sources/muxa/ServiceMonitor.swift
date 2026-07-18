@@ -217,3 +217,14 @@ final class ServiceMonitor {
         Dictionary(services.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 }
+
+#if DEBUG
+extension ServiceMonitor {
+    /// 데모 스크린샷용(MUXA_DEMO) — tmux 없이 서비스/포트 상태를 직접 주입한다.
+    /// 폴링을 시작하지 않는 경로에서만 쓴다(폴링이 돌면 실측이 이 값을 덮는다).
+    func demoSeed(states: [String: ServiceState], ports: [String: Int] = [:]) {
+        self.states = states
+        self.ports = ports
+    }
+}
+#endif

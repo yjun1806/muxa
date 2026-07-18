@@ -2485,3 +2485,114 @@ enum SystemPaths {
         FileManager.default.currentDirectoryPath
     }
 }
+
+#if DEBUG
+// MARK: - 데모 스크린샷 시드 (MUXA_DEMO) — 같은 파일이라 private(set) 세팅 가능
+extension AppState {
+    /// 스크린샷 추출용 리치 상태를 코드로 심는다: 워크스페이스 3 × 프로젝트 2, 다양한 에이전트 상태,
+    /// 서비스·스크립트 상태, 분할 레이아웃, 트랜스크립트. tmux·라이브 훅 없이 GUI 조작 없이.
+    /// `scripts/demo/make-demo.sh`가 만든 ~/muxa-demo 리포·트랜스크립트를 참조한다.
+    func seedDemo() {
+        let demo = NSHomeDirectory() + "/muxa-demo"
+        let tr = demo + "/.transcripts/"
+        func t(_ n: String) -> String { tr + n + ".ans" }
+        let muxaRoot = AppInfo.worktreeRoot ?? demo + "/webapp"
+
+        // ── 데이터: 워크스페이스 3 × 프로젝트 2 ──
+        let p1a = Project(id: "p-webapp-main", name: "메인", path: nil,
+                          services: [Service(id: "svc-web", name: "web", command: "pnpm dev"),
+                                     Service(id: "svc-api", name: "api", command: "pnpm --filter api dev"),
+                                     Service(id: "svc-worker", name: "worker", command: "pnpm worker")],
+                          scripts: [Script(id: "scr-build", name: "build", command: "pnpm build"),
+                                    Script(id: "scr-test", name: "test", command: "pnpm test")])
+        let p1b = Project(id: "p-webapp-feat", name: "feat/checkout", path: demo + "/webapp")
+        let ws1 = Workspace(id: "ws-webapp", path: demo + "/webapp", name: "webapp",
+                            projects: [p1a, p1b], activeProjectId: p1a.id)
+
+        let p2a = Project(id: "p-muxa-main", name: "메인", path: nil)
+        let p2b = Project(id: "p-muxa-docs", name: "docs", path: muxaRoot + "/docs")
+        let ws2 = Workspace(id: "ws-muxa", path: muxaRoot, name: "muxa",
+                            projects: [p2a, p2b], activeProjectId: p2a.id)
+
+        let p3a = Project(id: "p-api-main", name: "메인", path: nil,
+                          services: [Service(id: "svc-api-main", name: "api", command: "go run .")])
+        let p3b = Project(id: "p-api-feat", name: "feat/auth", path: demo + "/api-server")
+        let ws3 = Workspace(id: "ws-api", path: demo + "/api-server", name: "api-server",
+                            projects: [p3a, p3b], activeProjectId: p3a.id)
+
+        workspaces = [ws1, ws2, ws3]
+        activeId = ws1.id
+        expandedWorkspaces = [ws1.id, ws2.id, ws3.id]
+        sidebarMode = .expanded
+
+        // ── 서비스·스크립트 런타임 상태(tmux 없이) ──
+        serviceMonitor.demoSeed(
+            states: ["svc-web": .running, "svc-api": .running, "svc-worker": .exited(code: 1),
+                     "svc-api-main": .running],
+            ports: ["svc-web": 3000, "svc-api": 8787, "svc-api-main": 8080])
+        scriptRuns = [
+            "scr-build": ScriptRun(scriptId: "scr-build", projectId: p1a.id, name: "build",
+                                   startedAt: Date(timeIntervalSinceNow: -8.2),
+                                   state: .finished(code: 0, duration: 8.2)),
+            "scr-test": ScriptRun(scriptId: "scr-test", projectId: p1a.id, name: "test",
+                                  startedAt: Date(timeIntervalSinceNow: -14), state: .running)
+        ]
+
+        // ── 활성: webapp/메인 — 3칸 분할(작업중 · 대기 · 완료) ──
+        let s1 = store(for: p1a, in: ws1)
+        s1.demoSeedLayout {
+            let root = s1.demoFocusedPane
+            s1.demoTerminal(inPane: root, title: "claude", transcript: t("working"), status: .working)
+            let right = s1.demoSplit(.horizontal, title: "claude", transcript: t("waiting"),
+                                     status: .waiting, from: root, divider: 0.54)
+            s1.demoSplit(.vertical, title: "claude", transcript: t("done"),
+                         status: .done, from: right, divider: 0.5)
+            if let root { s1.demoFocus(root) }
+        }
+
+        // ── 나머지 프로젝트 — 사이드바 상태 다양화(1~2 탭) ──
+        func seedSimple(_ p: Project, in ws: Workspace, title: String,
+                        transcript: String?, status: NotifyState?,
+                        second: (String, String?)? = nil) {
+            let s = store(for: p, in: ws)
+            s.demoSeedLayout {
+                let root = s.demoFocusedPane
+                s.demoTerminal(inPane: root, title: title, transcript: transcript, status: status)
+                if let (t2, tr2) = second {
+                    s.demoTerminal(inPane: root, title: t2, transcript: tr2, status: nil)
+                }
+            }
+        }
+        seedSimple(p1b, in: ws1, title: "claude", transcript: t("api-working"), status: .working)
+        seedSimple(p2a, in: ws2, title: "claude", transcript: t("done"), status: .done,
+                   second: ("zsh", t("zsh")))
+        seedSimple(p2b, in: ws2, title: "zsh", transcript: t("zsh"), status: nil)
+        seedSimple(p3a, in: ws3, title: "claude", transcript: t("api-working"), status: .working)
+        seedSimple(p3b, in: ws3, title: "claude", transcript: t("waiting"), status: .waiting)
+
+        // 주의 큐 카드(사이드바 최상단 로즈 ⏸ 카드)가 뜨도록 대기 프로젝트에 배지를 심는다 —
+        // waitingQueue = SidebarTree.allWaiting(badged:) 기반이라 agentActivity만으론 안 뜬다.
+        badgedProjects = [p1a.id, p3b.id]
+
+        // ── 장면 선택(MUXA_DEMO_SCENE) — 관측 지점을 바꿔 여러 상황을 뽑는다 ──
+        switch ProcessInfo.processInfo.environment["MUXA_DEMO_SCENE"] ?? "split" {
+        case "git":     // webapp: 실제 git 변경 + 커밋 패널
+            activeId = ws1.id
+            showGitPanel = true
+        case "viewer":  // muxa: 렌더된 문서 뷰어
+            activeId = ws2.id
+            _ = store(for: p2a, in: ws2).openFile(muxaRoot + "/docs/ARCHITECTURE.md")
+        case "explorer": // muxa: 파일 익스플로러
+            activeId = ws2.id
+            showExplorer = true
+        case "diff":    // webapp: diff 탭
+            activeId = ws1.id
+            _ = store(for: p1a, in: ws1).openFile(demo + "/webapp/src/config.ts")
+        default:        // split — 3분할 히어로
+            activeId = ws1.id
+        }
+
+        save()
+    }
+}
+#endif
