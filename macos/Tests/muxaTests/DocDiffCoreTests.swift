@@ -164,17 +164,93 @@ final class DocDiffCoreTests: XCTestCase {
         XCTAssertEqual(v?.toString(), "[\"문단을\",\" \",\"수정했습니다\"]")
     }
 
+    // MARK: 과분절 방어 — "단어 수프" 방지
+
+    /// 긴 문단이 사실상 다시 쓰였으면 인라인 강조를 포기하고 **통째 교체**로 보여준다.
+    /// 삭제·삽입이 단어마다 뒤엉킨 화면은 diff가 아니라 소음이다(실제로 그런 화면이 나왔다).
+    func testHeavilyRewrittenParagraphBecomesWholeReplacement() throws {
+        let a = "저장은 recruit_until 컬럼에 기록하고 closed_at 타임스탬프로 수동 마감 시각을 남기며 처리 창 배제 판정에 쓴다. 별도 reason 컬럼은 두지 않는다.\n"
+        let b = "기록은 완전히 다른 방식으로 바뀌었다. 유일한 마감은 존재하지 않으며 capacity 또는 manual 중 하나를 골라 필요할 때만 별도로 남긴다.\n"
+        let r = try diff(a, b)
+        let kinds = blocks(r).map { $0["kind"] as? String ?? "" }
+        XCTAssertFalse(kinds.contains("modified"),
+                       "다시 쓴 문단이 인라인 강조로 남았다 — 단어 수프가 된다: \(kinds)")
+        XCTAssertTrue(kinds.contains("deleted") && kinds.contains("inserted"),
+                      "통째 교체(삭제+삽입)로 강등되지 않았다: \(kinds)")
+    }
+
+    /// **짧은 문장은 강등하지 않는다.** 단어 하나만 바꿔도 비율이 쉽게 50%를 넘는데
+    /// 그건 전혀 안 읽히는 화면이 아니다 — 비율 기준은 긴 문단에서만 적용한다.
+    func testShortSentenceKeepsInlineHighlight() throws {
+        let r = try diff("안녕 반가워\n", "안녕 반갑다\n")
+        let kinds = blocks(r).map { $0["kind"] as? String ?? "" }
+        XCTAssertTrue(kinds.contains("modified"),
+                      "짧은 문장이 통째 교체로 강등됐다: \(kinds)")
+    }
+
+    /// 긴 문단에서 한 군데만 고친 건 당연히 인라인으로 남는다.
+    func testLongParagraphWithSmallEditStaysInline() throws {
+        let base = String(repeating: "이 문장은 충분히 길어서 비율 판정이 적용됩니다. ", count: 4)
+        let r = try diff(base + "끝맺음을 수정합니다.\n", base + "끝맺음을 수정했습니다.\n")
+        let kinds = blocks(r).map { $0["kind"] as? String ?? "" }
+        XCTAssertTrue(kinds.contains("modified"), "작은 수정이 통째 교체로 강등됐다: \(kinds)")
+    }
+
     // MARK: 원자 블록
 
-    /// 코드블록은 어절 diff 대상이 아니다 — 코드에 워드 하이라이트를 치면 읽히지 않는다.
-    func testCodeBlockIsNotWordDiffed() throws {
+    /// 코드블록은 **어절** diff 대상이 아니다 — 코드에 워드 하이라이트를 치면 읽히지 않는다.
+    /// 대신 **줄** 단위로 짚는다(어느 줄이 바뀌었는지는 알려줘야 한다).
+    func testCodeBlockIsLineDiffedNotWordDiffed() throws {
         let a = "```swift\nlet x = 1\n```\n"
         let b = "```swift\nlet x = 2\n```\n"
         let r = try diff(a, b)
         let mod = blocks(r).first { $0["kind"] as? String == "modified" }
         XCTAssertNotNil(mod)
-        XCTAssertEqual(mod?["wholeCode"] as? Bool, true, "코드블록이 어절 단위로 쪼개졌다")
-        XCTAssertTrue((mod?["ins"] as? [[String: Any]] ?? []).isEmpty)
+        XCTAssertEqual(mod?["codeLines"] as? Bool, true, "줄 단위 diff가 아니다")
+        // 어절 세분의 흔적(문자 단위 조각)이 있으면 안 된다 — 줄 경계로만 나뉜다.
+        let ins = mod?["ins"] as? [[String: Any]] ?? []
+        XCTAssertFalse(ins.isEmpty, "바뀐 줄이 안 잡혔다")
+    }
+
+    /// 코드블록은 **줄 단위**로 어디가 바뀌었는지 짚는다 — 통짜 "코드 변경됨"으로 넘기지 않는다.
+    func testCodeBlockMarksChangedLines() throws {
+        let a = "```swift\nlet x = 1\nlet y = 2\nprint(x)\n```\n"
+        let b = "```swift\nlet x = 1\nlet y = 99\nprint(x)\n```\n"
+        let r = try diff(a, b)
+        let code = blocks(r).first { ($0["type"] as? String) == "code" }
+        XCTAssertEqual(code?["kind"] as? String, "modified")
+        XCTAssertEqual(code?["codeLines"] as? Bool, true, "줄 단위 diff가 아니다")
+        XCTAssertNotEqual(code?["wholeCode"] as? Bool, true, "통짜 변경으로 물러섰다")
+        let ins = code?["ins"] as? [[String: Any]] ?? []
+        XCTAssertFalse(ins.isEmpty, "바뀐 줄이 안 잡혔다")
+        // 바뀐 줄 하나만 — 블록 전체가 아니다.
+        let covered = ins.reduce(0) { $0 + (($1["end"] as? Int ?? 0) - ($1["start"] as? Int ?? 0)) }
+        let total = (code?["text"] as? String ?? "").utf16.count
+        XCTAssertLessThan(covered, total, "코드블록 전체가 칠해졌다")
+    }
+
+    /// 표는 **칸 단위**로 짚는다. 바뀐 칸만 좌표와 함께 나와야 한다.
+    func testTableMarksChangedCell() throws {
+        let a = "| 항목 | 값 |\n|---|---|\n| 하나 | 1 |\n| 둘 | 2 |\n"
+        let b = "| 항목 | 값 |\n|---|---|\n| 하나 | 1 |\n| 둘 | 22 |\n"
+        let r = try diff(a, b)
+        let table = blocks(r).first { ($0["type"] as? String) == "table" }
+        let cells = table?["cells"] as? [[String: Any]] ?? []
+        XCTAssertEqual(cells.count, 1, "바뀐 칸이 하나여야 한다: \(cells)")
+        XCTAssertEqual(cells.first?["row"] as? Int, 2, "헤더가 0행이면 바뀐 칸은 2행")
+        XCTAssertEqual(cells.first?["col"] as? Int, 1)
+    }
+
+    /// **행·열 구조가 바뀌면 칸 좌표가 어긋난다** — 어느 칸인지 지어내지 말고 통짜로 물러선다.
+    func testTableStructureChangeFallsBackToWhole() throws {
+        let a = "| A | B |\n|---|---|\n| 1 | 2 |\n"
+        let b = "| A | B | C |\n|---|---|---|\n| 1 | 2 | 3 |\n"
+        let r = try diff(a, b)
+        let table = blocks(r).first { ($0["type"] as? String) == "table" }
+        if table?["kind"] as? String == "modified" {
+            XCTAssertEqual(table?["wholeCode"] as? Bool, true, "구조가 바뀌었는데 칸을 지어냈다")
+            XCTAssertNil(table?["cells"] as? [[String: Any]])
+        }
     }
 
     /// 코드펜스 언어 태그가 바뀌면 같은 블록이 아니다(info가 매칭 키에 들어간다).
@@ -229,9 +305,12 @@ final class DocDiffCoreTests: XCTestCase {
         let tables = blocks(r).filter { ($0["type"] as? String) == "table" }
         XCTAssertEqual(tables.count, 1, "표가 여러 블록으로 쪼개졌다: \(blocks(r).map { $0["type"] as? String ?? "" })")
         XCTAssertEqual(tables.first?["kind"] as? String, "modified")
-        // 표 안에는 어절 스팬을 만들지 않는다 — 셀 경계를 무시한 오프셋이 엉뚱한 칸을 칠한다.
-        XCTAssertEqual(tables.first?["wholeCode"] as? Bool, true)
-        XCTAssertTrue((tables.first?["ins"] as? [[String: Any]] ?? []).isEmpty)
+        // 표 **전체** 텍스트 오프셋으로는 칠하지 않는다 — 셀 경계를 넘어 엉뚱한 칸이 칠해진다.
+        // 대신 칸 좌표로 짚는다(어느 칸이 바뀌었는지는 알려줘야 한다).
+        XCTAssertTrue((tables.first?["ins"] as? [[String: Any]] ?? []).isEmpty,
+                      "표 전체 오프셋 스팬이 생겼다")
+        XCTAssertFalse((tables.first?["cells"] as? [[String: Any]] ?? []).isEmpty,
+                       "바뀐 칸 좌표가 없다")
     }
 
     /// 표 행이 추가돼도 표는 여전히 블록 하나다.

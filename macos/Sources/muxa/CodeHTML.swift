@@ -45,18 +45,30 @@ enum CodeHTML {
         <!doctype html><html><head><meta charset="utf-8"><style>
         html,body{margin:0;padding:0;background:\(t.bg);color:\(t.fg);}
         .wrap{font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;padding:8px 0;}
-        table.code{border-collapse:collapse;width:max-content;min-width:100%;}
+        table.code{border-collapse:collapse;width:100%;table-layout:fixed;}
+        /* `table-layout:fixed`는 **첫 행**에서 열 너비를 읽는다. 그런데 첫 행이 colspan 파일 헤더라
+           읽을 게 없어 열을 균등 분할해버린다(줄번호 열이 화면의 1/4을 먹었다). colgroup으로 못 박는다. */
+        table.code col.cln{width:64px;}
         table.code td{vertical-align:top;}
         table.code td.ln{width:1%;white-space:nowrap;text-align:right;padding:0 18px 0 16px;color:\(t.muted);
               user-select:none;position:sticky;left:0;background:\(t.bg);border-right:1px solid \(t.gutter);}
-        table.code td.src{white-space:pre;padding:0 16px 0 44px;}
-        .dl{white-space:pre;padding:0 16px;}
+        table.code td.src{white-space:pre-wrap;overflow-wrap:anywhere;padding:0 16px 0 44px;}
+        .dl{white-space:pre-wrap;overflow-wrap:anywhere;padding:0 16px;}
+        /* 변경 위치 레일 — macOS 오버레이 스크롤바는 CSS로 못 칠하므로 별도 div로 띄운다. */
+        #muxa-minimap{position:fixed;top:0;right:0;width:10px;height:100%;z-index:50;
+              pointer-events:none;}
+        #muxa-minimap i{position:absolute;right:2px;width:6px;height:3px;border-radius:2px;
+              pointer-events:auto;cursor:pointer;opacity:.85;}
+        #muxa-minimap i:hover{opacity:1;width:8px;right:1px;}
+        #muxa-minimap i.mm-add{background:\(t.addFg);}
+        #muxa-minimap i.mm-del{background:\(t.delFg);}
+        #muxa-minimap i.mm-mod{background:\(t.hunk);}
         .add{color:\(t.addFg);background:\(t.addBg);}
         .del{color:\(t.delFg);background:\(t.delBg);}
         .hunk{color:\(t.hunk);}
         .meta{color:\(t.muted);}
         .hunkrow{display:flex;align-items:center;gap:10px;white-space:normal;}
-        .hunktext{white-space:pre;}
+        .hunktext{white-space:pre-wrap;overflow-wrap:anywhere;}
         .stagebtn{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:\(t.addFg);
               background:\(t.addBg);border:1px solid \(t.addFg);border-radius:4px;padding:0 8px;cursor:pointer;user-select:none;}
         .stagebtn:hover{background:\(t.addFg);color:\(t.bg);}
@@ -85,14 +97,15 @@ enum CodeHTML {
         .cmtdel:hover{color:\(t.delFg);}
         .outdatedwrap{margin:8px 16px;padding:6px 10px;border:1px solid \(t.delFg);border-radius:5px;background:\(t.delBg);}
         .outdatedttl{font-size:11px;font-weight:600;color:\(t.delFg);margin-bottom:4px;}
-        table.sxs{border-collapse:collapse;width:max-content;min-width:100%;table-layout:auto;}
+        table.sxs{border-collapse:collapse;width:100%;table-layout:fixed;}
+        table.sxs col.cln{width:52px;}
         table.sxs td{vertical-align:top;}
         table.sxs td.ln{width:1%;white-space:nowrap;text-align:right;padding:0 8px;color:\(t.muted);
               user-select:none;background:\(t.gutter);}
-        table.sxs td.src{white-space:pre;padding:0 12px 0 8px;}
+        table.sxs td.src{white-space:pre-wrap;overflow-wrap:anywhere;padding:0 12px 0 8px;}
         table.sxs td.midsrc{border-right:1px solid \(t.gutter);}
         table.sxs td.empty{background:\(t.gutter);}
-        table.sxs td.hunkhdr{padding:2px 16px;white-space:pre;color:\(t.hunk);}
+        table.sxs td.hunkhdr{padding:2px 16px;white-space:pre-wrap;color:\(t.hunk);}
         </style></head><body><div class="wrap">\(body)</div>\(script)</body></html>
         """
     }
@@ -113,7 +126,7 @@ enum CodeHTML {
             }
             rows += "<tr><td class=\"ln\">\(i + 1)</td><td class=\"src\">\(src.isEmpty ? " " : src)</td></tr>"
         }
-        return page("<table class=\"code\">\(rows)</table>", theme: t)
+        return page("<table class=\"code\"><colgroup><col class=\"cln\"><col></colgroup>\(rows)</table>", theme: t)
     }
 
     /// 앵커된 코멘트의 배치 키 — (파일, side, 줄번호)로 현재 diff 줄과 대조한다.
@@ -201,6 +214,7 @@ enum CodeHTML {
         }
         let cmtHandler = CodeWebView.commentMessageName
         var script = "<script>"
+        script += minimapInit
         script += hunkScript(stageable: stageable, discardable: discardable)
         if commentable {
             script += """
@@ -219,7 +233,7 @@ enum CodeHTML {
     /// `stageable`/`discardable`이면 hunk 헤더 행에 통합 뷰와 같은 스테이지·버리기 버튼(브리지)을 붙인다.
     private static func diffTwoColumn(lines: [String], dark: Bool, stageable: Bool, discardable: Bool) -> String {
         let t = Theme.of(dark: dark)
-        var body = "<table class=\"sxs\">"
+        var body = "<table class=\"sxs\"><colgroup><col class=\"cln\"><col><col class=\"cln\"><col></colgroup>"
         for row in SideBySideDiff.rows(lines) {
             switch row {
             case .file(let path):
@@ -237,8 +251,27 @@ enum CodeHTML {
             }
         }
         body += "</table>"
-        let script = "<script>\(hunkScript(stageable: stageable, discardable: discardable))</script>"
+        let script = "<script>\(minimapInit)\(hunkScript(stageable: stageable, discardable: discardable))</script>"
         return page(body, theme: t, script: script)
+    }
+
+
+    /// 변경 위치 레일 스크립트 — `Resources/diffdoc/minimap.js` **한 파일이 단일 출처**다.
+    /// 문서 diff 뷰어는 그 파일을 `<script src>`로 읽고, 여기서는 인라인한다
+    /// (`CodeWebView`가 `loadHTMLString(baseURL: nil)`이라 외부 리소스를 못 읽기 때문).
+    private static let minimapSource: String = {
+        guard let url = Bundle.module.url(forResource: "minimap", withExtension: "js", subdirectory: "diffdoc"),
+              let src = try? String(contentsOf: url, encoding: .utf8) else { return "" }
+        return src
+    }()
+
+    /// 통합·나란히 뷰의 변경 위치 레일 초기화. 변경 줄(.add/.del)마다 틱을 찍는다.
+    private static var minimapInit: String {
+        guard !minimapSource.isEmpty else { return "" }
+        return minimapSource + """
+        \ntry{MuxaMinimap.watch('td.src.add,td.src.del,.dl.add,.dl.del', function(el){
+          return el.classList.contains('add') ? 'add' : 'del'; });}catch(e){}
+        """
     }
 
     /// hunk 헤더에 붙는 스테이지·버리기 버튼 HTML(없으면 빈 문자열). 통합·나란히 뷰가 공유.

@@ -118,15 +118,20 @@ private final class WeakScriptProxy: NSObject, WKScriptMessageHandler {
     }
 }
 
-/// 문서 diff 표시 밀도 — Word의 3단 모델.
+/// 문서 diff 표시 밀도 — **두 단**이다.
 ///
-/// 리뷰에 필요한 건 "결과물이 어떤 모습인가"와 "뭘 건드렸나" **둘 다**인데, 지금까지의 diff는
+/// 리뷰에 필요한 건 "결과물이 어떤 모습인가"와 "뭘 건드렸나" 둘 다인데, 지금까지의 diff는
 /// 후자만 줬다. 한 토글로 오가게 하는 게 이 뷰어의 절반이다.
+///
+/// **Word의 중간 단(Simple Markup)은 두지 않는다.** 두 이유로 이 화면에선 성립하지 않는다:
+/// ① **삭제를 표현할 자리가 없다.** 본문을 깨끗이 두려면 삭제된 문단을 숨겨야 하는데, 그러면
+///    그 블록에 달린 레일까지 함께 사라져 "바뀐 곳"이라면서 정작 삭제된 곳이 안 보인다.
+///    Word는 줄 단위 문서라 여백 막대가 남지만, 렌더된 문서에서 사라진 문단은 자리 자체가 없다.
+/// ② **미니맵이 이미 그 일을 한다.** 스크롤바 옆 변경 위치 레일이 "어디가 바뀌었나"를 항상
+///    보여주므로, 같은 목적의 밀도 단계는 중복이다.
 enum DocDiffDensity: String, CaseIterable, Identifiable {
     /// 최종본 — 변경 표시 0. 커밋 diff에서도 "그 시점의 문서"를 볼 수 있는 유일한 자리.
     case clean
-    /// 위치만 — 본문은 깨끗하고 좌측 레일만. "어디를 건드렸나"만 알면 될 때.
-    case marks
     /// 상세 — 인라인 강조 전부(기본).
     case full
 
@@ -135,15 +140,20 @@ enum DocDiffDensity: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .clean: return "최종본"
-        case .marks: return "위치만"
-        case .full: return "상세"
+        case .full: return "변경 표시"
+        }
+    }
+
+    var help: String {
+        switch self {
+        case .clean: return "변경 표시 없이 완성된 문서만 — 결과물이 어떤 모습인지 본다"
+        case .full: return "추가·삭제·수정을 문서 위에 전부 표시"
         }
     }
 
     var icon: String {
         switch self {
         case .clean: return "doc.plaintext"
-        case .marks: return "list.bullet.indent"
         case .full: return "text.magnifyingglass"
         }
     }

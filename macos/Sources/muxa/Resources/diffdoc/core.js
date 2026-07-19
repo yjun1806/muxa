@@ -31,7 +31,16 @@
     // 인접 변경 스팬 병합 거리(문자). "3글자 고쳤는데 하이라이트 다섯 조각"을 막는다.
     mergeDistance: 2,
     // 이동 판정 최소 길이 — 짧은 블록의 우연 일치를 배제한다.
-    moveMinChars: 20
+    moveMinChars: 20,
+    // **어절 단계 과분절 상한.** 한 문단에서 변경 조각이 이보다 많으면 삭제·삽입이 뒤엉켜
+    // "단어 수프"가 된다(실제로 읽을 수 없는 화면이 나왔다). 그 경우 문단을 통째 교체로 보여준다.
+    maxWordFragments: 8,
+    // 변경 비율 상한 — 문단의 이만큼 넘게 바뀌었으면 "고친 것"이 아니라 "다시 쓴 것"이다.
+    maxChangeRatio: 0.5,
+    // **비율은 긴 문단에서만 본다.** 짧은 문장은 단어 하나만 바꿔도 비율이 쉽게 넘는데
+    // ("안녕 🎉 반가워"→"반갑다"는 67%) 그건 전혀 안 읽히는 화면이 아니다.
+    // 단어 수프는 긴 문단에 변경이 흩뿌려질 때만 생긴다.
+    ratioMinChars: 80
   };
 
   function dmpInstance() {
@@ -79,18 +88,26 @@
     for (var i = 0; i < tokens.length; i++) {
       var t = tokens[i];
 
-      // ── 표: 열고 닫을 때까지 안쪽을 전부 삼킨다(원자) ──
-      if (t.type === 'table_open') { table = { tok: t, text: '' }; continue; }
+      // ── 표: 블록은 통짜지만 **셀 좌표는 기억한다** ──
+      // 통짜로 두는 이유는 행 하나가 유효한 표 문법이 아니라서고(헤더·구분선이 없다),
+      // 셀 좌표를 남기는 이유는 "어느 칸이 바뀌었나"를 칸 안에서 짚어주기 위해서다.
+      if (t.type === 'table_open') { table = { tok: t, text: '', cells: [], row: -1, col: 0 }; continue; }
       if (t.type === 'table_close') {
         if (table) {
-          blocks.push(mkBlock('table', table.text, table.tok.map, [table.tok], '',
-                              lists[lists.length - 1]));
+          var tb = mkBlock('table', table.text, table.tok.map, [table.tok], '',
+                           lists[lists.length - 1]);
+          tb.cells = table.cells;
+          blocks.push(tb);
           table = null;
         }
         continue;
       }
       if (table) {
-        if (t.type === 'inline') table.text += t.content + ' ';
+        if (t.type === 'tr_open') { table.row++; table.col = 0; }
+        else if (t.type === 'inline') {
+          table.text += t.content + ' ';
+          table.cells.push({ row: table.row, col: table.col++, text: t.content });
+        }
         continue;   // 표 안의 tr/td는 블록으로 세지 않는다
       }
 
@@ -268,7 +285,19 @@
     var refined = refineAdjacent(segs, opts);
     if (refined) { ins = refined.ins; del = refined.del; }
 
-    return { ins: mergeSpans(ins, opts.mergeDistance), del: del };
+    var merged = mergeSpans(ins, opts.mergeDistance);
+
+    // **과분절 방어(어절 단계).** 조각이 너무 많거나 문단 대부분이 바뀌었으면 인라인 강조를
+    // 포기하고 통째 교체로 넘긴다 — 삭제·삽입이 단어마다 뒤엉킨 화면은 diff가 아니라 소음이다.
+    var changedChars = merged.reduce(function (n, s) { return n + (s.end - s.start); }, 0)
+                     + del.reduce(function (n, d) { return n + d.text.length; }, 0);
+    var total = Math.max(1, newText.length);
+    var ratioApplies = total >= opts.ratioMinChars;
+    if (merged.length + del.length > opts.maxWordFragments ||
+        (ratioApplies && changedChars / total > opts.maxChangeRatio)) {
+      return { ins: merged, del: del, tooFragmented: true };
+    }
+    return { ins: merged, del: del };
   }
 
   /** 어절 단위 diff — `Intl.Segmenter('ko')`로 자른 뒤 그 시퀀스를 비교한다. */
@@ -373,6 +402,58 @@
     return out;
   }
 
+  /**
+   * 코드블록 내부 — **줄 단위** diff. 코드에 어절 하이라이트를 치면 안 읽히므로 줄로 간다.
+   * 반환 스팬의 오프셋은 새 코드 텍스트 기준이고, 렌더된 `<code>`의 textContent와 일치한다.
+   */
+  function codeLineSpans(oldCode, newCode) {
+    var oldLines = String(oldCode).split('\n'), newLines = String(newCode).split('\n');
+    // 줄을 사문자로 압축해 dmp의 문자 diff를 줄 diff로 쓴다(dmp linesToChars와 같은 트릭).
+    var map = {}, list = [];
+    function enc(arr) {
+      var out = '';
+      for (var i = 0; i < arr.length; i++) {
+        var l = arr[i];
+        if (!(l in map)) { map[l] = list.length; list.push(l); }
+        out += String.fromCharCode(map[l] + 0xE000);
+      }
+      return out;
+    }
+    var dmp = dmpInstance();
+    var d = dmp.diff_main(enc(oldLines), enc(newLines), false);
+    var ins = [], del = [], pos = 0;
+    for (var i = 0; i < d.length; i++) {
+      var op = d[i][0], n = d[i][1].length;
+      var text = '';
+      for (var j = 0; j < n; j++) text += list[d[i][1].charCodeAt(j) - 0xE000] + '\n';
+      if (op === 0) { pos += text.length; }
+      else if (op === 1) { ins.push({ start: pos, end: pos + text.length }); pos += text.length; }
+      else { del.push({ at: pos, text: text }); }
+    }
+    return { ins: ins, del: del };
+  }
+
+  /**
+   * 표 내부 — **칸 단위** 매칭 후 칸 안에서 어절 diff.
+   * 표 구조(행·열 추가)는 diff하지 않는다 — 좌표가 어긋나면 통짜 변경으로 물러선다.
+   */
+  function tableCellSpans(oldCells, newCells, opts) {
+    if (!oldCells || !newCells) return null;
+    var byKey = {};
+    oldCells.forEach(function (c) { byKey[c.row + ',' + c.col] = c.text; });
+    var out = [];
+    for (var i = 0; i < newCells.length; i++) {
+      var c = newCells[i];
+      var prev = byKey[c.row + ',' + c.col];
+      if (prev === undefined) return null;      // 구조가 바뀌었다 — 칸 매칭을 포기한다
+      if (prev === c.text) continue;
+      var spans = textSpans(prev, c.text, opts);
+      if (spans.tooFragmented) { spans = { ins: [{ start: 0, end: c.text.length }], del: [] }; }
+      out.push({ row: c.row, col: c.col, ins: spans.ins, del: spans.del });
+    }
+    return out;
+  }
+
   // ── 진입점 ────────────────────────────────────────────────────────────────
   /**
    * 문서 diff 모델. 렌더는 shell이 하고, 여기서는 **무엇이 어디서 바뀌었나**만 낸다.
@@ -440,17 +521,37 @@
         continue;
       }
       // modified — 2·3층으로 내려가 스팬을 뽑는다. 코드블록은 어절 diff 대상이 아니다.
-      // 코드·표는 원자다 — 어절 스팬을 계산하지 않는다.
-      // (코드에 워드 하이라이트를 치면 안 읽히고, 표는 셀 경계를 무시한 오프셋이 엉뚱한 칸을 칠한다.)
-      var atomic = (b.type === 'code' || b.type === 'table');
-      var spans = atomic
-        ? { ins: [], del: [], wholeCode: true }
-        : textSpans(olds[pair.o].text, b.text, opts);
+      // 코드·표는 어절 스팬을 쓰지 않는다 — 대신 각자의 내부 단위로 짚는다.
+      // 코드는 **줄**, 표는 **칸**. 어절 오프셋을 그대로 쓰면 셀 경계를 넘어 엉뚱한 칸이 칠해진다.
+      var spans;
+      if (b.type === 'code') {
+        spans = codeLineSpans(olds[pair.o].text, b.text);
+        spans.codeLines = true;
+      } else if (b.type === 'table') {
+        var cells = tableCellSpans(olds[pair.o].cells, b.cells, opts);
+        // 칸 매칭이 안 되면(행·열 구조 변경) 통짜 변경으로 물러선다 — 지어내지 않는다.
+        spans = cells ? { ins: [], del: [], cells: cells } : { ins: [], del: [], wholeCode: true };
+      } else {
+        spans = textSpans(olds[pair.o].text, b.text, opts);
+      }
+      // 너무 잘게 쪼개졌으면 **옛 블록 통째 삭제 + 새 블록 통째 삽입**으로 보여준다.
+      // 어느 단어가 바뀌었는지 못 읽는 화면보다, 두 판을 나란히 보는 쪽이 정직하다.
+      if (spans.tooFragmented) {
+        out.push({ kind: 'deleted', type: b.type, info: b.info, text: olds[pair.o].text,
+                   listTag: b.listTag, listId: b.listId,
+                   line: olds[pair.o].line, source: sliceSource(oldSrc, olds[pair.o]) });
+        out.push({ kind: 'inserted', type: b.type, info: b.info, text: b.text,
+                   listTag: b.listTag, listId: b.listId,
+                   line: b.line, source: sliceSource(newSrc, b) });
+        stats.deleted++; stats.inserted++;
+        continue;
+      }
       out.push({ kind: 'modified', type: b.type, info: b.info, text: b.text, line: b.line,
                  listTag: b.listTag, listId: b.listId,
                  oldText: olds[pair.o].text, source: sliceSource(newSrc, b),
                  oldSource: sliceSource(oldSrc, olds[pair.o]),
-                 ins: spans.ins, del: spans.del, wholeCode: !!spans.wholeCode });
+                 ins: spans.ins, del: spans.del, wholeCode: !!spans.wholeCode,
+                 codeLines: !!spans.codeLines, cells: spans.cells || null });
       stats.modified++;
     }
     flushDel(news.length);

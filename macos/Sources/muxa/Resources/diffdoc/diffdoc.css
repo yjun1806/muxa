@@ -5,19 +5,27 @@
  *
  * 밀도 3단은 body 클래스로 갈린다:
  *   .density-clean  — 최종본. 변경 표시 0
- *   .density-marks  — 위치만. 좌측 레일만
  *   .density-full   — 상세. 인라인 강조 전부(기본)
  */
 
 .markdown-body { position: relative; }
 
 /* ── 블록 레일 ─────────────────────────────────────────────────────────────
-   Highlight API는 레이아웃 속성(padding/border)을 못 쓴다 — 레일은 DOM 몫이다. */
+   Highlight API는 레이아웃 속성(padding/border)을 못 쓴다 — 레일은 DOM 몫이다.
+
+   **레일은 본문 바깥의 전용 여백(거터)에 선다.** 블록 바로 왼쪽에 붙이면 리스트 항목의
+   번호·불릿과 같은 자리를 다퉈 겹친다(실제로 겹쳤다). 그래서 본문에 거터를 만들고,
+   중첩 깊이와 무관하게 **모든 레일이 한 세로선에 정렬**되게 좌표를 보정한다. */
+.markdown-body { padding-left: 52px; }
+
 .d-blk { position: relative; }
 .d-blk::before {
-  content: ""; position: absolute; left: -14px; top: 0; bottom: 0;
+  content: ""; position: absolute; left: -38px; top: 0; bottom: 0;
   width: 3px; border-radius: 2px; background: transparent;
 }
+/* 리스트 항목은 `ul`의 들여쓰기(1.6em)만큼 더 안쪽에 있다 — 그만큼 되돌린다. */
+.markdown-body li.d-blk::before { left: calc(-38px - 1.6em); }
+.markdown-body li li.d-blk::before { left: calc(-38px - 3.2em); }
 .density-clean .d-blk::before { display: none; }
 .d-ins::before { background: var(--d-add); }
 .d-mod::before { background: var(--d-mod); }
@@ -41,7 +49,7 @@
   border-radius: 3px;
   padding: 0 1px;
 }
-.density-clean .d-deltext, .density-marks .d-deltext { display: none; }
+.density-clean .d-deltext { display: none; }
 
 /* 통째 삭제된 블록 — 있던 자리에 그대로 둔다("여기서 뭐가 없어졌다"를 그 자리에서 말한다) */
 .d-delblock {
@@ -54,7 +62,6 @@
   margin: .4em 0;
 }
 .density-clean .d-delblock { display: none; }
-.density-marks .d-delblock { display: none; }
 
 /* 삭제가 많으면 접힌 칩으로 — 지운 걸 다 펼쳐 놓으면 "최종본이 어떤 모습인가"가 안 읽힌다 */
 .d-delchip {
@@ -74,8 +81,14 @@
 }
 .density-clean .d-movemark { display: none; }
 
-/* ── 코드블록 통째 변경 배지 ───────────────────────────────────────────────
-   코드에 어절 하이라이트를 치면 안 읽힌다 — 원자 교체로 표시하고 내부는 건드리지 않는다. */
+/* 바뀐 표 칸 — 칸 자체에 옅은 테두리를 둘러 "이 칸이다"를 먼저 알린다.
+   (칸 안 글자 하이라이트만으로는 넓은 표에서 눈에 안 띈다.) */
+.markdown-body td.d-cell, .markdown-body th.d-cell {
+  box-shadow: inset 0 0 0 2px var(--d-mod);
+}
+
+/* ── 통째 변경 배지 — 내부를 못 짚는 경우에만 ───────────────────────────────
+   표의 행·열 구조가 바뀌면 칸 좌표가 어긋나 어느 칸이 바뀐 건지 지어낼 수 없다. */
 .d-atombadge {
   display: inline-block;
   font: 11px/1.4 "SF Mono", Menlo, monospace;
@@ -88,4 +101,17 @@
 .d-insfallback { background: var(--d-add-bg); border-radius: 3px; }
 .d-modfallback { background: var(--d-mod-bg); border-radius: 3px; }
 .density-clean .d-insfallback, .density-clean .d-modfallback { background: none; }
-.density-marks .d-insfallback, .density-marks .d-modfallback { background: none; }
+
+/* ── 변경 위치 레일 ────────────────────────────────────────────────────────
+   macOS 오버레이 스크롤바는 CSS로 못 칠한다 — 별도 div로 띄운다.
+   긴 문서에서 변경을 찾아 스크롤을 헤매는 비용이 리뷰의 실제 부담이라,
+   규모를 먼저 보여주고 클릭으로 점프시킨다. */
+#muxa-minimap { position: fixed; top: 0; right: 0; width: 10px; height: 100%; z-index: 50; pointer-events: none; }
+#muxa-minimap i { position: absolute; right: 2px; width: 6px; height: 3px; border-radius: 2px;
+                  pointer-events: auto; cursor: pointer; opacity: .85; }
+#muxa-minimap i:hover { opacity: 1; width: 8px; right: 1px; }
+#muxa-minimap i.mm-add { background: var(--d-add); }
+#muxa-minimap i.mm-del { background: var(--d-del); }
+#muxa-minimap i.mm-mod { background: var(--d-mod); }
+#muxa-minimap i.mm-mov { background: var(--d-mov); }
+.density-clean #muxa-minimap { display: none !important; }

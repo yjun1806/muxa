@@ -354,7 +354,7 @@ struct DiffView: View {
     private var densityToggle: some View {
         HStack(spacing: 0) {
             ForEach(DocDiffDensity.allCases) { d in
-                segButton(d.label, selected: density == d) { density = d }
+                segButton(d.label, selected: density == d, help: d.help) { density = d }
             }
         }
         .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: 1))
@@ -397,7 +397,8 @@ struct DiffView: View {
         }
     }
 
-    private func segButton(_ title: String, selected: Bool, _ action: @escaping () -> Void) -> some View {
+    private func segButton(_ title: String, selected: Bool, help: String? = nil,
+                           _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.muxa(.label))
@@ -406,6 +407,7 @@ struct DiffView: View {
                 .background(selected ? Color.pBtnActive : Color.clear)
                 .foregroundStyle(selected ? Color.pFg : Color.pMuted)
         }
+        .help(help ?? title)
         .buttonStyle(.plain)
         .clickCursor()
     }

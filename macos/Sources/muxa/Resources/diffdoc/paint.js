@@ -198,6 +198,21 @@
       return li;
     }
 
+    /** 표의 바뀐 칸에 하이라이트를 건다. 행·열 좌표로 찾는다(헤더가 0행). */
+    function paintCells(tableEl, cells, reg) {
+      var rows = tableEl.tagName === 'TABLE' ? tableEl.rows : (tableEl.querySelector('table') || {}).rows;
+      if (!rows) return;
+      cells.forEach(function (c) {
+        var tr = rows[c.row];
+        if (!tr) return;
+        var cell = tr.cells[c.col];
+        if (!cell) return;
+        cell.classList.add('d-cell');
+        insertDeletions(cell, c.del);
+        paintSpans(cell, c.ins, 'd-mod', reg);
+      });
+    }
+
     function flushDeletions() {
       if (!pendingDel.length) return;
       renderDeletedRun(pendingDel).forEach(function (el) { doc.appendChild(el); });
@@ -227,10 +242,20 @@
         var ti = textIndex(placed);
         if (ti.total) paintSpans(placed, [{ start: 0, end: ti.total }], 'd-ins', registry);
       } else if (b.kind === 'modified') {
-        if (b.wholeCode) {
+        if (b.codeLines) {
+          // 코드블록 — **바뀐 줄만** 칠한다. `<code>`의 textContent가 소스와 같으므로
+          // 같은 오프셋 기계(textIndex/locate)를 그대로 쓴다.
+          var codeEl = placed.querySelector('code') || placed;
+          insertDeletions(codeEl, b.del);
+          paintSpans(codeEl, b.ins, 'd-mod', registry);
+        } else if (b.cells) {
+          // 표 — **바뀐 칸만** 칠한다. 칸 좌표로 찾아 그 안에서만 오프셋을 쓴다
+          // (표 전체 텍스트 오프셋을 쓰면 셀 경계를 넘어 엉뚱한 칸이 칠해진다).
+          paintCells(placed, b.cells, registry);
+        } else if (b.wholeCode) {
           var badge = document.createElement('div');
           badge.className = 'd-atombadge';
-          badge.textContent = b.type === 'table' ? '표 변경됨' : '코드 변경됨';
+          badge.textContent = b.type === 'table' ? '표 구조 변경됨' : '코드 변경됨';
           placed.insertBefore(badge, placed.firstChild);
         } else {
           insertDeletions(placed, b.del);
@@ -255,8 +280,18 @@
       });
     }
 
-    if (global.hljs) {
-      doc.querySelectorAll('pre code').forEach(function (c) { try { hljs.highlightElement(c); } catch (e) {} });
+    // **하이라이터를 여기서 다시 돌리지 않는다.** markdown-it의 `highlight` 옵션이 렌더 시점에
+    // 이미 처리하고, 여기서 `hljs.highlightElement`를 또 부르면 `<code>`의 innerHTML을 통째로
+    // 갈아엎어 방금 넣은 삭제 표시와 Highlight Range가 함께 날아간다(실측으로 확인했다).
+
+    // 변경 위치 레일 — 밀도가 바뀔 때마다 다시 그린다(접힌 삭제가 펼쳐지면 높이가 변한다).
+    if (global.MuxaMinimap) {
+      try {
+        MuxaMinimap.watch('[data-change]', function (el) {
+          var k = el.getAttribute('data-change');
+          return k === 'inserted' ? 'add' : k === 'deleted' ? 'del' : k === 'moved' ? 'mov' : 'mod';
+        });
+      } catch (e) {}
     }
     return { blocks: (model.blocks || []).length, highlight: !!hlSupported };
   }
