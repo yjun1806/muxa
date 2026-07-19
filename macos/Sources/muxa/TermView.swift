@@ -64,6 +64,11 @@ final class TermView: NSView, NSTextInputClient {
 
     override var acceptsFirstResponder: Bool { true }
 
+    /// **창 배경 드래그(`isMovableByWindowBackground`)에서 터미널을 빼낸다.**
+    /// NSView 기본값이 true라, 이걸 안 막으면 AppKit이 mouseDown을 뷰에 주기 전에 창 이동으로
+    /// 가로챈다 — 터미널 안에서 텍스트를 끌어 선택하려는 순간 앱 창이 통째로 따라 움직인다.
+    override var mouseDownCanMoveWindow: Bool { false }
+
     init(app: ghostty_app_t, cwd: String?, tabId: TabID? = nil, sockPath: String? = nil,
          restoreScrollbackFile: String? = nil, initialCommand: String? = nil,
          command: String? = nil) {

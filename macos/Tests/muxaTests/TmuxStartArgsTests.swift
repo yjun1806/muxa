@@ -29,8 +29,19 @@ struct TmuxStartArgsTests {
     @Test func 한_번의_호출에_세미콜론으로_이어_붙인다() {
         // 명령을 나눠 보내면 그 사이에 pane이 죽을 수 있다. tmux가 명령 목록을 순차 처리하도록
         // `;`(그 자체가 하나의 인자)로 잇는다 — 셸을 안 거치므로 인용이 필요 없다.
-        // 5개 = remain-on-exit · base-index · pane-base-index · status · new-session 앞.
-        #expect(args().filter { $0 == ";" }.count == 5)
+        // 6개 = remain-on-exit · base-index · pane-base-index · status · mouse · new-session 앞.
+        #expect(args().filter { $0 == ";" }.count == 6)
+    }
+
+    @Test func 마우스를_켠_채_세션을_만든다() {
+        // attach는 alternate screen이라 지난 출력이 ghostty 스크롤백에 없다. mouse off면 tmux도 휠을
+        // 무시해 도크에서 로그를 위로 볼 방법이 사라진다(드래그 선택도 마찬가지).
+        let a = args()
+        let opt = a.firstIndex(of: "mouse")
+        let create = a.firstIndex(of: "new-session")
+        #expect(opt != nil && create != nil)
+        #expect(opt! < create!)
+        #expect(a[opt! + 1] == "on")
     }
 
     @Test func pane_base_index를_0으로_new_session보다_먼저_강제한다() {

@@ -1636,6 +1636,8 @@ final class AppState {
         dockProjectId = projectId ?? activeProject?.id
         if let tab { dockTab = tab } // nil = 탭 유지(⌘J 중립 토글). 진입점이 주면 그 탭으로.
         showServiceDock = true
+        // 앱보다 오래 사는 tmux 서버에도 보기 옵션(마우스·상태바)을 건다 — 이유는 TmuxService 쪽 주석에.
+        Task { await TmuxService.applyDockViewingOptions() }
     }
 
     /// 도크가 그릴 대상 — 도크를 연 프로젝트(사라졌으면 메인의 활성 프로젝트로 폴백).

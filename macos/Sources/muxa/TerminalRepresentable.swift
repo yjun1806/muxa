@@ -13,6 +13,10 @@ final class TermHostView: NSView {
     var term: TermView?
     var windowId: String = WindowID.main.rawValue
 
+    /// 호스트도 창 이동에서 뺀다 — TermView가 아직 안 붙었거나 서피스 여백에 떨어진 클릭까지
+    /// 창 드래그가 되면, 터미널 영역에서의 드래그 결과가 위치에 따라 달라진다(→ TermView 동일 주석).
+    override var mouseDownCanMoveWindow: Bool { false }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard window != nil, let term else { return }

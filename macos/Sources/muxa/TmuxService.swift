@@ -217,6 +217,17 @@ enum TmuxService {
         _ = await run(["set-option", "-g", "remain-on-exit-format", ""])
     }
 
+    /// 도크로 **보기 위한** 전역 옵션을 이미 살아 있는 서버에도 건다.
+    ///
+    /// `startArgs`는 **세션을 만들 때만** 돈다. 그런데 tmux 서버는 앱보다 오래 산다 — 앱을 껐다 켜도,
+    /// 앱을 새 버전으로 갈아도 어제 띄운 서비스 세션은 옛 옵션 그대로다. 그래서 세션 생성 경로에만
+    /// 옵션을 두면 "이미 돌고 있는 서비스에서는 영영 안 고쳐지는" 버그가 된다.
+    /// 전역·멱등이라 도크를 열 때 best-effort로 부른다(옵션은 붙어 있는 클라이언트에 즉시 반영된다).
+    static func applyDockViewingOptions() async {
+        _ = await run(["set-option", "-g", "mouse", "on"])
+        _ = await run(["set-option", "-g", "status", "off"])
+    }
+
     /// 기동 명령 목록(순수) — **순서가 곧 정확성이다**.
     ///
     /// `remain-on-exit on`이 없으면 프로세스가 죽는 순간 pane이 증발해 exit code도 마지막 로그도
@@ -240,6 +251,11 @@ enum TmuxService {
          ";", "set-option", "-g", "base-index", "0",
          ";", "set-option", "-g", "pane-base-index", "0",
          ";", "set-option", "-g", "status", "off", // 도크에 tmux 상태바가 이중으로 보이지 않게
+         // **마우스를 켠다 — 없으면 도크의 attach 화면은 스크롤도 선택도 통째로 죽는다.**
+         // attach는 alternate screen을 쓰므로 지난 출력이 ghostty 스크롤백에 쌓이지 않는다. 즉 휠을
+         // 굴려도 올라갈 것이 ghostty 쪽엔 없고, tmux는 mouse off면 휠을 아예 처리하지 않는다 →
+         // 로그를 위로 못 본다. `mouse on`이면 휠이 copy-mode 스크롤로, 드래그가 pane 선택으로 간다.
+         ";", "set-option", "-g", "mouse", "on",
          ";", "new-session", "-d", "-s", session, "-c", cwd, shell, "-l", "-i", "-c", command]
     }
 
