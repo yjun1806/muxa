@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- 에이전트 산출물을 렌더하는 화면이라 인라인 스크립트를 열지 않는다.
+     (WKUserScript는 CSP를 우회하므로 브리지는 그래도 산다 — "CSP 걸었으니 안전"은 착각이다.) -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: file:; font-src 'self'; base-uri 'none'">
+<link id="hl-theme" rel="stylesheet" href="../mdviewer/hl-light.css">
+<link rel="stylesheet" href="../mdviewer/md-body.css">
+<link rel="stylesheet" href="diffdoc.css">
+<script src="../mdviewer/markdown-it.min.js"></script>
+<script src="../mdviewer/highlight.min.js"></script>
+<script src="diff-match-patch.js"></script>
+<script src="core.js"></script>
+<script src="paint.js"></script>
+</head>
+<body>
+  <div id="doc" class="markdown-body"></div>
+</body>
+</html>

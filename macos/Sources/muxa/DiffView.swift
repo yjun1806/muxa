@@ -91,6 +91,15 @@ struct DiffView: View {
     @State private var draft: CommentDraft?
     /// 나란히 보기(2열) 여부 — 도구줄 [통합 | 나란히] 토글. 기본은 통합. 뷰 로컬 상태.
     @State private var sideBySide = false
+    /// 보기 모드 — [통합 | 나란히 | 문서]. 문서는 md에서만 뜬다.
+    @State private var viewMode: ChangesViewMode = .unified
+    /// 문서 모드 표시 밀도(Word 3단).
+    @State private var density: DocDiffDensity = .full
+    /// 문서 모드가 쓸 양쪽 원문. 문서 모드로 들어갈 때만 읽는다(안 쓰면 셸아웃 낭비).
+    @State private var docOld: String?
+    @State private var docNew: String?
+    /// 문서 diff 계산 결과 — 실패하면 통합 뷰로 자동 강등한다(에러 화면을 만들지 않는다).
+    @State private var docResult: DocDiffResult?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -99,7 +108,9 @@ struct DiffView: View {
                 HDivider()
             }
             toolbar
-            if !loaded {
+            if viewMode == .document {
+                documentBody
+            } else if !loaded {
                 centerLabel("불러오는 중…")
             } else if lines.isEmpty {
                 centerLabel("변경 내용 없음")
@@ -120,12 +131,69 @@ struct DiffView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.pBg)
         .task(id: target.id) {
+            // 대상이 바뀌면 모드를 되돌린다 — md에서 문서 모드였다가 .swift로 옮기면 갈 곳이 없다.
+            if !ChangesViewMode.available(for: target).contains(viewMode) { viewMode = .unified }
+            docOld = nil; docNew = nil; docResult = nil
             await load()
             watcher = fileWatcher() // 파일 diff면 부모 디렉토리 감시 시작(커밋 diff는 nil)
+        }
+        .task(id: "\(target.id)|\(viewMode.rawValue)") {
+            if viewMode == .document { await loadDocumentSources() }
         }
         .onChange(of: watcher?.changeSeq) { _, _ in Task { await reloadIfChanged() } }
         .sheet(item: $draft) { d in
             ReviewCommentSheet(draft: d, onSubmit: { addComment(d, body: $0) }, onCancel: { draft = nil })
+        }
+    }
+
+    // MARK: 문서 모드
+
+    /// 문서 diff 본문. 원문을 아직 못 읽었으면 자리를 잡고, 계산이 실패하면 **통합 뷰로 강등**한다
+    /// (GitHub은 여기서 에러만 띄우고 사용자에게 수동 전환을 시켜 3년째 욕먹는다).
+    @ViewBuilder
+    private var documentBody: some View {
+        if let r = docResult, let msg = r.failure {
+            VStack(spacing: Space.sm) {
+                Text("문서 보기를 만들지 못해 통합 보기로 표시합니다")
+                    .font(.muxa(.body)).foregroundStyle(Color.pFg)
+                Text(msg).font(.muxa(.caption)).foregroundStyle(Color.pMuted).lineLimit(2)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onAppear { viewMode = .unified }
+        } else if let old = docOld, let new = docNew {
+            DocDiffWebView(
+                oldSource: old, newSource: new,
+                dark: GhosttyRuntime.systemIsDark,
+                density: density,
+                onComment: commentable ? handleComment : nil,
+                onResult: { docResult = $0 })
+        } else {
+            centerLabel("문서를 여는 중…")
+        }
+    }
+
+    /// 양쪽 원문을 읽어 온다 — 판정은 `DocDiffSource`(순수), 읽기는 여기(경계).
+    private func loadDocumentSources() async {
+        guard let src = DocDiffSource.resolve(target) else {
+            docResult = DocDiffResult(failure: "이 대상은 문서 보기를 지원하지 않습니다")
+            return
+        }
+        async let o = read(src.old)
+        async let n = read(src.new)
+        let (oldText, newText) = await (o, n)
+        guard !Task.isCancelled else { return }
+        docOld = oldText
+        docNew = newText
+    }
+
+    private func read(_ side: DocSide) async -> String {
+        switch side {
+        case .empty:
+            return ""
+        case .revision(let rev, let path):
+            return await GitService.fileAtRevision(rev: rev, path: path, in: dir)
+        case .worktree(let path):
+            return (try? String(contentsOfFile: absolutePath(path), encoding: .utf8)) ?? ""
         }
     }
 
@@ -244,19 +312,23 @@ struct DiffView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// diff 위 도구줄 — [통합 | 나란히] 보기 토글만. **쓰기 버튼은 없다**(D37).
+    /// diff 위 도구줄 — [통합 | 나란히 | 문서] 보기 + 문서 모드의 밀도. **쓰기 버튼은 없다**(D37).
     /// 거부는 줄에 코멘트를 달아 에이전트에게 보낸다.
     @ViewBuilder
     private var toolbar: some View {
-        let showToggle = loaded && !lines.isEmpty
+        let showToggle = viewMode == .document || (loaded && !lines.isEmpty)
         if fileChange != nil || showToggle {
             HStack(spacing: 8) {
+                if viewMode == .document, let r = docResult, r.ok {
+                    docStats(r)
+                }
                 if let stageError {
                     Text(stageError)
                         .font(.muxa(.caption)).foregroundStyle(Color.pDanger).lineLimit(1).truncationMode(.middle)
                 }
                 Spacer(minLength: 0)
                 if applying { ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 16) }
+                if viewMode == .document { densityToggle }
                 if showToggle { viewModeToggle }
             }
             .padding(.horizontal, 12)
@@ -266,13 +338,63 @@ struct DiffView: View {
         }
     }
 
-    /// [통합 | 나란히] 세그먼트 토글 — 선택 칸만 강조. WKWebView가 html 변화로 모드 전환을 재로드한다.
+    /// 보기 토글 — **가능한 모드만 그린다.** 안 되는 버튼을 회색으로 두면 "왜 안 되지"를 매번 묻게 된다.
     private var viewModeToggle: some View {
-        HStack(spacing: 0) {
-            segButton("통합", selected: !sideBySide) { sideBySide = false }
-            segButton("나란히", selected: sideBySide) { sideBySide = true }
+        let modes = ChangesViewMode.available(for: target)
+        return HStack(spacing: 0) {
+            ForEach(modes) { m in
+                segButton(m.rawValue, selected: isSelected(m)) { select(m) }
+            }
         }
         .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: 1))
+    }
+
+    /// 문서 모드 밀도 — [최종본 | 위치만 | 상세]. 리뷰에 필요한 건 "결과물이 어떤 모습인가"와
+    /// "뭘 건드렸나" 둘 다인데, 지금까지의 diff는 후자만 줬다.
+    private var densityToggle: some View {
+        HStack(spacing: 0) {
+            ForEach(DocDiffDensity.allCases) { d in
+                segButton(d.label, selected: density == d) { density = d }
+            }
+        }
+        .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: 1))
+    }
+
+    /// 변경 요약 — 스크롤 시작 전에 규모를 안다.
+    private func docStats(_ r: DocDiffResult) -> some View {
+        HStack(spacing: Space.sm) {
+            if r.inserted > 0 { statChip("+\(r.inserted)", Palette.gitAdded) }
+            if r.modified > 0 { statChip("~\(r.modified)", Palette.gitModified) }
+            if r.deleted > 0 { statChip("−\(r.deleted)", Palette.gitDeleted) }
+            if r.totalChanges == 0 {
+                Text("변경 없음").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
+            }
+            if !r.highlight {
+                // 정직한 강등 — 왜 밋밋한지 말해준다.
+                Text("인라인 강조 미지원 macOS")
+                    .font(.muxa(.caption)).foregroundStyle(Color.pMuted)
+            }
+        }
+    }
+
+    private func statChip(_ text: String, _ color: NSColor) -> some View {
+        Text(text).font(.muxaMono(.caption)).foregroundStyle(Color(nsColor: color))
+    }
+
+    private func isSelected(_ m: ChangesViewMode) -> Bool {
+        switch m {
+        case .unified: return viewMode != .document && !sideBySide
+        case .sideBySide: return viewMode != .document && sideBySide
+        case .document: return viewMode == .document
+        }
+    }
+
+    private func select(_ m: ChangesViewMode) {
+        switch m {
+        case .unified: viewMode = .unified; sideBySide = false
+        case .sideBySide: viewMode = .unified; sideBySide = true
+        case .document: viewMode = .document
+        }
     }
 
     private func segButton(_ title: String, selected: Bool, _ action: @escaping () -> Void) -> some View {

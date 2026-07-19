@@ -1,0 +1,91 @@
+/* diffdoc.css — 문서 diff의 변경 표시.
+ *
+ * 색은 여기서 정하지 않는다 — Swift(`DocDiffTheme`)가 Palette에서 뽑아 CSS 변수로 주입한다.
+ * (기존 뷰어들이 옛 zinc 값을 하드코딩해 팔레트와 드리프트한 전례가 있어 신규 뷰어는 원천 차단.)
+ *
+ * 밀도 3단은 body 클래스로 갈린다:
+ *   .density-clean  — 최종본. 변경 표시 0
+ *   .density-marks  — 위치만. 좌측 레일만
+ *   .density-full   — 상세. 인라인 강조 전부(기본)
+ */
+
+.markdown-body { position: relative; }
+
+/* ── 블록 레일 ─────────────────────────────────────────────────────────────
+   Highlight API는 레이아웃 속성(padding/border)을 못 쓴다 — 레일은 DOM 몫이다. */
+.d-blk { position: relative; }
+.d-blk::before {
+  content: ""; position: absolute; left: -14px; top: 0; bottom: 0;
+  width: 3px; border-radius: 2px; background: transparent;
+}
+.density-clean .d-blk::before { display: none; }
+.d-ins::before { background: var(--d-add); }
+.d-mod::before { background: var(--d-mod); }
+.d-del::before { background: var(--d-del); }
+.d-mov::before { background: var(--d-mov); border-left: 3px dashed var(--d-mov); background: transparent; }
+
+/* ── 인라인 강조 (CSS Custom Highlight API) ────────────────────────────────
+   **WKWebView는 색 계열 둘만 그린다** — 실측 결과 text-decoration·outline·text-shadow는
+   허용 속성인데도 페인트되지 않는다. 그래서 모양이 필요한 표시는 전부 DOM으로 간다. */
+::highlight(d-ins) { background-color: var(--d-add-bg); }
+::highlight(d-mod) { background-color: var(--d-mod-bg); }
+
+/* ── 삭제 텍스트 (DOM) ─────────────────────────────────────────────────────
+   삭제된 글자는 새 문서 DOM에 없으므로 Highlight API로 못 칠한다 — 되살려 넣는 수밖에 없다.
+   상용 도구(GitHub·Word·Docs·Confluence) 전원이 같은 선택을 했다. */
+.d-deltext {
+  background: var(--d-del-bg);
+  color: var(--d-del);
+  text-decoration: line-through;   /* 색 + 모양 — 색맹 안전 */
+  text-decoration-thickness: 1px;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+.density-clean .d-deltext, .density-marks .d-deltext { display: none; }
+
+/* 통째 삭제된 블록 — 있던 자리에 그대로 둔다("여기서 뭐가 없어졌다"를 그 자리에서 말한다) */
+.d-delblock {
+  opacity: .72;
+  text-decoration: line-through;
+  text-decoration-color: var(--d-del);
+  background: var(--d-del-bg);
+  border-radius: 6px;
+  padding: 2px 8px;
+  margin: .4em 0;
+}
+.density-clean .d-delblock { display: none; }
+.density-marks .d-delblock { display: none; }
+
+/* 삭제가 많으면 접힌 칩으로 — 지운 걸 다 펼쳐 놓으면 "최종본이 어떤 모습인가"가 안 읽힌다 */
+.d-delchip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font: 12px/1.4 -apple-system, system-ui, sans-serif;
+  color: var(--d-del); background: var(--d-del-bg);
+  border: 1px dashed var(--d-del); border-radius: 6px;
+  padding: 3px 8px; margin: .4em 0; cursor: pointer;
+}
+.d-delchip:hover { filter: brightness(1.08); }
+.density-clean .d-delchip { display: none; }
+
+/* ── 이동 ─────────────────────────────────────────────────────────────────── */
+.d-movemark {
+  font: 11px/1.4 "SF Mono", Menlo, monospace;
+  color: var(--d-mov); opacity: .85; margin-left: 6px;
+}
+.density-clean .d-movemark { display: none; }
+
+/* ── 코드블록 통째 변경 배지 ───────────────────────────────────────────────
+   코드에 어절 하이라이트를 치면 안 읽힌다 — 원자 교체로 표시하고 내부는 건드리지 않는다. */
+.d-atombadge {
+  display: inline-block;
+  font: 11px/1.4 "SF Mono", Menlo, monospace;
+  color: var(--d-mod); background: var(--d-mod-bg);
+  border-radius: 4px; padding: 1px 6px; margin-bottom: 4px;
+}
+.density-clean .d-atombadge { display: none; }
+
+/* Highlight API가 없는 환경(macOS 14.0/14.1) — 폴백 span. 정직하게 강등한다. */
+.d-insfallback { background: var(--d-add-bg); border-radius: 3px; }
+.d-modfallback { background: var(--d-mod-bg); border-radius: 3px; }
+.density-clean .d-insfallback, .density-clean .d-modfallback { background: none; }
+.density-marks .d-insfallback, .density-marks .d-modfallback { background: none; }

@@ -35,6 +35,9 @@ let package = Package(
                 .copy("Resources/mdviewer"),
                 // 코드 뷰어용 Shiki 오프라인 번들(shiki.bundle.js) + HTML 셸.
                 .copy("Resources/codeviewer"),
+                // 문서 diff 뷰어(diff-match-patch + core/paint) — markdown-it·hljs·본문 CSS는
+                // mdviewer 것을 형제 경로로 공유한다(파서가 둘이면 좌표가 어긋나 유령 diff가 난다).
+                .copy("Resources/diffdoc"),
                 // 파일 익스플로러 컬러 아이콘(Material Icon Theme 슬림 번들 + icons.json).
                 .copy("Resources/fileicons"),
                 // 앱 아이콘(1024) — bare 실행에서도 Dock 아이콘을 이걸로 설정한다(main.swift). 재생성 = scripts/build-appicon.

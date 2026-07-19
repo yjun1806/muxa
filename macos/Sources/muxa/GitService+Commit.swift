@@ -34,6 +34,16 @@ extension GitService {
         return await run(args, in: dir).stdout
     }
 
+    /// 특정 리비전의 파일 **내용**(`git show <rev>:<path>`) — 문서 diff의 옛/새 원문.
+    ///
+    /// 워크트리를 안 보므로 **원본 파일이 지워졌어도** 과거 문서를 렌더할 수 있다.
+    /// 그 리비전에 파일이 없으면(생성 직전 부모, 루트 커밋의 `^` 등) **빈 문자열**을 준다 —
+    /// nil과 갈라 두지 않는 이유는 문서 diff에서 "없음"과 "빈 문서"가 같은 뜻이기 때문이다.
+    static func fileAtRevision(rev: String, path: String, in dir: String) async -> String {
+        let r = await run(["show", "--no-color", "\(rev):\(path)"], in: dir)
+        return r.exitCode == 0 ? r.stdout : ""
+    }
+
     /// 파일 하나의 blob 해시(그 커밋 시점의 내용 신원) — 파일별 리뷰 상태가 "그 후 또 바뀌었나"를
     /// 판정하는 키다. 경로만으로 잡으면 에이전트가 같은 파일을 또 고쳤을 때 "봤음"이 잘못 유지된다.
     /// 파일이 그 리비전에 없으면 nil.
