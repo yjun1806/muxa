@@ -61,12 +61,22 @@ final class ReviewCommentStore {
         return (byRepo[root] ?? []).sorted { $0.seq < $1.seq }
     }
 
+    /// **한 스코프**의 코멘트만 — 커밋 diff엔 그 커밋 것만, 워크트리 diff엔 커밋 없는 것만.
+    /// 화면에 뿌릴 땐 반드시 이쪽을 쓴다(`comments(inRepo:)`는 제출·개수 집계용 전체 목록이다).
+    /// 스코프를 안 가르면 같은 파일·같은 줄이라는 이유로 남의 맥락 코멘트가 떠오른다.
+    func comments(inRepo root: String, commit: String?) -> [ReviewComment] {
+        comments(inRepo: root).filter { $0.commit == commit }
+    }
+
     /// 코멘트 추가(seq 자동 부여) → 새 객체를 담고 즉시 영속.
-    func add(file: String, side: DiffSide, line: Int, lineText: String, body: String, inRepo root: String) {
+    /// `commit`이 nil이면 워크트리 코멘트, 있으면 그 커밋에 묶인다.
+    func add(file: String, side: DiffSide, line: Int, lineText: String, body: String,
+             inRepo root: String, commit: String? = nil) {
         ensureLoaded(root)
         let seq = nextSeq[root] ?? 0
         nextSeq[root] = seq + 1
-        let comment = ReviewComment(file: file, side: side, line: line, lineText: lineText, body: body, seq: seq)
+        let comment = ReviewComment(file: file, side: side, line: line, lineText: lineText,
+                                    body: body, seq: seq, commit: commit)
         byRepo[root] = (byRepo[root] ?? []) + [comment] // immutable 교체
         persist(root)
     }

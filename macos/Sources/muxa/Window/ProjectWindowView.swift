@@ -84,7 +84,8 @@ struct ProjectWindowView: View {
                         dir: dir,
                         sessionBase: project.sessionBaseHead,
                         onResetBaseline: { state.resetSessionBaseline(projectId: project.id, cwd: dir) },
-                        onSendReview: { store.injectToTerminal($0) }
+                        onSendReview: { store.injectToTerminal($0) },
+                        onOpenInViewer: { _ = store.openFile($0) } // 탐색기와 같은 뷰어 경로
                     ) { store.openDiff($0) }
                 }
             }

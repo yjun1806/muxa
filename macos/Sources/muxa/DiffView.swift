@@ -4,6 +4,10 @@ import SwiftUI
 enum GitDiffTarget: Identifiable {
     case file(GitFileChange)
     case commit(hash: String, subject: String)
+    /// 커밋 안 **파일 하나**의 diff — 커밋을 펼쳐 파일 행을 클릭했을 때.
+    /// `.commit`(통짜)과 갈라 두는 이유: 리뷰는 파일 단위로 읽고, 좁은 패널에서 20파일 커밋의
+    /// 통짜 diff를 여는 건 "훑기"가 아니라 "정독 강요"다. 리네임은 옛 경로가 있어야 diff가 안 빈다.
+    case commitFile(hash: String, path: String, oldPath: String? = nil)
     /// 워크트리 전체 통합 diff. base=nil이면 HEAD 대비(현재 미커밋 전체),
     /// base 지정이면 세션 기준선 대비(이번 세션 전체 = 커밋+미커밋).
     case all(base: String?)
@@ -12,6 +16,8 @@ enum GitDiffTarget: Identifiable {
         switch self {
         case .file(let change): return "f:\(change.path)"
         case .commit(let hash, _): return "c:\(hash)"
+        // 해시와 경로가 **둘 다** 들어가야 한다 — 같은 파일을 여러 커밋에서 열면 탭이 서로 덮어쓴다.
+        case .commitFile(let hash, let path, _): return "cf:\(hash):\(path)"
         case .all(let base): return "all:\(base ?? "HEAD")"
         }
     }
@@ -20,7 +26,8 @@ enum GitDiffTarget: Identifiable {
         switch self {
         case .file(let change): return change.path
         case .commit(_, let subject): return subject
-        case .all(let base): return base == nil ? "전체 변경" : "이번 세션 전체 변경"
+        case .commitFile(let hash, let path, _): return "\(path) · \(String(hash.prefix(7)))"
+        case .all(let base): return base == nil ? "전체 변경" : "이번 작업 전체 변경"
         }
     }
 
@@ -29,7 +36,9 @@ enum GitDiffTarget: Identifiable {
         switch self {
         case .file(let change): return basename(change.path)
         case .commit(let hash, _): return String(hash.prefix(7))
-        case .all(let base): return base == nil ? "전체 변경" : "세션 전체"
+        // 파일명만 — 어느 커밋인지는 제목(`title`)·툴팁이 말한다. 좁은 탭에 해시까지 넣으면 둘 다 잘린다.
+        case .commitFile(_, let path, _): return basename(path)
+        case .all(let base): return base == nil ? "전체 변경" : "이번 작업 전체"
         }
     }
 
@@ -37,7 +46,18 @@ enum GitDiffTarget: Identifiable {
         switch self {
         case .file: return "plusminus"
         case .commit: return "clock"
+        // 커밋 안 파일 — 시계(커밋)와 plusminus(워크트리 변경) 사이. 과거의 한 파일이다.
+        case .commitFile: return "clock.arrow.circlepath"
         case .all: return "rectangle.stack"
+        }
+    }
+
+    /// 커밋에 속한 불변 diff인지 — 디스크 감시(FileWatcher)를 걸지 않고, 스테이지·버리기 같은
+    /// 쓰기 동작도 띄우지 않는다. 이미 커밋된 사실은 이 화면에서 바뀌지 않는다.
+    var isCommitted: Bool {
+        switch self {
+        case .commit, .commitFile: return true
+        case .file, .all: return false
         }
     }
 
@@ -86,12 +106,12 @@ struct DiffView: View {
             } else {
                 CodeWebView(
                     html: CodeHTML.diff(lines: lines, dark: GhosttyRuntime.systemIsDark,
-                                        stageable: hunkStageable, discardable: hunkStageable,
+                                        stageable: false, discardable: false,
                                         aggregate: target.isAggregate,
                                         commentable: commentable && !sideBySide, comments: resolvedComments,
                                         sideBySide: sideBySide),
-                    onMessage: hunkStageable ? { idx in Task { @MainActor in await stageHunk(idx) } } : nil,
-                    onDiscard: hunkStageable ? { idx in Task { @MainActor in await discardHunk(idx) } } : nil,
+                    onMessage: nil, // 헝크 스테이지 제거 — 조립할 커밋이 없다
+                    onDiscard: nil, // 거부는 리뷰 코멘트로 — 에이전트가 직접 되돌린다
                     onComment: (commentable && !sideBySide) ? handleComment : nil,
                     busy: applying
                 )
@@ -111,17 +131,28 @@ struct DiffView: View {
 
     // MARK: 리뷰 코멘트 — 줄 '＋'로 달고, lineText 재앵커링으로 라이브 리로드에도 따라간다.
 
-    /// 코멘트를 달 수 있는 diff인지 — git 저장소이고(repoRoot 있음) 커밋 diff가 아닐 때(불변 이력엔 코멘트 안 함).
-    private var commentable: Bool {
-        guard repoRoot != nil else { return false }
-        if case .commit = target { return false }
-        return true
+    /// 코멘트를 달 수 있는 diff인지 — git 저장소이면(repoRoot 있음) 언제나 가능하다.
+    ///
+    /// **커밋 diff에도 단다.** 예전엔 "불변 이력엔 코멘트 안 함"이라 막았는데, muxa의 코멘트는
+    /// 이력을 고치는 게 아니라 **다음 턴 지시**다(터미널에 주입돼 에이전트가 읽는다). 에이전트
+    /// 산출물의 주 단위가 커밋인데 거기서 리뷰 동선이 끊기면 "보고→코멘트→보냄"이 반쪽이 된다.
+    private var commentable: Bool { repoRoot != nil }
+
+    /// 이 diff가 속한 커밋 해시 — 코멘트의 스코프 키. 워크트리 diff면 nil.
+    private var commentScope: String? {
+        switch target {
+        case .commit(let hash, _): return hash
+        case .commitFile(let hash, _, _): return hash
+        case .file, .all: return nil
+        }
     }
 
     /// 저장된 코멘트를 현재 diff 줄에 재앵커링해 표시용으로 판다. 스토어(@Observable)를 body에서 읽어 변경에 반응.
+    /// **스코프가 같은 것만** 판다 — 커밋 코멘트가 워크트리 diff에 새어나오지 않게(그 반대도).
     private var resolvedComments: [AnchoredComment] {
         guard commentable, let root = repoRoot else { return [] }
-        return ReviewCommentAnchor.resolve(ReviewCommentStore.shared.comments(inRepo: root), lines: lines)
+        let scoped = ReviewCommentStore.shared.comments(inRepo: root, commit: commentScope)
+        return ReviewCommentAnchor.resolve(scoped, lines: lines)
     }
 
     /// diff-viewer 브리지 메시지 처리 — add는 입력 시트를 띄우고, delete는 스토어에서 제거.
@@ -139,7 +170,8 @@ struct DiffView: View {
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         if let root = repoRoot, !trimmed.isEmpty {
             ReviewCommentStore.shared.add(file: d.file, side: d.side, line: d.line,
-                                          lineText: d.lineText, body: trimmed, inRepo: root)
+                                          lineText: d.lineText, body: trimmed, inRepo: root,
+                                          commit: commentScope)
         }
         draft = nil
     }
@@ -158,7 +190,7 @@ struct DiffView: View {
             return FileWatcher(path: (abs as NSString).deletingLastPathComponent)
         case .all:
             return FileWatcher(path: dir) // 워크트리 전체 — 아무 파일이나 바뀌면 재로드(git 패널과 같은 패턴)
-        case .commit:
+        case .commit, .commitFile:
             return nil
         }
     }
@@ -176,7 +208,7 @@ struct DiffView: View {
             await load()
         case .all:
             await load() // 워크트리 전체라 특정 파일 판별 없이 항상 재로드(0.3s 디바운스됨)
-        case .commit:
+        case .commit, .commitFile:
             return
         }
     }
@@ -187,11 +219,6 @@ struct DiffView: View {
         return nil
     }
 
-    /// hunk 단위 스테이지 가능 여부 — 추적되는 파일의 언스테이지 변경만(untracked·삭제 diff는 제외).
-    private var hunkStageable: Bool {
-        guard let change = fileChange, !change.isUntracked, change.worktree == "M" else { return false }
-        return true
-    }
 
     private var header: some View {
         HStack(spacing: 8) {
@@ -217,22 +244,13 @@ struct DiffView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// diff 위 도구줄 — 파일 diff면 [전체 스테이지/언스테이지/버리기](hunk 버튼은 HTML 안), 오른쪽엔
-    /// 항상 [통합 | 나란히] 보기 토글. 표시할 내용이 있을 때만 그린다.
+    /// diff 위 도구줄 — [통합 | 나란히] 보기 토글만. **쓰기 버튼은 없다**(D37).
+    /// 거부는 줄에 코멘트를 달아 에이전트에게 보낸다.
     @ViewBuilder
     private var toolbar: some View {
         let showToggle = loaded && !lines.isEmpty
         if fileChange != nil || showToggle {
             HStack(spacing: 8) {
-                if let change = fileChange {
-                    if change.worktree != " " {
-                        toolbarButton("전체 스테이지", icon: "plus") { Task { await stageWholeFile(change) } }
-                    }
-                    if change.isStaged {
-                        toolbarButton("언스테이지", icon: "minus") { Task { await unstageWholeFile(change) } }
-                    }
-                    toolbarButton("변경 버리기", icon: "trash", destructive: true) { discardFile(change) }
-                }
                 if let stageError {
                     Text(stageError)
                         .font(.muxa(.caption)).foregroundStyle(Color.pDanger).lineLimit(1).truncationMode(.middle)
@@ -288,40 +306,10 @@ struct DiffView: View {
 
     // MARK: 스테이지 액션 — 성공 시 diff를 다시 읽는다(git 패널은 FSEvents로 자동 갱신).
 
-    private func stageWholeFile(_ change: GitFileChange) async {
-        await runStage { await GitService.stage(change.opPath, in: dir) ? nil : "스테이지 실패" }
-    }
 
-    private func unstageWholeFile(_ change: GitFileChange) async {
-        await runStage { await GitService.unstage(change.opPath, in: dir) ? nil : "언스테이지 실패" }
-    }
 
-    /// 변경 버리기 — 확인 다이얼로그 후 discard, 성공 시 diff 재로딩(git 패널은 FSEvents로 갱신).
-    private func discardFile(_ change: GitFileChange) {
-        guard DiscardConfirm.confirm(fileName: basename(change.opPath), untracked: change.isUntracked) else { return }
-        Task { await runStage { await GitService.discard(change, in: dir) } }
-    }
 
-    private func stageHunk(_ index: Int) async {
-        guard fileChange != nil else { return }
-        guard let patch = DiffPatch.patch(forHunk: index, in: DiffPatch.parse(lines)) else {
-            stageError = "이 hunk는 스테이지할 수 없어요"
-            return
-        }
-        await runStage { await GitService.applyCached(patch: patch, in: dir) }
-    }
 
-    /// hunk 하나만 버리기 — 확인 후 패치를 워크트리에 reverse 적용(그 hunk만 인덱스 상태로 원복).
-    /// hunkStageable(추적 파일의 언스테이지 수정)일 때만 노출되므로 통 diff·untracked·스테이지 뷰엔 오지 않는다.
-    private func discardHunk(_ index: Int) async {
-        guard let change = fileChange else { return }
-        guard let patch = DiffPatch.patch(forHunk: index, in: DiffPatch.parse(lines)) else {
-            stageError = "이 hunk는 버릴 수 없어요"
-            return
-        }
-        guard DiscardConfirm.confirmHunk(fileName: basename(change.opPath)) else { return }
-        await runStage { await GitService.applyReverse(patch: patch, in: dir) }
-    }
 
     /// 스테이지 계열 공통 실행 — 진행 표시·에러 표시·성공 시 diff 재로딩.
     private func runStage(_ op: @escaping () async -> String?) async {
@@ -352,6 +340,9 @@ struct DiffView: View {
         case .commit(let hash, _):
             change = nil
             text = await GitService.commitDiff(hash, in: dir)
+        case .commitFile(let hash, let path, let oldPath):
+            change = nil // 커밋된 파일은 스테이지·버리기 대상이 아니다(불변 사실)
+            text = await GitService.commitFileDiff(hash: hash, path: path, oldPath: oldPath, in: dir)
         case .all(let base):
             change = nil // 통합 diff는 개별 파일 스테이지 없음(집계 뷰)
             text = await GitService.worktreeDiff(base: base ?? "HEAD", in: dir)

@@ -23,7 +23,7 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 - **M2 보는 눈 + 알림** ✅ — 익스플로러 + md/코드 뷰어 + FSEvents + 알림 배지 (아래 상세)
 - **M3 git 읽기(C)** ✅ — 상태 패널·diff 탭·히스토리
 - **M4 워크트리** ✅ (완결) — list/add/**remove UI**·WorktreePicker·`.worktrees/<branch>`+exclude
-- **M4 git 쓰기** ✅ — 스테이징/언스테이지/커밋(GitPanel 변경사항 탭 = 커밋박스 + 스테이지됨/변경 2섹션)
+- **M4 git 쓰기** ✅ → **D37에서 축소** — 스테이징·커밋은 **삭제**, 남은 쓰기는 **거부(파일 버리기·헝크 되돌리기)**뿐
 - **뷰어 라이브러리** ✅ — **md/HTML = WKWebView + markdown-it·highlight.js·mermaid**(`Resources/mdviewer`), **코드 = Shiki**(VSCode 문법)
 - **익스플로러 VSCode급 1단계** ✅ — **NSOutlineView 전환** + git색·컨텍스트메뉴(여기서 터미널 열기)·선택 하이라이트·키보드 네비
 - **파일 아이콘 Material** ✅ — Material Icon Theme(MIT) 슬림 번들(828 SVG·`Resources/fileicons`), `IconTheme`가 확장자/파일명/폴더명 매핑
@@ -34,6 +34,46 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 - **익스플로러 VSCode급 2단계** ✅ — 파일 조작(새파일/폴더·이름변경·삭제[휴지통])·확장 보존 reload·FSEvents 자동 트리갱신·인덴트 가이드
 - **뷰어 라이브 리로드** ✅ — 열린 코드/md가 디스크에서 바뀌면 자동 재로드
 - **세션 복원 정합성** ✅ — 트리는 터미널만(`layoutSnapshot`), 문서/diff는 `SavedViewer`로 별도 복원
+- **Git 패널 = 리뷰 창구 재편** ✅(로직) / ★(육안) — 아래 상세
+
+### Git 패널 재편 (커밋별 파일 내역 + 2탭 + 리뷰 상태)
+
+**왜** — Git 패널이 "SourceTree 축소판"으로 흘렀고, 정작 **커밋이 어떤 파일을 건드렸는지 패널에서 볼 수 없었다**
+(`commitDiff`의 `show --stat -p` 통짜 텍스트를 서브탭에 던지는 게 전부). 변경사항 탭만 파일 단위 밀도를 갖는 비대칭.
+
+**한 것**
+- **커밋·스테이징 삭제(D37)** — 커밋박스·스테이지 버튼·헝크 스테이지 + `GitService`의 쓰기 API 6개 제거.
+  변경 목록은 스테이지됨/변경 구분 없이 **한 목록**. muxa는 편집을 에이전트에게 맡기므로 사람이 커밋을 조립하지 않는다.
+  **버리기·되돌리기는 남는다**(저작이 아니라 리뷰 판정의 "거부"). 사람이 굳이 커밋하려면 옆 칸 터미널에서.
+- **일반 뷰어로 열기** — 미커밋 파일을 ⌥클릭·우클릭 메뉴로 md 렌더링/코드 하이라이트 뷰어에(`store.openFile` 재사용,
+  탐색기와 같은 경로). 삭제된 파일은 제외(디스크에 없다). **커밋 안 파일은 diff만** — 그 시점 내용을 보려면
+  `FileViewTarget`을 "경로를 읽는" 타입에서 "내용을 받는" 타입으로 넓혀야 해서 이번 범위 밖.
+- **커밋별 파일 내역** — `GitCommitFile` 값 타입 + `GitService.commitFiles`(`--name-status` ∥ `--numstat`, 경로로 결합).
+  커밋 행 클릭 = **펼침**(아코디언 1개·해시 캐시), 파일 행 클릭 = `.commitFile` 서브탭. 통짜 diff는 우측 `⧉`.
+- **2탭 재편** `[리뷰 | 히스토리]` — 예전 3탭은 `이번 세션 ⊂ 히스토리` 포함관계라 같은 커밋이 중복 렌더됐다.
+  세그먼티드 `Picker` → `PanelTabSwitcher` 알약(앱 유일 이탈이었고 시스템 accent가 새어 들어왔다).
+- **"세션" → "이번 작업"**(UI 문구만) — tmux 백그라운드 세션·Claude Code 세션과 3중 충돌. **코드 필드명(`sessionBase`)은 유지**(스냅샷 하위호환).
+- **파일별 "봤음"은 만들었다가 걷어냈다** — 워킹트리가 살아 있어 표식이 대부분 지워진 채였고, 값은 얇은데
+  비용(행마다 아이콘 + 갱신마다 파일별 `git hash-object`)이 두꺼웠다. 대신 **변경 시각**(`GitFileTime`) —
+  클릭 없이 얻어지고 "방금 만진 게 뭐지"라는 실제 첫 질문에 답한다.
+- **파일 상태는 GitHub식 diff 글리프** — 문자(A/M/D) → 사각형 안 `+`·`·`·`−`·`→`.
+- **D-3 리뷰 코멘트 커밋 앵커** — `ReviewComment.commit`(옵셔널·하위호환). 없을 땐 커밋 코멘트가 워크트리 diff로
+  **새어나왔다**(스토어는 리포 키, 앵커는 file+side+lineText만 봤다). 지시문에 짧은 해시가 실린다.
+- **SSOT 추출** — `GitStatusStyle`(git 축)·`PRStatusStyle`. 죽은 `GitFileStatus.badge` 제거(untracked를 `U`,
+  conflict를 `C`로 내보내 git 원문과 **정반대**였다 — 소비처가 없어 화면엔 안 떴지만 지뢰였다).
+- **시각 정합** — 커밋 버튼 `Color.accentColor`+`Color.white` → `pBrand`/`pOnBrand`, `SectionLabel`의
+  `.opacity(0.7)` 제거(공용이라 사이드바까지 전파됐다), 파일·커밋 행 `ListRowFill`, 에러에 글리프 추가.
+- **파일 분해** — `GitPanel.swift` 552 → 324줄 + 신규 8파일.
+
+**테스트** — swift-testing 307 + XCTest 1116, 실패 0. 신규 36개: 파서 21(머지 결합 diff 비대칭·리네임 브레이스
+압축 경로·바이너리 `-`는 0이 아니라 nil), 리뷰 상태 9, 코멘트 스코프 6.
+
+**★ 육안 미검증** — 커밋박스·버리기 사라진 리뷰 탭 · GitHub식 상태 글리프 · 변경 시각 · 뷰어 아이콘(미커밋·커밋 양쪽) · 커밋 펼침/접힘·lazy 로드 · 파일 행 → 그 파일만의 diff 서브탭 · **재시작 후 `.commitFile`
+서브탭 복원**(`ItemSnapshot.commitFile`) · 머지 커밋 "파일을 바꾸지 않았습니다" 라벨 · 알약 스위처 렌더 ·
+`lane` 면 동심원 · "봤음" 체크와 자동 해제 · 180pt 최소 폭에서의 행 조판.
+
+**안 한 것(의도)** — 커밋 그래프·rebase/cherry-pick/revert 버튼·blame·패널 안 diff 렌더링.
+되돌림도 "리뷰 코멘트로 에이전트에게 지시"가 muxa의 경로다.
 
 ## 다음 후보 (미구현) — 사이드바 에이전트 목록 (Orca 대조 완료)
 

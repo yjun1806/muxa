@@ -1,88 +1,23 @@
 import Foundation
 
-/// git 쓰기(M4) = 스테이징·언스테이지·커밋. 읽기와 같은 CLI 셸아웃(GitService.run).
+/// git 쓰기 = **거부(버리기·되돌리기)만**. 읽기와 같은 CLI 셸아웃(GitService.run).
 /// 결과는 exitCode로 성공 판정. FSEvents가 이후 상태를 자동 갱신한다.
+///
+/// **스테이징·커밋은 없다(의도).** muxa는 편집을 에이전트에게 맡기는 앱이라 사람이 커밋을 조립하지
+/// 않는다 — 무엇을 바꿨는지 아는 쪽이 메시지도 더 잘 쓴다. 스테이징은 커밋을 조립하는 수단이라
+/// 커밋이 없으면 존재 이유가 함께 사라진다. 사람이 굳이 커밋해야 하면 **바로 옆 칸 터미널**에서 한다.
+///
+/// 남은 쓰기는 전부 **리뷰 판정의 "거부" 반쪽**이다(ARCHITECTURE 4.4) — 그건 저작이 아니라 판정이고,
+/// 파괴적이라 확인 시트가 붙은 UI가 터미널 타이핑보다 안전하다.
 extension GitService {
-    /// 파일 하나를 스테이지(`git add`). 성공 시 true.
-    @discardableResult
-    static func stage(_ path: String, in dir: String) async -> Bool {
-        await run(["add", "--", path], in: dir).exitCode == 0
-    }
 
-    /// 파일 하나를 언스테이지(`git restore --staged`). 성공 시 true.
-    @discardableResult
-    static func unstage(_ path: String, in dir: String) async -> Bool {
-        await run(["restore", "--staged", "--", path], in: dir).exitCode == 0
-    }
 
-    /// 전부 스테이지(`git add -A` — 삭제·추적안됨 포함).
-    @discardableResult
-    static func stageAll(in dir: String) async -> Bool {
-        await run(["add", "-A"], in: dir).exitCode == 0
-    }
 
-    /// 전부 언스테이지(`git reset` — 인덱스를 HEAD로).
-    @discardableResult
-    static func unstageAll(in dir: String) async -> Bool {
-        await run(["reset", "-q"], in: dir).exitCode == 0
-    }
 
-    /// 파일 하나의 변경을 버린다(discard) — 체크 동선의 "거부" 반쪽(ARCHITECTURE 4.4).
-    /// 성공 시 nil, 실패 시 사용자용 에러 메시지. 안전한 단계는 순수 계획(DiscardPlan)이 정하고 여기선 실행만.
-    /// 리네임(R)은 원본·대상을 모두 처리해 데이터 손실을 막는다(DiscardPlan 참고).
-    static func discard(_ change: GitFileChange, in dir: String) async -> String? {
-        for step in DiscardPlan.steps(for: change) {
-            switch step {
-            case .git(let args):
-                let r = await run(args, in: dir)
-                if r.exitCode != 0 { return "변경 버리기 실패 (git \(args.first ?? "") exit \(r.exitCode))" }
-            case .trash(let rel):
-                if let err = trashItem(rel, in: dir) { return err }
-            }
-        }
-        return nil
-    }
 
-    /// 워크트리 파일을 휴지통으로 이동. 성공 시 nil, 실패 시 메시지. dir 기준 상대 경로를 절대 URL로 변환.
-    private static func trashItem(_ relPath: String, in dir: String) -> String? {
-        let url = URL(fileURLWithPath: dir).appendingPathComponent(relPath)
-        do {
-            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
-            return nil
-        } catch {
-            return "휴지통 이동 실패: \(error.localizedDescription)"
-        }
-    }
 
-    /// 스테이지된 변경을 커밋. 성공 시 nil, 실패 시 사용자용 에러 메시지.
-    static func commit(message: String, in dir: String) async -> String? {
-        let msg = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !msg.isEmpty else { return "커밋 메시지를 입력하세요" }
-        let out = await run(["commit", "-m", msg], in: dir)
-        guard out.exitCode != 0 else { return nil }
-        // stderr는 nullDevice라 stdout의 마지막 비어있지 않은 줄을 힌트로(대개 실제 사유).
-        let hint = out.stdout.split(separator: "\n").last.map { String($0).trimmingCharacters(in: .whitespaces) } ?? ""
-        return hint.isEmpty ? "커밋 실패 (스테이지된 변경 없음?)" : hint
-    }
 
-    /// hunk 패치를 인덱스에 적용(`git apply --cached`, 패치는 stdin으로 전달). 성공 시 nil, 실패 시 메시지.
-    /// DiffPatch로 만든 단일 hunk 패치를 넣어 hunk 단위 스테이지에 쓴다.
-    static func applyCached(patch: String, in dir: String) async -> String? {
-        let r = await runWithStdin(["apply", "--cached", "--whitespace=nowarn", "-"], stdin: patch, in: dir)
-        guard r.exitCode != 0 else { return nil }
-        let msg = r.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-        return msg.isEmpty ? "패치 적용 실패 (exit \(r.exitCode))" : msg
-    }
 
-    /// hunk 패치를 워크트리에 거꾸로 적용(`git apply --reverse`, --cached 아님)해 그 hunk만 원복한다 = hunk 단위 버리기.
-    /// 패치는 언스테이지 diff(워크트리 vs 인덱스)에서 뽑혔으므로, reverse 적용은 해당 hunk를 인덱스 상태로 되돌린다.
-    /// 성공 시 nil, 실패 시 메시지. 스테이지·통 diff·untracked엔 부적합해 DiffView가 노출을 가드한다.
-    static func applyReverse(patch: String, in dir: String) async -> String? {
-        let r = await runWithStdin(["apply", "--reverse", "--whitespace=nowarn", "-"], stdin: patch, in: dir)
-        guard r.exitCode != 0 else { return nil }
-        let msg = r.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-        return msg.isEmpty ? "hunk 버리기 실패 (exit \(r.exitCode))" : msg
-    }
 
     /// stdin으로 입력을 넣고 stderr까지 캡처하는 실행 변형(git apply 전용). 패치가 작아(파이프 버퍼 내)
     /// stdin을 먼저 다 쓰고 닫은 뒤 출력을 읽어 데드락을 피한다.

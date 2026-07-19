@@ -22,9 +22,17 @@ struct ReviewComment: Codable, Identifiable, Equatable {
     /// 생성 순서(리포 내 단조 증가) — 제출 시 정렬·표시 순서.
     let seq: Int
     let createdAt: Date
+    /// 이 코멘트가 달린 **커밋 해시**. nil이면 워크트리(미커밋) diff에 단 것.
+    ///
+    /// **왜 필요한가 — 없으면 코멘트가 스코프를 넘나든다.** 스토어는 리포 루트로만 키를 잡고
+    /// 재앵커링은 `file`+`side`+`lineText`만 본다. 그래서 이 필드가 없으면 커밋 `abc`의 diff에 단
+    /// 코멘트가 같은 파일·같은 줄 내용이라는 이유로 **워크트리 diff에도 떠오른다**(반대도 같다).
+    /// 옵셔널이라 기존 저장분은 그대로 디코드된다(= 워크트리 코멘트로 읽힌다 — 실제로 그랬다).
+    let commit: String?
 
     init(id: String = UUID().uuidString, file: String, side: DiffSide, line: Int,
-         lineText: String, body: String, seq: Int, createdAt: Date = Date()) {
+         lineText: String, body: String, seq: Int, createdAt: Date = Date(),
+         commit: String? = nil) {
         self.id = id
         self.file = file
         self.side = side
@@ -33,6 +41,7 @@ struct ReviewComment: Codable, Identifiable, Equatable {
         self.body = body
         self.seq = seq
         self.createdAt = createdAt
+        self.commit = commit
     }
 }
 

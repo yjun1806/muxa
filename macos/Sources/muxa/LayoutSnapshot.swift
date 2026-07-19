@@ -122,4 +122,10 @@ struct ItemSnapshot: Codable {
     var file: String?           // 문서/코드/HTML 파일 경로.
     var commit: String?         // 커밋 diff 해시.
     var commitSubject: String?
+    // 커밋 **안 파일 하나**의 diff일 때 그 경로(`commit`과 함께 있어야 의미가 있다).
+    // 옵셔널 — 구 스냅샷엔 없어 하위호환(합성 Codable이 decodeIfPresent로 처리한다).
+    // 없으면 재시작 때 이 서브탭만 통째로 증발한다(복원 분기가 못 알아본다).
+    var commitFile: String?
+    // 리네임된 파일의 옛 경로 — 없으면 복원된 diff가 빈다.
+    var commitFileOldPath: String?
 }

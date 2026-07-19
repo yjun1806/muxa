@@ -1,69 +1,83 @@
 import SwiftUI
 
-/// 활성 프로젝트 폴더의 git 패널(우측). [변경사항] 브랜치·변경파일, [히스토리] 최근 커밋.
-/// 파일/커밋 클릭 → onOpenDiff로 diff 시트를 연다. 읽기 전용(M3). 스테이징·커밋은 M4.
+/// 활성 프로젝트의 git 패널(우측 도구 패널). **에이전트 산출물 리뷰 창구**다 — git 클라이언트가 아니다.
+///
+/// **두 탭이다: [리뷰 | 히스토리].**
+/// 예전엔 [변경사항 | 이번 세션 | 히스토리] 셋이었는데 축이 안 맞았다 — 변경사항은 *상태*(미커밋),
+/// 나머지 둘은 *이력*이고 `이번 세션 ⊂ 히스토리`가 완전 포함관계라 같은 커밋이 두 탭에 **중복 렌더**됐다.
+/// 배타적으로 생긴 컨트롤(세그먼티드)에 포함관계를 넣으면 어느 쪽도 신뢰가 안 간다.
+/// 이제 **리뷰**(지금 만들고 있는 것 = 미커밋 + 기준선 이후 커밋)와 **히스토리**(저장소가 걸어온 길)로
+/// 갈랐다. 덤으로 "세션 전체 diff" 버튼의 범위(커밋+미커밋)와 목록의 범위가 비로소 일치한다.
+///
+/// **"세션"이라는 낱말을 안 쓴다** — tmux 백그라운드 세션과 Claude Code 세션이 이미 선점했다(3중 충돌).
+/// UI 문구는 "이번 작업"이고, 코드 필드명(`sessionBase`)은 스냅샷 하위호환 때문에 그대로 둔다.
+///
+/// 상태는 전부 여기가 소유하고 하위 뷰는 값+클로저만 받는다(controlled).
 struct GitPanel: View {
     let dir: String?
-    /// 세션 기준선(rev-parse HEAD) — "이번 세션" 탭이 base..HEAD 커밋을 구하는 기준. nil이면 기록 전.
+    /// 기준선(rev-parse HEAD) — "이번 작업" 커밋(base..HEAD)의 기준. nil이면 기록 전.
     var sessionBase: String?
-    /// "여기까지 봤음" — 기준선을 현재 HEAD로 리셋(상위 AppState가 프로젝트 값 타입을 갱신).
+    /// "여기까지 봤음" — 기준선을 현재 HEAD로 리셋.
     var onResetBaseline: () -> Void = {}
-    /// 리뷰 코멘트 제출 — 포맷된 지시 텍스트를 포커스 터미널에 붙인다. 성공(터미널 있음)이면 true → 코멘트 소비.
+    /// 리뷰 코멘트 제출 — 포맷된 지시를 포커스 터미널에 붙인다. 성공이면 true → 코멘트 소비.
     var onSendReview: (String) -> Bool = { _ in false }
+    /// 변경 파일을 **일반 뷰어**로 열기(md 렌더링·코드 하이라이트) — 절대 경로.
+    /// diff가 "무엇이 바뀌었나"를 말한다면 뷰어는 "지금 이 문서가 어떤 모습인가"를 말한다.
+    /// 에이전트가 쓴 README·설계 문서를 diff 조각이 아니라 완성된 형태로 읽고 싶을 때 쓴다.
+    var onOpenInViewer: ((String) -> Void)?
     var onOpenDiff: (GitDiffTarget) -> Void
 
-    private enum Mode: String, CaseIterable {
-        case changes = "변경사항"
-        case session = "이번 세션"
+    enum Mode: String, CaseIterable, Identifiable {
+        case review = "리뷰"
         case history = "히스토리"
+
+        var id: String { rawValue }
+        var icon: String {
+            switch self {
+            case .review: return "checklist"
+            case .history: return "clock"
+            }
+        }
     }
 
-    @State private var mode: Mode = .changes
+    @State private var mode: Mode = .review
     @State private var status: GitStatus?
     @State private var commits: [GitCommit] = []
     @State private var sessionCommits: [GitCommit] = []
     @State private var branches: [String] = []
     @State private var loaded = false
     @State private var watcher: FileWatcher?
-    @State private var commitMessage = ""
-    @State private var commitError: String?
     @State private var syncBusy = false
     @State private var syncError: String?
     @State private var gh: GitService.GHStatus?
-    /// canonical repo 루트(리뷰 코멘트 키) — 진입 시 1회 계산. nil이면 리뷰 바 숨김.
+    /// canonical repo 루트(리뷰 코멘트·리뷰 상태 키) — 진입 시 1회. nil이면 리뷰 바 숨김.
     @State private var reviewRoot: String?
-    /// 프로젝트 경로 상태 — 폴더가 없거나 못 읽으면 "git 저장소 아님"(거짓)보다 진짜 사유를 먼저 말한다.
     @State private var pathState: PathState = .ok
     /// 진행 중인 갱신 — FSEvents가 연달아 오면 이전 것을 취소해 결과가 뒤바뀌어 착지하지 않게 한다.
     @State private var refreshTask: Task<Void, Never>?
 
+    /// 펼친 커밋 해시. **동시에 하나만** — 폭이 180pt까지 좁아질 수 있어 여럿이 펼쳐지면
+    /// 커밋 행과 파일 행의 구분이 무너진다(아코디언).
+    @State private var expandedCommit: String?
+    /// 커밋 해시 → 파일 목록 캐시. **커밋은 불변이라 무효화가 필요 없다**(한 번 조회로 끝).
+    @State private var commitFiles: [String: [GitCommitFile]] = [:]
+    /// 상대 시각 표시가 굳지 않게 하는 틱 — 30초마다 갱신(분 단위 표시라 이 이상 자주 볼 이유가 없다).
+    @State private var now = Date()
+    /// 변경 파일별 마지막 수정 시각 — 행 꼬리표("3m"). status 갱신 때 함께 읽는다.
+    /// **셸아웃이 아니라 `FileManager` 속성 조회**라 파일이 많아도 싸다.
+    @State private var mtimes: [String: Date] = [:]
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-            HDivider() // 헤더 높이(panelHeader)가 이 선까지 계산돼 있어 옆 칸 탭바와 아래 경계가 맞는다
+            GitPanelHeader(status: status, branches: branches, gh: gh, syncBusy: syncBusy, dir: dir,
+                           onCheckout: { b in runSync { await GitService.checkout(b, in: $0) } },
+                           onPull: { runSync { await GitService.pull(in: $0) } },
+                           onPush: { runSync { await GitService.push(in: $0) } },
+                           onRefresh: { Task { await refresh(); await refreshGH() } })
+            HDivider() // 헤더 높이(panelHeader)가 이 선까지 계산돼 옆 칸 탭바와 아래 경계가 맞는다
             reviewBar
-            if let syncError {
-                Text(syncError)
-                    .font(.muxa(.caption)).foregroundStyle(Color.pDanger).lineLimit(2)
-                    .padding(.horizontal, Space.panelInset).padding(.vertical, Space.xs)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                HDivider()
-            }
-            if dir == nil {
-                PanelLabel("프로젝트 경로 없음")
-            } else if let reason = pathState.message {
-                PanelLabel(reason) // 경로 소실·권한 거부를 "git 저장소 아님"으로 위장하지 않는다
-            } else if loaded, status == nil {
-                PanelLabel("git 저장소 아님")
-            } else {
-                picker
-                HDivider()
-                switch mode {
-                case .changes: changesView
-                case .session: sessionView
-                case .history: historyView
-                }
-            }
+            errorBar
+            content
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity) // 폭은 상위(ContentView)가 리사이즈로 지정
@@ -71,40 +85,73 @@ struct GitPanel: View {
         .task(id: dir) {
             gh = nil // 프로젝트 전환 시 이전 PR 배지 즉시 제거(네트워크 대기 동안 stale 방지)
             reviewRoot = nil
+            expandedCommit = nil
+            commitFiles = [:]
             await refresh()
             await refreshGH() // gh 배지: 진입 시 1회만(과한 폴링 금지)
-            if let dir { reviewRoot = await GitService.repoRoot(in: dir) } // 리뷰 코멘트 키
-            if let dir { watcher = FileWatcher(path: dir) } // B-2: 변경 시 git 패널 자동 갱신
+            if let dir { reviewRoot = await GitService.repoRoot(in: dir) }
+            if let dir { watcher = FileWatcher(path: dir) }
         }
+        .tick(every: 30, into: $now)
         .onChange(of: watcher?.changeSeq) { _, _ in scheduleRefresh() }
-        .onChange(of: sessionBase) { _, _ in scheduleRefresh() } // 기준선 기록·리셋 후 세션 커밋 재계산
+        .onChange(of: sessionBase) { _, _ in scheduleRefresh() }
     }
 
-    private var header: some View {
-        HStack(spacing: Space.sm) {
-            Image(systemName: "arrow.triangle.merge").font(.muxa(.body)).foregroundStyle(Color.pMuted)
-            branchLabel
-            if let status {
-                if status.ahead > 0 { counter("arrow.up", status.ahead) }
-                if status.behind > 0 { counter("arrow.down", status.behind) }
+    @ViewBuilder
+    private var content: some View {
+        if dir == nil {
+            PanelLabel("프로젝트 경로 없음")
+        } else if let reason = pathState.message {
+            PanelLabel(reason) // 경로 소실·권한 거부를 "git 저장소 아님"으로 위장하지 않는다
+        } else if loaded, status == nil {
+            PanelLabel("git 저장소 아님")
+        } else {
+            PanelTabSwitcher(tabs: Mode.allCases, selection: $mode) { ($0.rawValue, $0.icon) }
+            HDivider()
+            switch mode {
+            case .review:
+                GitReviewTab(
+                    status: status, dir: dir, loaded: loaded,
+                    sessionBase: sessionBase, sessionCommits: sessionCommits,
+                    mtimes: mtimes, now: now,
+                    commitList: commitList(sessionCommits, showBaseline: false),
+                    onResetBaseline: onResetBaseline,
+                    onOpenDiff: onOpenDiff,
+                    onOpenInViewer: onOpenInViewer)
+            case .history:
+                GitHistoryTab(commits: commits, loaded: loaded,
+                              commitList: commitList(commits, showBaseline: true))
             }
-            if let gh { prBadge(gh) }
-            Spacer(minLength: Space.xs)
-            if status != nil {
-                if syncBusy {
-                    ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 16)
-                } else {
-                    IconButton(icon: "arrow.down.to.line", help: "Pull") { runSync { await GitService.pull(in: $0) } }
-                    IconButton(icon: "arrow.up.to.line", help: "Push") { runSync { await GitService.push(in: $0) } }
-                }
-            }
-            IconButton(icon: "arrow.clockwise", help: "새로고침") { Task { await refresh(); await refreshGH() } }
         }
-        .panelBar(height: RowHeight.panelHeader)
     }
 
-    /// 리뷰 코멘트 제출 바 — 미제출 코멘트가 있으면 개수 + "N개 보내기"(포커스 터미널에 붙여넣기).
-    /// 스토어(@Observable)를 body에서 읽어 코멘트 add/delete에 반응한다. 없으면 아무것도 안 그린다.
+    /// 두 탭이 쓰는 커밋 목록 뷰를 조립한다 — 상태 접근이 여기 모여 있어야 controlled가 유지된다.
+    private func commitList(_ list: [GitCommit], showBaseline: Bool) -> GitCommitList {
+        GitCommitList(
+            commits: list,
+            expanded: expandedCommit,
+            files: commitFiles,
+            baseline: showBaseline ? sessionBase : nil,
+            onToggle: toggle,
+            onOpenDiff: onOpenDiff,
+            onOpenInViewer: onOpenInViewer == nil ? nil : viewerAction(for:))
+    }
+
+    /// 커밋 파일 → 뷰어 열기 동작. **지금 워크트리에 그 파일이 있을 때만** 값을 준다.
+    ///
+    /// 커밋 당시 내용이 아니라 **현재 파일**을 연다 — `FileViewTarget`은 경로로 디스크를 읽는 타입이라
+    /// 과거 스냅샷을 그리려면 "내용을 받는 뷰어"로 넓혀야 한다(별도 작업). 그래서 그 뒤 지워졌거나
+    /// 이름이 바뀐 파일엔 아이콘을 안 그린다 — 빈 화면을 여는 버튼을 만들지 않는다.
+    private func viewerAction(for file: GitCommitFile) -> (() -> Void)? {
+        guard let dir, let onOpenInViewer else { return nil }
+        let abs = (dir as NSString).appendingPathComponent(file.path)
+        guard FileManager.default.fileExists(atPath: abs) else { return nil }
+        return { onOpenInViewer(abs) }
+    }
+
+    // MARK: 리뷰 코멘트 바
+
+    /// 미제출 코멘트가 있으면 개수 + "N개 보내기"(포커스 터미널에 주입). 없으면 아무것도 안 그린다.
     @ViewBuilder
     private var reviewBar: some View {
         if let root = reviewRoot {
@@ -123,7 +170,8 @@ struct GitPanel: View {
                             Text("\(pending.count)개 보내기").font(.muxa(.label, weight: .medium))
                         }
                     }
-                    .buttonStyle(.plain).foregroundStyle(Color(nsColor: Palette.gitAdded))
+                    // 액션이지 git 추가가 아니다 — 기능색(gitAdded)을 UI 액션에 전용하지 않는다.
+                    .buttonStyle(.plain).foregroundStyle(Color.pBrand)
                     .help("코멘트를 포커스 터미널에 붙여 다음 턴 지시로 보냄")
                 }
                 .panelBar(height: RowHeight.bar)
@@ -133,356 +181,41 @@ struct GitPanel: View {
         }
     }
 
-    /// 브랜치명 — git 저장소면 로컬 브랜치 목록 메뉴, 아니면 "Git" 라벨.
+    /// 동기화·버리기 실패 — 색만으로 말하지 않게 글리프를 함께 붙인다.
     @ViewBuilder
-    private var branchLabel: some View {
-        if let status, !branches.isEmpty, let dir {
-            Menu {
-                ForEach(branches, id: \.self) { b in
-                    Button {
-                        runSync { await GitService.checkout(b, in: $0) }
-                    } label: {
-                        if b == status.branch { Label(b, systemImage: "checkmark") } else { Text(b) }
-                    }
-                    .disabled(b == status.branch)
-                }
-            } label: {
-                Text(status.branch)
-                    .font(.muxa(.body, weight: .semibold))
-                    .foregroundStyle(Color.pFg)
-                    .lineLimit(1)
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .disabled(syncBusy)
-        } else {
-            Text(status?.branch ?? "Git")
-                .font(.muxa(.body, weight: .semibold))
-                .foregroundStyle(Color.pFg)
-                .lineLimit(1)
-        }
-    }
-
-    /// GitHub PR 배지 — #번호 + 상태색(open 초록·merged 보라·closed 빨강) + CI 롤업 아이콘. 클릭 시 브라우저로 PR 열기.
-    private func prBadge(_ gh: GitService.GHStatus) -> some View {
-        let stateColor = prStateColor(gh.state)
-        return Button {
-            if let dir { Task { await GitService.ghOpenPR(in: dir) } }
-        } label: {
-            Pill(color: stateColor) {
-                Image(systemName: "arrow.triangle.pull").font(.muxa(.micro))
-                Text("#\(gh.prNumber)").font(.muxaMono(.caption, weight: .semibold))
-                if let rollup = gh.rollup {
-                    Image(systemName: checkIcon(rollup)).font(.muxa(.micro, weight: .bold))
-                        .foregroundStyle(checkColor(rollup))
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .clickCursor()
-        .help(prHelp(gh))
-    }
-
-    /// PR 상태 → 색. open/closed는 git 추가·삭제색 재사용, merged는 전용 보라(Palette).
-    private func prStateColor(_ state: String) -> Color {
-        switch state.uppercased() {
-        case "OPEN": return Color(nsColor: Palette.gitAdded)
-        case "MERGED": return Color(nsColor: Palette.prMerged)
-        case "CLOSED": return Color(nsColor: Palette.gitDeleted)
-        default: return Color.pMuted
-        }
-    }
-
-    /// CI 롤업 → 색(통과 초록·실패 빨강·진행중 노랑, Palette 재사용).
-    private func checkColor(_ check: GitService.GHStatus.Check) -> Color {
-        switch check {
-        case .passing: return Color(nsColor: Palette.gitAdded)
-        case .failing: return Color(nsColor: Palette.gitDeleted)
-        case .pending: return Color(nsColor: Palette.gitModified)
-        }
-    }
-
-    /// CI 롤업 → 아이콘.
-    private func checkIcon(_ check: GitService.GHStatus.Check) -> String {
-        switch check {
-        case .passing: return "checkmark.circle.fill"
-        case .failing: return "xmark.circle.fill"
-        case .pending: return "circle.dotted"
-        }
-    }
-
-    /// 배지 툴팁 — PR 번호·상태 + CI 통과/실패/진행 카운트.
-    private func prHelp(_ gh: GitService.GHStatus) -> String {
-        var s = "PR #\(gh.prNumber) · \(gh.state)"
-        if gh.rollup != nil {
-            s += " · CI 통과 \(gh.passing)"
-            if gh.failing > 0 { s += " 실패 \(gh.failing)" }
-            if gh.pending > 0 { s += " 진행 \(gh.pending)" }
-        }
-        return s
-    }
-
-    private var picker: some View {
-        Picker("", selection: $mode) {
-            ForEach(Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .padding(.horizontal, Space.md)
-        .padding(.vertical, Space.sm)
-    }
-
-    // MARK: 변경사항
-
-    @ViewBuilder
-    private var changesView: some View {
-        if let status {
-            VStack(alignment: .leading, spacing: 0) {
-                GitCommitBox(message: $commitMessage, stagedCount: status.staged.count,
-                             error: commitError, onCommit: { Task { await commit() } })
-                HDivider()
-                if status.isClean {
-                    PanelLabel("변경 없음")
-                } else {
-                    wholeDiffToolbar
-                    HDivider()
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            section("스테이지됨", status.staged, staged: true)
-                            section("변경", status.unstaged, staged: false)
-                        }
-                        .padding(.vertical, Space.xs)
-                    }
-                }
-            }
-        } else {
-            PanelLabel("불러오는 중…")
-        }
-    }
-
-    /// 변경사항 도구줄 — 워크트리 전체를 한 번에 훑는 통합 diff 서브탭을 연다.
-    private var wholeDiffToolbar: some View {
-        HStack(spacing: Space.sm) {
-            wholeDiffButton("전체 변경 diff", base: nil)
-            Spacer(minLength: 0)
-        }
-        .panelBar()
-    }
-
-    /// 통합 diff 열기 버튼 — base=nil이면 미커밋 전체, base 지정이면 세션 기준선 이후 전체.
-    private func wholeDiffButton(_ title: String, base: String?) -> some View {
-        Button { onOpenDiff(.all(base: base)) } label: {
+    private var errorBar: some View {
+        if let syncError {
             HStack(spacing: Space.xs) {
-                Image(systemName: "rectangle.stack").font(.muxa(.caption, weight: .bold))
-                Text(title).font(.muxa(.label))
+                Image(systemName: "exclamationmark.triangle.fill").font(.muxa(.micro))
+                Text(syncError).font(.muxa(.caption)).lineLimit(2)
             }
-            .foregroundStyle(Color.pFg)
-        }
-        .buttonStyle(.plain)
-        .clickCursor()
-        .help("변경 파일 전체를 한 화면에서 훑기")
-    }
-
-    /// 섹션(스테이지됨/변경) — 헤더 + 일괄 스테이지·언스테이지 버튼 + 파일 행들.
-    @ViewBuilder
-    private func section(_ title: String, _ changes: [GitFileChange], staged: Bool) -> some View {
-        if !changes.isEmpty, let dir {
-            HStack(spacing: Space.sm) {
-                SectionLabel(title: title, count: changes.count)
-                Spacer(minLength: 0)
-                IconButton(icon: staged ? "minus" : "plus", scale: .caption, weight: .bold,
-                           help: staged ? "전부 언스테이지" : "전부 스테이지") {
-                    Task {
-                        // 실패(인덱스 락 경합·권한 등)를 삼키지 않는다 — 예전엔 `_ =`로 버려
-                        // "클릭이 안 먹네"만 남았다.
-                        let ok = staged ? await GitService.unstageAll(in: dir) : await GitService.stageAll(in: dir)
-                        syncError = ok ? nil : "\(staged ? "전부 언스테이지" : "전부 스테이지") 실패"
-                        await refresh()
-                    }
-                }
-            }
-            .panelBar(height: RowHeight.tight)
-            ForEach(changes) { fileRow($0, staged: staged, dir: dir) }
-        }
-    }
-
-    /// 파일 행 — [스테이지/언스테이지 버튼][상태문자][파일명 → diff 열기][버리기].
-    private func fileRow(_ change: GitFileChange, staged: Bool, dir: String) -> some View {
-        let badge = staged ? change.index : change.worktree
-        let name = basename(change.opPath)
-        let verb = staged ? "언스테이지" : "스테이지"
-        return HStack(spacing: Space.sm) {
-            // 접근성 이름에 **파일명을 싣는다** — 아이콘만 있는 버튼은 VoiceOver가 "plus"로 읽어
-            // 20개 행이 전부 똑같이 들린다(어느 파일의 버튼인지 말하지 않는다).
-            IconButton(icon: staged ? "minus" : "plus", scale: .caption, weight: .bold,
-                       help: verb, label: "\(name) \(verb)") {
-                Task {
-                    let ok = staged ? await GitService.unstage(change.opPath, in: dir)
-                                    : await GitService.stage(change.opPath, in: dir)
-                    syncError = ok ? nil : "\(name) \(verb) 실패"
-                    await refresh()
-                }
-            }
-
-            Button { onOpenDiff(.file(change)) } label: {
-                HStack(spacing: Space.md) {
-                    Text(String(badge))
-                        .font(.muxaMono(.label, weight: .bold))
-                        .foregroundStyle(badgeColor(badge))
-                        .frame(width: 12)
-                    Text(basename(change.opPath))
-                        .font(.muxa(.body)).foregroundStyle(Color.pFg).lineLimit(1)
-                    Text(parentDir(change.opPath))
-                        .font(.muxa(.caption)).foregroundStyle(Color.pMuted.opacity(0.8)).lineLimit(1)
-                    Spacer(minLength: 0)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .clickCursor()
-            .help(change.path)
-
-            IconButton(icon: "trash", scale: .caption, help: "변경 버리기",
-                       label: "\(name) 변경 버리기") { discard(change, in: dir) }
-        }
-        .panelRow()
-        .contextMenu {
-            Button("변경 버리기", role: .destructive) { discard(change, in: dir) }
-        }
-    }
-
-    /// 변경 버리기 — 확인 다이얼로그 후 discard, 성공 시 상태 재조회(FSEvents와 별개로 즉시 갱신).
-    private func discard(_ change: GitFileChange, in dir: String) {
-        guard DiscardConfirm.confirm(fileName: basename(change.opPath), untracked: change.isUntracked) else { return }
-        Task {
-            let err = await GitService.discard(change, in: dir)
-            if let err { syncError = err } else { await refresh() }
-        }
-    }
-
-    // MARK: 히스토리
-
-    @ViewBuilder
-    private var historyView: some View {
-        if commits.isEmpty {
-            PanelLabel(loaded ? "커밋 없음" : "불러오는 중…")
-        } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(commits) { commitRow($0) }
-                }
-                .padding(.vertical, Space.xs)
-            }
-        }
-    }
-
-    // MARK: 이번 세션 (기준선 이후 커밋 = 에이전트가 이번 세션에 커밋한 것)
-
-    @ViewBuilder
-    private var sessionView: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            sessionToolbar
-            HDivider()
-            if sessionBase == nil {
-                PanelLabel("기준선 기록 중…")
-            } else if sessionCommits.isEmpty {
-                PanelLabel(loaded ? "이번 세션 새 커밋 없음" : "불러오는 중…")
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(sessionCommits) { commitRow($0) }
-                    }
-                    .padding(.vertical, Space.xs)
-                }
-            }
-        }
-    }
-
-    /// 세션 도구줄 — 커밋 수 + 세션 전체 diff + "여기까지 봤음"(기준선을 현재 HEAD로 리셋).
-    private var sessionToolbar: some View {
-        HStack(spacing: Space.sm) {
-            SectionLabel(title: "이번 세션 커밋", count: sessionCommits.count)
-            Spacer(minLength: 0)
-            if let base = sessionBase {
-                wholeDiffButton("세션 전체", base: base) // base..worktree = 이번 세션 전체(커밋+미커밋)
-            }
-            Button(action: onResetBaseline) {
-                HStack(spacing: Space.xs) {
-                    Image(systemName: "checkmark.circle").font(.muxa(.caption))
-                    Text("여기까지 봤음").font(.muxa(.caption))
-                }
-            }
-            .buttonStyle(.plain).foregroundStyle(Color.pMuted)
-            .help("기준선을 현재 HEAD로 리셋 — 이후 커밋만 '이번 세션'에 표시")
-            .disabled(sessionBase == nil)
-        }
-        .panelBar()
-    }
-
-    private func commitRow(_ commit: GitCommit) -> some View {
-        Button { onOpenDiff(.commit(hash: commit.hash, subject: commit.subject)) } label: {
-            VStack(alignment: .leading, spacing: Space.tight) {
-                Text(commit.subject)
-                    .font(.muxa(.body))
-                    .foregroundStyle(Color.pFg)
-                    .lineLimit(1)
-                HStack(spacing: Space.sm) {
-                    Text(commit.shortHash)
-                        .font(.muxaMono(.caption))
-                        .foregroundStyle(Color.pMuted)
-                    Text(commit.author).font(.muxa(.caption)).foregroundStyle(Color.pMuted).lineLimit(1)
-                    Text("·").foregroundStyle(Color.pMuted)
-                    Text(commit.date).font(.muxa(.caption)).foregroundStyle(Color.pMuted).lineLimit(1)
-                }
-            }
-            .padding(.vertical, Space.sm)
+            .foregroundStyle(Color.pDanger)
             .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .buttonStyle(.plain)
-        .clickCursor()
-        .panelRow(height: nil) // 2줄이라 내용 높이를 따른다
-    }
-
-    // MARK: 공용
-
-    private func counter(_ icon: String, _ n: Int) -> some View {
-        HStack(spacing: Space.tight) {
-            Image(systemName: icon).font(.muxa(.micro))
-            Text("\(n)").font(.muxaMono(.label))
-        }
-        .foregroundStyle(Color.pMuted)
-    }
-
-    /// git 상태 문자 → 색. 팔레트의 git 상태색을 쓴다(시스템색 `.green`류를 직접 쓰면 라이트/다크 대비가 어긋난다).
-    private func badgeColor(_ c: Character) -> Color {
-        switch c {
-        case "A", "?": return Color(nsColor: Palette.gitAdded)
-        case "M": return Color(nsColor: Palette.gitModified)
-        case "D": return Color(nsColor: Palette.gitDeleted)
-        case "R", "C": return Color(nsColor: Palette.gitRenamed)
-        case "U": return Color(nsColor: Palette.gitConflict)
-        default: return Color.pMuted
+            .panelBar(height: RowHeight.bar)
+            HDivider()
         }
     }
 
-    private func parentDir(_ path: String) -> String {
-        let parts = path.split(separator: "/")
-        guard parts.count > 1 else { return "" }
-        return parts.dropLast().joined(separator: "/")
-    }
 
-    /// 스테이지된 변경을 커밋 → 성공 시 메시지 비우고 갱신, 실패 시 에러 표시.
-    private func commit() async {
+    // MARK: 동작
+
+    /// 커밋 펼침 — 아코디언(하나만). 파일 목록은 처음 펼칠 때만 조회하고 이후 캐시를 쓴다.
+    private func toggle(_ commit: GitCommit) {
         guard let dir else { return }
-        commitError = await GitService.commit(message: commitMessage, in: dir)
-        if commitError == nil {
-            commitMessage = ""
-            await refresh()
+        if expandedCommit == commit.hash {
+            expandedCommit = nil
+            return
+        }
+        expandedCommit = commit.hash
+        guard commitFiles[commit.hash] == nil else { return } // 커밋은 불변 — 재조회 없음
+        Task {
+            let files = await GitService.commitFiles(commit.hash, in: dir)
+            commitFiles[commit.hash] = files
         }
     }
 
-    /// pull/push/checkout 공통 실행 — 진행 표시·에러 표시·성공 후 갱신.
+
+    /// pull/push/checkout 공통 — 진행 표시·에러 표시·성공 후 갱신.
     private func runSync(_ op: @escaping (String) async -> String?) {
         guard let dir, !syncBusy else { return }
         syncBusy = true
@@ -493,13 +226,11 @@ struct GitPanel: View {
             syncBusy = false
             if msg == nil {
                 await refresh()
-                await refreshGH() // 브랜치 전환·pull/push 후 PR 배지도 갱신(이전 브랜치 PR stale 방지)
+                await refreshGH() // 브랜치 전환·pull/push 후 PR 배지도 갱신(stale 방지)
             }
         }
     }
 
-    /// FSEvents·기준선 변경에 물린 갱신 — 진행 중인 것을 취소하고 새로 건다.
-    /// (npm install처럼 이벤트가 쏟아질 때 이전 결과가 뒤늦게 착지해 화면이 되돌아가는 걸 막는다.)
     private func scheduleRefresh() {
         refreshTask?.cancel()
         refreshTask = Task { await refresh() }
@@ -510,13 +241,12 @@ struct GitPanel: View {
             clearGit()
             return
         }
-        // 폴더가 사라졌거나 못 읽으면 git을 부를 이유가 없다 — 사유는 pathState가 화면에 말한다.
         pathState = PathState.check(dir)
         guard pathState == .ok else {
             clearGit()
             return
         }
-        // 네 조회를 **병렬로** 띄운다 — 순차 await면 FSEvents 배치마다 셸아웃 4번이 줄줄이 기다린다.
+        // 네 조회를 **병렬로** — 순차 await면 FSEvents 배치마다 셸아웃이 줄줄이 기다린다.
         async let statusResult = GitService.status(in: dir)
         async let logResult = GitService.log(in: dir)
         async let branchResult = GitService.localBranches(in: dir)
@@ -528,9 +258,25 @@ struct GitPanel: View {
         branches = s == nil ? [] : branchList
         sessionCommits = s == nil ? [] : session
         loaded = true
+        refreshMTimes(s)
     }
 
-    /// 이번 세션 = 기준선 이후 커밋(base..HEAD). 기준선이 없으면 빈 목록.
+    /// 변경 파일들의 마지막 수정 시각 — 행 꼬리표 입력. 디스크 속성만 읽어 셸아웃이 없다.
+    private func refreshMTimes(_ status: GitStatus?) {
+        guard let dir, let status else {
+            mtimes = [:]
+            return
+        }
+        var next: [String: Date] = [:]
+        for change in status.changes {
+            let abs = (dir as NSString).appendingPathComponent(change.opPath)
+            if let d = (try? FileManager.default.attributesOfItem(atPath: abs)[.modificationDate]) as? Date {
+                next[change.opPath] = d
+            }
+        }
+        mtimes = next
+    }
+
     private func loadSessionCommits(in dir: String) async -> [GitCommit] {
         guard let base = sessionBase else { return [] }
         return await GitService.sessionCommits(base: base, in: dir)
@@ -541,10 +287,11 @@ struct GitPanel: View {
         commits = []
         sessionCommits = []
         branches = []
+        mtimes = [:]
         loaded = true
     }
 
-    /// gh 배지 갱신 — git 저장소일 때만 시도. gh 미설치·PR 없음이면 nil(배지 숨김). FSEvents엔 안 물림(과한 폴링 금지).
+    /// gh 배지 갱신 — git 저장소일 때만. FSEvents엔 안 물림(과한 폴링 금지).
     private func refreshGH() async {
         guard let dir, status != nil else { gh = nil; return }
         gh = await GitService.ghStatus(in: dir)

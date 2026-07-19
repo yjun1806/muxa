@@ -49,9 +49,11 @@ struct SectionLabel: View {
                 .font(.muxa(.caption, weight: .semibold))
                 .foregroundStyle(Color.pMuted)
             if let count {
+                // 임의 opacity 곱 금지(DESIGN §2) — 이미 caption+muted로 두 단 낮췄다.
+                // 공용 컴포넌트라 여기서 곱하면 사이드바·Git 패널 모든 헤더로 전파된다.
                 Text("\(count)")
                     .font(.muxaMono(.caption))
-                    .foregroundStyle(Color.pMuted.opacity(0.7))
+                    .foregroundStyle(Color.pMuted)
             }
         }
     }

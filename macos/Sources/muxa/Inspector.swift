@@ -142,7 +142,8 @@ struct InspectorContent: View {
                     dir: t.project.path ?? t.ws.path,
                     sessionBase: t.project.sessionBaseHead,
                     onResetBaseline: { state.resetSessionBaseline(projectId: t.project.id, cwd: t.project.path ?? t.ws.path) },
-                    onSendReview: { store.injectToTerminal($0) }
+                    onSendReview: { store.injectToTerminal($0) },
+                    onOpenInViewer: { _ = store.openFile($0) } // 탐색기와 같은 뷰어 경로
                 ) { store.openDiff($0) }
             } else {
                 emptyProject

@@ -1825,17 +1825,28 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         switch item {
         case .file(let t): return ItemSnapshot(file: t.path, commit: nil, commitSubject: nil)
         case .diff(let target):
-            if case .commit(let hash, let subject) = target {
+            switch target {
+            case .commit(let hash, let subject):
                 return ItemSnapshot(file: nil, commit: hash, commitSubject: subject)
+            case .commitFile(let hash, let path, let oldPath):
+                // 커밋 안 파일도 불변이라 복원 대상이다(워크트리 파일 diff와 달리 내용이 안 변한다).
+                return ItemSnapshot(file: nil, commit: hash, commitSubject: nil,
+                                    commitFile: path, commitFileOldPath: oldPath)
+            case .file, .all:
+                return ItemSnapshot(file: nil, commit: nil, commitSubject: nil) // 워크트리 diff는 복원 대상 아님
             }
-            return ItemSnapshot(file: nil, commit: nil, commitSubject: nil) // 파일 diff는 복원 대상 아님
         }
     }
 
     private func itemContent(_ s: ItemSnapshot) -> GroupItemContent? {
         if let f = s.file { return .file(FileViewTarget(path: f)) }
-        if let h = s.commit { return .diff(.commit(hash: h, subject: s.commitSubject ?? h)) }
-        return nil
+        guard let h = s.commit else { return nil }
+        // 경로가 있으면 커밋 **안 파일 하나** — 통짜 커밋 diff보다 먼저 판정해야 한다
+        // (둘 다 `commit`을 쓰므로 순서가 뒤집히면 파일 서브탭이 통짜로 복원된다).
+        if let path = s.commitFile {
+            return .diff(.commitFile(hash: h, path: path, oldPath: s.commitFileOldPath))
+        }
+        return .diff(.commit(hash: h, subject: s.commitSubject ?? h))
     }
 
     /// 복원 중 만난 '활성 칸'과 그 칸의 선택 탭 — 재구성이 끝난 뒤 전역 포커스를 여기로 되돌린다.
