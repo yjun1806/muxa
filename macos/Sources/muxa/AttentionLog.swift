@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import Observation
 
@@ -21,23 +20,29 @@ enum AttentionKind: String, Codable {
         }
     }
 
-    var icon: String {
+    /// 이 신호의 표시 톤 — 인박스 아이콘·색은 여기서 파생한다(`StatusStyle`이 앱 유일 매핑 테이블).
+    ///
+    /// 한때 인박스가 **자체 아이콘 표**를 들고 있었다: 완료가 git 초록 `checkmark.circle.fill`이라
+    /// 사이드바·탭의 세이지 `checkmark`와 달랐다 — `StatusStyle`이 "git 초록과 분리"라고 못박은 색을
+    /// 인박스만 도로 쓴 셈이다. 같은 사건이 화면 위치에 따라 다르게 보이면 어휘를 두 번 배워야 한다.
+    /// 그래서 표를 없애고 톤만 정한다(색맹 안전·색 선택은 전부 StatusStyle이 책임진다).
+    ///
+    /// `category`는 **훅 알림에만 실린다**(자동 OSC 9/777은 nil). 승인 대기와 턴 완료를 가르는 유일한
+    /// 근거라 여기까지 끌고 온다 — 이 값이 없으면 인박스는 "뭔가 왔다"까지만 말할 수 있다.
+    func tone(category: NotifyCategory?) -> StatusTone {
         switch self {
-        case .done: return "checkmark.circle.fill"
-        case .bell: return "bell.fill"
-        case .notify: return "message.fill"
-        case .system: return "exclamationmark.triangle.fill"
-        }
-    }
-
-    /// 종류색 — 팔레트 재사용(신규 색 없음). 완료=초록, 벨·알림=앰버(주의), 시스템=주황빨강(경고).
-    var color: NSColor {
-        switch self {
-        case .done: return Palette.gitAdded
-        // 알림도 "사람을 부르는" 주의 신호라 벨과 같은 앰버(borderActivity)로 — brand(틸)는 "작업 중"의
-        // 색이라 "틸=알림"이 "틸=돌고 있다"와 충돌했다. 어휘를 attention 한쪽으로 모은다.
-        case .bell, .notify: return Palette.borderActivity
-        case .system: return Palette.gitConflict
+        case .done: return .success
+        case .system: return .failure
+        // 터미널 벨은 상태가 아니라 "여기 봐라"다 — 가장 가까운 톤이 attention이다.
+        case .bell: return .attention
+        case .notify:
+            switch category {
+            case .needsPermission: return .attention
+            case .turnComplete: return .success
+            case .idleReminder: return .quiet
+            // 자동 신호는 무슨 일인지 알 수 없다. 조용히 넘기기보다 부른 쪽으로 본다.
+            case nil: return .attention
+            }
         }
     }
 }
@@ -51,6 +56,9 @@ struct AttentionEntry: Identifiable, Equatable {
     let projectId: String
     let tabId: String
     let kind: AttentionKind
+    /// 표시 톤 — 기록 시점에 확정한다(`kind.tone(category:)`). 렌더는 `StatusStyle`이 이 값에서 파생한다.
+    /// 엔트리에 담는 이유: `category`는 발사 순간에만 있고 인박스는 나중에 그린다.
+    let tone: StatusTone
     let title: String
     let seq: Int
     let date: Date
@@ -85,10 +93,14 @@ final class AttentionLog {
     /// 병합(coalescing): 직전(최신) 항목이 같은 탭·같은 종류면 새 항목을 쌓지 않고 **교체**한다(last-write-wins).
     /// auto-approve 연타로 같은 신호가 반복돼도 인박스가 부풀지 않고, 상한(cap)을 중복이 잡아먹지 않는다.
     /// 교체 시에도 seq를 올려 최신·안 읽음으로 되살린다(반복 활동도 새 주의로 환기). 시각도 갱신.
-    func record(workspaceId: String, projectId: String, tabId: String, kind: AttentionKind, title: String) {
+    /// `tone`을 안 주면 종류에서 파생한다(`kind.tone(category: nil)`) — 훅 알림처럼 category가 있는
+    /// 경로만 명시하면 되고, 스크립트·서비스 실패처럼 카테고리가 없는 경로는 규칙을 다시 적지 않는다.
+    func record(workspaceId: String, projectId: String, tabId: String,
+                kind: AttentionKind, tone: StatusTone? = nil, title: String) {
         seqCounter += 1
         let entry = AttentionEntry(workspaceId: workspaceId, projectId: projectId, tabId: tabId,
-                                   kind: kind, title: title, seq: seqCounter, date: Date())
+                                   kind: kind, tone: tone ?? kind.tone(category: nil),
+                                   title: title, seq: seqCounter, date: Date())
         var next = entries
         if let last = next.last, last.tabId == tabId, last.kind == kind {
             next[next.count - 1] = entry // 직전 동일 신호 교체 — 중복 누적 방지
@@ -109,7 +121,8 @@ final class AttentionLog {
         guard !entries.contains(where: { $0.kind == .system && $0.title == title }) else { return }
         seqCounter += 1
         let entry = AttentionEntry(workspaceId: "", projectId: "", tabId: "",
-                                   kind: .system, title: title, seq: seqCounter, date: Date())
+                                   kind: .system, tone: AttentionKind.system.tone(category: nil),
+                                   title: title, seq: seqCounter, date: Date())
         var next = entries
         next.append(entry)
         if next.count > Self.cap { next.removeFirst(next.count - Self.cap) }

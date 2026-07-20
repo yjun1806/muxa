@@ -358,10 +358,11 @@ final class AppState {
     }
 
     /// 배지가 붙는 순간 인박스 이력에 한 건 기록한다. 워크스페이스 id는 프로젝트 소속으로 파생(단일 진실 원천).
-    private func recordAttention(projectId: String, tabId: TabID, kind: AttentionKind, title: String) {
+    private func recordAttention(projectId: String, tabId: TabID, kind: AttentionKind,
+                                 tone: StatusTone, title: String) {
         let workspaceId = workspace(containing: projectId)?.id ?? ""
         attention.record(workspaceId: workspaceId, projectId: projectId,
-                         tabId: tabId.uuid.uuidString, kind: kind, title: title)
+                         tabId: tabId.uuid.uuidString, kind: kind, tone: tone, title: title)
     }
 
     /// 키맵 재정의 진단을 노출값에 반영하고, 알림 인박스에 시스템 경고로 표면화한다(시작·라이브 리로드 공통 경로).
@@ -944,8 +945,10 @@ final class AppState {
             MainActor.assumeIsolated { self?.emitNotification(projectId: pid, tabId: tabId, title: title, body: body) }
         }
         // 배지가 붙는 순간 인박스 이력에 한 건 기록 — 라우팅 컨텍스트(워크스페이스)는 여기서 파생.
-        s.onAttention = { [weak self] tabId, kind, title in
-            MainActor.assumeIsolated { self?.recordAttention(projectId: pid, tabId: tabId, kind: kind, title: title) }
+        s.onAttention = { [weak self] tabId, kind, tone, title in
+            MainActor.assumeIsolated {
+                self?.recordAttention(projectId: pid, tabId: tabId, kind: kind, tone: tone, title: title)
+            }
         }
         // 탭/뷰어가 바뀔 때마다 즉시 저장 — ⌘Q 없이(pkill·크래시) 종료돼도 다음 실행에 복원.
         s.onStateChange = { [weak self] in MainActor.assumeIsolated { self?.save() } }

@@ -314,7 +314,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     @ObservationIgnored var onNotify: ((TabID, String, String) -> Void)?
     /// 배지가 붙는(=안 보이는 탭에 주의가 쌓이는) 순간 상위(AppState)에 알린다 — 알림 인박스 이력용.
     /// 라우팅 컨텍스트는 AppState가 붙이므로 tabId·종류·제목만 넘긴다.
-    @ObservationIgnored var onAttention: ((TabID, AttentionKind, String) -> Void)?
+    @ObservationIgnored var onAttention: ((TabID, AttentionKind, StatusTone, String) -> Void)?
     /// 탭/뷰어 구성이 바뀔 때 상위(AppState)에 알린다 — 즉시 세션 저장(⌘Q 없이도 복원되게).
     @ObservationIgnored var onStateChange: (() -> Void)?
     /// 셸 cwd(OSC 7)가 바뀔 때 상위(AppState)에 알린다 — 새 워크트리로 들어간 세션의 **자동 승격** 판정용(D31 보완).
@@ -847,7 +847,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 백그라운드 활동으로 이 탭에 배지(●)를 켠다 — 탭 점(Bonsplit isDirty) + 프로젝트 알림 + 인박스 이력.
     /// 같은 (tabId,kind)가 cooldown 안에 다시 오면 병합해 억제한다 — 배지는 이미 켜져 있어 시각 손실 없이
     /// 인박스·프로젝트 알림 폭주만 접는다. 주의가 해소(clearTabBadge)되면 병합기가 리셋돼 다음 신호는 통과.
-    private func markBadge(_ tabId: TabID, kind: AttentionKind, title: String) {
+    private func markBadge(_ tabId: TabID, kind: AttentionKind, tone: StatusTone, title: String) {
         let (admit, next) = badgeCoalescer.admitting(BadgeKey(tabId: tabId, kind: kind),
                                                      now: ProcessInfo.processInfo.systemUptime)
         badgeCoalescer = next
@@ -855,7 +855,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         badgedTabs.insert(tabId)
         controller.updateTab(tabId, isDirty: true)
         onProjectActivity?()
-        onAttention?(tabId, kind, title)
+        onAttention?(tabId, kind, tone, title)
     }
 
     /// 인박스 이력에 쓸 탭 제목 — 수동 지정 > 엔진 제목 > 기본값.
@@ -1432,7 +1432,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             // close_surface_cb(탭 닫기)와 별개 경로다: 탭이 닫히면 didCloseTab이 추정기·배지를 정리하고,
             // 서피스가 유지되면(통합 부재 등) 이 done 테두리·배지가 유일한 종료 표식이 된다.
             applyAgentSignal(.processExited, to: tabId)
-            if !visible { markBadge(tabId, kind: .done, title: tabTitle(tabId)) }
+            if !visible {
+                markBadge(tabId, kind: .done, tone: AttentionKind.done.tone(category: nil),
+                          title: tabTitle(tabId))
+            }
         case .outputHeartbeat:
             break // 위에서 이미 처리하고 반환 — 열거 완전성용.
         }
@@ -1441,7 +1444,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 안 보이면 배지(+인박스 이력). 보이면 아무것도 안 한다(상태 테두리가 이미 짚는다).
     /// 벨·명령 완료 등 시스템 알림 없는 신호용.
     private func fireActivity(_ tabId: TabID, kind: AttentionKind, title: String, visible: Bool) {
-        if !visible { markBadge(tabId, kind: kind, title: title) }
+        // 벨·명령 완료는 훅 payload가 없다 — category 없이 톤을 판정한다(done=완료, bell=주의).
+        if !visible { markBadge(tabId, kind: kind, tone: kind.tone(category: nil), title: title) }
     }
 
     /// 알림 발사의 단일 경로 — 순수 게이트(NotificationGate)로 배달 방식을 정하고 채널별로 실행한다.
@@ -1458,7 +1462,11 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                 if let onNotify { onNotify(tabId, title, body) } else { NotificationService.shared.notify(title: title, body: body) }
             }
         }
-        if delivery.badge { markBadge(tabId, kind: kind, title: title.isEmpty ? tabTitle(tabId) : title) }
+        // 훅 알림은 category가 실려 온다 — 승인 대기와 턴 완료를 인박스에서도 가르는 유일한 근거다.
+        if delivery.badge {
+            markBadge(tabId, kind: kind, tone: kind.tone(category: category),
+                      title: title.isEmpty ? tabTitle(tabId) : title)
+        }
     }
 
 

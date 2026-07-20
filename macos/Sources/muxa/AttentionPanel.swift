@@ -66,9 +66,12 @@ struct AttentionInbox: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(entries) { entry in
+                        // 구분선은 **행 사이에만** — 마지막 행 뒤에 그리면 곧이어 오는 푸터 HDivider와 겹쳐 두 줄이 된다.
+                        ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                            if index > 0 {
+                                Rectangle().fill(Color.pBorder.opacity(0.5)).frame(height: 1)
+                            }
                             row(entry)
-                            Rectangle().fill(Color.pBorder.opacity(0.5)).frame(height: 1)
                         }
                     }
                 }
@@ -222,9 +225,11 @@ struct AttentionInbox: View {
             onClose()
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: entry.kind.icon)
-                    .font(.muxa(.body))
-                    .foregroundStyle(Color(nsColor: entry.kind.color))
+                // 사이드바·탭과 **같은 글리프·같은 색**을 쓴다 — 인박스만의 아이콘 표는 없다(StatusStyle이 SSOT).
+                // semibold는 선 글리프(checkmark·circle)가 12pt에서 얇아지는 걸 막는다(채운 글리프엔 영향 없음).
+                Image(systemName: StatusStyle.glyph(entry.tone))
+                    .font(.muxa(.body, weight: .semibold))
+                    .foregroundStyle(StatusStyle.color(entry.tone))
                     .frame(width: 16)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.title.isEmpty ? entry.kind.label : entry.title)
