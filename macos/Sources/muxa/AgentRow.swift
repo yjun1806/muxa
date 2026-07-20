@@ -81,6 +81,34 @@ extension AgentRow {
             .map(\.element)
     }
 
+    /// 펼침 목록의 **두 덩어리** — 터미널(상태가 변한다, 지켜보는 것)과 뷰어(가만히 있다, 참고하는 것).
+    ///
+    /// 성격이 다른 둘이 한 줄기로 섞이면 실행 중인 것을 훑을 때마다 정적인 파일 이름을 건너뛰게 된다.
+    /// 가르는 기준은 하나뿐이다 — `viewerKind == nil`.
+    struct Sections: Equatable {
+        /// 유휴가 아닌 터미널 — 개별 행으로 나온다.
+        var terminals: [AgentRow]
+        /// 유휴 터미널 개수 — "유휴 N" 한 줄로 접힌다(개별 나열은 소음).
+        var idleTerminals: Int
+        /// 뷰어 — **유휴여도 접지 않는다**("파일탭은 파일로", 접으면 아무것도 안 남는다).
+        var viewers: [AgentRow]
+
+        /// 두 덩어리 사이 구분선을 그리나 — **양쪽이 다 있을 때만**.
+        /// 한쪽이 비면 선이 목록 끝에 덩그러니 남아 버그처럼 보인다. 뷰어 0개가 가장 흔한 경우고,
+        /// 그때는 지금과 똑같이 보여야 맞다. 터미널이 전부 유휴여도 폴드 행이 선 위에 남으므로 그린다.
+        var showsSeparator: Bool { (!terminals.isEmpty || idleTerminals > 0) && !viewers.isEmpty }
+    }
+
+    /// 정렬된 행들을 두 덩어리로 가른다 — **다시 정렬하지 않는다**(입력은 이미 `ordered`를 거친
+    /// 긴급도순이고, 여기서 또 흔들면 클릭하려던 행이 포인터 밑에서 움직인다).
+    static func sections(_ rows: [AgentRow]) -> Sections {
+        let viewers = rows.filter { $0.viewerKind != nil }
+        let terminals = rows.filter { $0.viewerKind == nil }
+        return Sections(terminals: terminals.filter { $0.state != .idle },
+                        idleTerminals: terminals.count { $0.state == .idle },
+                        viewers: viewers)
+    }
+
     private static func priority(_ s: AgentActivity) -> Int {
         switch s {
         case .waiting: return 0

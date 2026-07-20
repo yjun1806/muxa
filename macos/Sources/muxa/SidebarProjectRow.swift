@@ -147,21 +147,40 @@ struct SidebarProjectRow: View {
 
     // MARK: 에이전트 목록 — 펼쳤을 때 탭별 상세(L1 — 풀폭 목록 행)
 
-    /// 펼침 목록 = 비유휴 에이전트 행(긴급도순, 순수 정렬은 `AppState.agentRows`) + 유휴는 "유휴 N" 한 줄로 접기.
+    /// 펼침 목록 = **터미널 덩어리**(긴급도순 + "유휴 N" 접기) · 구분선 · **뷰어 덩어리**.
     /// 행은 **프로젝트 행과 같은 문법**(풀폭·hover 채움·radius)을 쓴다 — "클릭 가능한 목록"으로 읽히게(L1).
+    ///
+    /// 두 덩어리를 가르는 이유: 터미널은 **지켜보는 것**(상태가 변한다)이고 뷰어는 **참고하는 것**
+    /// (가만히 있다)이다. 섞이면 실행 중인 것을 훑을 때마다 정적인 파일 이름을 건너뛰게 된다.
+    /// 나누는 판정은 순수 함수가 맡는다(`AgentRow.sections` — 빈 그룹 처리까지 테스트로 못 박혀 있다).
     @ViewBuilder
     private func agentList() -> some View {
-        let rows = state.agentRows(project.id)
-        // 뷰어(문서·코드·diff…)는 유휴여도 남긴다("파일탭은 파일로"). 유휴 **터미널**만 접어 소음 제거.
-        let visible = rows.filter { $0.state != .idle || $0.viewerKind != nil }
-        let idleCount = rows.count - visible.count // 안 보이는 건 곧 유휴 터미널
+        let sections = AgentRow.sections(state.agentRows(project.id))
         // "지금 보고 있는 탭"(활성 프로젝트의 포커스 칸 선택 탭)은 선택 채움 — 목록에서도 현재 위치가 보인다.
         let selected = active ? state.selectedTabId(project.id) : nil
         VStack(alignment: .leading, spacing: Space.tight) {
-            ForEach(visible) { agentRowView($0, selected: selected) }
-            if idleCount > 0 { idleFold(idleCount) }
+            ForEach(sections.terminals) { agentRowView($0, selected: selected) }
+            // 유휴 폴드는 **선 위**(터미널 쪽)에 남는다 — 아래로 내려가면 뷰어를 접는다는 오해를 준다.
+            if sections.idleTerminals > 0 { idleFold(sections.idleTerminals) }
+            if sections.showsSeparator { sectionSeparator }
+            ForEach(sections.viewers) { agentRowView($0, selected: selected) }
         }
         .padding(.top, Space.tight)
+    }
+
+    /// 터미널 ↔ 뷰어 경계 — **목록 폭에만** 걸리는 1pt 선.
+    ///
+    /// 사이드바는 원래 가로선을 쓰지 않는다(간격이 위계). 그래서 이 선은 레인을 가로지르지 않고
+    /// 행 내용과 같은 들여쓰기 안에 갇힌다 — 전폭으로 늘리면 상위 경계(프로젝트 사이)보다 세 보여
+    /// 트리에서 **가장 깊은 경계만 가장 강한** 위계 역전이 생긴다.
+    private var sectionSeparator: some View {
+        Rectangle()
+            .fill(Color.pBorder)
+            .frame(height: RowHeight.hairline)
+            .padding(.leading, agentIndent)
+            .padding(.trailing, Space.sm)
+            .padding(.vertical, Space.xs) // 선이 행에 달라붙지 않게 — 위아래로 숨을 준다
+            .accessibilityHidden(true) // 장식이다. 순서(터미널 먼저)가 이미 그룹을 말한다
     }
 
     /// 에이전트 한 행 — **프롬프트가 있으면 2줄**(제목=마지막 프롬프트, 아랫줄=탭 이름–상태/라이브 도구),
