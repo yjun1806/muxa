@@ -26,7 +26,7 @@ struct Breadcrumb: View {
                 .font(.muxa(.micro))
                 .foregroundStyle(Color.pMuted)
             if let project = shown {
-                Image(systemName: project.path == nil ? "folder" : "arrow.triangle.branch")
+                MuxaIcon(name: project.path == nil ? "folder" : MuxaSymbol.gitBranch)
                     .font(.muxa(.label))
                     .foregroundStyle(Color.pMuted)
                 // **표시명 우선** — 사용자가 붙인 이름(예: "메인")을 그대로 보여준다(사이드바 행과 한 규칙).
@@ -43,7 +43,7 @@ struct Breadcrumb: View {
                 // (DESIGN 2: 색만으로 구분하지 않는다 — 모양과 함께).
                 if let branch, branch != project.name {
                     HStack(alignment: .firstTextBaseline, spacing: Space.tight) {
-                        Image(systemName: "arrow.triangle.branch")
+                        MuxaIcon(name: MuxaSymbol.gitBranch)
                             .font(.muxa(.micro))
                             .foregroundStyle(Color.pMuted)
                         Text(branch)

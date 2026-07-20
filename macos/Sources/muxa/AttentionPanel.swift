@@ -160,7 +160,7 @@ struct AttentionInbox: View {
     private var offerSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
-                Image(systemName: "arrow.triangle.branch").font(.muxa(.label)).foregroundStyle(Color.pBrand)
+                MuxaIcon(name: MuxaSymbol.gitBranch, size: TypeScale.label).foregroundStyle(Color.pBrand)
                 Text("새 워크트리 감지").font(.muxa(.caption, weight: .semibold)).foregroundStyle(Color.pMuted)
             }
             .padding(.horizontal, 10).padding(.top, 8).padding(.bottom, 4)

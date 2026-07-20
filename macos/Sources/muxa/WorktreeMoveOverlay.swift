@@ -37,8 +37,7 @@ private struct WorktreeMoveBanner: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "arrow.triangle.branch")
-                .font(.muxa(.caption))
+            MuxaIcon(name: MuxaSymbol.gitBranch, size: TypeScale.caption)
                 .foregroundStyle(Color.pMuted)
             Text("이 세션은 ‘\(targetName)’ 워크트리에서 작업 중")
                 .font(.muxa(.body, weight: .medium))

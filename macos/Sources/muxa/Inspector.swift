@@ -10,7 +10,7 @@ enum InspectorTab: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .explorer: return "folder"
-        case .git: return "arrow.triangle.merge" // Git 섹션 공통 아이콘(브랜치·워크트리 표시와 구분)
+        case .git: return MuxaSymbol.gitBranch
         case .attention: return "bell"
         }
     }
@@ -43,8 +43,7 @@ struct InspectorTabStrip: View {
 
     private func tabButton(_ tab: InspectorTab) -> some View {
         let active = state.inspectorTab == tab
-        let icon = Image(systemName: tab.icon)
-            .font(.muxa(.body))
+        let icon = MuxaIcon(name: tab.icon)
             .overlay(alignment: .topTrailing) { badge(tab) }
         return Button {
             state.selectInspector(tab)

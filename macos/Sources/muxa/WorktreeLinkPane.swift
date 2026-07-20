@@ -26,7 +26,7 @@ struct WorktreeLinkPane: View {
                 linked(link)
             } else {
                 // 대상이 사라졌다 — 왜 비었는지(두 원인)와 다음 행동을 함께 준다(DESIGN 7: 빈 상태는 설명 + 버튼).
-                EmptyState(icon: "arrow.triangle.branch", title: "연결된 작업이 없습니다",
+                EmptyState(icon: MuxaSymbol.gitBranch, title: "연결된 작업이 없습니다",
                            subtitle: "원본 탭이 닫혔거나 이미 이 프로젝트로 가져왔습니다 — 일반 프로젝트로 쓰면 됩니다") {
                     EmptyStateButton(title: "새 터미널", icon: "plus") {
                         store.newTerminal()
@@ -42,7 +42,7 @@ struct WorktreeLinkPane: View {
     private func linked(_ link: ExternalWorktreeSession) -> some View {
         // 제목이 목적지(원본 프로젝트)를 지목한다 — [가서 보기]가 어디로 데려갈지 예측 가능해야 한다(DESIGN 7: 원인을 말한다).
         // 설명은 EmptyState의 subtitle 슬롯으로 — 호출부 재조판은 컴포넌트 계약(크기·간격 단일 출처)을 깬다.
-        EmptyState(icon: "arrow.triangle.branch", title: "‘\(link.originName)’의 탭에서 작업이 진행 중입니다",
+        EmptyState(icon: MuxaSymbol.gitBranch, title: "‘\(link.originName)’의 탭에서 작업이 진행 중입니다",
                    subtitle: link.isPersistent
                        ? "지속 세션(∞) — 이 프로젝트로 가져올 수 있습니다"
                        : "일반 터미널은 가져올 수 없습니다 — ∞ 지속 세션으로 열면 가능합니다. 지금은 가서 보기만 됩니다") {

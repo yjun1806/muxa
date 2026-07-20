@@ -18,7 +18,7 @@ enum ProjectAddMenu {
             },
             // 시트는 뷰 계층(ContentView)이 소유하므로 여기선 요청만 올린다 —
             // 여는 버튼(hover의 +)이 사라져도 시트는 살아 있어야 한다.
-            MuxaMenuItem(icon: "arrow.triangle.branch", title: "워크트리…") {
+            MuxaMenuItem(icon: MuxaSymbol.gitBranch, title: "워크트리…") {
                 state.setActiveId(workspace.id)
                 state.worktreePickerRequested = true
             },

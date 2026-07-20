@@ -44,6 +44,8 @@ let package = Package(
                 .copy("Resources/AppIcon.png"),
                 // Claude 심볼(공식 SVG) — 사용량 표시의 출처 마크. NSImage가 벡터로 렌더한다.
                 .copy("Resources/claude-symbol.svg"),
+                // git 브랜치 글리프(Octicons, MIT) — SF Symbols에 같은 모양이 없어 번들한다(MuxaIcon).
+                .copy("Resources/git-branch.svg"),
             ],
             linkerSettings: [
                 .linkedFramework("AppKit"),

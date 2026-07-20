@@ -16,7 +16,7 @@ struct GitPanelHeader: View {
 
     var body: some View {
         HStack(spacing: Space.sm) {
-            Image(systemName: "arrow.triangle.merge")
+            MuxaIcon(name: MuxaSymbol.gitBranch)
                 .font(.muxa(.body))
                 .foregroundStyle(Color.pMuted)
                 // 폰트 크기만으로 세우면 브랜치명 길이가 바뀔 때 광학 중심이 흔들린다.

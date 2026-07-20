@@ -98,8 +98,7 @@ struct QuickSwitcher: View {
     /// 항목 한 줄 — [종류 아이콘][제목 · 위치][대기 점][종류 라벨]. 선택 행은 강조 배경.
     private func row(_ item: QuickSwitchItem, selected: Bool) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: item.icon)
-                .font(.muxa(.title))
+            MuxaIcon(name: item.icon, size: TypeScale.title)
                 .foregroundStyle(selected ? Color.pFg : Color.pMuted)
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 2) {

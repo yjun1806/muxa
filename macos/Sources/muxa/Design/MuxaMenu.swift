@@ -113,9 +113,8 @@ struct MuxaMenuView: View {
         return HStack(spacing: Space.md) {
             // 아이콘이 없는 항목도 제목 시작선이 같아야 목록이 정렬돼 보인다 — 자리를 항상 잡는다.
             Group {
-                if let icon = item.icon { Image(systemName: icon) } else { Color.clear }
+                if let icon = item.icon { MuxaIcon(name: icon) } else { Color.clear }
             }
-            .font(.muxa(.body))
             .frame(width: IconSize.mark, height: IconSize.mark)
 
             Text(item.title)

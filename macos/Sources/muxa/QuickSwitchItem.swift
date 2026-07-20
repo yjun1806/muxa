@@ -91,7 +91,7 @@ enum QuickCommandCatalog {
         .command(.toggleExplorer, id: "cmd:toggle-explorer", title: "익스플로러 토글",
                  subtitle: "파일 탐색 패널", icon: "sidebar.left", shortcutHint: "⌘⇧E"),
         .command(.toggleGitPanel, id: "cmd:toggle-git", title: "Git 패널 토글",
-                 subtitle: "변경사항·브랜치·워크트리", icon: "arrow.triangle.merge", shortcutHint: "⌘⇧G"),
+                 subtitle: "변경사항·브랜치·워크트리", icon: MuxaSymbol.gitBranch, shortcutHint: "⌘⇧G"),
         .command(.jumpToNextWaiting, id: "cmd:next-waiting", title: "다음 대기 세션",
                  subtitle: "배지된 다음 세션으로 점프", icon: "bell.badge", shortcutHint: "⌘⇧A"),
         .command(.separateProject, id: "cmd:separate-project", title: "새 창으로 분리",

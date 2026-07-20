@@ -17,8 +17,7 @@ struct EmptyState<Action: View>: View {
 
     var body: some View {
         VStack(spacing: compact ? Space.sm : Space.lg) {
-            Image(systemName: icon)
-                .font(.system(size: iconSize))
+            MuxaIcon(name: icon, size: iconSize)
                 .foregroundStyle(compact ? Color.pMuted.opacity(0.6) : Color.pMuted)
             VStack(spacing: Space.xs) {
                 Text(title)

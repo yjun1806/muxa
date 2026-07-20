@@ -37,7 +37,7 @@ struct WorktreePicker: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(systemName: "arrow.triangle.branch").foregroundStyle(Color.pMuted)
+            MuxaIcon(name: MuxaSymbol.gitBranch).foregroundStyle(Color.pMuted)
             Text("워크트리").font(.muxa(.title, weight: .semibold)).foregroundStyle(Color.pFg)
             Spacer()
             Button("닫기", action: onCancel).keyboardShortcut(.cancelAction)
@@ -73,7 +73,7 @@ struct WorktreePicker: View {
         HStack(spacing: 8) {
             Button { onPick(wt.displayName, wt.path) } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: "arrow.triangle.branch").font(.muxa(.label)).foregroundStyle(Color.pMuted)
+                    MuxaIcon(name: MuxaSymbol.gitBranch, size: TypeScale.label).foregroundStyle(Color.pMuted)
                     Text(wt.displayName).font(.muxa(.body)).foregroundStyle(Color.pFg).lineLimit(1)
                     if isMain {
                         Text("메인").font(.muxa(.micro)).foregroundStyle(Color.pMuted)
@@ -92,7 +92,7 @@ struct WorktreePicker: View {
             // 메인이 아니고 브랜치가 있으며 기본 브랜치와 다르면 "병합 후 정리" 노출(마무리 원액션).
             if !isMain, let branch = wt.branch, let target = defaultBranch, branch != target {
                 Button { mergeCleanup(wt, branch: branch, target: target) } label: {
-                    Image(systemName: "arrow.triangle.merge").font(.muxa(.label)).foregroundStyle(Color.pMuted)
+                    MuxaIcon(name: MuxaSymbol.gitBranch, size: TypeScale.label).foregroundStyle(Color.pMuted)
                 }
                 .buttonStyle(.plain).disabled(busy)
                 .help("\(target)에 병합 후 정리")
