@@ -76,61 +76,9 @@ struct AttentionInbox: View {
                     }
                 }
             }
-            HDivider()
-            hookFooter
         }
         // 인스펙터 슬롯을 채운다(폭·높이 유연) — 예전 팝오버의 고정 크기가 아니다.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    /// 훅 상태 푸터 — 알림 품질의 근원을 정직하게 드러낸다.
-    ///
-    /// 훅이 없으면 muxa는 출력 idle 타이머로 **추정**할 뿐이라 완료·대기 판정이 부정확하다.
-    /// "설치됨"과 "동작 중"을 구분해 보여주는 게 핵심 — settings.json에 썼다는 것과 훅이 실제로
-    /// 발화한다는 것은 다르다. 신호가 한 번 도착해야 "동작 중"으로 승격된다.
-    private var hookFooter: some View {
-        HStack(spacing: 6) {
-            Image(systemName: hookIcon)
-                .font(.muxa(.label))
-                .foregroundStyle(Color(nsColor: hookColor))
-            Text(state.hookStatus.label)
-                .font(.muxa(.caption)).foregroundStyle(Color.pMuted).lineLimit(1)
-            Spacer(minLength: 4)
-            if state.needsHookInstall {
-                Button { state.installClaudeHooks() } label: {
-                    Text("설치").font(.muxa(.caption, weight: .semibold))
-                }
-                .buttonStyle(.plain).foregroundStyle(Color.pBrand)
-                .help("~/.claude/settings.json에 muxa 훅을 추가한다(기존 훅은 보존, 백업 생성)")
-            } else {
-                // 제거 경로가 없으면 사용자는 settings.json을 손으로 고쳐야 한다 — 우리가 넣었으면 우리가 뺀다.
-                Button { state.uninstallClaudeHooks() } label: {
-                    Text("제거").font(.muxa(.caption))
-                }
-                .buttonStyle(.plain).foregroundStyle(Color.pMuted)
-                .help("settings.json에서 muxa 훅만 제거한다(다른 훅은 그대로)")
-            }
-        }
-        .padding(.horizontal, 10)
-        .frame(height: 30)
-    }
-
-    private var hookIcon: String {
-        switch state.hookStatus {
-        case .verified: return "bolt.fill"
-        case .installed: return "bolt"
-        case .notInstalled: return "bolt.slash"
-        case .failed: return "exclamationmark.triangle.fill"
-        }
-    }
-
-    private var hookColor: NSColor {
-        switch state.hookStatus {
-        case .verified: return Palette.gitAdded
-        case .installed: return Palette.borderActivity
-        case .notInstalled: return Palette.muted
-        case .failed: return Palette.gitDeleted
-        }
     }
 
     /// 최신 우선으로 보여준다(로그는 발생 순 보관).

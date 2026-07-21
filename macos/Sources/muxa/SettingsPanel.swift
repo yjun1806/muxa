@@ -32,8 +32,11 @@ struct SettingsPanel: View {
                             PaneIndicatorControls(settings: .shared)
                         }
                         HDivider()
-                        category("사용량 표시", "하단·상단 Claude 칩", section: .usage) {
-                            UsageSettingsView(settings: .shared)
+                        category("사용량 표시", "하단·상단 Claude 칩 · 훅 연동", section: .usage) {
+                            VStack(alignment: .leading, spacing: Space.md) {
+                                ClaudeHookControls(state: state)
+                                UsageSettingsView(settings: .shared)
+                            }
                         }
                     }
                     .padding(.vertical, Space.lg)
