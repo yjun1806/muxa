@@ -25,6 +25,10 @@ enum StatusLineSink {
 
     /// stdin을 한 번 읽어 두 용도(추출·pass-through)에 재사용한다 — stdin은 한 번만 소비된다.
     static func run() {
+        // 래핑된 사용자 command가 stdin을 다 안 읽고 끝나면 파이프 쓰기가 SIGPIPE로 프로세스를 즉사시킨다
+        // (소켓 경로의 SO_NOSIGPIPE에 상응). 시그널을 무시해 EPIPE 에러로 받아 조용히 삼킨다 — statusLine
+        // 렌더를 크래시로 막지 않게. 전역 statusLine이라 이 한 줄이 없으면 남의 스크립트에도 크래시가 번진다.
+        signal(SIGPIPE, SIG_IGN)
         let input = FileHandle.standardInput.readDataToEndOfFile()
         persist(input)
         passthrough(input)
@@ -61,7 +65,9 @@ enum StatusLineSink {
         process.standardOutput = FileHandle.standardOutput // 원래 statusLine 출력을 그대로 통과
         do {
             try process.run()
-            stdin.fileHandleForWriting.write(input)
+            // 자식이 stdin을 다 안 읽고 끝나면 EPIPE가 난다 — SIG_IGN(run) 덕에 시그널 대신 에러로 와서
+            // try?로 삼켜진다. deprecated write(_:)는 못 잡는 예외를 던지므로 write(contentsOf:)를 쓴다.
+            try? stdin.fileHandleForWriting.write(contentsOf: input)
             try? stdin.fileHandleForWriting.close()
             process.waitUntilExit()
         } catch {

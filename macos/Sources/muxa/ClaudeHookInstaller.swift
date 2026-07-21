@@ -103,10 +103,14 @@ enum ClaudeHookInstaller {
         do {
             var next = try ClaudeHookSettings.removed(from: root)
             next = try ClaudeStatusLineSettings.removed(from: next)
-            if let wrapped = restoreWrappedStatusLine() {
+            let wrapped = readWrappedStatusLine()
+            if let wrapped {
                 (next, _) = try ClaudeStatusLineSettings.merged(into: next, command: wrapped)
             }
             try write(next)
+            // 래핑 파일은 **쓰기가 성공한 뒤에만** 지운다. write가 던지는데 먼저 지우면 settings.json엔
+            // muxa statusLine이 남고 사용자 원래 command는 파일에서도 사라져 복구 불가가 된다(백업 계약 위반).
+            if wrapped != nil { try? FileManager.default.removeItem(at: wrappedStatusLineURL) }
         } catch is ClaudeHookSettings.UnexpectedShape {
             throw InstallError.malformedSettings
         } catch is ClaudeStatusLineSettings.UnexpectedShape {
@@ -122,11 +126,11 @@ enum ClaudeHookInstaller {
         try command.write(to: wrappedStatusLineURL, atomically: true, encoding: .utf8)
     }
 
-    /// 래핑 파일에 저장된 사용자 command(있으면). 복원 후 파일은 지운다 — 재설치 시 유령이 남지 않게.
-    private static func restoreWrappedStatusLine() -> String? {
+    /// 래핑 파일에 저장된 사용자 command(있으면) — **읽기만** 한다. 삭제는 호출자가 settings.json 쓰기
+    /// 성공을 확인한 뒤에 한다(그래야 쓰기 실패로 사용자 command가 복구 불가로 사라지지 않는다).
+    private static func readWrappedStatusLine() -> String? {
         guard let command = try? String(contentsOf: wrappedStatusLineURL, encoding: .utf8),
               !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        try? FileManager.default.removeItem(at: wrappedStatusLineURL)
         return command
     }
 
