@@ -9,7 +9,7 @@ import Foundation
 /// 파일 IO·네트워크는 경계(`ClaudeUsageService`)가, A-2 프로브 세부 판정은 `UsageCoordinator`가 맡는다.
 enum UsageSourceSelector {
     /// A-1 소스의 신선한 스냅샷 — 관찰 시각과 정규화된 한도.
-    struct StatusLine: Equatable {
+    struct StatusLine: Equatable, Sendable {
         /// sink가 stdin을 마지막으로 기록한 시각(= claude가 마지막으로 rate_limits를 관찰한 때).
         let observedAt: Date
         /// `ClaudeUsage.parseStatusLine`이 정규화한 한도들(비어 있을 수 있다).

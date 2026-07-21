@@ -1,7 +1,7 @@
 import Foundation
 
 /// 사용량 한도 하나 — 5시간 창·주간 전체·모델 스코프(Fable 등) 중 하나.
-struct UsageLimit: Equatable, Identifiable {
+struct UsageLimit: Equatable, Identifiable, Sendable {
     /// 한도 종류 — 서버가 준 `kind` 그대로(session · weekly_all · weekly_scoped …).
     /// 뷰가 라벨 문자열로 종류를 짐작하지 않도록 값으로 들고 다닌다.
     let kind: String

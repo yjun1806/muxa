@@ -23,7 +23,9 @@ final class ClaudeUsageServiceTests: XCTestCase {
 
     private func makeService(_ clock: Clock,
                              results: [UsageFetch],
-                             store: UsageStore = MemoryStore()) -> ClaudeUsageService {
+                             store: UsageStore = MemoryStore(),
+                             statusLine: @escaping () -> UsageSourceSelector.StatusLine? = { nil })
+        -> ClaudeUsageService {
         ClaudeUsageService(
             fetcher: { [clock] in
                 let index = min(clock.calls, results.count - 1)
@@ -31,8 +33,31 @@ final class ClaudeUsageServiceTests: XCTestCase {
                 return results[index]
             },
             now: { [clock] in clock.now },
-            store: store
+            store: store,
+            statusLine: statusLine
         )
+    }
+
+    /// A-1(statusLine)이 신선하면 API를 건드리지 않는다 — 429 회피의 핵심.
+    func testFreshStatusLineSkipsApi() async {
+        let clock = Clock()
+        let a1 = UsageSourceSelector.StatusLine(observedAt: clock.now, limits: sample)
+        let service = makeService(clock, results: [.ok([])], statusLine: { a1 })
+        await service.refreshIfStale()
+        XCTAssertEqual(clock.calls, 0, "A-1이 신선하면 fetcher를 부르지 않는다")
+        XCTAssertEqual(service.limits, sample)
+        XCTAssertEqual(service.state, .ok)
+        XCTAssertEqual(service.lastSuccess, clock.now)
+    }
+
+    /// A-1이 낡으면(긴 유휴) 기존 A-2 경로로 조회한다.
+    func testStaleStatusLineFallsBackToApi() async {
+        let clock = Clock()
+        let old = UsageSourceSelector.StatusLine(
+            observedAt: clock.now.addingTimeInterval(-601), limits: sample)
+        let service = makeService(clock, results: [.ok(sample)], statusLine: { old })
+        await service.refreshIfStale()
+        XCTAssertEqual(clock.calls, 1, "A-1이 낡으면 A-2로 조회한다")
     }
 
     func testSuccessPopulatesLimits() async {

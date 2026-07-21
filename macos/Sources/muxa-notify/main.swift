@@ -53,6 +53,13 @@ func sanitize(_ s: String) -> String {
 var args = Array(CommandLine.arguments.dropFirst())
 if args.first == "notify" { args.removeFirst() }
 
+// statusline 모드 — Claude Code의 statusLine.command로 불린다(A-1 경로). 소켓·env·알림과 무관하게
+// stdin의 rate_limits를 파일로 떨구고 stdout에 상태줄을 낸 뒤 종료한다. 전역이라 반드시 조용·신속.
+if args.first == "statusline" {
+    StatusLineSink.run()
+    exit(0)
+}
+
 // hook 모드 — Claude Code 훅이 stdin으로 주는 JSON을 **해석하지 않고 그대로** 앱에 넘긴다.
 // 분류·게이팅은 전부 앱이 한다: 훅 명령줄은 사용자의 settings.json에 박혀 있어서, 여기에 로직을 넣으면
 // 그 로직을 앱 업데이트로 못 고친다. CLI는 배관일 뿐이다.

@@ -81,8 +81,11 @@ struct UsagePolicy {
     /// 같은 엔드포인트를 이미 두드려 예산을 나눠 쓰므로, muxa 칩은 이 상한까지 조회를 미뤄 얹지 않는다.
     /// 상한이 유한해 **영영 굳지는 않는다**(작업이 계속돼도 이 간격마다 한 번은 갱신).
     let busyInterval: TimeInterval
+    /// A-1(statusLine) 값을 신선하다고 볼 상한. claude가 이 시간 안에 응답을 받았으면 그 값을 쓰고
+    /// A-2 프로브를 건너뛴다(429 회피). 넘으면(긴 유휴) A-2로 교차확인한다. 판정은 `UsageSourceSelector.pick`.
+    let statusLineFresh: TimeInterval
 
     static let live = UsagePolicy(successInterval: 900, failureWait: 120,
                                   rateLimitDefault: 900, rateLimitMax: 3600, singleFlight: 30,
-                                  busyInterval: 1800)
+                                  busyInterval: 1800, statusLineFresh: 600)
 }

@@ -58,14 +58,19 @@ final class ClaudeUsageService {
     @ObservationIgnored private let fetcher: @Sendable () async -> UsageFetch
     @ObservationIgnored private let now: @Sendable () -> Date
 
+    /// A-1 소스 로더 — statusLine sink가 떨군 값을 읽는다(주입 가능 — 테스트용). 기본은 실제 파일.
+    @ObservationIgnored private let statusLine: () -> UsageSourceSelector.StatusLine?
+
     init(fetcher: @escaping @Sendable () async -> UsageFetch = ClaudeUsageService.liveFetch,
          now: @escaping @Sendable () -> Date = Date.init,
          store: any UsageStore = UsageFileStore.default,
-         policy: UsagePolicy = .live) {
+         policy: UsagePolicy = .live,
+         statusLine: @escaping () -> UsageSourceSelector.StatusLine? = StatusLineUsageStore.load) {
         self.fetcher = fetcher
         self.now = now
         self.store = store
         self.policy = policy
+        self.statusLine = statusLine
     }
 
     var failed: Bool { state == .failed }
@@ -78,6 +83,13 @@ final class ClaudeUsageService {
     /// 그 세션들과 사용량 엔드포인트 예산을 두고 겹치지 않게 한다(판정은 순수 `UsageCoordinator.plan`).
     func refreshIfStale(busy: Bool = false) async {
         guard !loading else { return }
+        // A-1 우선 — statusLine 파일이 신선하면 그 값을 그리고 **A-2 프로브를 건너뛴다**(429 회피의 핵심).
+        // claude가 코딩하며 받은 값이라 사용량용 추가 요청이 0회다. 없거나 낡으면 아래 A-2 경로로 넘어간다.
+        if case .statusLine(let limits) = UsageSourceSelector.pick(
+            statusLine: statusLine(), now: now(), freshFor: policy.statusLineFresh) {
+            applyStatusLine(limits)
+            return
+        }
         let snapshot = store.load()
         switch UsageCoordinator.plan(snapshot: snapshot, now: now(), policy: policy, busy: busy) {
         case .serve(let resolution):
@@ -85,6 +97,16 @@ final class ClaudeUsageService {
         case .probe:
             await probe()
         }
+    }
+
+    /// A-1(statusLine) 값을 화면에 얹는다 — 성공 상태로 취급한다(서버 권위값이다).
+    /// 공유 캐시(A-2 백오프)는 건드리지 않는다 — A-1이 신선한 동안 A-2 경로는 쉬면 되고,
+    /// 다른 인스턴스도 각자 같은 latest.json을 읽어 똑같이 A-2를 건너뛴다.
+    private func applyStatusLine(_ limits: [UsageLimit]) {
+        self.limits = limits
+        state = .ok
+        lastSuccess = now()
+        rateLimitedUntil = nil
     }
 
     /// 강제 조회 — 좌표 판정(백오프·429·캐시 TTL)을 **우회하고** 지금 즉시 프로브한다.

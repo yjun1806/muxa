@@ -64,25 +64,70 @@ enum ClaudeHookInstaller {
         return ClaudeHookSettings.isInstalled(in: root, executable: executableURL.path) ? .installed : .notInstalled
     }
 
-    /// muxa 훅을 설치한다(멱등 — 여러 번 호출해도 훅이 불어나지 않는다).
+    /// statusLine sink를 부르는 command(A-1 경로). 훅과 같은 헬퍼·같은 존재 가드·같은 인용을 쓴다 —
+    /// muxa를 지우면 이 command가 settings.json에 남으므로 `if [ -x … ]`로 감싸 없으면 조용히 통과시킨다.
+    static var statusLineCommand: String {
+        let quoted = ClaudeHookSettings.shellQuoted(executableURL.path)
+        return "if [ -x \(quoted) ]; then \(quoted) statusline; fi"
+    }
+
+    /// 밀려난 사용자 statusLine command를 sink가 pass-through하도록 저장하는 파일(공유 경로).
+    static var wrappedStatusLineURL: URL {
+        MuxaSupportDir.sharedURL
+            .appendingPathComponent("statusline", isDirectory: true)
+            .appendingPathComponent("wrapped")
+    }
+
+    /// muxa 훅 + statusLine sink를 설치한다(멱등 — 여러 번 호출해도 불어나지 않는다).
+    /// 사용자 statusLine이 있으면 그 command를 래핑 파일에 보존해 sink가 통과시킨다.
     static func install() throws {
         try stageBinary()
         let root = try requireSettings()
         do {
-            try write(ClaudeHookSettings.merged(into: root, executable: executableURL.path))
+            let withHooks = try ClaudeHookSettings.merged(into: root, executable: executableURL.path)
+            let (withStatusLine, displaced) = try ClaudeStatusLineSettings.merged(
+                into: withHooks, command: statusLineCommand)
+            if let displaced { try saveWrappedStatusLine(displaced) }
+            try write(withStatusLine)
         } catch is ClaudeHookSettings.UnexpectedShape {
+            throw InstallError.malformedSettings
+        } catch is ClaudeStatusLineSettings.UnexpectedShape {
             throw InstallError.malformedSettings
         }
     }
 
-    /// muxa 훅만 제거한다(사용자 훅은 남는다).
+    /// muxa 훅·statusLine만 제거한다(사용자 것은 남긴다). 밀려났던 사용자 statusLine이 래핑 파일에
+    /// 있으면 되살린다 — muxa를 걷어내도 사용자의 원래 상태줄이 유실되지 않게.
     static func uninstall() throws {
         let root = try requireSettings()
         do {
-            try write(ClaudeHookSettings.removed(from: root))
+            var next = try ClaudeHookSettings.removed(from: root)
+            next = try ClaudeStatusLineSettings.removed(from: next)
+            if let wrapped = restoreWrappedStatusLine() {
+                (next, _) = try ClaudeStatusLineSettings.merged(into: next, command: wrapped)
+            }
+            try write(next)
         } catch is ClaudeHookSettings.UnexpectedShape {
             throw InstallError.malformedSettings
+        } catch is ClaudeStatusLineSettings.UnexpectedShape {
+            throw InstallError.malformedSettings
         }
+    }
+
+    /// 밀려난 사용자 statusLine command를 공유 래핑 파일에 저장한다(sink가 읽어 pass-through).
+    private static func saveWrappedStatusLine(_ command: String) throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: wrappedStatusLineURL.deletingLastPathComponent(),
+                               withIntermediateDirectories: true)
+        try command.write(to: wrappedStatusLineURL, atomically: true, encoding: .utf8)
+    }
+
+    /// 래핑 파일에 저장된 사용자 command(있으면). 복원 후 파일은 지운다 — 재설치 시 유령이 남지 않게.
+    private static func restoreWrappedStatusLine() -> String? {
+        guard let command = try? String(contentsOf: wrappedStatusLineURL, encoding: .utf8),
+              !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        try? FileManager.default.removeItem(at: wrappedStatusLineURL)
+        return command
     }
 
     // MARK: 내부 — 안전한 IO
