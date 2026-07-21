@@ -27,8 +27,8 @@ struct ServiceDock: View {
     @State private var expandedCommand: String?
     /// 현재 실행 경로(nil=프로젝트 상속). 입력창의 `cd`가 세션 내에서 옮긴다(미니 터미널 프롬프트).
     @State private var selectedCwd: String?
-    /// cd 자동완성 드롭다운에서 하이라이트한 후보 인덱스(↑↓·hover로 이동, Tab·클릭으로 완성).
-    @State private var cdSelection = 0
+    /// 자동완성 드롭다운(경로·명령)에서 하이라이트한 후보 인덱스(↑↓·hover로 이동, Tab·클릭으로 완성).
+    @State private var completionSelection = 0
     /// package.json·Makefile·scripts/ 에서 발견한 프로젝트 스크립트(활성 프로젝트 cwd 기준).
     @State private var discoveredScripts: [DiscoveredScript] = []
 
@@ -385,10 +385,15 @@ struct ServiceDock: View {
 
     // MARK: 좌 — 일회용 탭 (입력창 + 최근 실행 기록)
 
+    /// 명령 섹션(즐겨찾기·프로젝트 스크립트·히스토리) — 목록 렌더와 명령 완성이 함께 쓴다.
+    private var sections: (favorites: [CommandEntry], projectScripts: [DiscoveredScript], history: [CommandEntry]) {
+        CommandStore.panelSections(state.commandEntries(of: projId), discovered: discoveredScripts)
+    }
+
     private var commandsColumn: some View {
         // 프롬프트(inputArea)는 이제 도크 전폭(content)에 있다 — 여기는 목록만.
         // flat 섹션 하나의 스크롤 — 자주 쓰는 순서(즐겨찾기 → 최근 실행 → 프로젝트 스크립트 카탈로그).
-        let s = CommandStore.panelSections(state.commandEntries(of: projId), discovered: discoveredScripts)
+        let s = sections
         return ScrollView {
             VStack(alignment: .leading, spacing: Space.lg) {
                 favoritesFlat(s.favorites)
@@ -438,25 +443,29 @@ struct ServiceDock: View {
         .background(Color.pBg, in: RoundedRectangle(cornerRadius: Radius.sm))
         .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: RowHeight.hairline))
         // 입력이 바뀌면 하이라이트를 맨 위로 되돌린다(엉뚱한 줄이 선택된 채 남지 않게).
-        .onChange(of: oneOffCommand) { cdSelection = 0 }
+        .onChange(of: oneOffCommand) { completionSelection = 0 }
         // 키보드 탐색 — 필드가 포커스라 여기 붙여 받는다(↑↓ 이동, Tab 완성). Enter는 onSubmit이 실행.
-        .onKeyPress(.upArrow) { moveCd(-1) }
-        .onKeyPress(.downArrow) { moveCd(1) }
-        .onKeyPress(.tab) { acceptCd() }
+        .onKeyPress(.upArrow) { moveCompletion(-1) }
+        .onKeyPress(.downArrow) { moveCompletion(1) }
+        .onKeyPress(.tab) { acceptCompletion() }
         // 자동완성 드롭다운 — 입력 줄 아래에 떠서(오버레이) 아래 분할을 가린다. 터미널식 세로 목록.
+        // `cd `면 경로 폴더, 그 외 입력이면 명령 이름(즐겨찾기·발견 스크립트·히스토리)을 완성한다.
         .overlay(alignment: .topLeading) {
-            if let names = cdCompletions, !names.isEmpty {
-                CdCompletionPopup(names: names, selection: min(cdSelection, names.count - 1),
-                                  onPick: { completeCd(names[$0]) },
-                                  onHover: { cdSelection = $0 })
+            if let items = completionItems {
+                CompletionPopup(items: items, typeLabel: completionTypeLabel,
+                                selection: min(completionSelection, items.count - 1),
+                                onPick: { acceptCompletion(at: $0) },
+                                onHover: { completionSelection = $0 })
                     .fixedSize()
                     .offset(y: RowHeight.toolbar + Space.xs)
             }
         }
     }
 
-    /// cd 자동완성 후보 — 입력이 `cd <부분>`이면 그 경로의 하위 폴더(없으면 nil = 팝업 숨김).
-    private var cdCompletions: [String]? {
+    // MARK: 자동완성 — 경로(cd)와 명령 이름을 한 축의 selection·키보드로 다룬다(둘은 배타적).
+
+    /// cd 경로 후보 — 입력이 `cd <부분>`이면 그 경로의 하위 폴더(아니면 nil).
+    private var pathCompletions: [String]? {
         guard oneOffCommand.hasPrefix("cd ") else { return nil }
         let arg = String(oneOffCommand.dropFirst(3))
         let base = selectedCwd ?? (state.activeProjectCwd ?? NSHomeDirectory())
@@ -464,26 +473,55 @@ struct ServiceDock: View {
         return PathComplete.directories(in: dir, prefix: prefix)
     }
 
+    /// 명령 이름 후보 — `cd ` 모드가 아니고 입력이 muxa가 아는 명령에 걸리면(아니면 nil).
+    private var commandCompletions: [CommandSuggestion]? {
+        guard !oneOffCommand.hasPrefix("cd ") else { return nil }
+        let s = sections
+        let all = CommandComplete.candidates(favorites: s.favorites, scripts: discoveredScripts,
+                                             history: s.history)
+        let matched = CommandComplete.match(oneOffCommand, in: all)
+        return matched.isEmpty ? nil : matched
+    }
+
+    /// 드롭다운에 그릴 행 — 경로면 폴더, 명령이면 이름+소스 부제(둘 중 활성 하나).
+    private var completionItems: [CompletionPopup.Item]? {
+        if let names = pathCompletions, !names.isEmpty {
+            return names.map { .init(glyph: "folder.fill", brandGlyph: true, title: $0 + "/", subtitle: nil) }
+        }
+        if let cmds = commandCompletions {
+            return cmds.map { .init(glyph: $0.glyph, brandGlyph: false, title: $0.label, subtitle: $0.source) }
+        }
+        return nil
+    }
+    private var completionTypeLabel: String { pathCompletions != nil ? "folder" : "command" }
+    private var completionCount: Int { pathCompletions?.count ?? commandCompletions?.count ?? 0 }
+
     /// ↑↓ 하이라이트 이동(순환). 후보가 없으면 키를 흘려보낸다(.ignored).
-    private func moveCd(_ step: Int) -> KeyPress.Result {
-        guard let names = cdCompletions, !names.isEmpty else { return .ignored }
-        cdSelection = ((cdSelection + step) % names.count + names.count) % names.count
+    private func moveCompletion(_ step: Int) -> KeyPress.Result {
+        let n = completionCount
+        guard n > 0 else { return .ignored }
+        completionSelection = ((completionSelection + step) % n + n) % n
         return .handled
     }
 
-    /// Tab — 하이라이트한 폴더로 완성한다(포커스 이동을 막으려 .handled). 후보 없으면 흘려보낸다.
-    private func acceptCd() -> KeyPress.Result {
-        guard let names = cdCompletions, !names.isEmpty else { return .ignored }
-        completeCd(names[min(cdSelection, names.count - 1)])
+    /// Tab — 하이라이트한 후보로 완성한다(포커스 이동을 막으려 .handled). 후보 없으면 흘려보낸다.
+    private func acceptCompletion() -> KeyPress.Result {
+        guard completionCount > 0 else { return .ignored }
+        acceptCompletion(at: min(completionSelection, completionCount - 1))
         return .handled
     }
 
-    /// 폴더 완성 — 그 폴더로 입력을 채운다(계속 하위를 탐색하게 끝에 `/`).
-    private func completeCd(_ name: String) {
-        let base = selectedCwd ?? (state.activeProjectCwd ?? NSHomeDirectory())
-        let arg = String(oneOffCommand.dropFirst(3))
-        let (dir, _) = PathComplete.split(arg, base: base)
-        oneOffCommand = "cd " + PathComplete.display((dir as NSString).appendingPathComponent(name)) + "/"
+    /// 후보 하나를 입력창에 채운다 — 경로면 그 폴더로(끝에 `/`, 계속 탐색), 명령이면 명령 전체(수정·실행은 이어서).
+    private func acceptCompletion(at index: Int) {
+        if let names = pathCompletions, index < names.count {
+            let base = selectedCwd ?? (state.activeProjectCwd ?? NSHomeDirectory())
+            let arg = String(oneOffCommand.dropFirst(3))
+            let (dir, _) = PathComplete.split(arg, base: base)
+            oneOffCommand = "cd " + PathComplete.display((dir as NSString).appendingPathComponent(names[index])) + "/"
+        } else if let cmds = commandCompletions, index < cmds.count {
+            oneOffCommand = cmds[index].command
+        }
+        oneOffFocused = true
     }
 
     /// 프롬프트에 표시할 현재 실행 경로 — 홈은 `~`, 좁은 폭이라 앞을 자른다(끝 폴더가 보이게).
