@@ -53,7 +53,8 @@ struct CommandFavoriteRow: View {
                                   help: rerun ? "재실행" : "실행", action: onRun)
                 }
             }
-            .padding(.horizontal, Space.sm).frame(height: RowHeight.tight)
+            // 2줄(이름+부제)이라 tight(22pt)에 갇히면 눌린다 — 내용에 맞춰 세로 여백으로 숨을 준다.
+            .padding(.horizontal, Space.sm).padding(.vertical, Space.xs)
             .background(rowBackground(selected: selected, hovered: hovered),
                         in: RoundedRectangle(cornerRadius: Radius.sm))
             .contentShape(Rectangle())

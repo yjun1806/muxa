@@ -395,12 +395,13 @@ struct ServiceDock: View {
         // flat 섹션 하나의 스크롤 — 자주 쓰는 순서(즐겨찾기 → 최근 실행 → 프로젝트 스크립트 카탈로그).
         let s = sections
         return ScrollView {
-            VStack(alignment: .leading, spacing: Space.lg) {
+            // 섹션 사이는 넓게(xl) — 그룹 안 1pt와 대비를 벌려야 헤더가 "머리글"로 읽힌다.
+            VStack(alignment: .leading, spacing: Space.xl) {
                 favoritesFlat(s.favorites)
                 if !s.history.isEmpty { historyFlat(s.history) }
                 if !s.projectScripts.isEmpty { projectScriptsFlat(s.projectScripts) }
             }
-            .padding(.vertical, Space.sm)
+            .padding(.vertical, Space.md)
         }
         .tick(every: 1, into: $now)
         .task(id: state.activeProjectCwd) {
@@ -555,21 +556,22 @@ struct ServiceDock: View {
         oneOffCommand = ""
     }
 
-    /// flat 섹션 — 소섹션 머리글 + 행. **카드 없이** 여백으로 구분한다(서비스 탭 문법·밀도 우선).
-    /// 행 간격은 없다(붙여서 목록으로), 섹션 간격은 호출부의 `Space.lg`가 준다.
+    /// flat 섹션 — 소섹션 머리글 + 행. **카드·선 없이** 여백으로 구분한다(집값 철학: 위계는 간격이 만든다).
+    /// 리듬의 핵심은 **대비**다 — 그룹 안 행은 촘촘히(1pt), 헤더→행은 조금(xs), 섹션 사이는 넓게(호출부 xl).
+    /// 헤더는 크롬 공용 머리글 폰트(`muxaLabel`)를 써 사이드바 섹션과 한 언어로 읽힌다.
     @ViewBuilder
     private func flatSection<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: Space.tight) {
-            Text(title).font(.muxa(.micro, weight: .semibold)).tracking(Tracking.label)
+        VStack(alignment: .leading, spacing: Space.xs) {
+            Text(title).font(.muxaLabel).tracking(Tracking.label)
                 .textCase(.uppercase).foregroundStyle(Color.pMuted).padding(.horizontal, Space.sm)
-            content()
+            VStack(alignment: .leading, spacing: 1) { content() }
         }
     }
 
     /// 즐겨찾기 — 자주 쓰는 것. 비어도 헤더는 그린다(F3), 비면 상태별 안내(F1).
     @ViewBuilder
     private func favoritesFlat(_ items: [CommandEntry]) -> some View {
-        flatSection("★ 즐겨찾기") {
+        flatSection("즐겨찾기") {
             if items.isEmpty {
                 Text(favoritesEmptyCopy).font(.muxa(.caption)).foregroundStyle(Color.pMuted)
                     .fixedSize(horizontal: false, vertical: true)
