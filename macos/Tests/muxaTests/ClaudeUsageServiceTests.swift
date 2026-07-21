@@ -156,6 +156,17 @@ final class ClaudeUsageServiceTests: XCTestCase {
         XCTAssertNotNil(service.manualBlockedUntil, "버튼을 회색으로 둘 근거가 있다")
     }
 
+    /// A-1 표시 시각은 **관찰 시각(observedAt)** 이어야 한다 — 파일을 읽은 지금이 아니라.
+    /// 안 그러면 낡은 A-1도 "방금 갱신"으로 보여 데스크탑과의 차이가 설명되지 않는다.
+    func testStatusLineReportsObservedTimeNotReadTime() async {
+        let clock = Clock()
+        let observed = clock.now.addingTimeInterval(-200) // 3분여 전 관찰(신선 창 600초 안)
+        let a1 = UsageSourceSelector.StatusLine(observedAt: observed, limits: sample)
+        let service = makeService(clock, results: [.ok([])], statusLine: { a1 })
+        await service.refreshIfStale()
+        XCTAssertEqual(service.lastSuccess, observed, "표시 시각 = 관찰 시각(읽은 지금이 아니라)")
+    }
+
     func testSuccessPopulatesLimits() async {
         let clock = Clock()
         let service = makeService(clock, results: [.ok(sample)])

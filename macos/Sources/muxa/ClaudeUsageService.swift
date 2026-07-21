@@ -117,7 +117,10 @@ final class ClaudeUsageService {
         let modelScoped = (store.load()?.limits.map(\.model) ?? []).filter(\.isModelScoped)
         self.limits = limits + modelScoped
         state = .ok
-        lastSuccess = now()
+        // "N분 전 갱신"은 claude가 **실제로 관찰한 때**(observedAt)를 쓴다 — 파일을 읽은 지금(now)이 아니라.
+        // 안 그러면 8분 된 A-1 값도 "방금 갱신"으로 보여, 데스크탑(라이브)과의 차이가 설명되지 않는다.
+        // (A-1은 최대 statusLineFresh(10분) 낡을 수 있고, 사용량은 늘기만 해 그만큼 낮게 보인다.)
+        lastSuccess = statusLine()?.observedAt ?? now()
         rateLimitedUntil = nil
     }
 
