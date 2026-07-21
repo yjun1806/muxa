@@ -25,8 +25,11 @@ struct StatusBar: View {
         HStack(alignment: .center, spacing: Space.md) {
             // 사용량 칩이 푸터 왼쪽에 놓이는 설정이면 여기가 주인공.
             if settings.position == .footerLeft { UsageChip(state: state) }
-            // 에이전트가 지금 하는 일 — 있을 때만 뜨고, 턴이 끝나면 사라진다("무엇을 하는가").
-            if let agentDetail {
+            // 훅이 없으면 여기서 설치를 유도한다 — 훅이 있어야 아래 "에이전트 활동"도 뜨므로, 둘은 한 자리를
+            // 상호배타로 나눠 쓴다(미설치=설치 유도, 설치됨=활동). 설치되면 칩은 사라진다.
+            if state.needsHookInstall {
+                HookInstallChip(state: state)
+            } else if let agentDetail {
                 HStack(alignment: .center, spacing: Space.xs) {
                     Image(systemName: "bolt.fill").font(.muxa(.label))
                     Text(agentDetail).font(.muxa(.label)).lineLimit(1)

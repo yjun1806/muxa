@@ -96,7 +96,7 @@ struct AttentionInbox: View {
             Text(state.hookStatus.label)
                 .font(.muxa(.caption)).foregroundStyle(Color.pMuted).lineLimit(1)
             Spacer(minLength: 4)
-            if needsInstall {
+            if state.needsHookInstall {
                 Button { state.installClaudeHooks() } label: {
                     Text("설치").font(.muxa(.caption, weight: .semibold))
                 }
@@ -113,13 +113,6 @@ struct AttentionInbox: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 30)
-    }
-
-    private var needsInstall: Bool {
-        switch state.hookStatus {
-        case .notInstalled, .failed: return true
-        case .installed, .verified: return false
-        }
     }
 
     private var hookIcon: String {

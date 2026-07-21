@@ -62,7 +62,7 @@ final class ClaudeUsageService {
     @ObservationIgnored private let statusLine: () -> UsageSourceSelector.StatusLine?
 
     init(fetcher: @escaping @Sendable () async -> UsageFetch = ClaudeUsageService.liveFetch,
-         now: @escaping @Sendable () -> Date = Date.init,
+         now: @escaping @Sendable () -> Date = { Date() },
          store: any UsageStore = UsageFileStore.default,
          policy: UsagePolicy = .live,
          statusLine: @escaping () -> UsageSourceSelector.StatusLine? = StatusLineUsageStore.load) {
@@ -151,7 +151,9 @@ final class ClaudeUsageService {
     // MARK: 부작용 경계 (메인 액터 밖에서 실행)
 
     /// 실제 조회 — 키체인 → HTTP. 기본 fetcher.
-    static let liveFetch: @Sendable () async -> UsageFetch = {
+    /// `nonisolated` — 본문이 detached task + nonisolated 헬퍼(accessToken·request)뿐이라 MainActor가
+    /// 필요 없고, 이게 없으면 init 기본 인자(nonisolated 평가)에서 참조할 때 Swift 6 경고가 난다.
+    nonisolated static let liveFetch: @Sendable () async -> UsageFetch = {
         await Task.detached(priority: .utility) { () -> UsageFetch in
             guard let token = accessToken() else { return .failure }
             return await request(token: token)

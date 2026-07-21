@@ -235,6 +235,14 @@ final class AppState {
         return hookInstall
     }
 
+    /// 훅 설치 유도를 띄울까 — 미설치·실패면 참. 전역 푸터 칩(`HookInstallChip`)과 인박스 푸터가 공유하는 판정.
+    var needsHookInstall: Bool {
+        switch hookStatus {
+        case .notInstalled, .failed: return true
+        case .installed, .verified: return false
+        }
+    }
+
     @ObservationIgnored private let app: ghostty_app_t
     /// muxa 설정(`~/.config/muxa/config`) — 시작 시 로드해 주입하고, 파일 저장 시 ConfigWatcher가
     /// `applyConfig`로 라이브 갱신한다(재시작 불필요). 기본 사이드바 모드·완료 배지 임계 등. (ARCHITECTURE 4.6)
