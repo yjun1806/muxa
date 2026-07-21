@@ -62,13 +62,21 @@ muxa는 macOS 전용 터미널 기반 에이전틱 개발 환경 (Swift/SwiftUI 
 
 ```bash
 ./scripts/bootstrap.sh   # (최초 1회) GhosttyKit 설치 — docs/SETUP.md
+make worktree BRANCH=feat/foo  # 새 개발 워크트리 생성 + vendor 연결까지 (아래 주의)
 make build             # 빌드            (= cd macos && swift build)
 make test              # 순수 로직 단위 테스트
 make app               # 번들로 빌드·실행 (권장 — 이름·알림·아이콘 정상)
 make whoami            # 이 워크트리 앱의 이름·번들 id·프로세스명 확인
 make kill              # 이 워크트리 개발 앱만 종료
 make relaunch          # 종료 → 재빌드 → 실행 (안전한 테스트 루프)
+make install           # 프로덕션(release) 빌드 → /Applications 설치 (재시작해야 반영)
 ```
+
+**새 워크트리는 `make worktree`로 만든다 (`git worktree add`만 쓰면 빌드가 깨진다).**
+추적되는 심링크 `macos/GhosttyKit.xcframework → ../vendor/ghostty/…`가 gitignore된 `vendor/`를
+가리키는데, 새 워크트리엔 `vendor/`가 없어 심링크가 끊긴다. `make worktree`(= `scripts/new-worktree.sh`)가
+메인의 `vendor/`를 심링크로 이어주거나(빠름·재다운로드 없음) 없으면 bootstrap을 돌려 곧바로 빌드되게 한다.
+`.build/`는 워크트리마다 따로여야 하므로 안 건드린다(첫 빌드 콜드는 정상).
 
 - **순수 로직은 테스트로 못 박는다.** 파싱·판정·정리 같은 순수 함수는 UI 없이 검증된다 — 먼저 여기까지 끝낸다.
 - **UI·PTY 변경은 재빌드+재실행으로 확인한다.** 자동 검증을 통과해도 실제 화면에서 깨지는 게 있다

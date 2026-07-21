@@ -11,7 +11,7 @@ IDENTITY := source scripts/app-identity.sh debug
 IDENTITY_RELEASE := source scripts/app-identity.sh release
 
 .DEFAULT_GOAL := help
-.PHONY: help bootstrap build test run app kill relaunch whoami install dmg icons integrate clean
+.PHONY: help bootstrap worktree build test run app kill relaunch whoami install dmg icons integrate clean
 
 help: ## 사용 가능한 명령 보기
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -19,6 +19,9 @@ help: ## 사용 가능한 명령 보기
 
 bootstrap: ## GhosttyKit 설치 — 새 머신에서 최초 1회 (docs/SETUP.md)
 	./scripts/bootstrap.sh
+
+worktree: ## 새 개발 워크트리 생성 (vendor 연결까지) — 예: make worktree BRANCH=feat/foo
+	@./scripts/new-worktree.sh "$(BRANCH)"
 
 build: ## 빌드
 	cd $(MACOS) && swift build
