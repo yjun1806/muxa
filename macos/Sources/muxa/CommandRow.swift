@@ -43,7 +43,12 @@ struct CommandFavoriteRow: View {
                 }
                 Spacer(minLength: Space.xs)
                 if hovered { RowIconButton(icon: "star.fill", help: "즐겨찾기 해제", action: onUnfavorite) }
-                if run?.isRunning != true { RowIconButton(icon: "play.fill", help: "실행", action: onRun) }
+                if run?.isRunning != true {
+                    // 실행 이력이 있으면 '재실행'(⟳), 한 번도 안 돌린 명령이면 '실행'(▶).
+                    let rerun = !entry.executions.isEmpty
+                    RowIconButton(icon: rerun ? "arrow.clockwise" : "play.fill",
+                                  help: rerun ? "재실행" : "실행", action: onRun)
+                }
             }
             .padding(.horizontal, Space.sm).frame(height: RowHeight.tight)
             .background(rowBackground(selected: selected, hovered: hovered),
@@ -87,7 +92,8 @@ struct CommandHistoryRowV2: View {
                     Spacer(minLength: Space.xs)
                     if hovered {
                         RowIconButton(icon: "star", help: "즐겨찾기 추가", action: onFavorite)
-                        RowIconButton(icon: "play.fill", help: "재실행", action: onRun)
+                        // 히스토리 명령은 정의상 실행된 적이 있으므로 '재실행'(⟳).
+                        RowIconButton(icon: "arrow.clockwise", help: "재실행", action: onRun)
                         if run?.isRunning != true { RowIconButton(icon: "trash", help: "삭제", action: onDelete) }
                     } else {
                         Text(subtitle).font(.muxa(.micro)).foregroundStyle(Color.pMuted)
