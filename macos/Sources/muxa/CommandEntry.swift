@@ -39,6 +39,15 @@ struct CommandExecution: Codable, Equatable, Identifiable {
     var isFailure: Bool { (exitCode ?? 0) != 0 && exitCode != nil }
 }
 
+/// 파일에서 발견한 프로젝트 스크립트 하나(package.json/Makefile/scripts) — 실행 준비된 명령.
+/// `ProjectScript`(파싱 원본)를 명령 탭이 쓰기 좋은 형태로 정규화한 값. `command`는 실제 실행 명령이다.
+struct DiscoveredScript: Equatable, Identifiable {
+    let name: String    // "dev"
+    let command: String // 실행 명령 "pnpm run dev" · "make dev"
+    let source: String  // "package.json" · "Makefile" · "scripts/"
+    var id: String { command }
+}
+
 /// 명령 목록을 다루는 **순수** 로직 — 실행 기록·즐겨찾기·cwd·섹션 분류·상한. 파일 IO(로그)는 경계가 맡는다.
 enum CommandStore {
     /// 명령당 실행 내역 상한 — 초과분(오래된 실행)은 버린다. 로그 총량을 명령당으로 직접 제어한다.
@@ -86,9 +95,14 @@ enum CommandStore {
         }
     }
 
-    /// 즐겨찾기 토글(순수) — 켜면 등록, 끄면 히스토리로. 없는 명령이면 그대로.
-    static func toggleFavorite(_ entries: [CommandEntry], command: String) -> [CommandEntry] {
-        entries.map { $0.command == command ? { var e = $0; e.favorite.toggle(); return e }($0) : $0 }
+    /// 즐겨찾기 토글(순수) — 켜면 즐겨찾기, 끄면 내림. 아직 실행 안 한 **발견 스크립트를 ☆** 하면
+    /// 엔트리가 없으므로 즐겨찾기(executions 없음)로 **새로 만든다**.
+    static func toggleFavorite(_ entries: [CommandEntry], command: String,
+                               name: String? = nil, cwd: String? = nil) -> [CommandEntry] {
+        if entries.contains(where: { $0.command == command }) {
+            return entries.map { $0.command == command ? { var e = $0; e.favorite.toggle(); return e }($0) : $0 }
+        }
+        return entries + [CommandEntry(command: command, name: name, cwd: cwd, favorite: true, executions: [])]
     }
 
     /// 명령의 실행 경로를 바꾼다(순수).
@@ -108,6 +122,24 @@ enum CommandStore {
         let history = entries.filter { !$0.favorite }
             .sorted { ($0.lastRunAt ?? .distantPast) > ($1.lastRunAt ?? .distantPast) }
         return (favorites, history)
+    }
+
+    /// 명령 탭의 **세 덩어리**(순수) — 발견 스크립트를 포함한다. 한 명령은 정확히 한 섹션에만 산다
+    /// (우선순위 즐겨찾기 > 발견 > 히스토리, command로 중복 제거):
+    ///  - **favorites**: `favorite`인 명령(발견·즉석 무관). 상단 고정.
+    ///  - **projectScripts**: package.json/Makefile 발견분 중 **즐겨찾기 아닌 것**. 파일이 진실이라 항상 노출.
+    ///  - **history**: 실행 기록 중 즐겨찾기도 발견도 아닌 즉석 명령(최근 실행순).
+    static func panelSections(_ entries: [CommandEntry], discovered: [DiscoveredScript])
+        -> (favorites: [CommandEntry], projectScripts: [DiscoveredScript], history: [CommandEntry])
+    {
+        let favorites = entries.filter(\.favorite)
+        let favoriteCommands = Set(favorites.map(\.command))
+        let discoveredCommands = Set(discovered.map(\.command))
+        let scripts = discovered.filter { !favoriteCommands.contains($0.command) }
+        let history = entries
+            .filter { !$0.favorite && !discoveredCommands.contains($0.command) }
+            .sorted { ($0.lastRunAt ?? .distantPast) > ($1.lastRunAt ?? .distantPast) }
+        return (favorites, scripts, history)
     }
 
     /// v1(등록 `scripts` + `commandHistory`) → v2 `commands` 이관(순수). 둘 다 비면 nil(이관 불필요).

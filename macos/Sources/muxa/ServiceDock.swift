@@ -30,6 +30,8 @@ struct ServiceDock: View {
     @State private var selectedCwd: String?
     @State private var showCwdPicker = false
     @State private var cwdInput = ""
+    /// package.json·Makefile·scripts/ 에서 발견한 프로젝트 스크립트(활성 프로젝트 cwd 기준).
+    @State private var discoveredScripts: [DiscoveredScript] = []
 
     /// 창 전체 서비스·스크립트·일회용(소속 포함).
     private var all: [LocatedService] { state.allLocatedServices }
@@ -383,23 +385,25 @@ struct ServiceDock: View {
         }
         .tick(every: 1, into: $now)
         .task(id: state.activeProjectCwd) {
-            // 프로젝트 감지 → 설치 명령 제안(빈 상태의 채움 칩). 매니저를 모르면 제안 없음.
+            // 프로젝트 감지 → 발견 스크립트(목록) + 설치 명령 제안. 매니저를 모르면 npm으로 조립(표시·진입점용).
             let found = ProjectScripts.discover(in: state.activeProjectCwd)
             suggestions = found.manager.map { ["\($0.rawValue) install"] } ?? []
+            discoveredScripts = found.scripts.map {
+                DiscoveredScript(name: $0.name,
+                                 command: ProjectScripts.command(for: $0, manager: found.manager ?? .npm),
+                                 source: $0.source.rawValue)
+            }
         }
     }
 
-    /// 명령 목록 — 즐겨찾기(전부·스크롤·즉시 실행) + 최근 실행 히스토리(명령당·펼침). 둘 다 비면 빈 상태.
+    /// 명령 목록 — **즐겨찾기(상시)** + **프로젝트 스크립트(발견)** + **최근 실행**. 한 명령은 한 섹션에만.
     private var commandsList: some View {
-        let s = state.commandV2Sections
+        let s = CommandStore.panelSections(state.commandEntries(of: projId), discovered: discoveredScripts)
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: Space.md) {
-                if s.favorites.isEmpty && s.history.isEmpty {
-                    oneOffEmpty
-                } else {
-                    if !s.favorites.isEmpty { favoritesSection(s.favorites) }
-                    if !s.history.isEmpty { historySectionV2(s.history) }
-                }
+                favoritesSection(s.favorites)                                    // 상시(F3) — 비면 안내 카피(F1)
+                if !s.projectScripts.isEmpty { projectScriptsSection(s.projectScripts) }
+                if !s.history.isEmpty { historySectionV2(s.history) }
             }
             .padding(.vertical, Space.xs)
         }
@@ -407,24 +411,61 @@ struct ServiceDock: View {
 
     private var projId: String { state.activeProject?.id ?? "" }
 
-    /// 명령의 현재 실행 상태 — 최근 실행(execId)이 도는 중인지(scriptRuns가 진실).
+    /// 명령(엔트리)의 현재 실행 상태 — 최근 실행(execId)이 도는 중인지(scriptRuns가 진실).
     private func runFor(_ entry: CommandEntry) -> ScriptRun? {
         guard let execId = entry.executions.first?.id else { return nil }
         return state.scriptRuns[execId]
     }
 
-    /// 즐겨찾기 — 전부 노출·스크롤·즉시 실행. ★로 해제.
+    /// command로 실행 상태 조회(발견 스크립트 행용) — 그 명령의 엔트리가 있으면 최근 실행 상태.
+    private func runFor(command: String) -> ScriptRun? {
+        guard let entry = state.commandEntries(of: projId).first(where: { $0.command == command }) else { return nil }
+        return runFor(entry)
+    }
+
+    /// 즐겨찾기 — ★한 명령 전부·즉시 실행·★해제. **헤더 상시**(비어도 그린다), 비면 상태별 안내(F1/F3/F6).
     @ViewBuilder
     private func favoritesSection(_ items: [CommandEntry]) -> some View {
         VStack(alignment: .leading, spacing: Space.tight) {
-            commandsSectionHeader("즐겨찾기") { EmptyView() }
-            ForEach(items) { entry in
-                CommandFavoriteRow(
-                    entry: entry, now: now, run: runFor(entry),
-                    selected: selectedId != nil && selectedId == entry.executions.first?.id,
-                    onSelect: { if let id = entry.executions.first?.id { state.selectedServiceId = id } },
-                    onRun: { state.runCommand(entry.command, cwd: entry.cwd, in: projId) },
-                    onUnfavorite: { state.toggleCommandFavorite(entry.command, in: projId) })
+            commandsSectionHeader("★ 즐겨찾기") { EmptyView() }
+            if items.isEmpty {
+                Text(favoritesEmptyCopy)
+                    .font(.muxa(.caption)).foregroundStyle(Color.pMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, Space.sm).padding(.vertical, Space.tight)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ForEach(items) { entry in
+                    CommandFavoriteRow(
+                        entry: entry, now: now, run: runFor(entry),
+                        selected: selectedId != nil && selectedId == entry.executions.first?.id,
+                        onSelect: { if let id = entry.executions.first?.id { state.selectedServiceId = id } },
+                        onRun: { state.runCommand(entry.command, cwd: entry.cwd, in: projId) },
+                        onUnfavorite: { state.toggleCommandFavorite(entry.command, in: projId) })
+                }
+            }
+        }
+    }
+
+    /// 즐겨찾기 빈 상태 카피 — 실행 기록·발견 스크립트가 있으면 짧은 유도, 완전 첫 진입이면 온보딩.
+    private var favoritesEmptyCopy: String {
+        let hasHistory = state.commandEntries(of: projId).contains { !$0.favorite }
+        if hasHistory || !discoveredScripts.isEmpty {
+            return "실행 기록·스크립트에서 ☆를 누르면 여기 고정됩니다"
+        }
+        return "위에 명령을 적고 실행하면 백그라운드에서 돌고, 출력·종료 로그가 여기 남습니다. 자주 쓰는 건 ☆로 고정하세요."
+    }
+
+    /// 프로젝트 스크립트 — package.json·Makefile·scripts/ 발견분(즐겨찾기 아닌 것). 파일이 진실이라 항상 노출.
+    @ViewBuilder
+    private func projectScriptsSection(_ items: [DiscoveredScript]) -> some View {
+        VStack(alignment: .leading, spacing: Space.tight) {
+            commandsSectionHeader("프로젝트 스크립트") { EmptyView() }
+            ForEach(items) { script in
+                CommandScriptRow(
+                    script: script, run: runFor(command: script.command),
+                    onRun: { state.runCommand(script.command, cwd: nil, in: projId) },
+                    onFavorite: { state.toggleCommandFavorite(script.command, name: script.name, cwd: nil, in: projId) })
             }
         }
     }

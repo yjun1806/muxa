@@ -163,6 +163,43 @@ struct ExecMetaRow: View {
     }
 }
 
+/// 프로젝트 스크립트 행 — package.json/Makefile 발견분. **행 클릭 = 바로 실행**(요구 1), hover = ☆즐겨찾기.
+/// 소스(package.json 등)를 오른쪽에 표기해 "이게 왜 여기 있지"를 없앤다.
+struct CommandScriptRow: View {
+    let script: DiscoveredScript
+    let run: ScriptRun?
+    let onRun: () -> Void
+    let onFavorite: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: onRun) {
+            HStack(spacing: Space.sm) {
+                Image(systemName: running ? ScriptStatusStyle.glyph(run?.state) : "play.square")
+                    .font(.muxa(.label))
+                    .foregroundStyle(running ? ScriptStatusStyle.color(run?.state) : Color.pMuted)
+                    .frame(width: IconSize.statusSlot)
+                Text(script.name).font(.muxa(.label)).foregroundStyle(Color.pFg).lineLimit(1)
+                Text(script.command).font(.muxaMono(.micro)).foregroundStyle(Color.pMuted).lineLimit(1).layoutPriority(-1)
+                Spacer(minLength: Space.xs)
+                if hovered {
+                    RowIconButton(icon: "star", help: "즐겨찾기 추가", action: onFavorite)
+                } else {
+                    Text(running ? "실행 중" : script.source).font(.muxa(.micro)).foregroundStyle(Color.pMuted)
+                }
+            }
+            .padding(.horizontal, Space.sm).frame(height: RowHeight.tight)
+            .background(hovered ? Color.pBtnHover : .clear, in: RoundedRectangle(cornerRadius: Radius.sm))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).clickCursor().onHover { hovered = $0 }
+        .help("실행: \(script.command)")
+        .accessibilityLabel("\(script.name) 실행")
+    }
+
+    private var running: Bool { run?.isRunning == true }
+}
+
 /// 행 hover 배경 — 선택(눌린 유지) → hover → 평시.
 private func rowBackground(selected: Bool, hovered: Bool) -> Color {
     if selected { return .pBtnActive }
@@ -181,5 +218,8 @@ struct RowIconButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain).clickCursor().help(help)
+        // help()는 hint일 뿐 — label을 안 주면 SF Symbol 기본 설명으로 읽혀 행마다 똑같이 들린다
+        // (IconButton이 이미 겪고 고친 문제). VoiceOver에 동작을 정확히 알린다.
+        .accessibilityLabel(help)
     }
 }

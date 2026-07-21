@@ -69,6 +69,41 @@ final class CommandStoreTests: XCTestCase {
         XCTAssertTrue(s.history.isEmpty)
     }
 
+    /// 실행 안 한 발견 스크립트를 ☆ 하면 엔트리가 없으므로 즐겨찾기로 새로 만든다.
+    func testToggleFavoriteCreatesForDiscovered() {
+        let e = CommandStore.toggleFavorite([], command: "pnpm dev", name: "dev", cwd: "/p")
+        XCTAssertEqual(e.count, 1)
+        XCTAssertTrue(e[0].favorite)
+        XCTAssertEqual(e[0].name, "dev")
+        XCTAssertTrue(e[0].executions.isEmpty, "아직 실행 전이므로 내역 없음")
+    }
+
+    private func disc(_ name: String, _ command: String) -> DiscoveredScript {
+        DiscoveredScript(name: name, command: command, source: "package.json")
+    }
+
+    /// 세 섹션 — 한 명령은 한 섹션에만(즐겨찾기 > 발견 > 히스토리 우선, 중복 제거).
+    func testPanelSectionsDedup() {
+        var e: [CommandEntry] = []
+        (e, _) = CommandStore.recordStart(e, command: "brew install jq", cwd: nil, name: nil, execId: "1", now: at(3)) // 즉석
+        (e, _) = CommandStore.recordStart(e, command: "pnpm dev", cwd: nil, name: nil, execId: "2", now: at(2))       // 발견 명령을 실행함
+        e = CommandStore.toggleFavorite(e, command: "pnpm dev")                                                        // 즐겨찾기로
+        let discovered = [disc("dev", "pnpm dev"), disc("build", "pnpm build")]
+        let s = CommandStore.panelSections(e, discovered: discovered)
+
+        XCTAssertEqual(s.favorites.map(\.command), ["pnpm dev"], "즐겨찾기")
+        XCTAssertEqual(s.projectScripts.map(\.command), ["pnpm build"], "발견 중 즐겨찾기 아닌 것만(dev는 빠짐)")
+        XCTAssertEqual(s.history.map(\.command), ["brew install jq"], "발견도 즐겨찾기도 아닌 즉석만")
+    }
+
+    /// 발견 스크립트를 아직 안 돌렸어도 프로젝트 스크립트 섹션에 전부 나온다(요구 1).
+    func testPanelSectionsShowsAllDiscovered() {
+        let s = CommandStore.panelSections([], discovered: [disc("dev", "pnpm dev"), disc("test", "pnpm test")])
+        XCTAssertEqual(s.projectScripts.map(\.name), ["dev", "test"])
+        XCTAssertTrue(s.favorites.isEmpty)
+        XCTAssertTrue(s.history.isEmpty)
+    }
+
     /// 히스토리는 최근 실행순.
     func testHistorySortedByRecency() {
         var (e, _) = CommandStore.recordStart([], command: "old", cwd: nil, name: nil, execId: "1", now: at(0))

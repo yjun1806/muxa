@@ -1364,15 +1364,18 @@ final class AppState {
         }
     }
 
-    /// v2 명령 탭의 두 섹션 — 즐겨찾기 / 히스토리(최근 실행순). 활성 프로젝트 기준.
-    var commandV2Sections: (favorites: [CommandEntry], history: [CommandEntry]) {
-        guard let p = activeProject else { return ([], []) }
-        return CommandStore.sections(p.commands ?? [])
+    /// 이 프로젝트의 명령 엔트리(원본). 뷰가 발견 스크립트와 함께 `CommandStore.panelSections`를 계산한다.
+    func commandEntries(of projectId: String) -> [CommandEntry] {
+        project(projectId)?.commands ?? []
     }
 
-    /// 즐겨찾기 토글(= 등록/해제).
-    func toggleCommandFavorite(_ command: String, in projectId: String) {
-        updateProject(projectId) { var n = $0; n.commands = CommandStore.toggleFavorite($0.commands ?? [], command: command); return n }
+    /// 즐겨찾기 토글(= 등록/해제). 아직 실행 안 한 발견 스크립트를 ☆ 하면 name·cwd로 엔트리를 새로 만든다.
+    func toggleCommandFavorite(_ command: String, name: String? = nil, cwd: String? = nil, in projectId: String) {
+        updateProject(projectId) {
+            var n = $0
+            n.commands = CommandStore.toggleFavorite($0.commands ?? [], command: command, name: name, cwd: cwd)
+            return n
+        }
     }
 
     /// 명령의 실행 경로 변경.
