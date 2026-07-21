@@ -11,9 +11,11 @@ struct UsageChip: View {
     private let usage = ClaudeUsageService.shared
     private let settings = StatusBarSettings.shared
 
-    /// 화면 tick 주기 — 리셋 카운트다운 갱신 + 캐시 만료 재점검용. **네트워크 조회 주기가 아니다**(그건
-    /// `UsagePolicy`가 정한다). 사용자 설정으로 두면 "빠를수록 좋다"는 오해로 예산을 갉으므로 코드 상수로 못 박는다.
-    private static let tickInterval: TimeInterval = 60
+    /// 화면 tick 주기 — 리셋 카운트다운 갱신 + 캐시 만료 재점검 + **A-1(statusLine 파일) 재읽기**.
+    /// **네트워크 조회 주기가 아니다**(그건 `UsagePolicy`가 정한다) — A-2는 캐시 게이팅이라 이 주기로 안 늘고,
+    /// A-1은 `latest.json` 파일 읽기라 싸다. claude 응답 주기(수 초)보다 촘촘할 실익이 없어 2초가 실질 하한:
+    /// `latest.json`은 응답이 올 때만 새 값이라 그보다 자주 읽어봐야 같은 값이고 재렌더·IO만 는다.
+    private static let tickInterval: TimeInterval = 2
 
     @State private var showUsage = false
     /// 리셋 카운트다운("3h 38m")이 굳지 않도록 tick마다 흐르는 현재 시각.
