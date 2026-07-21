@@ -1324,6 +1324,78 @@ final class AppState {
         project(projectId)?.commandHistory ?? []
     }
 
+    // MARK: 명령 v2 (CommandEntry — 실행→즐겨찾기, 명령당 실행내역·로그 영속)
+
+    /// v2 실행 시작 기록(execId=script.id). 밀려난 실행 로그 파일을 함께 지운다.
+    private func recordCommandStart(_ script: Script, in projectId: String, cwd: String) {
+        guard let p = project(projectId) else { return }
+        let (entries, dropped) = CommandStore.recordStart(
+            p.commands ?? [], command: script.command, cwd: cwd, name: nil,
+            execId: script.id, now: Date())
+        updateProject(projectId) { var n = $0; n.commands = entries; return n }
+        CommandLogStore.delete(dropped)
+    }
+
+    /// v2 실행 완료 반영 + pane 로그를 파일로 굳힌다(종료 후에도 과거 출력을 다시 보게).
+    private func recordCommandFinish(execId: String, projectId: String,
+                                    exitCode: Int?, duration: TimeInterval?) {
+        updateProject(projectId) { p in
+            var n = p
+            n.commands = CommandStore.recordFinish(p.commands ?? [], execId: execId,
+                                                   exitCode: exitCode, duration: duration)
+            return n
+        }
+        Task {
+            let log = await TmuxService.capture(projectId: projectId, serviceId: execId, lines: 500)
+            if !ServiceLogView.tidy(log).isEmpty { CommandLogStore.save(execId, log) }
+        }
+    }
+
+    /// v2 명령 탭의 두 섹션 — 즐겨찾기 / 히스토리(최근 실행순). 활성 프로젝트 기준.
+    var commandV2Sections: (favorites: [CommandEntry], history: [CommandEntry]) {
+        guard let p = activeProject else { return ([], []) }
+        return CommandStore.sections(p.commands ?? [])
+    }
+
+    /// 즐겨찾기 토글(= 등록/해제).
+    func toggleCommandFavorite(_ command: String, in projectId: String) {
+        updateProject(projectId) { var n = $0; n.commands = CommandStore.toggleFavorite($0.commands ?? [], command: command); return n }
+    }
+
+    /// 명령의 실행 경로 변경.
+    func setCommandCwd(_ command: String, cwd: String?, in projectId: String) {
+        updateProject(projectId) { var n = $0; n.commands = CommandStore.setCwd($0.commands ?? [], command: command, cwd: cwd); return n }
+    }
+
+    /// 명령 하나 삭제(실행 로그도 정리).
+    func removeCommand(_ command: String, in projectId: String) {
+        guard let p = project(projectId) else { return }
+        let (entries, dropped) = CommandStore.remove(p.commands ?? [], command: command)
+        updateProject(projectId) { var n = $0; n.commands = entries; return n }
+        CommandLogStore.delete(dropped)
+    }
+
+    /// 저장된 실행 로그(execId).
+    func commandLog(_ execId: String) -> String? { CommandLogStore.load(execId) }
+
+    /// 명령 실행 — 즉석·재실행·즐겨찾기 공통. Script 인스턴스로 기존 tmux 백엔드를 탄다.
+    /// cwd는 인자 우선(명령에 매인 cwd), 없으면 프로젝트 경로 상속.
+    func runCommand(_ command: String, cwd: String?, in projectId: String) {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard TmuxService.isAvailable else { openServiceDock(serviceId: nil, tab: .commands); return }
+        guard let resolved = cwd ?? activeProjectCwd else {
+            attention.recordSystem(title: "명령 실행 실패 — 실행 경로가 없습니다")
+            return
+        }
+        let script = Script(id: newId(), name: trimmed, command: trimmed, cwd: cwd)
+        oneOffScripts.append(script) // 실행 인스턴스(상태·상세용) — 기존 흐름 재사용
+        evictOneOffOverflow()
+        launchScript(script, in: projectId, cwd: resolved)
+        selectedServiceId = script.id
+        openServiceDock(serviceId: script.id, projectId: projectId, tab: .commands)
+    }
+
     /// 명령 탭의 두 섹션 — 등록 명령(+이력의 lastRun)과 미등록 히스토리. 활성 프로젝트 기준(순수 `CommandHistory`).
     var commandSections: (registered: [(script: Script, lastRunAt: Date?)], history: [CommandHistoryEntry]) {
         guard let p = activeProject else { return ([], []) }
@@ -1415,7 +1487,8 @@ final class AppState {
     /// seed + tmux 백그라운드 시작). 두 경로가 이 하나를 공유한다(CLAUDE.md 중복 추출 — 세션 갈아엎기·
     /// pending 차단·재드롭 규칙이 갈라지면 안 된다).
     private func launchScript(_ script: Script, in projectId: String, cwd: String) {
-        recordCommandRun(script, in: projectId) // 등록·즉석 공통 지점 — 실행 시도를 영속 이력에 남긴다
+        recordCommandRun(script, in: projectId) // v1(공존) — 실행 시도를 영속 이력에 남긴다
+        recordCommandStart(script, in: projectId, cwd: cwd) // v2 — CommandEntry에 실행 기록
         // 새 실행 시작 = 이 프로젝트의 잔류(✓/✗) 확인 처리 — 칩은 "가장 최근 일"만 말한다.
         scriptRuns = ScriptRun.acknowledgingFinished(scriptRuns, projectId: projectId)
         // 폴링(2s)을 기다리지 않고 낙관적으로 심는다 — 버튼을 눌렀는데 칩이 조용하면 두 번 누른다.
@@ -1532,6 +1605,12 @@ final class AppState {
         let (next, exits) = ScriptRun.merging(runs: scriptRuns, observed: settled,
                                               registered: trackedLocatedScripts, now: Date())
         if next != scriptRuns { scriptRuns = next }
+        // v2 — 완료된 실행을 CommandEntry에 반영하고 그 pane 로그를 파일로 굳힌다(성공·실패 모두).
+        for run in exits {
+            guard case .finished(let code, let duration) = run.state else { continue }
+            recordCommandFinish(execId: run.scriptId, projectId: run.projectId,
+                                exitCode: code.map(Int.init), duration: duration)
+        }
         // (스크립트 종료 로그는 상세가 attach로 얼어붙은 pane을 그대로 보여주므로 텍스트 스냅샷을 안 뜬다 —
         //  종료 로그 텍스트 폴백은 세션이 kill되는 **서비스 중단**에만 필요하고, 그건 stopService가 뜬다.)
         for run in exits where run.isFailure {

@@ -19,7 +19,11 @@ struct Project: Codable, Identifiable {
     /// 실행된 명령의 **영속 이력**(등록·즉석 공통, `CommandHistory` 참조) — "언제 마지막으로 돌렸나".
     /// 명령 탭의 등록 lastRun 표시·미등록 히스토리가 여기서 나온다. 최근 100개(`CommandHistory.limit`).
     /// 옵셔널이라 하위호환(옛 저장분엔 없음 → nil로 디코드).
+    /// **v2로 대체 중** — `commands`가 이 역할을 흡수한다(scripts+commandHistory 통합). 마이그레이션 후 제거.
     var commandHistory: [CommandHistoryEntry]?
+    /// 명령(v2) — 실행 후 즐겨찾기로 등록되는 통합 모델(`CommandEntry`). scripts+commandHistory를 대체한다.
+    /// favorite=등록, 명령당 실행 내역(로그 영속·10개). 옵셔널이라 하위호환.
+    var commands: [CommandEntry]?
     /// 탭을 닫았지만 **안에서 작업이 돌고 있어 백그라운드로 남긴** tmux 세션들(L3).
     ///
     /// 여기 실려야 두 가지가 성립한다: ① 시작 시 GC가 고아로 오인해 죽이지 않는다(그러면 남긴 의미가
