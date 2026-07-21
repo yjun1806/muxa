@@ -434,15 +434,11 @@ struct ServiceDock: View {
                 }.buttonStyle(.plain).clickCursor().help("실행 중이 아닌 히스토리를 비웁니다")
             }
             ForEach(items) { entry in
+                let run = CommandHistory.runState(command: entry.command, instances: oneOff, runs: state.scriptRuns)
                 CommandHistoryRow(
-                    entry: entry, now: now,
-                    run: CommandHistory.runState(command: entry.command, instances: oneOff, runs: state.scriptRuns),
-                    selected: selectedId != nil && selectedId == CommandHistory.runState(command: entry.command, instances: oneOff, runs: state.scriptRuns)?.scriptId,
-                    onSelect: {
-                        if let r = CommandHistory.runState(command: entry.command, instances: oneOff, runs: state.scriptRuns) {
-                            state.selectedServiceId = r.scriptId
-                        }
-                    },
+                    entry: entry, now: now, run: run,
+                    selected: run != nil && selectedId == run?.scriptId,
+                    onSelect: { if let run { state.selectedServiceId = run.scriptId } },
                     onRun: { state.runOneOff(command: entry.command) },
                     onRegister: { state.requestScriptAdd(prefill: entry.command) },
                     onDelete: { state.removeCommandHistory(entry.command) })
