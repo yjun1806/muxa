@@ -36,6 +36,16 @@ enum CommandHistory {
         return Array(([entry] + rest).prefix(limit))
     }
 
+    /// 한 명령의 **현재 세션 실행 상태** — 그 `command`로 실행된 인스턴스(`oneOffScripts`) 중 가장 최근
+    /// run(`startedAt` 기준). 없으면 nil = 이번 세션엔 안 돌린 과거 기록(뷰는 lastRun만 보여준다).
+    /// 재시작하면 인스턴스가 사라져 자연히 nil이 된다(영속 이력만 남고 상태는 세션 한정).
+    static func runState(command: String, instances: [LocatedScript],
+                         runs: [String: ScriptRun]) -> ScriptRun? {
+        instances.filter { $0.script.command == command }
+            .compactMap { runs[$0.id] }
+            .max(by: { ($0.startedAt ?? .distantPast) < ($1.startedAt ?? .distantPast) })
+    }
+
     /// 등록 명령 + 이력을 명령 탭의 두 섹션으로 가른다(순수).
     ///  - **등록 섹션**: `registered` 각각 + 이력에서 찾은 `lastRunAt`(한 번도 안 돌렸으면 nil).
     ///  - **히스토리 섹션**: 등록 안 된 명령만, 최근순(이력 순서 그대로).

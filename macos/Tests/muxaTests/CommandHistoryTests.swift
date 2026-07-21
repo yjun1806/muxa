@@ -69,4 +69,27 @@ final class CommandHistoryTests: XCTestCase {
         let (reg, _) = CommandHistory.sections(registered: [script("test", "make test")], history: [])
         XCTAssertNil(reg.first?.lastRunAt)
     }
+
+    private func located(_ id: String, _ command: String) -> LocatedScript {
+        LocatedScript(script: Script(id: id, name: command, command: command, cwd: nil),
+                      workspaceId: "w", workspaceName: "w", projectId: "p", projectName: "p", cwd: "/")
+    }
+
+    /// 명령의 실행 상태 — 그 command로 실행된 인스턴스 중 가장 최근 run.
+    func testRunStateMatchesLatestInstance() {
+        let instances = [located("i1", "pnpm i"), located("i2", "pnpm i"), located("x", "ls")]
+        let runs: [String: ScriptRun] = [
+            "i1": ScriptRun(scriptId: "i1", projectId: "p", name: "pnpm i", startedAt: at(1), state: .running),
+            "i2": ScriptRun(scriptId: "i2", projectId: "p", name: "pnpm i", startedAt: at(5),
+                            state: .finished(code: 0, duration: 2)),
+        ]
+        let st = CommandHistory.runState(command: "pnpm i", instances: instances, runs: runs)
+        XCTAssertEqual(st?.scriptId, "i2", "startedAt이 가장 최근인 i2")
+    }
+
+    /// 그 명령의 실행 인스턴스가 없으면 nil(재시작 후·과거 기록만).
+    func testRunStateNilWhenNoInstance() {
+        XCTAssertNil(CommandHistory.runState(command: "make build",
+                                             instances: [located("i", "pnpm i")], runs: [:]))
+    }
 }
