@@ -106,6 +106,29 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 추정기 `lastOutputAt`(systemUptime 경과) · 에이전트 판정 = `hookedTabs`. **경량 가드**: 접힘 기본 + 유휴 접기로 절제
 (muxa 우위=가벼움, [[muxa-vs-orca-positioning]]).
 
+## 최근 완료 (2026-07-21) — 사용량 A-1 소스: statusLine sink로 429 회피 (USAGE-A1)
+
+사용량 칩이 `/api/oauth/usage`(A-2)를 15분 폴링해 **429를 자주 맞았다**(엔드포인트 자체가 빡빡 —
+"9%에서도 폴링만으로 제한" 실측). A-1(Claude Code statusLine stdin의 `rate_limits`)을 1순위 소스로 얹었다.
+claude가 코딩하며 받은 값을 재활용하므로 **사용량용 요청 0회 → 429 원천 차단**. A-2는 폴백으로 그대로 유지
+(A-1 없음·낡음·만료창이면 넘어감), A-3(PTY)도 최후 폴백으로 살아 있다("셋 다" 보완).
+
+- **순수 로직**(커밋 d8dd8a1): `ClaudeUsage.parseStatusLine`(rate_limits→UsageLimit) · `UsageSourceSelector`
+  (신선하면 사용+API스킵) · `ClaudeStatusLineSettings`(settings.json statusLine 멱등 병합·래핑·제거).
+- **배선**(커밋 dd827f7): `muxa-notify statusline` 서브커맨드(stdin→`muxa-shared/statusline/latest.json`
+  원자적 쓰기 + 사용자 statusLine pass-through) · `StatusLineUsageStore` · `ClaudeUsageService` A-1 우선
+  (`UsagePolicy.statusLineFresh=600s`) · `ClaudeHookInstaller` install/uninstall이 훅+statusLine 함께 처리.
+- 테스트 431개 통과(파싱·소스선택·settings·A-1배선). 헬퍼 sink는 **CLI e2e로 persist·보존·pass-through 실측**.
+
+### ★ 육안 검증 필요 (USAGE-A1 — 실제 설치 + claude 세션 필요)
+1. ★ **설치 흐름**: 훅 설치 UI(설정)에서 설치 → settings.json에 `statusLine.command`(muxa-notify statusline)가
+   훅과 함께 심기는지. 기존 사용자 statusLine(ccstatusline 등) 있으면 래핑 보존되는지(`muxa-shared/statusline/wrapped`).
+2. ★ **A-1 발화 → 칩 반영**: 설치 후 muxa 안 claude 세션에서 응답 1회 → `latest.json` 생성 → 칩이 그 값을 쓰고
+   **API를 안 치는지**(429 안 뜸). `log stream`에 429 로그가 사라지는지.
+3. ★ **동의 배너 문구**: 설치 UI가 "알림 + 사용량 추적"임을 알리는지 — 현재 훅 설치 카피 그대로라 조정 후보.
+4. ★ **제거 복원**: uninstall 시 muxa statusLine 제거 + 래핑된 사용자 statusLine 복원(단 command만 — padding 등 부가필드 유실은 알려진 한계).
+5. ★ **전역 영향**: muxa 밖 터미널 claude도 statusLine sink를 매 렌더 실행 — 렌더가 느려지거나 깨지지 않는지.
+
 ## 최근 완료 (2026-07-20) — 사이드바 에이전트 목록: 터미널 / 뷰어 분리 (LIST-SPLIT)
 
 프로젝트를 펼치면 터미널과 뷰어(문서·코드·변경)가 한 줄기로 섞여 나와, 실행 중인 것을 훑을 때마다
