@@ -88,8 +88,12 @@ struct UsagePolicy {
     /// 모델 스코프 캐시가 이 시간보다 낡으면 A-2를 딱 한 번 태워 그것만 되살린다(안 그러면 굳는다).
     /// Fable weekly는 7일 단위라 느리게 변하니 넉넉히 잡아, A-2 호출을 시간당 ~1회로 묶어 429 회피를 지킨다.
     let fableRefresh: TimeInterval
+    /// **수동 갱신 디바운스** — 마지막 성공이 이 시간 안이면 수동 갱신을 무시한다(연타로 예산을 갉지 않게).
+    /// 수동은 캐시 TTL(15분/1h)은 우회하지만 이 창과 429 백오프는 우회하지 않는다 — 그래서 사람이 눌러도 안전하다.
+    let manualDebounce: TimeInterval
 
     static let live = UsagePolicy(successInterval: 900, failureWait: 120,
                                   rateLimitDefault: 900, rateLimitMax: 3600, singleFlight: 30,
-                                  busyInterval: 1800, statusLineFresh: 600, fableRefresh: 3600)
+                                  busyInterval: 1800, statusLineFresh: 600, fableRefresh: 3600,
+                                  manualDebounce: 30)
 }

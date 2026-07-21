@@ -124,24 +124,29 @@ struct FooterAction: View {
     let icon: String
     let help: String
     var destructive = false
+    /// 비활성 — 회색으로 두고 hover·클릭을 막는다(예: 요청 제한 중인 수동 갱신). help는 이유를 알린다.
+    var disabled = false
     let action: () -> Void
 
     @State private var hovered = false
 
     private var tint: Color { destructive ? .pDanger : Color(nsColor: Palette.mutedHover) }
+    /// hover 강조는 활성일 때만.
+    private var lit: Bool { hovered && !disabled }
 
     var body: some View {
-        Button(action: action) {
+        Button(action: { if !disabled { action() } }) {
             Image(systemName: icon)
                 .font(.muxa(.label))
-                .foregroundStyle(hovered ? tint : Color.pMuted)
+                .foregroundStyle(disabled ? Color.pMuted.opacity(0.4) : (lit ? tint : Color.pMuted))
                 // 아이콘(11pt)만으로는 과녁이 너무 작다 — 행 높이 한 단(22)의 정사각형을 준다.
                 .frame(width: RowHeight.tight, height: RowHeight.tight)
-                .background(hovered ? tint.opacity(Tint.subtle) : .clear,
+                .background(lit ? tint.opacity(Tint.subtle) : .clear,
                             in: RoundedRectangle(cornerRadius: Radius.sm))
                 .contentShape(RoundedRectangle(cornerRadius: Radius.sm))
         }
         .buttonStyle(.plain)
+        .disabled(disabled)
         .clickCursor()
         .onHover { hovered = $0 }
         .animation(Motion.fast, value: hovered)

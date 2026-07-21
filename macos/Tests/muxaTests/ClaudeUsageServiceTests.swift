@@ -114,6 +114,48 @@ final class ClaudeUsageServiceTests: XCTestCase {
         XCTAssertEqual(clock.calls, 0, "Fable이 아직 신선하면 A-2를 건드리지 않는다")
     }
 
+    // MARK: 수동 갱신 — TTL만 우회, 429·연타는 막는다
+
+    /// 수동 갱신은 캐시 TTL(15분)을 우회해 지금 조회한다 — 자동은 아직 안 돌 때라도.
+    func testManualRefreshBypassesCacheTTL() async {
+        let clock = Clock()
+        let service = makeService(clock, results: [.ok(sample), .ok(sample)])
+        await service.refreshIfStale()
+        XCTAssertEqual(clock.calls, 1)
+
+        clock.now.addTimeInterval(60) // 15분 한참 전 — 자동은 안 돌지만 수동은 돈다(디바운스 30초는 넘김)
+        let did = await service.manualRefresh()
+        XCTAssertTrue(did)
+        XCTAssertEqual(clock.calls, 2, "수동은 캐시 TTL을 우회한다")
+    }
+
+    /// 연타 방지 — 마지막 성공이 디바운스(30초) 안이면 수동 갱신을 무시한다.
+    func testManualRefreshDebouncesRapidClicks() async {
+        let clock = Clock()
+        let service = makeService(clock, results: [.ok(sample), .ok(sample)])
+        await service.refreshIfStale()
+        XCTAssertEqual(clock.calls, 1)
+
+        clock.now.addTimeInterval(29) // 30초 디바운스 안
+        let did = await service.manualRefresh()
+        XCTAssertFalse(did, "디바운스 안에서는 무시")
+        XCTAssertEqual(clock.calls, 1, "연타해도 API를 안 때린다")
+    }
+
+    /// 429 백오프 창은 절대 안 뚫는다 — 수동으로 뚫으면 리밋이 연장된다(팀이 강제 버튼을 뺀 이유).
+    func testManualRefreshHonorsRateLimitBackoff() async {
+        let clock = Clock()
+        let service = makeService(clock, results: [.rateLimited(retryAfter: 600), .ok(sample)])
+        await service.refreshIfStale()
+        XCTAssertEqual(service.state, .rateLimited)
+
+        clock.now.addTimeInterval(60) // 백오프(600초) 한참 안
+        let did = await service.manualRefresh()
+        XCTAssertFalse(did, "429 창 안에서는 수동도 조회하지 않는다")
+        XCTAssertEqual(clock.calls, 1, "리밋을 연장시키지 않는다")
+        XCTAssertNotNil(service.manualBlockedUntil, "버튼을 회색으로 둘 근거가 있다")
+    }
+
     func testSuccessPopulatesLimits() async {
         let clock = Clock()
         let service = makeService(clock, results: [.ok(sample)])

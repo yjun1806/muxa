@@ -22,11 +22,11 @@ struct UsagePopover: View {
         FooterPopover(title: "Claude", subtitle: updatedText) {
             ClaudeMark(size: IconSize.mark)
         } accessory: {
-            // 수동 새로고침 버튼은 없앴다 — 좌표(백오프·429·캐시 TTL)를 우회해 연타로 예산을 갉는 풋건이었다.
-            // 사용량은 정보성이라 15분 주기(라이브 세션 중엔 더 길게)로 자동 갱신되고, 로딩 중일 때만 표시한다.
+            // 수동 갱신 — **캐시 TTL만** 우회한다. 429/실패 백오프 창은 안 뚫고(그러면 리밋이 연장된다),
+            // 마지막 성공이 30초 안이면 무시한다(연타 방지). 그래서 사람이 눌러도 예산을 안 갉는다.
             HStack(spacing: Space.xs) {
-                if usage.loading {
-                    ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 14, height: 14)
+                FooterAction(icon: "arrow.clockwise", help: refreshHelp, disabled: refreshBlocked) {
+                    Task { await usage.manualRefresh() }
                 }
                 FooterAction(icon: "gearshape", help: "사용량 표시 설정") { onOpenSettings() }
             }
@@ -44,6 +44,19 @@ struct UsagePopover: View {
             }
         }
         .tick(every: 60, into: $now) // "3분 전 갱신"이 굳지 않게(팝오버가 열려 있는 동안만)
+    }
+
+    /// 수동 갱신을 지금 누를 수 없나 — 조회 중이거나 429/실패 백오프 창 안(그땐 회색으로 둔다).
+    private var refreshBlocked: Bool { usage.loading || usage.manualBlockedUntil != nil }
+
+    /// 새로고침 버튼 툴팁 — 왜 못 누르는지(제한 중 N분 후)까지 알린다.
+    private var refreshHelp: String {
+        if usage.loading { return "갱신 중…" }
+        if let until = usage.manualBlockedUntil {
+            let minutes = max(1, Int(until.timeIntervalSince(now)) / 60)
+            return "요청 제한 중 · 약 \(minutes)분 후"
+        }
+        return "지금 갱신"
     }
 
     /// 보여줄 한도가 없을 때 — 조회 전·실패·레이트리밋·빈 응답을 구분해 원인을 짐작할 수 있게 한다.

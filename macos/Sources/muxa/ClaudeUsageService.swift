@@ -135,11 +135,37 @@ final class ClaudeUsageService {
         return now().timeIntervalSince(updated) >= policy.fableRefresh
     }
 
-    /// 강제 조회 — 좌표 판정(백오프·429·캐시 TTL)을 **우회하고** 지금 즉시 프로브한다.
-    /// UI에는 노출하지 않는다(연타로 예산을 갉는 풋건이라 새로고침 버튼을 없앴다) — 테스트·진단 전용.
+    /// 강제 조회 — 좌표 판정(백오프·429·캐시 TTL)을 **모두 우회하고** 지금 즉시 프로브한다.
+    /// UI에 노출하지 않는다(모든 걸 우회해 연타=429인 풋건) — 테스트·진단 전용. 사용자용은 `manualRefresh`.
     func refresh() async {
         guard !loading else { return }
         await probe()
+    }
+
+    /// 사용자 수동 갱신 — "지금 보고 싶다". **429·연타 안전**하게 캐시 TTL만 우회한다:
+    ///  - 429/실패 백오프 창 안이면 아무것도 안 한다(그 판정을 우회하면 리밋이 연장된다 — 절대 안 뚫는다).
+    ///  - 마지막 성공이 `manualDebounce`(30초) 안이면 무시한다(데이터가 이미 신선 + 연타 차단).
+    ///  - 그 외엔 지금 한 번 조회한다. A-1이 신선하면 Fable만 되살아나게 A-1 우선값으로 재병합한다.
+    /// 반환: 실제로 조회했으면 `true`(뷰가 짧은 피드백을 줄 수 있게).
+    @discardableResult
+    func manualRefresh() async -> Bool {
+        guard !loading else { return false }
+        let snapshot = store.load()
+        if let until = snapshot?.blockedUntil, now() < until { return false }        // 429/백오프 존중
+        if let updated = snapshot?.updatedAt,
+           now().timeIntervalSince(updated) < policy.manualDebounce { return false }  // 디바운스(연타 방지)
+        await probe()
+        if case .statusLine(let limits) = UsageSourceSelector.pick(
+            statusLine: statusLine(), now: now(), freshFor: policy.statusLineFresh) {
+            applyStatusLine(limits) // A-1이 신선하면 probe가 얹은 A-2 우선값을 A-1로 되돌린다(Fable만 갱신 효과)
+        }
+        return true
+    }
+
+    /// 지금 수동 갱신이 막혀 있나(429·실패 백오프 창) — 버튼을 회색으로 두고 "N분 후"를 알릴 근거.
+    var manualBlockedUntil: Date? {
+        guard let until = store.load()?.blockedUntil, now() < until else { return nil }
+        return until
     }
 
     /// 실제 조회 한 번. single-flight를 claim(공유 파일에 inflight 표식)한 뒤 fetcher를 부르고,
