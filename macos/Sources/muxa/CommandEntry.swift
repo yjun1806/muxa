@@ -109,4 +109,27 @@ enum CommandStore {
             .sorted { ($0.lastRunAt ?? .distantPast) > ($1.lastRunAt ?? .distantPast) }
         return (favorites, history)
     }
+
+    /// v1(등록 `scripts` + `commandHistory`) → v2 `commands` 이관(순수). 둘 다 비면 nil(이관 불필요).
+    /// **등록 스크립트 = favorite**(이름 보존), 히스토리 = 비favorite(lastRunAt을 실행 하나로 심는다 —
+    /// 과거 로그는 없으니 결과 미상). 같은 명령은 한 엔트리로 묶고, 등록이면 favorite을 켠다.
+    static func migrate(scripts: [Script], history: [CommandHistoryEntry]) -> [CommandEntry]? {
+        if scripts.isEmpty && history.isEmpty { return nil }
+        var byCommand: [String: CommandEntry] = [:]
+        for h in history {
+            let exec = CommandExecution(id: "mig-\(abs(h.command.hashValue))",
+                                        startedAt: h.lastRunAt, exitCode: nil, duration: nil)
+            byCommand[h.command] = CommandEntry(command: h.command, name: nil, cwd: h.cwd,
+                                                favorite: false, executions: [exec])
+        }
+        for s in scripts {
+            var entry = byCommand[s.command]
+                ?? CommandEntry(command: s.command, name: s.name, cwd: s.cwd, favorite: false, executions: [])
+            entry.favorite = true
+            entry.name = s.name
+            if entry.cwd == nil { entry.cwd = s.cwd }
+            byCommand[s.command] = entry
+        }
+        return Array(byCommand.values)
+    }
 }

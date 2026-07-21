@@ -303,6 +303,7 @@ final class AppState {
         }
         notifyServer.start()
         refreshHookInstallState()
+        migrateCommandsIfNeeded() // v1(scripts+commandHistory) → v2 commands, 로드 후 1회
     }
 
     /// 파일 기준 훅 설치 상태를 다시 읽는다(시작 시·설치/제거 직후).
@@ -1351,6 +1352,18 @@ final class AppState {
         }
     }
 
+    /// v1(등록 scripts + commandHistory) → v2 commands 이관 — 로드 후 1회. commands가 이미 있으면 건너뛴다.
+    /// 기존 등록 스크립트는 즐겨찾기로, 히스토리는 그대로 살린다(사용자 데이터 손실 없이 v2로 넘긴다).
+    func migrateCommandsIfNeeded() {
+        for ws in workspaces {
+            for project in ws.projects where project.commands == nil {
+                guard let migrated = CommandStore.migrate(scripts: project.scripts ?? [],
+                                                          history: project.commandHistory ?? []) else { continue }
+                updateProject(project.id) { var n = $0; n.commands = migrated; return n }
+            }
+        }
+    }
+
     /// v2 명령 탭의 두 섹션 — 즐겨찾기 / 히스토리(최근 실행순). 활성 프로젝트 기준.
     var commandV2Sections: (favorites: [CommandEntry], history: [CommandEntry]) {
         guard let p = activeProject else { return ([], []) }
@@ -1487,8 +1500,7 @@ final class AppState {
     /// seed + tmux 백그라운드 시작). 두 경로가 이 하나를 공유한다(CLAUDE.md 중복 추출 — 세션 갈아엎기·
     /// pending 차단·재드롭 규칙이 갈라지면 안 된다).
     private func launchScript(_ script: Script, in projectId: String, cwd: String) {
-        recordCommandRun(script, in: projectId) // v1(공존) — 실행 시도를 영속 이력에 남긴다
-        recordCommandStart(script, in: projectId, cwd: cwd) // v2 — CommandEntry에 실행 기록
+        recordCommandStart(script, in: projectId, cwd: cwd) // v2 — CommandEntry에 실행 기록(로그 영속)
         // 새 실행 시작 = 이 프로젝트의 잔류(✓/✗) 확인 처리 — 칩은 "가장 최근 일"만 말한다.
         scriptRuns = ScriptRun.acknowledgingFinished(scriptRuns, projectId: projectId)
         // 폴링(2s)을 기다리지 않고 낙관적으로 심는다 — 버튼을 눌렀는데 칩이 조용하면 두 번 누른다.

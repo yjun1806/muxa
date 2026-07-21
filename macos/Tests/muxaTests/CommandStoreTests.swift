@@ -76,6 +76,28 @@ final class CommandStoreTests: XCTestCase {
         XCTAssertEqual(CommandStore.sections(e).history.map(\.command), ["new", "old"])
     }
 
+    /// v1→v2 이관 — 등록 스크립트=favorite, 히스토리=비favorite, 둘 다 비면 nil.
+    func testMigrate() {
+        let scripts = [Script(id: "s1", name: "web", command: "pnpm dev", cwd: "/p")]
+        let history = [CommandHistoryEntry(command: "pnpm test", name: "pnpm test", cwd: nil,
+                                           lastRunAt: at(5), runCount: 2)]
+        let m = CommandStore.migrate(scripts: scripts, history: history)!
+        XCTAssertEqual(m.first { $0.command == "pnpm dev" }?.favorite, true, "등록→즐겨찾기")
+        XCTAssertEqual(m.first { $0.command == "pnpm dev" }?.name, "web", "이름 보존")
+        XCTAssertEqual(m.first { $0.command == "pnpm test" }?.favorite, false, "히스토리→비즐겨찾기")
+        XCTAssertNil(CommandStore.migrate(scripts: [], history: []), "둘 다 비면 nil")
+    }
+
+    /// 같은 명령이 등록·히스토리 양쪽이면 한 엔트리로 묶고 favorite을 켠다.
+    func testMigrateMergesSameCommand() {
+        let scripts = [Script(id: "s", name: "build", command: "make build", cwd: nil)]
+        let history = [CommandHistoryEntry(command: "make build", name: "make build", cwd: nil,
+                                           lastRunAt: at(1), runCount: 1)]
+        let m = CommandStore.migrate(scripts: scripts, history: history)!
+        XCTAssertEqual(m.count, 1, "한 엔트리로 병합")
+        XCTAssertTrue(m[0].favorite)
+    }
+
     /// cwd 변경·명령 삭제(로그 dropped 반환).
     func testSetCwdAndRemove() {
         var (e, _) = CommandStore.recordStart([], command: "a", cwd: "/x", name: nil, execId: "1", now: at(0))

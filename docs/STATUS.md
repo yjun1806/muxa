@@ -106,6 +106,30 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 추정기 `lastOutputAt`(systemUptime 경과) · 에이전트 판정 = `hookedTabs`. **경량 가드**: 접힘 기본 + 유휴 접기로 절제
 (muxa 우위=가벼움, [[muxa-vs-orca-positioning]]).
 
+## 최근 완료 (2026-07-21) — 명령 탭 재설계 v2: 실행→즐겨찾기·실행내역·로그영속 (CMD-V2)
+
+CMD-UNIFY를 사용자 요구 재정의로 갈아엎었다. **등록 폼 폐기 → 실행 후 ★즐겨찾기=등록.** 명령당 실행
+내역(로그 영속·10개)·cwd 칩(NSOpenPanel).
+
+- **모델**(커밋 ea238d5): `CommandEntry`(command·name?·cwd?·favorite·executions[≤10]) + `CommandExecution`
+  + `CommandStore`(순수: recordStart/Finish·toggleFavorite·setCwd·remove·sections·migrate). 테스트 12개.
+- **배선·로그 영속**(aa93446): `Project.commands` + `CommandLogStore`(execId별 파일) + launchScript→recordStart,
+  완료 관측→recordFinish + `TmuxService.capture`로 pane 로그를 파일로 굳힘.
+- **UI**(7fcdf48·4814683): 즐겨찾기 섹션(전부·스크롤·▶즉시실행·★해제) + 히스토리(명령당·클릭 펼침→
+  실행내역 ✓/✗·시각·소요·exit, 클릭→저장 로그) + **cwd 칩**(제안·NSOpenPanel[숨김·루트 자유]·직접입력).
+- **마이그레이션**: 로드 후 `migrateCommandsIfNeeded` — 기존 scripts→즐겨찾기, commandHistory→히스토리.
+
+**정리 잔여(dead code, 빌드 무해)**: v1 `CommandHistory`(record/sections/runState) · AppState v1
+(commandSections·recordCommandRun·removeCommandHistory·clearCommandHistory·requestScriptAdd·commandHistory(of)) ·
+`Project.scripts`/`commandHistory`·관련 CRUD(addScript·runScript…) — 마이그레이션 소스라 일부는 유지, 나머지는 후속 제거.
+
+### ★ 육안 검증 필요 (CMD-V2 — `make relaunch`)
+1. ★ **즐겨찾기·실행**: 즐겨찾기가 전부 노출·스크롤되고 ▶로 즉시 실행. ★로 해제되는지. 마이그레이션(기존 등록 스크립트가 즐겨찾기로 뜸).
+2. ★ **실행→즐겨찾기**: 입력창 실행 → 히스토리에 남고, ☆로 즐겨찾기 추가(=등록).
+3. ★ **실행 내역**: 히스토리 명령 클릭 → 과거 실행들(✓/✗·시각·소요·exit) 펼침. 실행 클릭 → 저장 로그(재시작 후에도).
+4. ★ **cwd 칩**: 📁 클릭 → 제안 경로·'폴더 선택…'(숨김·루트 탐색)·직접입력. 그 cwd로 실행되는지.
+5. ★ **로그 영속·용량**: 명령당 실행 11번째부터 오래된 로그 삭제(`command-logs/`).
+
 ## 최근 완료 (2026-07-21) — 스크립트+일회용을 '명령'으로 통합 (CMD-UNIFY)
 
 도크 3탭 `[서비스|스크립트|일회용]`에서 스크립트·일회용이 겹쳤다(둘 다 끝있는 명령, 차이는 등록 여부뿐 —
