@@ -106,6 +106,26 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 추정기 `lastOutputAt`(systemUptime 경과) · 에이전트 판정 = `hookedTabs`. **경량 가드**: 접힘 기본 + 유휴 접기로 절제
 (muxa 우위=가벼움, [[muxa-vs-orca-positioning]]).
 
+## 최근 완료 (2026-07-21) — 스크립트+일회용을 '명령'으로 통합 (CMD-UNIFY)
+
+도크 3탭 `[서비스|스크립트|일회용]`에서 스크립트·일회용이 겹쳤다(둘 다 끝있는 명령, 차이는 등록 여부뿐 —
+이미 같은 `Script`·tmux·`ScriptRun`). **`[서비스|명령]` 2탭**으로 합쳤다. 등록 여부는 축이 아니라 저장 위치.
+
+- **명령 이력**(영속): `CommandHistory`(순수) — `record`(병합·**100개** 상한)·`sections`(등록/미등록)·`runState`
+  (command→실행 인스턴스 매칭). `Project.commandHistory` 영속. `launchScript` 공통 지점에서 기록(등록·즉석).
+- **명령 탭**: 입력창 + 등록 섹션(꺼냄, lastRun) + 최근 실행 히스토리(lastRun·횟수, 재실행·등록·삭제).
+  `CommandRow.swift`(등록·히스토리 행 + `CommandRelativeTime` 'N분 전').
+- **DockTab** 2탭, **ScriptStrip** → 명령 칩(즉석 실행도 요약, `commandRuns`), **⌘K** "명령 실행(한 번)".
+- 정리: `oneOffHistoryHeader`·`oneOffHistory`·`OneOffRow`·`clearOneOffHistory` 제거(commandsColumn이 대체).
+- 테스트 440개(이력 8·매칭 포함). 커밋 718e87f·50aec3c·d80c418 등.
+
+### ★ 육안 검증 필요 (CMD-UNIFY — `make relaunch`)
+1. ★ **명령 탭**: ⌘J → `[서비스|명령]` 2탭. 명령 탭에 입력창 + 등록 섹션 + 최근 실행. 각 행 lastRun('N분 전').
+2. ★ **즉석 실행→히스토리**: 입력창에 `sleep 2 && echo hi` → 실행 → 히스토리에 남고 재시작 후에도 lastRun 유지(영속).
+3. ★ **행 액션**: 히스토리 행 hover → ▶재실행·⊞등록(시트 프리필)·🗑삭제. 등록 행 hover ▶실행. 비우기(미등록만).
+4. ★ **푸터 명령 칩**: 등록·즉석 실행 중/잔류가 칩에 반영되는지. 클릭=명령 탭.
+5. ★ **상세**: 등록/히스토리 행 클릭 → 우측 로그/터미널(실행 중 attach·종료 로그).
+
 ## 최근 완료 (2026-07-21) — 사용량 A-1 소스: statusLine sink로 429 회피 (USAGE-A1)
 
 사용량 칩이 `/api/oauth/usage`(A-2)를 15분 폴링해 **429를 자주 맞았다**(엔드포인트 자체가 빡빡 —

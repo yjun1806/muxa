@@ -1291,6 +1291,12 @@ final class AppState {
         return scriptRuns.values.filter { $0.projectId == projectId && registered.contains($0.scriptId) }
     }
 
+    /// 이 프로젝트의 **모든 명령 실행**(등록 + 즉석) — 통합 명령 칩이 요약한다.
+    /// `scriptRuns(of:)`가 등록만 거르는 것과 달리, 즉석(일회용) run도 포함한다(칩이 통합됐으므로).
+    func commandRuns(of projectId: String) -> [ScriptRun] {
+        scriptRuns.values.filter { $0.projectId == projectId }
+    }
+
     /// **창 전체**의 스크립트 — 소속을 달고 온다(도크 목록·모니터 폴링·GC 입력이 이 하나를 쓴다).
     var allLocatedScripts: [LocatedScript] {
         collectAllScripts(in: workspaces)
@@ -1472,14 +1478,6 @@ final class AppState {
         guard scriptRuns[id]?.isRunning != true else { return }
         oneOffScripts.removeAll { $0.id == id }
         evictOneOff(id, projectId: activeProject?.id)
-    }
-
-    /// 일회용 히스토리를 비운다 — 완료분만(실행 중은 남긴다).
-    func clearOneOffHistory() {
-        let pid = activeProject?.id
-        let done = oneOffScripts.filter { scriptRuns[$0.id]?.isRunning != true }
-        oneOffScripts.removeAll { scriptRuns[$0.id]?.isRunning != true }
-        for s in done { evictOneOff(s.id, projectId: pid) }
     }
 
     /// 일회용 하나의 세션·run·터미널을 정리한다(오래된 축출·비우기 공통).

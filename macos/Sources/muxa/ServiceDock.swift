@@ -513,48 +513,6 @@ struct ServiceDock: View {
         oneOffCommand = ""
     }
 
-    /// 최근 실행 헤더 — "비우기"가 여기 산다(툴바가 아니라 비우는 대상 바로 위). 완료분만·실행 중 보존.
-    private var oneOffHistoryHeader: some View {
-        HStack(spacing: Space.sm) {
-            Text("최근 실행")
-                .font(.muxa(.micro, weight: .semibold)).tracking(Tracking.label)
-                .textCase(.uppercase).foregroundStyle(Color.pMuted)
-            Spacer(minLength: Space.sm)
-            if oneOff.contains(where: { state.scriptRuns[$0.id]?.isRunning != true }) {
-                Button { state.clearOneOffHistory() } label: {
-                    HStack(spacing: Space.xs) {
-                        Image(systemName: "wind").font(.muxa(.micro))
-                        Text("비우기").font(.muxa(.caption))
-                    }
-                    .foregroundStyle(Color.pMuted)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain).clickCursor()
-                .help("완료된 일회용 기록만 비웁니다 — 실행 중은 보존")
-            }
-        }
-        .padding(.horizontal, Space.sm)
-        .padding(.top, Space.sm)
-        .padding(.bottom, Space.tight)
-    }
-
-    /// 최근 실행 기록 — 최신이 위(역시간순 flat). 스코프 카드 없음(소수·휘발).
-    private var oneOffHistory: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(oneOff.reversed())) { item in
-                    OneOffRow(script: item.script, run: state.scriptRuns[item.id], now: now,
-                              selected: selectedId == item.id,
-                              action: { state.selectedServiceId = item.id },
-                              onRun: { state.runOneOff(command: item.script.command) },
-                              onPromote: { state.promoteOneOff(item.id) },
-                              onDelete: { state.removeOneOff(item.id) })
-                }
-            }
-            .padding(.vertical, Space.xs)
-        }
-    }
-
     /// 기록 0 — 입력창은 위에 그대로 두고, 아래에 가벼운 안내 + 프로젝트 감지 채움 칩(클릭=입력, 실행 아님).
     private var oneOffEmpty: some View {
         VStack(alignment: .leading, spacing: Space.sm) {

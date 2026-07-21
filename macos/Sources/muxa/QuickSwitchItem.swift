@@ -100,7 +100,7 @@ enum QuickCommandCatalog {
         .command(.addScript, id: "cmd:add-script", title: "스크립트 추가",
                  subtitle: "활성 프로젝트에 1회 실행 명령 등록", icon: "play.square"),
         // 일회용 명령 — 등록 없이 즉석 1회(brew install·pnpm install). 도크 일회용 탭 입력창을 연다.
-        .command(.runOneOff, id: "cmd:run-one-off", title: "일회용 명령 실행",
+        .command(.runOneOff, id: "cmd:run-one-off", title: "명령 실행 (한 번)",
                  subtitle: "brew install·pnpm install처럼 한 번만 돌릴 명령", icon: "terminal"),
     ]
 }
