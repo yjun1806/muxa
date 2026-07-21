@@ -84,8 +84,12 @@ struct UsagePolicy {
     /// A-1(statusLine) 값을 신선하다고 볼 상한. claude가 이 시간 안에 응답을 받았으면 그 값을 쓰고
     /// A-2 프로브를 건너뛴다(429 회피). 넘으면(긴 유휴) A-2로 교차확인한다. 판정은 `UsageSourceSelector.pick`.
     let statusLineFresh: TimeInterval
+    /// **Fable 등 모델 스코프 한도의 갱신 주기.** A-1은 이 값을 안 주므로, A-1이 계속 신선해도
+    /// 모델 스코프 캐시가 이 시간보다 낡으면 A-2를 딱 한 번 태워 그것만 되살린다(안 그러면 굳는다).
+    /// Fable weekly는 7일 단위라 느리게 변하니 넉넉히 잡아, A-2 호출을 시간당 ~1회로 묶어 429 회피를 지킨다.
+    let fableRefresh: TimeInterval
 
     static let live = UsagePolicy(successInterval: 900, failureWait: 120,
                                   rateLimitDefault: 900, rateLimitMax: 3600, singleFlight: 30,
-                                  busyInterval: 1800, statusLineFresh: 600)
+                                  busyInterval: 1800, statusLineFresh: 600, fableRefresh: 3600)
 }

@@ -88,6 +88,13 @@ final class ClaudeUsageService {
         if case .statusLine(let limits) = UsageSourceSelector.pick(
             statusLine: statusLine(), now: now(), freshFor: policy.statusLineFresh) {
             applyStatusLine(limits)
+            // A-1은 Fable(모델 스코프)을 안 준다 — A-1이 계속 신선하면 Fable이 마지막 A-2 값에 굳는다.
+            // 캐시가 fableRefresh보다 낡았고 A-2가 막히지 않았으면, 그것만 되살리러 딱 한 번 프로브한다.
+            // (successInterval마다 태우면 429 회피 이점이 사라지므로 별도의 긴 TTL을 쓴다.)
+            if fableRefreshDue(store.load()) {
+                await probe()
+                applyStatusLine(limits) // A-1 우선값 + 방금 갱신된 Fable로 재병합(probe가 얹은 A-2 우선값을 덮는다)
+            }
             return
         }
         let snapshot = store.load()
@@ -112,6 +119,20 @@ final class ClaudeUsageService {
         state = .ok
         lastSuccess = now()
         rateLimitedUntil = nil
+    }
+
+    /// 모델 스코프(Fable) 캐시를 A-2로 되살릴 때가 됐나 — A-1이 신선할 때만 묻는다.
+    ///
+    /// **캐시에 Fable이 이미 있고 낡았을 때만** true다. 이유:
+    ///  - Fable이 **아예 없으면** 프로브하지 않는다 → "A-1 신선 ⇒ API 0회" 계약을 지킨다.
+    ///    최초 채움은 유휴로 A-1이 낡을 때 도는 **정상 A-2 경로**가 맡는다(그때 Fable도 함께 온다).
+    ///  - A-2가 막혀 있으면(inflight·429·실패 백오프) 그 판정을 존중한다 — 실패 후 매 틱 두드리지 않게.
+    private func fableRefreshDue(_ snapshot: UsageSnapshot?) -> Bool {
+        if loading { return false }
+        guard let snapshot, snapshot.limits.contains(where: \.isModelScoped) else { return false }
+        if let until = snapshot.blockedUntil, now() < until { return false }
+        guard let updated = snapshot.updatedAt else { return false }
+        return now().timeIntervalSince(updated) >= policy.fableRefresh
     }
 
     /// 강제 조회 — 좌표 판정(백오프·429·캐시 TTL)을 **우회하고** 지금 즉시 프로브한다.

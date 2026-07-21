@@ -77,6 +77,43 @@ final class ClaudeUsageServiceTests: XCTestCase {
         XCTAssertTrue(service.limits.contains { $0.isModelScoped }, "A-2 캐시의 Fable이 병합됨")
     }
 
+    /// A-1이 신선해도 **Fable 캐시가 낡으면**(1h+) A-2를 딱 한 번 태워 Fable만 되살린다 —
+    /// 안 그러면 A-1이 계속 신선한 동안 Fable이 마지막 A-2 값에 굳는다(사용자 신고 버그).
+    func testFreshStatusLineRefreshesStaleFable() async {
+        let clock = Clock()
+        let store = MemoryStore()
+        let oldFable = UsageLimit(kind: "weekly_scoped", label: "Fable", percent: 10,
+                                  resetsAt: nil, severity: "normal", isModelScoped: true)
+        // 1시간 하고도 1초 전에 성공한 A-2 캐시(=Fable이 낡았다).
+        store.save(UsageSnapshot(updatedAt: clock.now.addingTimeInterval(-3601),
+                                 limits: [PersistedLimit(oldFable)],
+                                 state: "ok", blockedUntil: nil, blockedReason: nil))
+        let newFable = UsageLimit(kind: "weekly_scoped", label: "Fable", percent: 42,
+                                  resetsAt: nil, severity: "normal", isModelScoped: true)
+        let a1 = UsageSourceSelector.StatusLine(observedAt: clock.now, limits: sample)
+        let service = makeService(clock, results: [.ok([newFable])], store: store, statusLine: { a1 })
+
+        await service.refreshIfStale()
+        XCTAssertEqual(clock.calls, 1, "Fable이 낡았으면 A-2를 한 번 태운다")
+        XCTAssertTrue(service.limits.contains { $0.kind == "session" }, "A-1의 세션 한도는 그대로")
+        XCTAssertEqual(service.limits.first { $0.isModelScoped }?.percent, 42, "Fable이 새 값으로 갱신됨")
+    }
+
+    /// Fable 캐시가 신선하면(1h 이내) A-1만으로 끝낸다 — 429 회피를 지킨다(위 갱신이 매번 도는 게 아님).
+    func testFreshStatusLineWithFreshFableSkipsApi() async {
+        let clock = Clock()
+        let store = MemoryStore()
+        let fable = UsageLimit(kind: "weekly_scoped", label: "Fable", percent: 30,
+                               resetsAt: nil, severity: "normal", isModelScoped: true)
+        store.save(UsageSnapshot(updatedAt: clock.now.addingTimeInterval(-3599), // 1h 직전 = 아직 신선
+                                 limits: [PersistedLimit(fable)],
+                                 state: "ok", blockedUntil: nil, blockedReason: nil))
+        let a1 = UsageSourceSelector.StatusLine(observedAt: clock.now, limits: sample)
+        let service = makeService(clock, results: [.ok([])], store: store, statusLine: { a1 })
+        await service.refreshIfStale()
+        XCTAssertEqual(clock.calls, 0, "Fable이 아직 신선하면 A-2를 건드리지 않는다")
+    }
+
     func testSuccessPopulatesLimits() async {
         let clock = Clock()
         let service = makeService(clock, results: [.ok(sample)])
