@@ -27,7 +27,7 @@ struct ScriptStrip: View {
     }
 
     /// 이 칩이 연 도크가 지금 떠 있나 — 배경(눌린 상태 유지)을 서비스 칩과 같은 규칙으로 말한다.
-    private var isOpen: Bool { state.showServiceDock && state.dockTab == .scripts }
+    private var isOpen: Bool { state.showServiceDock && state.dockTab == .commands }
 
     var body: some View {
         chip
@@ -42,7 +42,7 @@ struct ScriptStrip: View {
     /// 칩 클릭 = 도크 스크립트 탭 토글(⌘J와 같은 여닫이 — 다시 누르면 닫힌다).
     private func toggleDock() {
         if isOpen { state.closeServiceDock() }
-        else { state.openServiceDock(serviceId: nil, tab: .scripts) }
+        else { state.openServiceDock(serviceId: nil, tab: .commands) }
     }
 
     // MARK: 모드별 칩

@@ -44,12 +44,13 @@ struct ServiceDock: View {
         case .services:
             if let id = state.selectedServiceId, let s = all.first(where: { $0.id == id }) { return .service(s) }
             return all.first.map(Selection.service)
-        case .scripts:
-            if let id = state.selectedServiceId, let s = allScripts.first(where: { $0.id == id }) { return .script(s) }
-            return allScripts.first.map(Selection.script)
-        case .oneoff:
-            if let id = state.selectedServiceId, let s = oneOff.first(where: { $0.id == id }) { return .oneoff(s) }
-            return oneOff.last.map(Selection.oneoff) // 최근이 뒤 → 기본은 최근 실행
+        case .commands:
+            // 선택 id가 등록 스크립트면 .script, 즉석 인스턴스면 .oneoff. 기본은 최근 실행(oneOff 마지막).
+            if let id = state.selectedServiceId {
+                if let s = allScripts.first(where: { $0.id == id }) { return .script(s) }
+                if let s = oneOff.first(where: { $0.id == id }) { return .oneoff(s) }
+            }
+            return oneOff.last.map(Selection.oneoff)
         }
     }
 
@@ -69,8 +70,7 @@ struct ServiceDock: View {
         let cur = state.activeProject?.id ?? ""
         switch tab {
         case .services: return groupByWorkspace(all, scripts: [], currentWorkspaceId: state.activeId, currentProjectId: cur)
-        case .scripts:  return groupByWorkspace([], scripts: allScripts, currentWorkspaceId: state.activeId, currentProjectId: cur)
-        case .oneoff:   return []
+        case .commands: return [] // 명령 탭은 스코프 트리를 안 쓴다 — flat(입력창 + 등록 섹션 + 히스토리)
         }
     }
 
@@ -157,8 +157,8 @@ struct ServiceDock: View {
     private var listBody: some View {
         Group {
             switch tab {
-            case .services, .scripts: scopeList
-            case .oneoff: oneOffColumn
+            case .services: scopeList
+            case .commands: commandsColumn
             }
         }
         // 높이를 채워 상단 정렬 — 안 하면 내용이 짧을 때(일회용 빈 상태) HStack이 열을 세로 중앙에 놓는다.
@@ -210,8 +210,8 @@ struct ServiceDock: View {
     private func tabHasFailure(_ t: DockTab) -> Bool {
         switch t {
         case .services: return all.contains { state.serviceMonitor.state(of: $0.id).isFailure }
-        case .scripts:  return allScripts.contains { state.scriptRuns[$0.id]?.isFailure == true }
-        case .oneoff:   return oneOff.contains { state.scriptRuns[$0.id]?.isFailure == true }
+        case .commands: return allScripts.contains { state.scriptRuns[$0.id]?.isFailure == true }
+            || oneOff.contains { state.scriptRuns[$0.id]?.isFailure == true }
         }
     }
 
@@ -245,13 +245,13 @@ struct ServiceDock: View {
             scopeHeader(scope, chevron: nil, collapsed: false)
             scopeItems(scope)
             if scope.groups.isEmpty {
-                Text(tab == .scripts ? "등록된 스크립트가 없습니다." : "등록된 서비스가 없습니다.")
+                Text("등록된 서비스가 없습니다.") // scopeList는 서비스 탭 전용(명령은 commandsColumn)
                     .font(.muxa(.caption)).foregroundStyle(Color.pMuted)
                     .padding(.horizontal, Space.sm).padding(.top, Space.tight)
             }
             if state.activeProject != nil {
-                AddInCardRow(kind: tab, projectName: state.activeProject?.name ?? "") {
-                    if tab == .scripts { scriptPrefill = ""; showScriptAdd = true } else { showServiceAdd = true }
+                AddInCardRow(kind: .services, projectName: state.activeProject?.name ?? "") {
+                    showServiceAdd = true
                 }
             }
         }
@@ -368,16 +368,11 @@ struct ServiceDock: View {
 
     // MARK: 좌 — 일회용 탭 (입력창 + 최근 실행 기록)
 
-    private var oneOffColumn: some View {
+    private var commandsColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
             oneOffInput
             HDivider()
-            if oneOff.isEmpty {
-                oneOffEmpty
-            } else {
-                oneOffHistoryHeader
-                oneOffHistory
-            }
+            commandsList
         }
         .tick(every: 1, into: $now)
         .task(id: state.activeProjectCwd) {
@@ -385,6 +380,88 @@ struct ServiceDock: View {
             let found = ProjectScripts.discover(in: state.activeProjectCwd)
             suggestions = found.manager.map { ["\($0.rawValue) install"] } ?? []
         }
+    }
+
+    /// 명령 목록 — 등록 섹션(꺼냄) + 최근 실행 히스토리. 둘 다 비면 빈 상태(입력창은 위에 그대로).
+    private var commandsList: some View {
+        let sections = state.commandSections
+        return ScrollView {
+            LazyVStack(alignment: .leading, spacing: Space.md) {
+                if sections.registered.isEmpty && sections.history.isEmpty {
+                    oneOffEmpty
+                } else {
+                    if !sections.registered.isEmpty { registeredCommandsSection(sections.registered) }
+                    if !sections.history.isEmpty { historyCommandsSection(sections.history) }
+                }
+            }
+            .padding(.vertical, Space.xs)
+        }
+    }
+
+    /// 등록된 명령(꺼냄) — 현재 프로젝트 `Project.scripts`. 각 행에 실행 상태 + lastRun.
+    @ViewBuilder
+    private func registeredCommandsSection(_ items: [(script: Script, lastRunAt: Date?)]) -> some View {
+        VStack(alignment: .leading, spacing: Space.tight) {
+            commandsSectionHeader("등록된 명령") {
+                Button { scriptPrefill = ""; showScriptAdd = true } label: {
+                    HStack(spacing: Space.xs) {
+                        Image(systemName: "plus").font(.muxa(.micro))
+                        Text("추가").font(.muxa(.caption))
+                    }.foregroundStyle(Color.pMuted).contentShape(Rectangle())
+                }.buttonStyle(.plain).clickCursor().help("명령을 등록합니다")
+            }
+            ForEach(items, id: \.script.id) { item in
+                CommandRegisteredRow(
+                    script: item.script, lastRunAt: item.lastRunAt, now: now,
+                    run: state.scriptRuns[item.script.id],
+                    selected: selectedId == item.script.id,
+                    action: { state.selectedServiceId = item.script.id },
+                    onRun: { if let pid = state.activeProject?.id { state.runScript(item.script, in: pid) } })
+            }
+        }
+    }
+
+    /// 최근 실행 히스토리 — 등록 안 한 명령의 영속 기록(`Project.commandHistory`). 재실행·등록·삭제.
+    @ViewBuilder
+    private func historyCommandsSection(_ items: [CommandHistoryEntry]) -> some View {
+        VStack(alignment: .leading, spacing: Space.tight) {
+            commandsSectionHeader("최근 실행") {
+                Button { state.clearCommandHistory() } label: {
+                    HStack(spacing: Space.xs) {
+                        Image(systemName: "wind").font(.muxa(.micro))
+                        Text("비우기").font(.muxa(.caption))
+                    }.foregroundStyle(Color.pMuted).contentShape(Rectangle())
+                }.buttonStyle(.plain).clickCursor().help("실행 중이 아닌 히스토리를 비웁니다")
+            }
+            ForEach(items) { entry in
+                CommandHistoryRow(
+                    entry: entry, now: now,
+                    run: CommandHistory.runState(command: entry.command, instances: oneOff, runs: state.scriptRuns),
+                    selected: selectedId != nil && selectedId == CommandHistory.runState(command: entry.command, instances: oneOff, runs: state.scriptRuns)?.scriptId,
+                    onSelect: {
+                        if let r = CommandHistory.runState(command: entry.command, instances: oneOff, runs: state.scriptRuns) {
+                            state.selectedServiceId = r.scriptId
+                        }
+                    },
+                    onRun: { state.runOneOff(command: entry.command) },
+                    onRegister: { state.requestScriptAdd(prefill: entry.command) },
+                    onDelete: { state.removeCommandHistory(entry.command) })
+            }
+        }
+    }
+
+    /// 섹션 머리글 — 대문자 소제목 + 우측 액션(추가·비우기).
+    private func commandsSectionHeader<Action: View>(_ title: String,
+                                                     @ViewBuilder action: () -> Action) -> some View {
+        HStack(spacing: Space.sm) {
+            Text(title)
+                .font(.muxa(.micro, weight: .semibold)).tracking(Tracking.label)
+                .textCase(.uppercase).foregroundStyle(Color.pMuted)
+            Spacer(minLength: Space.sm)
+            action()
+        }
+        .padding(.horizontal, Space.sm)
+        .padding(.top, Space.sm).padding(.bottom, Space.tight)
     }
 
     /// 명령 입력창 + [실행] — Return으로도 실행. 스크래치 스트립은 스크롤에 안 딸려 온다(늘 최상단).
@@ -526,8 +603,8 @@ struct ServiceDock: View {
         case .none:
             ZStack {
                 Color.pBg
-                Text(tab == .oneoff ? "명령을 실행하면 여기에 출력이 보입니다"
-                                    : "왼쪽에서 항목을 선택하면 로그가 보입니다")
+                Text(tab == .commands ? "명령을 실행하면 여기에 출력이 보입니다"
+                                      : "왼쪽에서 항목을 선택하면 로그가 보입니다")
                     .font(.muxa(.caption)).foregroundStyle(Color.pMuted)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -709,7 +786,7 @@ private struct AddInCardRow: View {
     let action: () -> Void
     @State private var hovered = false
 
-    private var label: String { kind == .scripts ? "스크립트 추가" : "서비스 추가" }
+    private var label: String { kind == .commands ? "명령 추가" : "서비스 추가" }
 
     var body: some View {
         Button(action: action) {

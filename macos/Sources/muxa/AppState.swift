@@ -1324,6 +1324,33 @@ final class AppState {
         return CommandHistory.sections(registered: p.scripts ?? [], history: p.commandHistory ?? [])
     }
 
+    /// 히스토리 명령을 스크립트로 등록하는 시트를 연다(명령을 프리필). 도크가 `scriptAddRequested`를 소비한다.
+    func requestScriptAdd(prefill: String) {
+        scriptAddPrefillCommand = prefill
+        scriptAddRequested = true
+    }
+
+    /// 히스토리에서 명령 하나를 지운다(행의 🗑). 등록 명령의 lastRun도 이력에서 오므로 등록된 건 그대로 둔다.
+    func removeCommandHistory(_ command: String) {
+        guard let pid = activeProject?.id else { return }
+        updateProject(pid) { p in
+            var next = p
+            next.commandHistory = (p.commandHistory ?? []).filter { $0.command != command }
+            return next
+        }
+    }
+
+    /// 최근 실행 비우기 — **미등록 히스토리만** 지운다(등록 명령의 lastRun은 이력에서 오므로 보존).
+    func clearCommandHistory() {
+        guard let pid = activeProject?.id else { return }
+        let registered = Set(scripts(of: pid).map(\.command))
+        updateProject(pid) { p in
+            var next = p
+            next.commandHistory = (p.commandHistory ?? []).filter { registered.contains($0.command) }
+            return next
+        }
+    }
+
     /// 스크립트를 등록한다(실행은 별도 — addService와 달리 등록이 곧 기동이 아니다).
     /// `cwd`는 스크립트 자체 실행 폴더 지정(nil = 프로젝트 경로 상속) — 실행 시 `allLocatedScripts`가 해석한다.
     func addScript(name: String, command: String, to projectId: String, cwd: String? = nil) {
@@ -1415,7 +1442,7 @@ final class AppState {
     func runOneOff(command: String) {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        guard TmuxService.isAvailable else { openServiceDock(serviceId: nil, tab: .oneoff); return }
+        guard TmuxService.isAvailable else { openServiceDock(serviceId: nil, tab: .commands); return }
         guard let project = activeProject, let cwd = activeProjectCwd else {
             attention.recordSystem(title: "일회용 실행 실패 — 활성 프로젝트가 없습니다")
             return
@@ -1426,7 +1453,7 @@ final class AppState {
         evictOneOffOverflow()
         launchScript(script, in: project.id, cwd: cwd)
         selectedServiceId = script.id
-        openServiceDock(serviceId: script.id, projectId: project.id, tab: .oneoff)
+        openServiceDock(serviceId: script.id, projectId: project.id, tab: .commands)
     }
 
     /// 상한 초과분 정리 — **완료된 오래된 것부터** 세션·run·터미널을 버린다(실행 중은 보존:
@@ -1495,7 +1522,7 @@ final class AppState {
             windowHost?.raise(.main)
         }
         // 일회용이면 일회용 탭, 등록 스크립트면 스크립트 탭으로 데려간다(선택 항목이 안 보이는 탭 방지).
-        let tab: DockTab = oneOffScripts.contains { $0.id == scriptId } ? .oneoff : .scripts
+        let tab: DockTab = .commands
         openServiceDock(serviceId: located.id, projectId: located.projectId, tab: tab)
     }
 
@@ -1725,7 +1752,7 @@ final class AppState {
     func requestAddScript() {
         guard activeProject != nil else { return }
         dockProjectId = activeProject?.id
-        dockTab = .scripts
+        dockTab = .commands
         showServiceDock = true
         scriptAddRequested = true
     }
@@ -1733,7 +1760,7 @@ final class AppState {
     /// ⌘K "일회용 명령 실행" — 도크 일회용 탭을 열고 입력창에 포커스를 요청한다(등록 프로젝트 불필요 —
     /// 실행 시점에 활성 프로젝트를 대상으로 삼는다).
     func requestRunOneOff() {
-        openServiceDock(serviceId: nil, tab: .oneoff)
+        openServiceDock(serviceId: nil, tab: .commands)
         oneOffFocusRequested = true
     }
 
