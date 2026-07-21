@@ -1301,6 +1301,29 @@ final class AppState {
         project(projectId)?.scripts ?? []
     }
 
+    /// 실행 시도를 영속 이력에 남긴다(등록·즉석 공통 — `launchScript`에서 부른다).
+    /// 같은 명령은 병합·최근순, 100개 상한(`CommandHistory`). `updateProject`로 state에 자동 저장된다.
+    private func recordCommandRun(_ script: Script, in projectId: String) {
+        updateProject(projectId) { p in
+            var next = p
+            next.commandHistory = CommandHistory.record(p.commandHistory ?? [],
+                                                        command: script.command, name: script.name,
+                                                        cwd: script.cwd, now: Date())
+            return next
+        }
+    }
+
+    /// 이 프로젝트의 명령 이력(영속).
+    func commandHistory(of projectId: String) -> [CommandHistoryEntry] {
+        project(projectId)?.commandHistory ?? []
+    }
+
+    /// 명령 탭의 두 섹션 — 등록 명령(+이력의 lastRun)과 미등록 히스토리. 활성 프로젝트 기준(순수 `CommandHistory`).
+    var commandSections: (registered: [(script: Script, lastRunAt: Date?)], history: [CommandHistoryEntry]) {
+        guard let p = activeProject else { return ([], []) }
+        return CommandHistory.sections(registered: p.scripts ?? [], history: p.commandHistory ?? [])
+    }
+
     /// 스크립트를 등록한다(실행은 별도 — addService와 달리 등록이 곧 기동이 아니다).
     /// `cwd`는 스크립트 자체 실행 폴더 지정(nil = 프로젝트 경로 상속) — 실행 시 `allLocatedScripts`가 해석한다.
     func addScript(name: String, command: String, to projectId: String, cwd: String? = nil) {
@@ -1359,6 +1382,7 @@ final class AppState {
     /// seed + tmux 백그라운드 시작). 두 경로가 이 하나를 공유한다(CLAUDE.md 중복 추출 — 세션 갈아엎기·
     /// pending 차단·재드롭 규칙이 갈라지면 안 된다).
     private func launchScript(_ script: Script, in projectId: String, cwd: String) {
+        recordCommandRun(script, in: projectId) // 등록·즉석 공통 지점 — 실행 시도를 영속 이력에 남긴다
         // 새 실행 시작 = 이 프로젝트의 잔류(✓/✗) 확인 처리 — 칩은 "가장 최근 일"만 말한다.
         scriptRuns = ScriptRun.acknowledgingFinished(scriptRuns, projectId: projectId)
         // 폴링(2s)을 기다리지 않고 낙관적으로 심는다 — 버튼을 눌렀는데 칩이 조용하면 두 번 누른다.

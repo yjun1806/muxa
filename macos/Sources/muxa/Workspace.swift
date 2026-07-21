@@ -16,6 +16,10 @@ struct Project: Codable, Identifiable {
     /// 끝이 있는 명령(`make build` 등, Script.swift 참조) — 일반 탭에서 1회 실행되고 끝나면 소멸한다.
     /// 여기 실려 Persisted에 자동 편승한다. 옵셔널이라 하위호환(옛 저장분엔 없음 → nil로 디코드).
     var scripts: [Script]?
+    /// 실행된 명령의 **영속 이력**(등록·즉석 공통, `CommandHistory` 참조) — "언제 마지막으로 돌렸나".
+    /// 명령 탭의 등록 lastRun 표시·미등록 히스토리가 여기서 나온다. 최근 100개(`CommandHistory.limit`).
+    /// 옵셔널이라 하위호환(옛 저장분엔 없음 → nil로 디코드).
+    var commandHistory: [CommandHistoryEntry]?
     /// 탭을 닫았지만 **안에서 작업이 돌고 있어 백그라운드로 남긴** tmux 세션들(L3).
     ///
     /// 여기 실려야 두 가지가 성립한다: ① 시작 시 GC가 고아로 오인해 죽이지 않는다(그러면 남긴 의미가
