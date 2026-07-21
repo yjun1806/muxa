@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// 서비스 도크 — 탐색기·Git과 같은 **우측 도킹 패널**(⌘J). 본문(터미널)을 밀어내고 좌측 경계로 너비를
@@ -25,6 +26,10 @@ struct ServiceDock: View {
     @State private var suggestions: [String] = []
     /// 히스토리에서 실행 내역이 펼쳐진 명령(command). 한 번에 하나만 펼친다.
     @State private var expandedCommand: String?
+    /// 즉석 실행의 실행 경로(nil=프로젝트 상속). cwd 칩·팝오버가 정한다.
+    @State private var selectedCwd: String?
+    @State private var showCwdPicker = false
+    @State private var cwdInput = ""
 
     /// 창 전체 서비스·스크립트·일회용(소속 포함).
     private var all: [LocatedService] { state.allLocatedServices }
@@ -491,9 +496,100 @@ struct ServiceDock: View {
             .disabled(!canRunOneOff)
             .help("한 번 실행 (Return)")
             .accessibilityLabel("실행")
+
+            cwdChip
         }
         .padding(.horizontal, Space.sm)
         .padding(.vertical, Space.sm)
+    }
+
+    /// 실행 경로 칩 — 클릭하면 제안·폴더선택(NSOpenPanel)·직접입력 팝오버. 즉석 실행이 이 cwd로 돈다.
+    private var cwdChip: some View {
+        Button { cwdInput = selectedCwd ?? ""; showCwdPicker.toggle() } label: {
+            HStack(spacing: Space.xs) {
+                Image(systemName: "folder").font(.muxa(.micro))
+                Text(cwdLabel).font(.muxa(.caption)).lineLimit(1).frame(maxWidth: 90, alignment: .leading)
+                Image(systemName: "chevron.down").font(.muxa(.nano))
+            }
+            .foregroundStyle(Color.pMuted)
+            .padding(.horizontal, Space.sm).frame(height: RowHeight.toolbar)
+            .background(Color.pBg, in: RoundedRectangle(cornerRadius: Radius.sm))
+            .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: RowHeight.hairline))
+        }
+        .buttonStyle(.plain).clickCursor()
+        .help("실행 경로 — 클릭해 폴더 선택")
+        .popover(isPresented: $showCwdPicker, arrowEdge: .bottom) { cwdPicker }
+    }
+
+    private var cwdLabel: String {
+        guard let p = selectedCwd else { return state.activeProject?.name ?? "프로젝트" }
+        return (p as NSString).lastPathComponent
+    }
+
+    /// cwd 팝오버 — 제안 경로 원클릭 + "폴더 선택…"(숨김·루트 자유) + 직접 입력.
+    private var cwdPicker: some View {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            Text("실행 경로").font(.muxa(.micro, weight: .semibold)).tracking(Tracking.label)
+                .textCase(.uppercase).foregroundStyle(Color.pMuted)
+            ForEach(cwdSuggestions, id: \.path) { s in
+                Button { selectedCwd = s.isDefault ? nil : s.path; showCwdPicker = false } label: {
+                    HStack(spacing: Space.xs) {
+                        Image(systemName: "folder").font(.muxa(.micro)).foregroundStyle(Color.pMuted)
+                        Text(s.label).font(.muxa(.label)).foregroundStyle(Color.pFg)
+                        Spacer(minLength: Space.sm)
+                        Text((s.path as NSString).lastPathComponent).font(.muxaMono(.caption)).foregroundStyle(Color.pMuted)
+                    }
+                    .padding(.horizontal, Space.sm).frame(height: RowHeight.tight)
+                    .contentShape(Rectangle())
+                }.buttonStyle(.plain).clickCursor()
+            }
+            Divider().padding(.vertical, Space.tight)
+            Button(action: pickFolder) {
+                HStack(spacing: Space.xs) {
+                    Image(systemName: "folder.badge.plus").font(.muxa(.micro))
+                    Text("폴더 선택…").font(.muxa(.label))
+                }.foregroundStyle(Color.pBrand).padding(.horizontal, Space.sm).frame(height: RowHeight.tight)
+                    .contentShape(Rectangle())
+            }.buttonStyle(.plain).clickCursor()
+            HStack(spacing: Space.xs) {
+                Image(systemName: "chevron.right").font(.muxa(.nano)).foregroundStyle(Color.pMuted)
+                TextField("경로 직접 입력", text: $cwdInput)
+                    .textFieldStyle(.plain).font(.muxaMono(.caption))
+                    .onSubmit {
+                        let t = cwdInput.trimmingCharacters(in: .whitespaces)
+                        selectedCwd = t.isEmpty ? nil : t
+                        showCwdPicker = false
+                    }
+            }
+            .padding(.horizontal, Space.sm).frame(height: RowHeight.tight)
+            .background(Color.pBg, in: RoundedRectangle(cornerRadius: Radius.sm))
+            .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: RowHeight.hairline))
+        }
+        .padding(Space.sm).frame(width: 260)
+    }
+
+    /// 제안 경로 — 프로젝트(기본·상속) · 워크스페이스. 흔한 곳을 원클릭으로.
+    private var cwdSuggestions: [(label: String, path: String, isDefault: Bool)] {
+        var out: [(String, String, Bool)] = []
+        if let p = state.activeProjectCwd { out.append(("프로젝트 (기본)", p, true)) }
+        if let ws = state.activeWorkspace?.path, ws != state.activeProjectCwd { out.append(("워크스페이스", ws, false)) }
+        return out.map { (label: $0.0, path: $0.1, isDefault: $0.2) }
+    }
+
+    /// macOS 폴더 선택 다이얼로그 — 숨김 폴더·루트까지 자유 탐색(GUI 드롭다운의 한계를 메운다).
+    private func pickFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.showsHiddenFiles = true
+        if let base = selectedCwd ?? state.activeProjectCwd {
+            panel.directoryURL = URL(fileURLWithPath: base)
+        }
+        if panel.runModal() == .OK, let url = panel.url {
+            selectedCwd = url.path
+        }
+        showCwdPicker = false
     }
 
     private var canRunOneOff: Bool {
@@ -502,7 +598,7 @@ struct ServiceDock: View {
 
     private func runOneOff() {
         guard canRunOneOff else { return }
-        state.runOneOff(command: oneOffCommand)
+        state.runCommand(oneOffCommand, cwd: selectedCwd, in: projId)
         oneOffCommand = ""
     }
 
@@ -552,14 +648,32 @@ struct ServiceDock: View {
         case .script(let s): scriptDetail(s, oneOff: false)
         case .oneoff(let s): scriptDetail(s, oneOff: true) // 같은 상세(attach·로그), 헤더 액션만 일회용 축
         case .none:
-            ZStack {
-                Color.pBg
-                Text(tab == .commands ? "명령을 실행하면 여기에 출력이 보입니다"
-                                      : "왼쪽에서 항목을 선택하면 로그가 보입니다")
-                    .font(.muxa(.caption)).foregroundStyle(Color.pMuted)
+            // 실행 인스턴스가 없는 execId(과거 실행)를 골랐으면 저장된 로그를 보여준다.
+            if let id = state.selectedServiceId, let log = state.commandLog(id) {
+                savedLogDetail(log)
+            } else {
+                ZStack {
+                    Color.pBg
+                    Text(tab == .commands ? "명령을 실행하거나 실행 내역을 클릭하면 출력이 보입니다"
+                                          : "왼쪽에서 항목을 선택하면 로그가 보입니다")
+                        .font(.muxa(.caption)).foregroundStyle(Color.pMuted)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    /// 과거 실행의 저장된 로그 — 읽기 전용(세션이 사라져 attach할 pane이 없다).
+    private func savedLogDetail(_ log: String) -> some View {
+        ScrollView {
+            Text(log)
+                .font(.muxaMono(.caption)).foregroundStyle(Color.pFg)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(Space.sm)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.pBg)
     }
 
     @ViewBuilder
