@@ -123,6 +123,8 @@ final class AppState {
     /// 서비스 도크 안 **목록 칼럼** 폭 — [좌: 목록 | 우: 터미널] 분할의 왼쪽. 세션 내 조절(비영속).
     /// 탭 바가 도크 전폭으로 올라가 목록 열엔 탭이 없으므로, 목록은 좁게(사이드바처럼) 두고 상세를 넓게 쓴다.
     private(set) var serviceListWidth: CGFloat = 240
+    /// 명령 탭에서 **터미널(상세 열)을 접었나** — 접으면 도크가 목록만 남아 좁아진다(사이드바처럼 쓰는 용도). 영속.
+    private(set) var commandTerminalCollapsed = false
 
     static let defaultPanelWidth: CGFloat = 280
     static let panelWidthRange: ClosedRange<CGFloat> = 180 ... 720
@@ -152,6 +154,24 @@ final class AppState {
 
     func setServiceListWidth(_ w: CGFloat) {
         serviceListWidth = Self.clamp(w, to: Self.serviceListWidthRange)
+    }
+
+    /// 명령 탭에서 터미널이 접혀 도크가 목록만 남는 상태(접힘 토글은 명령 탭에만 의미가 있다).
+    var dockCollapsed: Bool { dockTab == .commands && commandTerminalCollapsed }
+
+    func toggleCommandTerminalCollapsed() {
+        commandTerminalCollapsed.toggle()
+        save()
+    }
+
+    /// 도크 바깥 폭 — 접혔으면 **목록 폭**(도크=목록)에, 아니면 도크 폭에 매핑한다.
+    /// 접힘 중 경계를 드래그하면 목록 폭이 조절된다(펼치면 그게 곧 목록 열 폭이라 두 상태가 이어진다).
+    var effectiveDockWidth: CGFloat { dockCollapsed ? serviceListWidth : serviceDockWidth }
+    var effectiveDockWidthRange: ClosedRange<CGFloat> {
+        dockCollapsed ? Self.serviceListWidthRange : Self.serviceDockWidthRange
+    }
+    func setEffectiveDockWidth(_ w: CGFloat) {
+        if dockCollapsed { setServiceListWidth(w) } else { setServiceDockWidth(w, persist: true) }
     }
 
     // MARK: - 인스펙터(단일 슬롯 탭 — 익스플로러·Git·설정·알림)
@@ -2410,6 +2430,7 @@ final class AppState {
         var serviceDockWidth: Double? // 서비스 서랍 폭(나중에 추가된 필드라 옵셔널 하위호환).
         var showExplorer: Bool? // 도구 패널 열림 상태(나중에 추가된 필드라 옵셔널 하위호환).
         var showGitPanel: Bool?
+        var commandTerminalCollapsed: Bool? // 명령 탭 터미널 접힘(나중에 추가된 필드라 옵셔널 하위호환).
         /// 사이드바에서 펼쳐 둔 워크스페이스 id들(나중에 추가된 필드라 옵셔널 하위호환).
         /// **Set이 아니라 정렬된 배열로 저장한다** — Set은 JSON 순서가 매번 달라져 파일이 무의미하게 뒤바뀐다.
         var expandedWorkspaces: [String]?
@@ -2429,13 +2450,15 @@ final class AppState {
         private enum CodingKeys: String, CodingKey {
             case version, workspaces, activeId, sidebarMode, layouts
             case explorerWidth, gitPanelWidth, serviceDockWidth, showExplorer, showGitPanel
+            case commandTerminalCollapsed
             case expandedWorkspaces, collapsedAgentLists, windows
         }
 
         init(workspaces: [Workspace], activeId: String, sidebarMode: SidebarMode,
              layouts: [String: PaneSnapshot]?, explorerWidth: Double?, gitPanelWidth: Double?,
              serviceDockWidth: Double?,
-             showExplorer: Bool?, showGitPanel: Bool?, expandedWorkspaces: [String]?,
+             showExplorer: Bool?, showGitPanel: Bool?, commandTerminalCollapsed: Bool? = nil,
+             expandedWorkspaces: [String]?,
              collapsedAgentLists: [String]? = nil,
              windows: [ProjectWindow]? = nil,
              version: Int = currentVersion) {
@@ -2444,6 +2467,7 @@ final class AppState {
             self.explorerWidth = explorerWidth; self.gitPanelWidth = gitPanelWidth
             self.serviceDockWidth = serviceDockWidth
             self.showExplorer = showExplorer; self.showGitPanel = showGitPanel
+            self.commandTerminalCollapsed = commandTerminalCollapsed
             self.expandedWorkspaces = expandedWorkspaces
             self.collapsedAgentLists = collapsedAgentLists
             self.windows = windows
@@ -2466,6 +2490,7 @@ final class AppState {
             serviceDockWidth = try c.decodeIfPresent(Double.self, forKey: .serviceDockWidth)
             showExplorer = try c.decodeIfPresent(Bool.self, forKey: .showExplorer)
             showGitPanel = try c.decodeIfPresent(Bool.self, forKey: .showGitPanel)
+            commandTerminalCollapsed = try c.decodeIfPresent(Bool.self, forKey: .commandTerminalCollapsed)
             expandedWorkspaces = try c.decodeIfPresent([String].self, forKey: .expandedWorkspaces)
             collapsedAgentLists = try c.decodeIfPresent([String].self, forKey: .collapsedAgentLists)
             windows = try c.decodeIfPresent([ProjectWindow].self, forKey: .windows)
@@ -2492,6 +2517,7 @@ final class AppState {
                                  gitPanelWidth: nil, // 인스펙터가 폭을 통일(explorerWidth) — 레거시 필드는 안 쓴다
                                  serviceDockWidth: Double(serviceDockWidth),
                                  showExplorer: showExplorer, showGitPanel: showGitPanel,
+                                 commandTerminalCollapsed: commandTerminalCollapsed,
                                  expandedWorkspaces: expandedWorkspaces.sorted(),
                                  collapsedAgentLists: collapsedAgentLists.sorted(),
                                  windows: projectWindows)
@@ -2575,6 +2601,7 @@ final class AppState {
         if let w = snapshot.serviceDockWidth { serviceDockWidth = Self.clampServiceDockWidth(CGFloat(w)) }
         if let open = snapshot.showExplorer { showExplorer = open }
         if let open = snapshot.showGitPanel { showGitPanel = open }
+        if let collapsed = snapshot.commandTerminalCollapsed { commandTerminalCollapsed = collapsed }
         // 우측 슬롯은 하나(단일 슬롯 인스펙터) — 구버전 스냅샷은 탐색기+Git을 동시에 열어 뒀을 수 있으니
         // 상호배타로 정규화한다(탐색기 우선). 알림·설정 탭은 영속하지 않아 재시작 시 항상 닫힘.
         if showExplorer && showGitPanel { showGitPanel = false }

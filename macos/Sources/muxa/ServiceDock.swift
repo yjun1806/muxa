@@ -141,14 +141,19 @@ struct ServiceDock: View {
                         inputArea.padding(.vertical, Space.sm).zIndex(1)
                         HDivider()
                     }
-                    HStack(spacing: 0) {
-                        ResizableLeftColumn(width: state.serviceListWidth,
-                                            range: AppState.serviceListWidthRange) { w in
-                            state.setServiceListWidth(w)
-                        } content: {
-                            listBody
+                    // 터미널을 접으면 목록이 도크 전체를 채운다(도크 폭은 바깥 ResizablePanel이 목록 폭으로 줄인다).
+                    if state.dockCollapsed {
+                        listBody
+                    } else {
+                        HStack(spacing: 0) {
+                            ResizableLeftColumn(width: state.serviceListWidth,
+                                                range: AppState.serviceListWidthRange) { w in
+                                state.setServiceListWidth(w)
+                            } content: {
+                                listBody
+                            }
+                            detailColumn
                         }
-                        detailColumn
                     }
                 }
             }
@@ -161,6 +166,14 @@ struct ServiceDock: View {
         HStack(spacing: Space.sm) {
             tabSwitcher
             Spacer(minLength: Space.xs)
+            // 명령 탭에서만 — 터미널(상세 열)을 접어 도크를 목록 폭으로 좁힌다. 펼치면 [목록|터미널]로 돌아온다.
+            if tab == .commands {
+                IconButton(icon: "sidebar.right",
+                           help: state.commandTerminalCollapsed ? "터미널 펴기 — 출력을 옆에 표시"
+                                                                : "터미널 접기 — 도크를 좁게") {
+                    state.toggleCommandTerminalCollapsed()
+                }
+            }
             IconButton(icon: "xmark", help: "도크 닫기 (⌘J) — 프로세스는 계속 돕니다") {
                 state.closeServiceDock()
             }

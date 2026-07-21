@@ -82,8 +82,9 @@ struct ContentView: View {
     private var serviceDock: some View {
         if state.showServiceDock {
             // 도크는 이제 **창 전체** 서비스를 스스로 그린다 — 특정 프로젝트에 매이지 않는다.
-            ResizablePanel(width: state.serviceDockWidth, range: AppState.serviceDockWidthRange) { w in
-                state.setServiceDockWidth(w, persist: true)
+            // 폭·범위는 **접힘 상태에 따라** 달라진다 — 명령 탭에서 터미널을 접으면 도크가 목록 폭으로 좁아진다.
+            ResizablePanel(width: state.effectiveDockWidth, range: state.effectiveDockWidthRange) { w in
+                state.setEffectiveDockWidth(w)
             } content: {
                 ServiceDock(state: state)
             }
