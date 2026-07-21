@@ -32,6 +32,8 @@ extension AppState {
     /// 없으면(아직 안 열림) 만들지 않는다(생성 = PTY 스폰이라 키 라우팅이 할 일이 아니다).
     func store(ownedBy windowId: WindowID) -> TerminalStore? {
         guard !windowId.isMain else { return mainStore }
+        // 스크래치 창의 ⌘T/⌘W/⌘F는 스크래치 store로 — projectWindows 밖이라 아래 조회로는 안 잡힌다.
+        if windowId == Scratch.windowId { return existingStore(Scratch.projectId) }
         guard let window = projectWindows.first(where: { $0.id == windowId }),
               let projectId = window.activeProjectId else { return nil }
         return existingStore(projectId)

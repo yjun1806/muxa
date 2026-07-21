@@ -13,6 +13,24 @@ final class KeymapResolverTests: XCTestCase {
         }
     }
 
+    func testScratchTerminalBinding() {
+        // ⌘⌥T → 스크래치 터미널
+        if case .newScratchTerminal = r.resolve(keyCode: kVK_ANSI_T, characters: "t",
+                                                flags: [.command, .option])! {} else {
+            XCTFail("⌘⌥T가 newScratchTerminal로 안 풀림")
+        }
+        // ⌘T 회귀 — 여전히 새 터미널(스크래치 아님)
+        if case .newTerminal = r.resolve(keyCode: kVK_ANSI_T, characters: "t", flags: [.command])! {} else {
+            XCTFail("⌘T가 newTerminal로 안 풀림(회귀)")
+        }
+    }
+
+    func testScratchTerminalNamedOverride() {
+        if case .newScratchTerminal = KeymapAction.named("new_scratch_terminal")! {} else {
+            XCTFail("new_scratch_terminal 이름이 newScratchTerminal로 안 풀림")
+        }
+    }
+
     func testCommandDigitSwitchesWorkspace() {
         if case .switchWorkspace(let n) = r.resolve(keyCode: kVK_ANSI_3, characters: "3", flags: [.command])! {
             XCTAssertEqual(n, 3)

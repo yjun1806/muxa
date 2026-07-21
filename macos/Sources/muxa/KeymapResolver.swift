@@ -30,6 +30,7 @@ enum KeymapAction {
     case separateProject                // 활성 프로젝트를 새 창으로 분리(기본 바인딩 없음 — ⌘K·우클릭 메뉴에서)
     case addScript                      // 스크립트 등록 시트(기본 바인딩 없음 — ⌘K에서. 칩은 0개면 숨어 첫 등록 진입점이 이것뿐)
     case runOneOff                      // 일회용 명령 실행(기본 바인딩 없음 — ⌘K에서. 도크 일회용 탭 + 입력창 포커스)
+    case newScratchTerminal             // ⌘⌥T — 스크래치(~) 공간으로 포커스 + 터미널 보장
 }
 
 /// (keyCode, 수정자) → KeymapAction 매핑 테이블 + 순수 판정 함수. 설정의 재정의를 기본 위에 얹는다.
@@ -111,6 +112,7 @@ struct KeymapResolver {
             // ⌘J — 서비스 도크. Xcode의 디버그 영역(⌘⇧Y)과 성격이 같지만, VS Code 패널(⌘J) 쪽이
             // "본문을 밀어내는 우측 로그 도킹 패널"이라는 이 UI의 정체와 더 가깝다.
             Binding(keyCode: kVK_ANSI_J, mods: cmd): .toggleServiceDock,
+            Binding(keyCode: kVK_ANSI_T, mods: cmdOpt): .newScratchTerminal, // ⌘⌥T
         ]
         // 칸 방향 포커스 이동(⌘⌥) — 화살표와 vim hjkl 둘 다 받아 근육기억에 맞춘다.
         let focus: [(Int, NavigationDirection)] = [
@@ -147,6 +149,7 @@ extension KeymapAction {
         case "separate_project": return .separateProject
         case "add_script": return .addScript
         case "run_one_off": return .runOneOff
+        case "new_scratch_terminal": return .newScratchTerminal
         case "focus_left": return .focusPane(.left)
         case "focus_right": return .focusPane(.right)
         case "focus_up": return .focusPane(.up)

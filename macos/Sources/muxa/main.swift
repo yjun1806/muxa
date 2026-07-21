@@ -146,6 +146,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         host.onProjectWindowClosed = { [weak state] id in state?.rejoin(id) }
         // 분리 창의 위치·크기 영속 — 모델엔 즉시, 디스크엔 디바운스(AppState.recordFrame).
         host.onFrameChange = { [weak state] id, frame in state?.recordFrame(id, frame) }
+        // 스크래치(~) 독립 창 본문 — 사이드바 없는 맨 터미널 공간. projectWindows/sync 밖에서 산다.
+        host.makeScratchContent = {
+            let view = NSHostingView(rootView: ScratchWindowView(state: state))
+            view.safeAreaRegions = [] // 메인 창과 같은 이유 — 상단바가 신호등과 한 줄이 되게
+            return view
+        }
+        // 스크래치 창 닫기 = 종료(store를 버려 PTY가 죽는다) — 일회용이라 숨김·복원이 없다.
+        host.onScratchClosed = { [weak state] in state?.scratchClosed() }
         state.windowHost = host
         main.show()
         #if DEBUG
@@ -157,6 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         #endif
         // 복원된 분리 창을 실물로 띄운다 — load()는 모델만 채운다(reconcile은 경계가 한다).
         state.syncWindows()
+        // 스크래치(~)는 일회용이라 재시작 복원이 없다 — 항상 닫힌 상태로 시작한다.
 
         // 단축키 — 포커스된 터미널이 키를 먼저 먹으므로 로컬 모니터로 가로챈다.
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in

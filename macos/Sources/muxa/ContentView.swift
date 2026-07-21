@@ -123,6 +123,7 @@ struct ContentView: View {
                 Spacer(minLength: Space.lg)
                 // 사용량 칩이 헤더 오른쪽 설정이면 벨·토글 앞에 둔다.
                 if statusBarSettings.position == .headerRight { UsageChip(state: state) }
+                scratchTerminalButton // 앱 레벨 스크래치 터미널 — 워크스페이스와 무관하게 별도 창으로
                 // 상단바는 **알림 벨 + 사이드 패널 열기**만 — 탐색기·Git·설정은 인스펙터 탭 스트립에서 전환한다.
                 AttentionBell(state: state)
                 settingsIcon
@@ -151,6 +152,13 @@ struct ContentView: View {
         .fixedSize()
         .padding(.horizontal, Space.xs)
         .help(AppInfo.name)
+    }
+
+    /// 스크래치(~) 터미널 열기 — 워크스페이스와 무관한 별도 창(⌘⌥T와 같은 경로).
+    private var scratchTerminalButton: some View {
+        IconButton(icon: "terminal", help: "스크래치 터미널 (⌘⌥T)", label: "스크래치 터미널") {
+            state.openScratchWindow()
+        }
     }
 
     /// 파일 익스플로러 토글 버튼(상단바 우측).

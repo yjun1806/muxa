@@ -612,6 +612,9 @@ final class AppState {
             // **보이지도 않는 탭이 닫힌다.** 눈에 보이는 것이 닫히는 게 유일하게 옳은 동작이다.
             closeServiceDock()
             return true
+        case .newScratchTerminal:
+            openScratchWindow() // ⌘⌥T·우측 버튼이 같은 경로로 수렴
+            return true
         case .newTerminal, .split, .closeTab, .find, .focusPane, .cycleTab:
             guard let store = store(ownedBy: windowId) else { return false }
             return Self.perform(action, store: store)
@@ -957,26 +960,51 @@ final class AppState {
     /// 프로젝트의 터미널 스토어(없으면 생성). cwd는 프로젝트 경로(없으면 워크스페이스 경로 상속).
     func store(for project: Project, in workspace: Workspace) -> TerminalStore {
         if let s = stores[project.id] { return s }
-        let cwd = project.path ?? workspace.path
-        let s = TerminalStore(app: app, cwd: cwd, restoreSnap: savedLayouts[project.id],
+        return makeStore(projectId: project.id, cwd: project.path ?? workspace.path,
+                         owner: owner(of: project.id))
+    }
+
+    /// 스크래치(~) store — 워크스페이스/projectWindows/located 경유 없이 cwd=$HOME, owner=고정 스크래치 창.
+    /// 독립 창(ScratchWindowView)이 이 store를 직접 렌더한다. tmux·layout은 projectId 상수라 창을 닫아도 산다.
+    /// **owner는 반드시 `Scratch.windowId`** — `.main`으로 태어나면 독립 창에 surface가 안 붙어 빈 창이 된다.
+    func scratchStore() -> TerminalStore {
+        if let s = stores[Scratch.projectId] { return s }
+        return makeStore(projectId: Scratch.projectId, cwd: SystemPaths.home,
+                         owner: Scratch.windowId, ephemeral: true)
+    }
+
+    /// store 생성 코어(부작용 격리) — `store(for:in:)`·`scratchStore()`가 공유한다.
+    /// 콜백들은 `pid` 문자열 키로 lazy 조회(`workspace(containing:)`·`located`·`externalLiveSession`)라
+    /// 무소속 스크래치에서도 nil로 안전하게 떨어진다(로직 변경 없이 재사용).
+    private func makeStore(projectId pid: String, cwd: String?, owner: WindowID,
+                           ephemeral: Bool = false) -> TerminalStore {
+        let s = TerminalStore(app: app, cwd: cwd, restoreSnap: savedLayouts[pid],
                               commandFinishedThresholdNs: config.commandFinishedThresholdNs,
                               agentResumeMode: config.agentResume,
                               sessionWasDirty: lastLaunchWasDirty,
-                              projectId: project.id)
-        let pid = project.id
-        s.onProjectActivity = { [weak self] in MainActor.assumeIsolated { self?.markProjectBadge(pid) } }
-        // 탭을 닫았는데 안에서 작업이 돌고 있었다 → 백그라운드로 남기고 기록한다(GC 보존 + 복구 목록).
-        s.onDetachSession = { [weak self] detached in
-            MainActor.assumeIsolated { self?.recordDetached(detached, in: pid) }
-        }
-        // 데스크톱 알림에 라우팅 컨텍스트(프로젝트·워크스페이스)를 붙여 발사 — 클릭 시 원클릭 검토로 이어짐.
-        s.onNotify = { [weak self] tabId, title, body in
-            MainActor.assumeIsolated { self?.emitNotification(projectId: pid, tabId: tabId, title: title, body: body) }
-        }
-        // 배지가 붙는 순간 인박스 이력에 한 건 기록 — 라우팅 컨텍스트(워크스페이스)는 여기서 파생.
-        s.onAttention = { [weak self] tabId, kind, tone, title in
-            MainActor.assumeIsolated {
-                self?.recordAttention(projectId: pid, tabId: tabId, kind: kind, tone: tone, title: title)
+                              projectId: pid, ephemeral: ephemeral)
+        // 앱 레벨 주의 신호(Dock 배지·인박스·라우팅 알림)는 **워크스페이스 소속으로 파생**한다 —
+        // 스크래치는 workspaces/projectWindows 밖이라 소속이 없어, 배지는 해제(visibleActiveProjectIds·
+        // clearBadge)에 못 닿고 인박스 항목은 클릭해도 revealActivity가 조기 이탈해 죽는다. 그래서
+        // 스크래치 store는 이 파이프라인을 아예 배선하지 않는다(탭 점·기본 알림은 아래에서 그대로 뜬다).
+        let appLevelAttention = pid != Scratch.projectId
+        if appLevelAttention {
+            s.onProjectActivity = { [weak self] in MainActor.assumeIsolated { self?.markProjectBadge(pid) } }
+            // 데스크톱 알림에 라우팅 컨텍스트(프로젝트·워크스페이스)를 붙여 발사 — 클릭 시 원클릭 검토로 이어짐.
+            // (미배선 스크래치는 TerminalStore가 컨텍스트 없는 기본 알림으로 폴백 — 죽은 라우팅이 없다.)
+            s.onNotify = { [weak self] tabId, title, body in
+                MainActor.assumeIsolated { self?.emitNotification(projectId: pid, tabId: tabId, title: title, body: body) }
+            }
+            // 배지가 붙는 순간 인박스 이력에 한 건 기록 — 라우팅 컨텍스트(워크스페이스)는 여기서 파생.
+            s.onAttention = { [weak self] tabId, kind, tone, title in
+                MainActor.assumeIsolated {
+                    self?.recordAttention(projectId: pid, tabId: tabId, kind: kind, tone: tone, title: title)
+                }
+            }
+            // 탭을 닫았는데 안에서 작업이 돌고 있었다 → 백그라운드로 남기고 기록한다(GC 보존 + 복구 목록).
+            // 일회용 스크래치는 지속 세션이 없어 detach가 없다 — 배선하면 오해성 "백그라운드에 남김"만 남는다.
+            s.onDetachSession = { [weak self] detached in
+                MainActor.assumeIsolated { self?.recordDetached(detached, in: pid) }
             }
         }
         // 탭/뷰어가 바뀔 때마다 즉시 저장 — ⌘Q 없이(pkill·크래시) 종료돼도 다음 실행에 복원.
@@ -993,18 +1021,18 @@ final class AppState {
         }
         // 자동 승격된 워크트리(밖에 라이브 세션이 있는) 프로젝트의 첫 화면은 터미널 대신 **링크 탭** —
         // 복원 스냅샷이 있으면 그쪽이 우선이라 힌트는 무시된다(ensureInitialTerminal).
-        s.initialWorktreeLink = savedLayouts[project.id] == nil && externalLiveSession(for: pid) != nil
+        s.initialWorktreeLink = savedLayouts[pid] == nil && externalLiveSession(for: pid) != nil
         // 이동 배너(D31 이동 배지) — 이 프로젝트의 ∞ 탭이 다른 프로젝트의 워크트리 안에서 작업 중이면 "옮길까요?".
         s.moveSuggestion = { [weak self] tabId in self?.worktreeMoveSuggestion(for: tabId, in: pid) }
         s.onWorktreeMove = { [weak self] tabId, targetId in
             self?.bringPersistentTab(from: pid, tabId: tabId, to: targetId)
         }
-        // 늦게 열리는 프로젝트도 자기 창 소유권을 갖고 태어난다 — 분리 창의 프로젝트가 "메인 소유"로
-        // 만들어지면 그 안의 TermView는 어느 창에도 붙지 않는다(I3).
-        s.setOwnerWindow(owner(of: project.id), focusedTab: nil)
-        stores[project.id] = s
+        // 늦게 열리는 프로젝트도 자기 창 소유권을 갖고 태어난다 — 분리 창(·스크래치)의 프로젝트가 "메인 소유"로
+        // 만들어지면 그 안의 TermView는 어느 창에도 붙지 않는다(I3). 스크래치는 `Scratch.windowId` 소유.
+        s.setOwnerWindow(owner, focusedTab: nil)
+        stores[pid] = s
         // 첫 store 생성(=첫 터미널이 이 경로에서 시작) 시점에 세션 기준선을 1회 기록(ARCHITECTURE 4.4 #2).
-        recordSessionBaseline(projectId: project.id, cwd: cwd)
+        recordSessionBaseline(projectId: pid, cwd: cwd)
         return s
     }
 
@@ -2025,6 +2053,22 @@ final class AppState {
         syncWorktreeMonitor()
     }
 
+    /// 스크래치(~) 터미널을 **독립 창**으로 연다 — ⌘⌥T·상단바 우측 버튼이 이 한 경로로 수렴한다.
+    /// workspace/projectWindows/moveProjects를 거치지 않는다: store 존재만 보장하고 창 경계에 위임한다.
+    /// 이미 열려 있으면 `WindowHost.openScratch`가 앞으로만 올린다.
+    func openScratchWindow() {
+        // 닫을 때 store를 버렸으므로, 없으면 여기서 새 store+새 $HOME 일반 터미널이 만들어진다(매번 새 셸).
+        // 이미 열려 있으면 store가 남아 있고 openScratch가 앞으로만 올린다.
+        _ = scratchStore()
+        windowHost?.openScratch(title: Scratch.label)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// 스크래치 창이 닫혔다 = **종료(파괴)**. 일회용이라 store를 통째로 버린다 — deinit이 타이머를 끄고
+    /// TermView deinit이 ghostty 서피스를 free해 일반 PTY가 죽는다(∞ 세션이 없으니 kill 대상도 없다).
+    /// 이 한 키만 지운다 — 다른 프로젝트·창의 store는 손대지 않는다.
+    func scratchClosed() { stores[Scratch.projectId] = nil }
+
     /// 워크스페이스 표시 이름 변경. 빈 이름은 무시(이름 없는 항목은 사이드바에서 식별 불가).
     func renameWorkspace(_ id: String, to name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2096,7 +2140,9 @@ final class AppState {
     /// 워크스페이스 제거(마지막 하나는 남긴다). 소속 프로젝트의 스토어·저장 레이아웃·배지·**서비스**를
     /// 함께 정리한다.
     func removeWorkspace(_ id: String) {
-        guard workspaces.count > 1, let idx = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        // 마지막 하나는 남긴다(빈 사이드바 방지). 스크래치는 이제 workspaces에 없어 이 카운트에 안 낀다.
+        guard workspaces.count > 1,
+              let idx = workspaces.firstIndex(where: { $0.id == id }) else { return }
         for project in workspaces[idx].projects {
             killServices(of: project) // 등록만 지우면 dev 서버가 포트를 문 채 살아남는다
             killScripts(of: project) // 스크립트 세션(실행 중·종료 로그)도 대칭으로
@@ -2113,8 +2159,10 @@ final class AppState {
         // 사라진 프로젝트를 품고 있던 분리 창도 함께 정리 — 빈 창이 남으면 고아 창이 된다(I5).
         projectWindows = WindowLayout.normalize(projectWindows, projectIds: allProjectIds)
         syncWindows()
-        // 활성을 닫았으면 이웃으로 넘어가되 그 이웃도 펼쳐 보여준다(안 그러면 접힌 워크스페이스로 떨어진다).
-        if activeId == id { focus(next[min(idx, next.count - 1)].id) }
+        // 활성을 닫았으면 인접 이웃으로 넘어가되 그 이웃도 펼쳐 보여준다(안 그러면 접힌 워크스페이스로 떨어진다).
+        if activeId == id {
+            focus(next[min(idx, next.count - 1)].id)
+        }
         save()
         syncWorktreeMonitor() // 사라진 repo의 감시자를 뗀다
     }
@@ -2171,7 +2219,10 @@ final class AppState {
     // 감지는 WorktreeMonitor(경계), 제안·baseline·승격은 여기(AppState)가 소유한다.
 
     /// 워크스페이스 집합이 바뀌면 감시자를 맞춘다(멱등). 세션 변경(add/remove)·startup(뷰 onAppear)에서 부른다.
-    func syncWorktreeMonitor() { worktreeMonitor.sync(workspaces) }
+    func syncWorktreeMonitor() {
+        // 스크래치($HOME)는 이제 workspaces 밖이라 자동 제외된다($HOME dotfiles repo의 제안 폭주 없음).
+        worktreeMonitor.sync(workspaces)
+    }
 
     /// 이 워크트리 프로젝트에서 도는 작업이 살아 있는 **다른 프로젝트의 탭**(옛 탭에 갇힌 세션) — 링크 카드(D31)가 읽는다.
     /// 다른 스토어들의 실효 cwd(훅 cwd ?? 셸 pwd — `effectiveCwds`)를 훑어, 이 프로젝트 경로 안에서 도는
@@ -2509,7 +2560,9 @@ final class AppState {
     func save(captureScrollback: Bool = false) {
         flushPendingFrames() // 드래그 중 쌓아 둔 창 좌표를 여기서 한 번에 모델로(뷰 무효화 1회)
         // 인스턴스화된 스토어(=열린 프로젝트)의 현재 레이아웃을 통합 스냅샷으로 반영. 빈 스토어는 스킵.
-        for (projectId, store) in stores where !store.controller.allTabIds.isEmpty {
+        // 스크래치(~)는 일회용이라 지속하지 않는다 — 재시작 시 항상 닫힌 새 셸로 시작(레이아웃 저장 제외).
+        for (projectId, store) in stores
+            where projectId != Scratch.projectId && !store.controller.allTabIds.isEmpty {
             savedLayouts[projectId] = store.snapshot(captureScrollback: captureScrollback)
         }
         let snapshot = Persisted(workspaces: workspaces, activeId: activeId, sidebarMode: sidebarMode,
@@ -2587,14 +2640,17 @@ final class AppState {
     }
 
     private func apply(_ snapshot: Persisted) {
-        workspaces = snapshot.workspaces
-        activeId = snapshot.activeId
+        // 레거시 마이그레이션 — 2차 pivot 이전 저장분은 스크래치를 workspaces[0]에 넣어 뒀다. 이제 workspaces
+        // 밖이므로 걷어낸다(안 걷으면 사이드바에 유령 "~"). 스크래치는 일회용이라 창 상태·레이아웃을 복원하지 않는다.
+        let migrated = Scratch.stripLegacyWorkspace(snapshot.workspaces, activeId: snapshot.activeId)
+        workspaces = migrated.workspaces
+        activeId = migrated.activeId
         sidebarMode = snapshot.sidebarMode
         // 활성은 펼친 채로 시작(구 저장분엔 활성이 집합에 없으므로 마이그레이션 겸함). 사라진 id는 걸러낸다.
         // (workspaces·activeId 대입 **뒤에** 와야 한다 — 유효 id 목록·활성에 의존한다.)
         expandedWorkspaces = SidebarTree.restore(saved: snapshot.expandedWorkspaces,
                                                  activeId: activeId,
-                                                 workspaceIds: snapshot.workspaces.map(\.id))
+                                                 workspaceIds: workspaces.map(\.id))
         // 접힌 에이전트 목록 — 사라진 프로젝트 id는 걸러낸다(유령 누적 방지). nil(구 저장분)=전부 펼침.
         collapsedAgentLists = Set(snapshot.collapsedAgentLists ?? []).intersection(allProjectIds)
         if let w = snapshot.explorerWidth { explorerWidth = Self.clampPanelWidth(CGFloat(w)) }
@@ -2609,7 +2665,9 @@ final class AppState {
         // (workspaces 대입 **뒤에** 와야 한다 — 아는 프로젝트 id 목록에 의존한다.)
         projectWindows = WindowLayout.normalize(snapshot.windows, projectIds: allProjectIds)
         // 복원 직전 상한·손상 방어를 통과시킨다(순수 함수). 비대·변조된 스냅샷의 복원 폭주를 막는다.
+        // 구 저장분이 남긴 스크래치 레이아웃은 버린다 — 일회용이라 항상 새 셸로 시작한다.
         savedLayouts = SnapshotSanitize.clampAll(snapshot.layouts ?? [:])
+        savedLayouts[Scratch.projectId] = nil
         if !snapshot.droppedLayouts.isEmpty {
             restoreWarnings.append("레이아웃 \(snapshot.droppedLayouts.count)개를 불러오지 못했습니다(손상).")
         }

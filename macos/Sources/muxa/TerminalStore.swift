@@ -68,6 +68,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     /// 이 스토어가 속한 프로젝트 id. tmux 세션 네임스페이스에 들어간다.
     @ObservationIgnored private let projectId: String
+    /// 완전 일회용 스토어인가(스크래치 ~) — true면 지속(∞tmux)을 아예 제공하지 않는다:
+    /// 새 터미널 기본이 일반 셸이 되고(newTerminal), ∞ 버튼도 숨긴다. 창을 닫으면 store째 버려
+    /// PTY가 죽는데, tmux 세션이 하나도 없어야 그 파괴가 항상 안전하다(남길 세션이 없다).
+    @ObservationIgnored private let ephemeral: Bool
     /// 탭 → tmux 세션명. 복원된 탭은 **저장된 이름**을 그대로 이어받는다(tabId가 새로 발급되므로).
     @ObservationIgnored private var tmuxSessions: [TabID: String] = [:]
     /// 이 탭을 지속 세션(tmux)으로 열었는가 — **tmux가 있으면 기본이 지속**이다(newTerminal 참조).
@@ -405,7 +409,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
          commandFinishedThresholdNs: UInt64 = 8_000_000_000,
          agentResumeMode: AgentResumeMode = .manual,
          sessionWasDirty: Bool = false,
-         projectId: String = "") {
+         projectId: String = "",
+         ephemeral: Bool = false) {
         self.app = app
         self.cwd = cwd
         self.restoreSnap = restoreSnap
@@ -413,6 +418,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         self.agentResumeMode = agentResumeMode
         self.sessionWasDirty = sessionWasDirty
         self.projectId = projectId
+        self.ephemeral = ephemeral
         // keepAllAlive — 탭 전환 시 뷰(WKWebView 뷰어·터미널)를 파괴/재생성하지 않고 유지한다.
         // 기본 .recreateOnSwitch는 전환마다 뷰어를 재로드(굼뜸·상태 손실)해서 부적합.
         var config = BonsplitConfiguration(contentViewLifecycle: .keepAllAlive)
@@ -421,7 +427,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         // 새 터미널(+), 지속 세션 터미널(∞), 우측 분할, 하단 분할.
         // 지속 세션 버튼은 tmux가 있을 때만 — 없는데 버튼을 보여주면 눌러도 아무 일이 안 일어난다.
         var buttons: [BonsplitConfiguration.SplitActionButton] = [.newTerminal]
-        if TmuxService.isAvailable { buttons.append(Self.persistentTerminalButton) }
+        // 일회용(스크래치)엔 지속 세션이 없다 — ∞ 버튼을 숨겨 tmux 세션이 아예 안 생기게 한다(파괴 안전).
+        if !ephemeral && TmuxService.isAvailable { buttons.append(Self.persistentTerminalButton) }
         buttons.append(contentsOf: [.splitRight, .splitDown])
         config.appearance.splitButtons = buttons
         // 칸 탭바를 도구 패널(탐색기·git) 헤더와 같은 높이로 — 두 줄이 한 선에 이어져 보이게.
@@ -1563,9 +1570,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         // createTab이 새 탭을 즉시 선택하므로, 원본 칸의 pwd·지속 여부는 생성 전에 읽는다.
         // cwd는 **분할일 때만** 물려받고(새 탭은 프로젝트 기본 경로), 지속 여부는 분할이면 상속·아니면 기본값.
         let start = source.flatMap { inheritedCwd(inPane: $0) } ?? cwd
+        // 일회용 스토어는 tmux가 있어도 기본이 일반 셸이다(지속을 아예 제공하지 않는다).
         let wantsPersistent = persistent
             ?? source.map { inheritedPersistence(inPane: $0) }
-            ?? TmuxService.isAvailable
+            ?? (ephemeral ? false : TmuxService.isAvailable)
         let id = controller.createTab(title: TabTitle.decorate(Self.defaultTerminalTitle,
                                                                persistent: wantsPersistent),
                                       icon: wantsPersistent ? Self.persistentTabIcon : Self.terminalTabIcon,

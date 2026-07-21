@@ -83,6 +83,7 @@ struct SidebarSUI: View {
     private var tree: some View {
         VStack(alignment: .leading, spacing: Space.groupGap) {
             SidebarQueueCard(state: state) // 주의가 없으면 아무것도 그리지 않는다
+            // 스크래치(~)는 사이드바에 없다 — 독립 창(상단바 우측 버튼·⌘⌥T)에서만 산다(workspaces 밖).
             ForEach(Array(state.workspaces.enumerated()), id: \.element.id) { index, ws in
                 VStack(alignment: .leading, spacing: Space.tight) {
                     SidebarWorkspaceRow(state: state, workspace: ws, index: index,
@@ -113,6 +114,7 @@ struct SidebarSUI: View {
     ///  하나도 없어진다 — 그 역할을 하던 상단 프로젝트 탭바가 사라졌기 때문이다.)
     private var compact: some View {
         VStack(alignment: .leading, spacing: Space.groupGap) {
+            // 스크래치(~)는 사이드바에 없다 — 독립 창(상단바 우측 버튼·⌘⌥T)에서만 산다(workspaces 밖).
             ForEach(state.workspaces) { ws in
                 VStack(alignment: .leading, spacing: Space.tight) {
                     SidebarIconItem(state: state, workspace: ws, slim: effectiveMode == .slim,
