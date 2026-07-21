@@ -379,17 +379,18 @@ struct ServiceDock: View {
 
     private var commandsColumn: some View {
         let s = CommandStore.panelSections(state.commandEntries(of: projId), discovered: discoveredScripts)
-        return VStack(alignment: .leading, spacing: Space.sm) {
+        return VStack(alignment: .leading, spacing: 0) {
             inputArea
-            // 프로젝트 스크립트 — **항상 최상단 고정**(스크롤 밖), 길면 카드 내부 스크롤.
-            if !s.projectScripts.isEmpty { projectScriptsCard(s.projectScripts) }
-            // 아래만 스크롤 — 즐겨찾기 + 최근 실행.
+            HDivider().padding(.top, Space.sm)
+            // flat 섹션 하나의 스크롤 — 자주 쓰는 순서(즐겨찾기 → 최근 실행 → 프로젝트 스크립트 카탈로그).
+            // 스크립트가 많은 프로젝트에서 카탈로그를 위에 고정하면 즐겨찾기가 밀리므로 아래로 내린다.
             ScrollView {
-                VStack(alignment: .leading, spacing: Space.sm) {
-                    favoritesCard(s.favorites)
-                    if !s.history.isEmpty { historyCard(s.history) }
+                VStack(alignment: .leading, spacing: Space.lg) {
+                    favoritesFlat(s.favorites)
+                    if !s.history.isEmpty { historyFlat(s.history) }
+                    if !s.projectScripts.isEmpty { projectScriptsFlat(s.projectScripts) }
                 }
-                .padding(.bottom, Space.sm)
+                .padding(.vertical, Space.sm)
             }
         }
         .padding(.top, Space.sm)
@@ -414,70 +415,61 @@ struct ServiceDock: View {
         .padding(.horizontal, Space.sm)
     }
 
-    /// 섹션 카드 — 소섹션 머리글 + 내용을 pBg 카드에 담는다(섹션마다 카드로 나눠 위계·간격을 준다).
-    private func card<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {
+    /// flat 섹션 — 소섹션 머리글 + 행. **카드 없이** 여백으로 구분한다(서비스 탭 문법·밀도 우선).
+    /// 행 간격은 없다(붙여서 목록으로), 섹션 간격은 호출부의 `Space.lg`가 준다.
+    @ViewBuilder
+    private func flatSection<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: Space.tight) {
             Text(title).font(.muxa(.micro, weight: .semibold)).tracking(Tracking.label)
-                .textCase(.uppercase).foregroundStyle(Color.pMuted).padding(.horizontal, Space.tight)
+                .textCase(.uppercase).foregroundStyle(Color.pMuted).padding(.horizontal, Space.sm)
             content()
         }
-        .padding(Space.sm)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: Radius.sm).fill(Color.pBg)
-            .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: RowHeight.hairline)))
-        .padding(.horizontal, Space.xs)
     }
 
-    /// 프로젝트 스크립트 카드 — 발견분(요구 1). 길면 내부 스크롤(카드 자체는 고정).
-    private func projectScriptsCard(_ items: [DiscoveredScript]) -> some View {
-        card("프로젝트 스크립트") {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 1) {
-                    ForEach(items) { script in
-                        CommandScriptRow(script: script, run: runFor(command: script.command),
-                            onRun: { state.runCommand(script.command, cwd: nil, in: projId) },
-                            onFavorite: { state.toggleCommandFavorite(script.command, name: script.name, cwd: nil, in: projId) })
-                    }
-                }
-            }
-            .frame(maxHeight: 180)
-        }
-    }
-
-    /// 즐겨찾기 카드 — 비어도 그린다(F3), 비면 상태별 안내(F1).
-    private func favoritesCard(_ items: [CommandEntry]) -> some View {
-        card("★ 즐겨찾기") {
+    /// 즐겨찾기 — 자주 쓰는 것. 비어도 헤더는 그린다(F3), 비면 상태별 안내(F1).
+    @ViewBuilder
+    private func favoritesFlat(_ items: [CommandEntry]) -> some View {
+        flatSection("★ 즐겨찾기") {
             if items.isEmpty {
                 Text(favoritesEmptyCopy).font(.muxa(.caption)).foregroundStyle(Color.pMuted)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, Space.tight)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, Space.sm)
             } else {
-                VStack(alignment: .leading, spacing: 1) {
-                    ForEach(items) { entry in
-                        CommandFavoriteRow(entry: entry, now: now, run: runFor(entry),
-                            selected: selectedId != nil && selectedId == entry.executions.first?.id,
-                            onSelect: { if let id = entry.executions.first?.id { state.selectedServiceId = id } },
-                            onRun: { state.runCommand(entry.command, cwd: entry.cwd, in: projId) },
-                            onUnfavorite: { state.toggleCommandFavorite(entry.command, in: projId) })
-                    }
+                ForEach(items) { entry in
+                    CommandFavoriteRow(entry: entry, now: now, run: runFor(entry),
+                        selected: selectedId != nil && selectedId == entry.executions.first?.id,
+                        onSelect: { if let id = entry.executions.first?.id { state.selectedServiceId = id } },
+                        onRun: { state.runCommand(entry.command, cwd: entry.cwd, in: projId) },
+                        onUnfavorite: { state.toggleCommandFavorite(entry.command, in: projId) })
                 }
             }
         }
     }
 
-    /// 최근 실행 카드 — 명령당 한 줄, 클릭하면 실행 내역 펼침.
-    private func historyCard(_ items: [CommandEntry]) -> some View {
-        card("최근 실행") {
-            VStack(alignment: .leading, spacing: 1) {
-                ForEach(items) { entry in
-                    CommandHistoryRowV2(entry: entry, now: now, run: runFor(entry),
-                        expanded: expandedCommand == entry.command, selectedExec: selectedId,
-                        onToggle: { expandedCommand = (expandedCommand == entry.command) ? nil : entry.command },
-                        onRun: { state.runCommand(entry.command, cwd: entry.cwd, in: projId) },
-                        onFavorite: { state.toggleCommandFavorite(entry.command, in: projId) },
-                        onDelete: { state.removeCommand(entry.command, in: projId) },
-                        onSelectExec: { state.selectedServiceId = $0 })
-                }
+    /// 최근 실행 — 명령당 한 줄, 클릭하면 실행 내역 펼침.
+    @ViewBuilder
+    private func historyFlat(_ items: [CommandEntry]) -> some View {
+        flatSection("최근 실행") {
+            ForEach(items) { entry in
+                CommandHistoryRowV2(entry: entry, now: now, run: runFor(entry),
+                    expanded: expandedCommand == entry.command, selectedExec: selectedId,
+                    onToggle: { expandedCommand = (expandedCommand == entry.command) ? nil : entry.command },
+                    onRun: { state.runCommand(entry.command, cwd: entry.cwd, in: projId) },
+                    onFavorite: { state.toggleCommandFavorite(entry.command, in: projId) },
+                    onDelete: { state.removeCommand(entry.command, in: projId) },
+                    onSelectExec: { state.selectedServiceId = $0 })
+            }
+        }
+    }
+
+    /// 프로젝트 스크립트 — package.json/Makefile 발견 카탈로그(요구 1). 많으니 자주 쓰는 것 아래에 둔다.
+    @ViewBuilder
+    private func projectScriptsFlat(_ items: [DiscoveredScript]) -> some View {
+        flatSection("프로젝트 스크립트") {
+            ForEach(items) { script in
+                CommandScriptRow(script: script, run: runFor(command: script.command),
+                    onRun: { state.runCommand(script.command, cwd: nil, in: projId) },
+                    onFavorite: { state.toggleCommandFavorite(script.command, name: script.name, cwd: nil, in: projId) })
             }
         }
     }

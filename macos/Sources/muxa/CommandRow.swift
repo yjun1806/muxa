@@ -35,8 +35,11 @@ struct CommandFavoriteRow: View {
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: Space.sm) {
-                Image(systemName: ScriptStatusStyle.glyph(run?.state)).font(.muxa(.label))
-                    .foregroundStyle(ScriptStatusStyle.color(run?.state)).frame(width: IconSize.statusSlot)
+                // 실행 중이면 상태 글리프, 아니면 채운 별(즐겨찾기임을 명확히 — idle 점선 네모는 오독됐다).
+                Image(systemName: run?.isRunning == true ? ScriptStatusStyle.glyph(run?.state) : "star.fill")
+                    .font(.muxa(.label))
+                    .foregroundStyle(run?.isRunning == true ? ScriptStatusStyle.color(run?.state) : Color(nsColor: Palette.brand))
+                    .frame(width: IconSize.statusSlot)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(entry.name ?? entry.command).font(.muxa(.label)).foregroundStyle(Color.pFg).lineLimit(1)
                     Text(subtitle).font(.muxa(.micro)).foregroundStyle(Color.pMuted).lineLimit(1)
@@ -179,14 +182,12 @@ struct CommandScriptRow: View {
                     .font(.muxa(.label))
                     .foregroundStyle(running ? ScriptStatusStyle.color(run?.state) : Color.pMuted)
                     .frame(width: IconSize.statusSlot)
-                Text(script.name).font(.muxa(.label)).foregroundStyle(Color.pFg).lineLimit(1)
-                Text(script.command).font(.muxaMono(.micro)).foregroundStyle(Color.pMuted).lineLimit(1).layoutPriority(-1)
+                Text(script.name).font(.muxa(.label)).foregroundStyle(Color.pFg).lineLimit(1).fixedSize()
+                Text(script.command).font(.muxaMono(.micro)).foregroundStyle(Color.pMuted)
+                    .lineLimit(1).truncationMode(.tail).layoutPriority(-1)
                 Spacer(minLength: Space.xs)
-                if hovered {
-                    RowIconButton(icon: "star", help: "즐겨찾기 추가", action: onFavorite)
-                } else {
-                    Text(running ? "실행 중" : script.source).font(.muxa(.micro)).foregroundStyle(Color.pMuted)
-                }
+                if running { Text("실행 중").font(.muxa(.micro)).foregroundStyle(Color.pMuted) }
+                if hovered { RowIconButton(icon: "star", help: "즐겨찾기 추가", action: onFavorite) }
             }
             .padding(.horizontal, Space.sm).frame(height: RowHeight.tight)
             .background(hovered ? Color.pBtnHover : .clear, in: RoundedRectangle(cornerRadius: Radius.sm))
