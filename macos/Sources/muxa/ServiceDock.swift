@@ -23,6 +23,8 @@ struct ServiceDock: View {
     @State private var now = Date()
     @FocusState private var oneOffFocused: Bool
     @State private var suggestions: [String] = []
+    /// 히스토리에서 실행 내역이 펼쳐진 명령(command). 한 번에 하나만 펼친다.
+    @State private var expandedCommand: String?
 
     /// 창 전체 서비스·스크립트·일회용(소속 포함).
     private var all: [LocatedService] { state.allLocatedServices }
@@ -382,66 +384,61 @@ struct ServiceDock: View {
         }
     }
 
-    /// 명령 목록 — 등록 섹션(꺼냄) + 최근 실행 히스토리. 둘 다 비면 빈 상태(입력창은 위에 그대로).
+    /// 명령 목록 — 즐겨찾기(전부·스크롤·즉시 실행) + 최근 실행 히스토리(명령당·펼침). 둘 다 비면 빈 상태.
     private var commandsList: some View {
-        let sections = state.commandSections
+        let s = state.commandV2Sections
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: Space.md) {
-                if sections.registered.isEmpty && sections.history.isEmpty {
+                if s.favorites.isEmpty && s.history.isEmpty {
                     oneOffEmpty
                 } else {
-                    if !sections.registered.isEmpty { registeredCommandsSection(sections.registered) }
-                    if !sections.history.isEmpty { historyCommandsSection(sections.history) }
+                    if !s.favorites.isEmpty { favoritesSection(s.favorites) }
+                    if !s.history.isEmpty { historySectionV2(s.history) }
                 }
             }
             .padding(.vertical, Space.xs)
         }
     }
 
-    /// 등록된 명령(꺼냄) — 현재 프로젝트 `Project.scripts`. 각 행에 실행 상태 + lastRun.
+    private var projId: String { state.activeProject?.id ?? "" }
+
+    /// 명령의 현재 실행 상태 — 최근 실행(execId)이 도는 중인지(scriptRuns가 진실).
+    private func runFor(_ entry: CommandEntry) -> ScriptRun? {
+        guard let execId = entry.executions.first?.id else { return nil }
+        return state.scriptRuns[execId]
+    }
+
+    /// 즐겨찾기 — 전부 노출·스크롤·즉시 실행. ★로 해제.
     @ViewBuilder
-    private func registeredCommandsSection(_ items: [(script: Script, lastRunAt: Date?)]) -> some View {
+    private func favoritesSection(_ items: [CommandEntry]) -> some View {
         VStack(alignment: .leading, spacing: Space.tight) {
-            commandsSectionHeader("등록된 명령") {
-                Button { scriptPrefill = ""; showScriptAdd = true } label: {
-                    HStack(spacing: Space.xs) {
-                        Image(systemName: "plus").font(.muxa(.micro))
-                        Text("추가").font(.muxa(.caption))
-                    }.foregroundStyle(Color.pMuted).contentShape(Rectangle())
-                }.buttonStyle(.plain).clickCursor().help("명령을 등록합니다")
-            }
-            ForEach(items, id: \.script.id) { item in
-                CommandRegisteredRow(
-                    script: item.script, lastRunAt: item.lastRunAt, now: now,
-                    run: state.scriptRuns[item.script.id],
-                    selected: selectedId == item.script.id,
-                    action: { state.selectedServiceId = item.script.id },
-                    onRun: { if let pid = state.activeProject?.id { state.runScript(item.script, in: pid) } })
+            commandsSectionHeader("즐겨찾기") { EmptyView() }
+            ForEach(items) { entry in
+                CommandFavoriteRow(
+                    entry: entry, now: now, run: runFor(entry),
+                    selected: selectedId != nil && selectedId == entry.executions.first?.id,
+                    onSelect: { if let id = entry.executions.first?.id { state.selectedServiceId = id } },
+                    onRun: { state.runCommand(entry.command, cwd: entry.cwd, in: projId) },
+                    onUnfavorite: { state.toggleCommandFavorite(entry.command, in: projId) })
             }
         }
     }
 
-    /// 최근 실행 히스토리 — 등록 안 한 명령의 영속 기록(`Project.commandHistory`). 재실행·등록·삭제.
+    /// 최근 실행 히스토리 — 명령당 한 줄, 클릭하면 실행 내역 펼침. ☆즐겨찾기·▶재실행·🗑삭제.
     @ViewBuilder
-    private func historyCommandsSection(_ items: [CommandHistoryEntry]) -> some View {
+    private func historySectionV2(_ items: [CommandEntry]) -> some View {
         VStack(alignment: .leading, spacing: Space.tight) {
-            commandsSectionHeader("최근 실행") {
-                Button { state.clearCommandHistory() } label: {
-                    HStack(spacing: Space.xs) {
-                        Image(systemName: "wind").font(.muxa(.micro))
-                        Text("비우기").font(.muxa(.caption))
-                    }.foregroundStyle(Color.pMuted).contentShape(Rectangle())
-                }.buttonStyle(.plain).clickCursor().help("실행 중이 아닌 히스토리를 비웁니다")
-            }
+            commandsSectionHeader("최근 실행") { EmptyView() }
             ForEach(items) { entry in
-                let run = CommandHistory.runState(command: entry.command, instances: oneOff, runs: state.scriptRuns)
-                CommandHistoryRow(
-                    entry: entry, now: now, run: run,
-                    selected: run != nil && selectedId == run?.scriptId,
-                    onSelect: { if let run { state.selectedServiceId = run.scriptId } },
-                    onRun: { state.runOneOff(command: entry.command) },
-                    onRegister: { state.requestScriptAdd(prefill: entry.command) },
-                    onDelete: { state.removeCommandHistory(entry.command) })
+                CommandHistoryRowV2(
+                    entry: entry, now: now, run: runFor(entry),
+                    expanded: expandedCommand == entry.command,
+                    selectedExec: selectedId,
+                    onToggle: { expandedCommand = (expandedCommand == entry.command) ? nil : entry.command },
+                    onRun: { state.runCommand(entry.command, cwd: entry.cwd, in: projId) },
+                    onFavorite: { state.toggleCommandFavorite(entry.command, in: projId) },
+                    onDelete: { state.removeCommand(entry.command, in: projId) },
+                    onSelectExec: { state.selectedServiceId = $0 })
             }
         }
     }
