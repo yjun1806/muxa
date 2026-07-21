@@ -131,14 +131,22 @@ struct ServiceDock: View {
                 // tmux 미설치는 두 축 공통 엔진의 부재 — 탭 줄은 보이되 아래는 설치 안내로 채운다.
                 setup
             } else {
-                HStack(spacing: 0) {
-                    ResizableLeftColumn(width: state.serviceListWidth,
-                                        range: AppState.serviceListWidthRange) { w in
-                        state.setServiceListWidth(w)
-                    } content: {
-                        listBody
+                VStack(spacing: 0) {
+                    // 명령 탭: 프롬프트를 **도크 전폭**으로 올린다(좁은 목록 열에 갇히면 라인이 답답하다).
+                    // 그 아래에 [명령 목록 | 터미널/로그]이 좌우로 나뉜다.
+                    if tab == .commands {
+                        inputArea.padding(.vertical, Space.sm)
+                        HDivider()
                     }
-                    detailColumn
+                    HStack(spacing: 0) {
+                        ResizableLeftColumn(width: state.serviceListWidth,
+                                            range: AppState.serviceListWidthRange) { w in
+                            state.setServiceListWidth(w)
+                        } content: {
+                            listBody
+                        }
+                        detailColumn
+                    }
                 }
             }
         }
@@ -375,22 +383,17 @@ struct ServiceDock: View {
     // MARK: 좌 — 일회용 탭 (입력창 + 최근 실행 기록)
 
     private var commandsColumn: some View {
+        // 프롬프트(inputArea)는 이제 도크 전폭(content)에 있다 — 여기는 목록만.
+        // flat 섹션 하나의 스크롤 — 자주 쓰는 순서(즐겨찾기 → 최근 실행 → 프로젝트 스크립트 카탈로그).
         let s = CommandStore.panelSections(state.commandEntries(of: projId), discovered: discoveredScripts)
-        return VStack(alignment: .leading, spacing: 0) {
-            inputArea
-            HDivider().padding(.top, Space.sm)
-            // flat 섹션 하나의 스크롤 — 자주 쓰는 순서(즐겨찾기 → 최근 실행 → 프로젝트 스크립트 카탈로그).
-            // 스크립트가 많은 프로젝트에서 카탈로그를 위에 고정하면 즐겨찾기가 밀리므로 아래로 내린다.
-            ScrollView {
-                VStack(alignment: .leading, spacing: Space.lg) {
-                    favoritesFlat(s.favorites)
-                    if !s.history.isEmpty { historyFlat(s.history) }
-                    if !s.projectScripts.isEmpty { projectScriptsFlat(s.projectScripts) }
-                }
-                .padding(.vertical, Space.sm)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: Space.lg) {
+                favoritesFlat(s.favorites)
+                if !s.history.isEmpty { historyFlat(s.history) }
+                if !s.projectScripts.isEmpty { projectScriptsFlat(s.projectScripts) }
             }
+            .padding(.vertical, Space.sm)
         }
-        .padding(.top, Space.sm)
         .tick(every: 1, into: $now)
         .task(id: state.activeProjectCwd) {
             let found = ProjectScripts.discover(in: state.activeProjectCwd)
@@ -405,19 +408,59 @@ struct ServiceDock: View {
     /// 입력 영역 — **미니 터미널 프롬프트.** 현재 경로 `❯` 명령 한 줄. `cd <경로>`는 실행 경로를
     /// 옮기고(실행 안 함), 그 외는 그 경로에서 실행한다. Enter 하나로 끝(별도 실행 버튼·cwd 칩 없음).
     private var inputArea: some View {
-        HStack(spacing: Space.xs) {
-            Text(promptPath).font(.muxaMono(.caption)).foregroundStyle(Color.pMuted)
-                .lineLimit(1).truncationMode(.head).layoutPriority(-1)
-            Text("❯").font(.muxaMono(.body)).foregroundStyle(Color.pBrand)
-            TextField("명령 — cd 로 이동, 그 외 실행", text: $oneOffCommand)
-                .textFieldStyle(.plain).font(.muxaMono(.body)).foregroundStyle(Color.pFg)
-                .focused($oneOffFocused).onSubmit(handleInput)
-                .accessibilityLabel("명령 입력")
+        VStack(alignment: .leading, spacing: Space.xs) {
+            HStack(spacing: Space.xs) {
+                Text(promptPath).font(.muxaMono(.caption)).foregroundStyle(Color.pMuted)
+                    .lineLimit(1).truncationMode(.head).layoutPriority(-1)
+                Text("❯").font(.muxaMono(.body)).foregroundStyle(Color.pBrand)
+                TextField("명령 — cd 로 이동, 그 외 실행", text: $oneOffCommand)
+                    .textFieldStyle(.plain).font(.muxaMono(.body)).foregroundStyle(Color.pFg)
+                    .focused($oneOffFocused).onSubmit(handleInput)
+                    .accessibilityLabel("명령 입력")
+            }
+            .padding(.horizontal, Space.sm).frame(height: RowHeight.toolbar)
+            .background(Color.pBg, in: RoundedRectangle(cornerRadius: Radius.sm))
+            .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: RowHeight.hairline))
+            // cd 자동완성 — cd를 치면 하위 폴더가 가로 칩으로 뜬다. 클릭=진입(계속 타이핑).
+            if let names = cdCompletions, !names.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: Space.xs) {
+                        ForEach(names.prefix(30), id: \.self) { name in
+                            Button { completeCd(name) } label: {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "folder").font(.muxa(.nano))
+                                    Text(name).font(.muxaMono(.caption))
+                                }
+                                .foregroundStyle(Color.pFg)
+                                .padding(.horizontal, Space.sm).padding(.vertical, Space.tight)
+                                .background(Color.pBtnHover, in: RoundedRectangle(cornerRadius: Radius.sm))
+                                .contentShape(RoundedRectangle(cornerRadius: Radius.sm))
+                            }
+                            .buttonStyle(.plain).clickCursor().help("cd \(name)")
+                        }
+                    }
+                    .padding(.horizontal, Space.sm)
+                }
+            }
         }
-        .padding(.horizontal, Space.sm).frame(height: RowHeight.toolbar)
-        .background(Color.pBg, in: RoundedRectangle(cornerRadius: Radius.sm))
-        .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: RowHeight.hairline))
         .padding(.horizontal, Space.sm)
+    }
+
+    /// cd 자동완성 후보 — 입력이 `cd <부분>`이면 그 경로의 하위 폴더(없으면 nil = 바 숨김).
+    private var cdCompletions: [String]? {
+        guard oneOffCommand.hasPrefix("cd ") else { return nil }
+        let arg = String(oneOffCommand.dropFirst(3))
+        let base = selectedCwd ?? (state.activeProjectCwd ?? NSHomeDirectory())
+        let (dir, prefix) = PathComplete.split(arg, base: base)
+        return PathComplete.directories(in: dir, prefix: prefix)
+    }
+
+    /// 자동완성 칩 클릭 — 그 폴더로 입력을 채운다(계속 하위를 탐색하게 끝에 `/`).
+    private func completeCd(_ name: String) {
+        let base = selectedCwd ?? (state.activeProjectCwd ?? NSHomeDirectory())
+        let arg = String(oneOffCommand.dropFirst(3))
+        let (dir, _) = PathComplete.split(arg, base: base)
+        oneOffCommand = "cd " + PathComplete.display((dir as NSString).appendingPathComponent(name)) + "/"
     }
 
     /// 프롬프트에 표시할 현재 실행 경로 — 홈은 `~`, 좁은 폭이라 앞을 자른다(끝 폴더가 보이게).
