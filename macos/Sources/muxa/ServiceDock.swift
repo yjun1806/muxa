@@ -526,7 +526,7 @@ struct ServiceDock: View {
 
     /// 실행 경로 칩 — 클릭하면 제안·폴더선택(NSOpenPanel)·직접입력 팝오버. 즉석 실행이 이 cwd로 돈다.
     private var cwdChip: some View {
-        Button { cwdInput = selectedCwd ?? ""; showCwdPicker.toggle() } label: {
+        Button { cwdInput = selectedCwd.map { PathComplete.display($0) + "/" } ?? ""; showCwdPicker.toggle() } label: {
             HStack(spacing: Space.xs) {
                 Image(systemName: "folder").font(.muxa(.micro))
                 Text(cwdLabel).font(.muxa(.caption)).lineLimit(1).frame(maxWidth: 90, alignment: .leading)
@@ -547,54 +547,72 @@ struct ServiceDock: View {
         return (p as NSString).lastPathComponent
     }
 
-    /// cwd 팝오버 — 제안 경로 원클릭 + "폴더 선택…"(숨김·루트 자유) + 직접 입력.
+    /// 자동완성 기준 — 활성 프로젝트 경로(없으면 홈).
+    private var cwdBase: String { state.activeProjectCwd ?? NSHomeDirectory() }
+
+    /// cwd 팝오버 — **터미널 `cd`처럼** 경로를 치면 상위/하위 폴더가 리스트로 뜨고 자동완성된다.
+    /// `~`·절대·`..`·숨김(`.g`) 다 타이핑으로 간다. 폴더 클릭=진입(계속 탐색), Enter=여기서 실행 확정.
     private var cwdPicker: some View {
-        VStack(alignment: .leading, spacing: Space.xs) {
-            Text("실행 경로").font(.muxa(.micro, weight: .semibold)).tracking(Tracking.label)
+        let (dir, prefix) = PathComplete.split(cwdInput, base: cwdBase)
+        let matches = PathComplete.directories(in: dir, prefix: prefix)
+        return VStack(alignment: .leading, spacing: Space.xs) {
+            Text("실행 경로 — cd").font(.muxa(.micro, weight: .semibold)).tracking(Tracking.label)
                 .textCase(.uppercase).foregroundStyle(Color.pMuted)
-            ForEach(cwdSuggestions, id: \.path) { s in
-                Button { selectedCwd = s.isDefault ? nil : s.path; showCwdPicker = false } label: {
-                    HStack(spacing: Space.xs) {
-                        Image(systemName: "folder").font(.muxa(.micro)).foregroundStyle(Color.pMuted)
-                        Text(s.label).font(.muxa(.label)).foregroundStyle(Color.pFg)
-                        Spacer(minLength: Space.sm)
-                        Text((s.path as NSString).lastPathComponent).font(.muxaMono(.caption)).foregroundStyle(Color.pMuted)
-                    }
-                    .padding(.horizontal, Space.sm).frame(height: RowHeight.tight)
-                    .contentShape(Rectangle())
-                }.buttonStyle(.plain).clickCursor()
-            }
-            Divider().padding(.vertical, Space.tight)
-            Button(action: pickFolder) {
-                HStack(spacing: Space.xs) {
-                    Image(systemName: "folder.badge.plus").font(.muxa(.micro))
-                    Text("폴더 선택…").font(.muxa(.label))
-                }.foregroundStyle(Color.pBrand).padding(.horizontal, Space.sm).frame(height: RowHeight.tight)
-                    .contentShape(Rectangle())
-            }.buttonStyle(.plain).clickCursor()
             HStack(spacing: Space.xs) {
                 Image(systemName: "chevron.right").font(.muxa(.nano)).foregroundStyle(Color.pMuted)
-                TextField("경로 직접 입력", text: $cwdInput)
-                    .textFieldStyle(.plain).font(.muxaMono(.caption))
-                    .onSubmit {
-                        let t = cwdInput.trimmingCharacters(in: .whitespaces)
-                        selectedCwd = t.isEmpty ? nil : t
-                        showCwdPicker = false
-                    }
+                TextField("경로 입력 — 하위 폴더가 자동완성됩니다", text: $cwdInput)
+                    .textFieldStyle(.plain).font(.muxaMono(.caption)).foregroundStyle(Color.pFg)
+                    .onSubmit(commitCwd)
             }
             .padding(.horizontal, Space.sm).frame(height: RowHeight.tight)
             .background(Color.pBg, in: RoundedRectangle(cornerRadius: Radius.sm))
             .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: RowHeight.hairline))
+            Text(PathComplete.display(dir)).font(.muxaMono(.nano)).foregroundStyle(Color.pMuted).lineLimit(1)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    cwdFolderRow("..", target: (dir as NSString).deletingLastPathComponent)
+                    ForEach(matches, id: \.self) { name in
+                        cwdFolderRow(name, target: (dir as NSString).appendingPathComponent(name))
+                    }
+                    if matches.isEmpty {
+                        Text("하위 폴더 없음").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
+                            .padding(.horizontal, Space.sm).padding(.vertical, Space.tight)
+                    }
+                }
+            }
+            .frame(maxHeight: 200)
+            Divider()
+            HStack {
+                Button("여기서 실행", action: commitCwd)
+                    .buttonStyle(.plain).clickCursor().foregroundStyle(Color.pBrand).font(.muxa(.label, weight: .semibold))
+                Spacer(minLength: Space.sm)
+                Button("파인더로 선택…", action: pickFolder)
+                    .buttonStyle(.plain).clickCursor().foregroundStyle(Color.pMuted).font(.muxa(.caption))
+            }
         }
-        .padding(Space.sm).frame(width: 260)
+        .padding(Space.sm).frame(width: 300)
     }
 
-    /// 제안 경로 — 프로젝트(기본·상속) · 워크스페이스. 흔한 곳을 원클릭으로.
-    private var cwdSuggestions: [(label: String, path: String, isDefault: Bool)] {
-        var out: [(String, String, Bool)] = []
-        if let p = state.activeProjectCwd { out.append(("프로젝트 (기본)", p, true)) }
-        if let ws = state.activeWorkspace?.path, ws != state.activeProjectCwd { out.append(("워크스페이스", ws, false)) }
-        return out.map { (label: $0.0, path: $0.1, isDefault: $0.2) }
+    /// 폴더 한 줄 — 클릭하면 그 폴더로 **진입**(입력에 채워 계속 하위를 탐색). `..`는 상위로.
+    private func cwdFolderRow(_ name: String, target: String) -> some View {
+        Button { cwdInput = PathComplete.display(target) + "/" } label: {
+            HStack(spacing: Space.xs) {
+                Image(systemName: name == ".." ? "arrow.up.left" : "folder")
+                    .font(.muxa(.micro)).foregroundStyle(Color.pMuted).frame(width: IconSize.statusSlot)
+                Text(name).font(.muxaMono(.label)).foregroundStyle(Color.pFg).lineLimit(1)
+            }
+            .padding(.horizontal, Space.sm).frame(height: RowHeight.tight)
+            .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).clickCursor()
+    }
+
+    /// 입력한 경로를 실행 경로로 확정(프로젝트 루트면 nil로 두어 "상속"으로 표시).
+    private func commitCwd() {
+        let path = PathComplete.expand(cwdInput, base: cwdBase)
+        selectedCwd = (path == state.activeProjectCwd) ? nil : path
+        showCwdPicker = false
     }
 
     /// macOS 폴더 선택 다이얼로그 — 숨김 폴더·루트까지 자유 탐색(GUI 드롭다운의 한계를 메운다).
