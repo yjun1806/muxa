@@ -37,6 +37,33 @@ enum ClaudeUsage {
         return limits.compactMap(limit(from:))
     }
 
+    /// Claude Code statusLine stdin의 `rate_limits`를 파싱한다(A-1 경로).
+    ///
+    /// `/api/oauth/usage`의 `limits[]` 배열과 **스키마가 다르다** — 여기선 `five_hour`/`seven_day` 키에
+    /// `{used_percentage, resets_at}`가 직접 들어온다. 같은 `UsageLimit`로 정규화해 뷰는 출처(A-1/A-2)를
+    /// 모른다. 각 창은 **독립적으로 없을 수 있다**(구독 등급·세션 첫 응답 전 콜드스타트).
+    /// 모델 스코프(Fable)는 statusLine이 주지 않는다 — 그건 A-2/A-3만의 몫이다.
+    static func parseStatusLine(_ data: Data) -> [UsageLimit] {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rateLimits = root["rate_limits"] as? [String: Any] else { return [] }
+        return [window(rateLimits["five_hour"], kind: "session"),
+                window(rateLimits["seven_day"], kind: "weekly_all")].compactMap { $0 }
+    }
+
+    /// statusLine의 한 창(`five_hour`/`seven_day`) → `UsageLimit`. `used_percentage`가 없으면 nil(창 부재).
+    private static func window(_ raw: Any?, kind: String) -> UsageLimit? {
+        guard let win = raw as? [String: Any],
+              let percent = win["used_percentage"] as? NSNumber else { return nil }
+        return UsageLimit(
+            kind: kind,
+            label: label(kind: kind, scope: nil),
+            percent: Int(percent.doubleValue.rounded()),
+            resetsAt: date(from: win["resets_at"]),
+            severity: "normal",
+            isModelScoped: false
+        )
+    }
+
     private static func limit(from raw: [String: Any]) -> UsageLimit? {
         guard let kind = raw["kind"] as? String,
               let percent = raw["percent"] as? NSNumber else { return nil } // 서버가 9 또는 9.0으로 보낸다
