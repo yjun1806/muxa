@@ -9,7 +9,6 @@ enum PackageManager: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// lock 파일 → 매니저. 여러 개면 이 순서(배열 순서)가 우선순위다 — 판정이 흔들리지 않게 고정한다.
     private var lockfiles: [String] {
         switch self {
         case .pnpm: return ["pnpm-lock.yaml"]
@@ -19,9 +18,17 @@ enum PackageManager: String, CaseIterable, Identifiable {
         }
     }
 
+    /// 탐지 **우선순위** — 여러 lock이 공존할 때 어느 게 이기나. **UI 순서(`allCases`)와 분리**한다.
+    ///
+    /// 규칙: **자기 전용(오해 불가능한) 신호부터.** `bun.lock`/`bun.lockb`는 `bun install`만 만든다.
+    /// 반면 `yarn.lock`은 과거 yarn 흔적이나 bun 호환 출력으로 **남아 있을 수 있어** 약한 신호다 —
+    /// 그래서 **bun이 yarn을 이긴다**. (aha-db-wiki: bun.lock 39KB 최신 + yarn.lock 1.5KB 구잔재 → bun이 맞다.)
+    /// `packageManager` 필드는 낡을 수 있어(같은 레포가 산증인) 신뢰하지 않는다 — lock이 진실이다.
+    private static let detectPriority: [PackageManager] = [.pnpm, .bun, .yarn, .npm]
+
     static func detect(files: [String]) -> PackageManager? {
         let names = Set(files)
-        return allCases.first { pm in pm.lockfiles.contains { names.contains($0) } }
+        return detectPriority.first { pm in pm.lockfiles.contains { names.contains($0) } }
     }
 
     func runCommand(_ script: String) -> String {

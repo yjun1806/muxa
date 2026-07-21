@@ -36,6 +36,15 @@ final class ProjectScriptsTests: XCTestCase {
         XCTAssertEqual(PackageManager.detect(files: ["package-lock.json", "pnpm-lock.yaml"]), .pnpm)
     }
 
+    /// bun.lock + yarn.lock 공존 → **bun**. bun.lock은 bun install만 만드는 확실한 신호,
+    /// yarn.lock은 잔재로 남을 수 있는 약한 신호다(실측: aha-db-wiki가 정확히 이 구성이었다).
+    func testBunBeatsYarnWhenBothPresent() {
+        XCTAssertEqual(PackageManager.detect(files: ["bun.lock", "yarn.lock", "package.json"]), .bun)
+        XCTAssertEqual(PackageManager.detect(files: ["bun.lockb", "yarn.lock"]), .bun)
+        // 진짜 yarn 레포(bun lock 없음)는 그대로 yarn — bun 신호가 있을 때만 이긴다.
+        XCTAssertEqual(PackageManager.detect(files: ["yarn.lock", "package.json"]), .yarn)
+    }
+
     // MARK: 실행 명령 조립
 
     func testRunCommand() {
