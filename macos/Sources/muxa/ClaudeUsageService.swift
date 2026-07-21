@@ -102,8 +102,13 @@ final class ClaudeUsageService {
     /// A-1(statusLine) 값을 화면에 얹는다 — 성공 상태로 취급한다(서버 권위값이다).
     /// 공유 캐시(A-2 백오프)는 건드리지 않는다 — A-1이 신선한 동안 A-2 경로는 쉬면 되고,
     /// 다른 인스턴스도 각자 같은 latest.json을 읽어 똑같이 A-2를 건너뛴다.
+    ///
+    /// **A-1은 five_hour/seven_day만 준다 — Fable 등 모델 스코프 한도는 없다.** 마지막 A-2 성공 캐시에서
+    /// 그것들만 가져와 합친다. Fable weekly는 7일 단위라 느리게 변해 stale해도 무해하고, 이게 없으면
+    /// A-1이 신선한 동안 팝오버에서 Fable이 사라진다(A-2를 건너뛰므로).
     private func applyStatusLine(_ limits: [UsageLimit]) {
-        self.limits = limits
+        let modelScoped = (store.load()?.limits.map(\.model) ?? []).filter(\.isModelScoped)
+        self.limits = limits + modelScoped
         state = .ok
         lastSuccess = now()
         rateLimitedUntil = nil

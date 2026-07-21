@@ -60,6 +60,23 @@ final class ClaudeUsageServiceTests: XCTestCase {
         XCTAssertEqual(clock.calls, 1, "A-1이 낡으면 A-2로 조회한다")
     }
 
+    /// A-1은 five_hour/seven_day만 준다 — Fable(모델 스코프)은 마지막 A-2 캐시에서 병합해 보존한다.
+    /// 안 그러면 A-1이 신선한 동안 팝오버에서 Fable이 사라진다(회귀).
+    func testFreshStatusLineMergesCachedFable() async {
+        let clock = Clock()
+        let store = MemoryStore()
+        let fable = UsageLimit(kind: "weekly_scoped", label: "Fable", percent: 30,
+                               resetsAt: nil, severity: "normal", isModelScoped: true)
+        store.save(UsageSnapshot(updatedAt: clock.now, limits: [PersistedLimit(fable)],
+                                 state: "ok", blockedUntil: nil, blockedReason: nil))
+        let a1 = UsageSourceSelector.StatusLine(observedAt: clock.now, limits: sample) // session만
+        let service = makeService(clock, results: [.ok([])], store: store, statusLine: { a1 })
+        await service.refreshIfStale()
+        XCTAssertEqual(clock.calls, 0, "A-1이 신선하면 API를 건드리지 않는다")
+        XCTAssertTrue(service.limits.contains { $0.kind == "session" }, "A-1의 세션 한도")
+        XCTAssertTrue(service.limits.contains { $0.isModelScoped }, "A-2 캐시의 Fable이 병합됨")
+    }
+
     func testSuccessPopulatesLimits() async {
         let clock = Clock()
         let service = makeService(clock, results: [.ok(sample)])
