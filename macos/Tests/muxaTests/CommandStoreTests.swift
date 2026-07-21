@@ -104,6 +104,15 @@ final class CommandStoreTests: XCTestCase {
         XCTAssertTrue(s.history.isEmpty)
     }
 
+    /// 발견 스크립트를 실행하면 카탈로그(상시)와 히스토리(실행 내역) 양쪽에 나온다.
+    func testDiscoveredRunAppearsInCatalogAndHistory() {
+        var (e, _) = CommandStore.recordStart([], command: "pnpm dev", cwd: nil, name: nil, execId: "1", now: at(0))
+        let s = CommandStore.panelSections(e, discovered: [disc("dev", "pnpm dev")])
+        XCTAssertEqual(s.projectScripts.map(\.command), ["pnpm dev"], "카탈로그에 상시")
+        XCTAssertEqual(s.history.map(\.command), ["pnpm dev"], "실행했으니 히스토리에도")
+        _ = e
+    }
+
     /// 히스토리는 최근 실행순.
     func testHistorySortedByRecency() {
         var (e, _) = CommandStore.recordStart([], command: "old", cwd: nil, name: nil, execId: "1", now: at(0))

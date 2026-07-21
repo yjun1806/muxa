@@ -124,20 +124,20 @@ enum CommandStore {
         return (favorites, history)
     }
 
-    /// 명령 탭의 **세 덩어리**(순수) — 발견 스크립트를 포함한다. 한 명령은 정확히 한 섹션에만 산다
-    /// (우선순위 즐겨찾기 > 발견 > 히스토리, command로 중복 제거):
+    /// 명령 탭의 **세 덩어리**(순수) — 발견 스크립트를 포함한다:
     ///  - **favorites**: `favorite`인 명령(발견·즉석 무관). 상단 고정.
-    ///  - **projectScripts**: package.json/Makefile 발견분 중 **즐겨찾기 아닌 것**. 파일이 진실이라 항상 노출.
-    ///  - **history**: 실행 기록 중 즐겨찾기도 발견도 아닌 즉석 명령(최근 실행순).
+    ///  - **projectScripts**: package.json/Makefile 발견분 중 **즐겨찾기 아닌 것**. 파일이 진실이라 항상
+    ///    노출되는 **실행 카탈로그**(실행했든 안 했든).
+    ///  - **history**: **실행 이력이 있는** 비즐겨찾기 명령 전부(발견분 포함) — 각 실행의 내역을 본다.
+    ///    발견 스크립트를 실행하면 카탈로그(위)엔 상시, 여기(아래)엔 그 실행 내역이 함께 뜬다(역할이 다르다).
     static func panelSections(_ entries: [CommandEntry], discovered: [DiscoveredScript])
         -> (favorites: [CommandEntry], projectScripts: [DiscoveredScript], history: [CommandEntry])
     {
         let favorites = entries.filter(\.favorite)
         let favoriteCommands = Set(favorites.map(\.command))
-        let discoveredCommands = Set(discovered.map(\.command))
         let scripts = discovered.filter { !favoriteCommands.contains($0.command) }
         let history = entries
-            .filter { !$0.favorite && !discoveredCommands.contains($0.command) }
+            .filter { !$0.favorite && !$0.executions.isEmpty }
             .sorted { ($0.lastRunAt ?? .distantPast) > ($1.lastRunAt ?? .distantPast) }
         return (favorites, scripts, history)
     }

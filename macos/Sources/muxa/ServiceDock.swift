@@ -378,14 +378,23 @@ struct ServiceDock: View {
     // MARK: 좌 — 일회용 탭 (입력창 + 최근 실행 기록)
 
     private var commandsColumn: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            oneOffInput
-            HDivider()
-            commandsList
+        let s = CommandStore.panelSections(state.commandEntries(of: projId), discovered: discoveredScripts)
+        return VStack(alignment: .leading, spacing: Space.sm) {
+            inputArea
+            // 프로젝트 스크립트 — **항상 최상단 고정**(스크롤 밖), 길면 카드 내부 스크롤.
+            if !s.projectScripts.isEmpty { projectScriptsCard(s.projectScripts) }
+            // 아래만 스크롤 — 즐겨찾기 + 최근 실행.
+            ScrollView {
+                VStack(alignment: .leading, spacing: Space.sm) {
+                    favoritesCard(s.favorites)
+                    if !s.history.isEmpty { historyCard(s.history) }
+                }
+                .padding(.bottom, Space.sm)
+            }
         }
+        .padding(.top, Space.sm)
         .tick(every: 1, into: $now)
         .task(id: state.activeProjectCwd) {
-            // 프로젝트 감지 → 발견 스크립트(목록) + 설치 명령 제안. 매니저를 모르면 npm으로 조립(표시·진입점용).
             let found = ProjectScripts.discover(in: state.activeProjectCwd)
             suggestions = found.manager.map { ["\($0.rawValue) install"] } ?? []
             discoveredScripts = found.scripts.map {
@@ -396,16 +405,80 @@ struct ServiceDock: View {
         }
     }
 
-    /// 명령 목록 — **즐겨찾기(상시)** + **프로젝트 스크립트(발견)** + **최근 실행**. 한 명령은 한 섹션에만.
-    private var commandsList: some View {
-        let s = CommandStore.panelSections(state.commandEntries(of: projId), discovered: discoveredScripts)
-        return ScrollView {
-            LazyVStack(alignment: .leading, spacing: Space.md) {
-                favoritesSection(s.favorites)                                    // 상시(F3) — 비면 안내 카피(F1)
-                if !s.projectScripts.isEmpty { projectScriptsSection(s.projectScripts) }
-                if !s.history.isEmpty { historySectionV2(s.history) }
+    /// 입력 영역 — 한 줄에 우겨넣지 않는다: 명령 입력+실행 한 줄, cwd 칩은 아래 별도 줄.
+    private var inputArea: some View {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            HStack(spacing: Space.sm) { inputField; runButton }
+            HStack(spacing: Space.xs) { cwdChip; Spacer(minLength: 0) }
+        }
+        .padding(.horizontal, Space.sm)
+    }
+
+    /// 섹션 카드 — 소섹션 머리글 + 내용을 pBg 카드에 담는다(섹션마다 카드로 나눠 위계·간격을 준다).
+    private func card<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: Space.tight) {
+            Text(title).font(.muxa(.micro, weight: .semibold)).tracking(Tracking.label)
+                .textCase(.uppercase).foregroundStyle(Color.pMuted).padding(.horizontal, Space.tight)
+            content()
+        }
+        .padding(Space.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Radius.sm).fill(Color.pBg)
+            .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: RowHeight.hairline)))
+        .padding(.horizontal, Space.xs)
+    }
+
+    /// 프로젝트 스크립트 카드 — 발견분(요구 1). 길면 내부 스크롤(카드 자체는 고정).
+    private func projectScriptsCard(_ items: [DiscoveredScript]) -> some View {
+        card("프로젝트 스크립트") {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(items) { script in
+                        CommandScriptRow(script: script, run: runFor(command: script.command),
+                            onRun: { state.runCommand(script.command, cwd: nil, in: projId) },
+                            onFavorite: { state.toggleCommandFavorite(script.command, name: script.name, cwd: nil, in: projId) })
+                    }
+                }
             }
-            .padding(.vertical, Space.xs)
+            .frame(maxHeight: 180)
+        }
+    }
+
+    /// 즐겨찾기 카드 — 비어도 그린다(F3), 비면 상태별 안내(F1).
+    private func favoritesCard(_ items: [CommandEntry]) -> some View {
+        card("★ 즐겨찾기") {
+            if items.isEmpty {
+                Text(favoritesEmptyCopy).font(.muxa(.caption)).foregroundStyle(Color.pMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, Space.tight)
+            } else {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(items) { entry in
+                        CommandFavoriteRow(entry: entry, now: now, run: runFor(entry),
+                            selected: selectedId != nil && selectedId == entry.executions.first?.id,
+                            onSelect: { if let id = entry.executions.first?.id { state.selectedServiceId = id } },
+                            onRun: { state.runCommand(entry.command, cwd: entry.cwd, in: projId) },
+                            onUnfavorite: { state.toggleCommandFavorite(entry.command, in: projId) })
+                    }
+                }
+            }
+        }
+    }
+
+    /// 최근 실행 카드 — 명령당 한 줄, 클릭하면 실행 내역 펼침.
+    private func historyCard(_ items: [CommandEntry]) -> some View {
+        card("최근 실행") {
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(items) { entry in
+                    CommandHistoryRowV2(entry: entry, now: now, run: runFor(entry),
+                        expanded: expandedCommand == entry.command, selectedExec: selectedId,
+                        onToggle: { expandedCommand = (expandedCommand == entry.command) ? nil : entry.command },
+                        onRun: { state.runCommand(entry.command, cwd: entry.cwd, in: projId) },
+                        onFavorite: { state.toggleCommandFavorite(entry.command, in: projId) },
+                        onDelete: { state.removeCommand(entry.command, in: projId) },
+                        onSelectExec: { state.selectedServiceId = $0 })
+                }
+            }
         }
     }
 
@@ -423,30 +496,6 @@ struct ServiceDock: View {
         return runFor(entry)
     }
 
-    /// 즐겨찾기 — ★한 명령 전부·즉시 실행·★해제. **헤더 상시**(비어도 그린다), 비면 상태별 안내(F1/F3/F6).
-    @ViewBuilder
-    private func favoritesSection(_ items: [CommandEntry]) -> some View {
-        VStack(alignment: .leading, spacing: Space.tight) {
-            commandsSectionHeader("★ 즐겨찾기") { EmptyView() }
-            if items.isEmpty {
-                Text(favoritesEmptyCopy)
-                    .font(.muxa(.caption)).foregroundStyle(Color.pMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, Space.sm).padding(.vertical, Space.tight)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                ForEach(items) { entry in
-                    CommandFavoriteRow(
-                        entry: entry, now: now, run: runFor(entry),
-                        selected: selectedId != nil && selectedId == entry.executions.first?.id,
-                        onSelect: { if let id = entry.executions.first?.id { state.selectedServiceId = id } },
-                        onRun: { state.runCommand(entry.command, cwd: entry.cwd, in: projId) },
-                        onUnfavorite: { state.toggleCommandFavorite(entry.command, in: projId) })
-                }
-            }
-        }
-    }
-
     /// 즐겨찾기 빈 상태 카피 — 실행 기록·발견 스크립트가 있으면 짧은 유도, 완전 첫 진입이면 온보딩.
     private var favoritesEmptyCopy: String {
         let hasHistory = state.commandEntries(of: projId).contains { !$0.favorite }
@@ -456,92 +505,31 @@ struct ServiceDock: View {
         return "위에 명령을 적고 실행하면 백그라운드에서 돌고, 출력·종료 로그가 여기 남습니다. 자주 쓰는 건 ☆로 고정하세요."
     }
 
-    /// 프로젝트 스크립트 — package.json·Makefile·scripts/ 발견분(즐겨찾기 아닌 것). 파일이 진실이라 항상 노출.
-    @ViewBuilder
-    private func projectScriptsSection(_ items: [DiscoveredScript]) -> some View {
-        VStack(alignment: .leading, spacing: Space.tight) {
-            commandsSectionHeader("프로젝트 스크립트") { EmptyView() }
-            ForEach(items) { script in
-                CommandScriptRow(
-                    script: script, run: runFor(command: script.command),
-                    onRun: { state.runCommand(script.command, cwd: nil, in: projId) },
-                    onFavorite: { state.toggleCommandFavorite(script.command, name: script.name, cwd: nil, in: projId) })
-            }
+    /// 명령 입력 필드 — 넓게 한 줄 차지(실행 버튼·cwd 칩과 분리).
+    private var inputField: some View {
+        HStack(spacing: Space.xs) {
+            Image(systemName: "chevron.right")
+                .font(.muxa(.micro)).foregroundStyle(Color.pMuted).frame(width: IconSize.statusSlot)
+            TextField("명령 입력 — pnpm · make · brew …", text: $oneOffCommand)
+                .textFieldStyle(.plain).font(.muxaMono(.body)).foregroundStyle(Color.pFg)
+                .focused($oneOffFocused).onSubmit(runOneOff)
+                .accessibilityLabel("실행할 명령")
         }
+        .padding(.horizontal, Space.sm).frame(height: RowHeight.toolbar)
+        .background(Color.pBg, in: RoundedRectangle(cornerRadius: Radius.sm))
+        .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: RowHeight.hairline))
     }
 
-    /// 최근 실행 히스토리 — 명령당 한 줄, 클릭하면 실행 내역 펼침. ☆즐겨찾기·▶재실행·🗑삭제.
-    @ViewBuilder
-    private func historySectionV2(_ items: [CommandEntry]) -> some View {
-        VStack(alignment: .leading, spacing: Space.tight) {
-            commandsSectionHeader("최근 실행") { EmptyView() }
-            ForEach(items) { entry in
-                CommandHistoryRowV2(
-                    entry: entry, now: now, run: runFor(entry),
-                    expanded: expandedCommand == entry.command,
-                    selectedExec: selectedId,
-                    onToggle: { expandedCommand = (expandedCommand == entry.command) ? nil : entry.command },
-                    onRun: { state.runCommand(entry.command, cwd: entry.cwd, in: projId) },
-                    onFavorite: { state.toggleCommandFavorite(entry.command, in: projId) },
-                    onDelete: { state.removeCommand(entry.command, in: projId) },
-                    onSelectExec: { state.selectedServiceId = $0 })
-            }
+    /// 실행 버튼 — 입력 필드 옆.
+    private var runButton: some View {
+        Button(action: runOneOff) {
+            Text("실행").font(.muxa(.label)).foregroundStyle(canRunOneOff ? Color.pOnBrand : Color.pMuted)
+                .padding(.horizontal, Space.md).frame(height: RowHeight.toolbar)
+                .background(canRunOneOff ? Color.pBrand : Color.pBtnHover, in: RoundedRectangle(cornerRadius: Radius.sm))
+                .contentShape(RoundedRectangle(cornerRadius: Radius.sm))
         }
-    }
-
-    /// 섹션 머리글 — 대문자 소제목 + 우측 액션(추가·비우기).
-    private func commandsSectionHeader<Action: View>(_ title: String,
-                                                     @ViewBuilder action: () -> Action) -> some View {
-        HStack(spacing: Space.sm) {
-            Text(title)
-                .font(.muxa(.micro, weight: .semibold)).tracking(Tracking.label)
-                .textCase(.uppercase).foregroundStyle(Color.pMuted)
-            Spacer(minLength: Space.sm)
-            action()
-        }
-        .padding(.horizontal, Space.sm)
-        .padding(.top, Space.sm).padding(.bottom, Space.tight)
-    }
-
-    /// 명령 입력창 + [실행] — Return으로도 실행. 스크래치 스트립은 스크롤에 안 딸려 온다(늘 최상단).
-    private var oneOffInput: some View {
-        HStack(spacing: Space.sm) {
-            HStack(spacing: Space.xs) {
-                Image(systemName: "chevron.right")
-                    .font(.muxa(.micro)).foregroundStyle(Color.pMuted).frame(width: IconSize.statusSlot)
-                TextField("pnpm install · brew install … — 한 번 실행", text: $oneOffCommand)
-                    .textFieldStyle(.plain)
-                    .font(.muxaMono(.body))
-                    .foregroundStyle(Color.pFg)
-                    .focused($oneOffFocused)
-                    .onSubmit(runOneOff)
-                    .accessibilityLabel("한 번 실행할 명령")
-            }
-            .padding(.horizontal, Space.sm)
-            .frame(height: RowHeight.toolbar)
-            .background(Color.pBg, in: RoundedRectangle(cornerRadius: Radius.sm))
-            .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: RowHeight.hairline))
-
-            Button(action: runOneOff) {
-                Text("실행")
-                    .font(.muxa(.label))
-                    .foregroundStyle(canRunOneOff ? Color.pOnBrand : Color.pMuted)
-                    .padding(.horizontal, Space.sm)
-                    .frame(height: RowHeight.toolbar)
-                    .background(canRunOneOff ? Color.pBrand : Color.pBtnHover,
-                                in: RoundedRectangle(cornerRadius: Radius.sm))
-                    .contentShape(RoundedRectangle(cornerRadius: Radius.sm))
-            }
-            .buttonStyle(.plain)
-            .clickCursor()
-            .disabled(!canRunOneOff)
-            .help("한 번 실행 (Return)")
-            .accessibilityLabel("실행")
-
-            cwdChip
-        }
-        .padding(.horizontal, Space.sm)
-        .padding(.vertical, Space.sm)
+        .buttonStyle(.plain).clickCursor().disabled(!canRunOneOff)
+        .help("실행 (Return)").accessibilityLabel("실행")
     }
 
     /// 실행 경로 칩 — 클릭하면 제안·폴더선택(NSOpenPanel)·직접입력 팝오버. 즉석 실행이 이 cwd로 돈다.
