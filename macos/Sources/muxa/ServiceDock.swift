@@ -408,12 +408,26 @@ struct ServiceDock: View {
         }
     }
 
-    /// 입력 영역 — **미니 터미널 프롬프트.** 현재 경로 `❯` 명령 한 줄. `cd <경로>`는 실행 경로를
-    /// 옮기고(실행 안 함), 그 외는 그 경로에서 실행한다. Enter 하나로 끝(별도 실행 버튼·cwd 칩 없음).
+    /// 입력 영역 — **2줄 터미널 프롬프트.** 위: 현재 실행 경로(또렷하게). 아래: `❯` 명령 입력.
+    /// `cd <경로>`는 실행 경로를 옮기고(실행 안 함), 그 외는 그 경로에서 실행한다. Enter 하나로 끝.
     private var inputArea: some View {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            // 경로 줄 — 이동해도 지금 어디인지 바로 보이게. 길면 앞을 잘라 현재 폴더가 끝에 남는다.
+            HStack(spacing: Space.tight) {
+                Image(systemName: "folder").font(.muxa(.nano)).foregroundStyle(Color.pBrand)
+                Text(promptPath).font(.muxaMono(.caption)).foregroundStyle(Color.pFg.opacity(0.75))
+                    .lineLimit(1).truncationMode(.head)
+            }
+            .padding(.horizontal, Space.sm)
+
+            inputRow
+        }
+        .padding(.horizontal, Space.sm)
+    }
+
+    /// 프롬프트 입력 줄 — `❯` 명령. 자동완성 드롭다운은 이 줄 바로 아래에 뜬다.
+    private var inputRow: some View {
         HStack(spacing: Space.xs) {
-            Text(promptPath).font(.muxaMono(.caption)).foregroundStyle(Color.pMuted)
-                .lineLimit(1).truncationMode(.head).layoutPriority(-1)
             Text("❯").font(.muxaMono(.body)).foregroundStyle(Color.pBrand)
             TextField("명령 — cd 로 이동, 그 외 실행", text: $oneOffCommand)
                 .textFieldStyle(.plain).font(.muxaMono(.body)).foregroundStyle(Color.pFg)
@@ -429,7 +443,7 @@ struct ServiceDock: View {
         .onKeyPress(.upArrow) { moveCd(-1) }
         .onKeyPress(.downArrow) { moveCd(1) }
         .onKeyPress(.tab) { acceptCd() }
-        // 자동완성 드롭다운 — 필드 아래에 떠서(오버레이) 아래 분할을 가린다. 좁은 가로 칩 대신 터미널식 세로 목록.
+        // 자동완성 드롭다운 — 입력 줄 아래에 떠서(오버레이) 아래 분할을 가린다. 터미널식 세로 목록.
         .overlay(alignment: .topLeading) {
             if let names = cdCompletions, !names.isEmpty {
                 CdCompletionPopup(names: names, selection: min(cdSelection, names.count - 1),
@@ -439,7 +453,6 @@ struct ServiceDock: View {
                     .offset(y: RowHeight.toolbar + Space.xs)
             }
         }
-        .padding(.horizontal, Space.sm)
     }
 
     /// cd 자동완성 후보 — 입력이 `cd <부분>`이면 그 경로의 하위 폴더(없으면 nil = 팝업 숨김).
