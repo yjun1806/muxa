@@ -23,13 +23,10 @@ struct ServiceDock: View {
     @State private var oneOffCommand = ""
     @State private var now = Date()
     @FocusState private var oneOffFocused: Bool
-    @State private var suggestions: [String] = []
     /// 히스토리에서 실행 내역이 펼쳐진 명령(command). 한 번에 하나만 펼친다.
     @State private var expandedCommand: String?
-    /// 즉석 실행의 실행 경로(nil=프로젝트 상속). cwd 칩·팝오버가 정한다.
+    /// 현재 실행 경로(nil=프로젝트 상속). 입력창의 `cd`가 세션 내에서 옮긴다(미니 터미널 프롬프트).
     @State private var selectedCwd: String?
-    @State private var showCwdPicker = false
-    @State private var cwdInput = ""
     /// package.json·Makefile·scripts/ 에서 발견한 프로젝트 스크립트(활성 프로젝트 cwd 기준).
     @State private var discoveredScripts: [DiscoveredScript] = []
 
@@ -397,7 +394,6 @@ struct ServiceDock: View {
         .tick(every: 1, into: $now)
         .task(id: state.activeProjectCwd) {
             let found = ProjectScripts.discover(in: state.activeProjectCwd)
-            suggestions = found.manager.map { ["\($0.rawValue) install"] } ?? []
             discoveredScripts = found.scripts.map {
                 DiscoveredScript(name: $0.name,
                                  command: ProjectScripts.command(for: $0, manager: found.manager ?? .npm),
@@ -406,13 +402,53 @@ struct ServiceDock: View {
         }
     }
 
-    /// 입력 영역 — 한 줄에 우겨넣지 않는다: 명령 입력+실행 한 줄, cwd 칩은 아래 별도 줄.
+    /// 입력 영역 — **미니 터미널 프롬프트.** 현재 경로 `❯` 명령 한 줄. `cd <경로>`는 실행 경로를
+    /// 옮기고(실행 안 함), 그 외는 그 경로에서 실행한다. Enter 하나로 끝(별도 실행 버튼·cwd 칩 없음).
     private var inputArea: some View {
-        VStack(alignment: .leading, spacing: Space.xs) {
-            HStack(spacing: Space.sm) { inputField; runButton }
-            HStack(spacing: Space.xs) { cwdChip; Spacer(minLength: 0) }
+        HStack(spacing: Space.xs) {
+            Text(promptPath).font(.muxaMono(.caption)).foregroundStyle(Color.pMuted)
+                .lineLimit(1).truncationMode(.head).layoutPriority(-1)
+            Text("❯").font(.muxaMono(.body)).foregroundStyle(Color.pBrand)
+            TextField("명령 — cd 로 이동, 그 외 실행", text: $oneOffCommand)
+                .textFieldStyle(.plain).font(.muxaMono(.body)).foregroundStyle(Color.pFg)
+                .focused($oneOffFocused).onSubmit(handleInput)
+                .accessibilityLabel("명령 입력")
         }
+        .padding(.horizontal, Space.sm).frame(height: RowHeight.toolbar)
+        .background(Color.pBg, in: RoundedRectangle(cornerRadius: Radius.sm))
+        .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: RowHeight.hairline))
         .padding(.horizontal, Space.sm)
+    }
+
+    /// 프롬프트에 표시할 현재 실행 경로 — 홈은 `~`, 좁은 폭이라 앞을 자른다(끝 폴더가 보이게).
+    private var promptPath: String {
+        PathComplete.display(selectedCwd ?? (state.activeProjectCwd ?? NSHomeDirectory()))
+    }
+
+    /// 입력 처리(Enter) — `cd <경로>`면 실행 경로를 옮기고, 그 외는 그 경로에서 실행한다.
+    private func handleInput() {
+        let trimmed = oneOffCommand.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        let base = selectedCwd ?? (state.activeProjectCwd ?? NSHomeDirectory())
+        if trimmed == "cd" || trimmed == "cd ~" {
+            selectedCwd = nil // 프로젝트 루트로
+            oneOffCommand = ""
+            return
+        }
+        if trimmed.hasPrefix("cd ") {
+            let arg = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+            let path = PathComplete.expand(arg, base: base)
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue {
+                selectedCwd = (path == state.activeProjectCwd) ? nil : path
+            } else {
+                state.attention.recordSystem(title: "cd: \(arg) — 그런 폴더가 없습니다")
+            }
+            oneOffCommand = ""
+            return
+        }
+        state.runCommand(trimmed, cwd: selectedCwd, in: projId)
+        oneOffCommand = ""
     }
 
     /// flat 섹션 — 소섹션 머리글 + 행. **카드 없이** 여백으로 구분한다(서비스 탭 문법·밀도 우선).
@@ -497,186 +533,6 @@ struct ServiceDock: View {
         return "위에 명령을 적고 실행하면 백그라운드에서 돌고, 출력·종료 로그가 여기 남습니다. 자주 쓰는 건 ☆로 고정하세요."
     }
 
-    /// 명령 입력 필드 — 넓게 한 줄 차지(실행 버튼·cwd 칩과 분리).
-    private var inputField: some View {
-        HStack(spacing: Space.xs) {
-            Image(systemName: "chevron.right")
-                .font(.muxa(.micro)).foregroundStyle(Color.pMuted).frame(width: IconSize.statusSlot)
-            TextField("명령 입력 — pnpm · make · brew …", text: $oneOffCommand)
-                .textFieldStyle(.plain).font(.muxaMono(.body)).foregroundStyle(Color.pFg)
-                .focused($oneOffFocused).onSubmit(runOneOff)
-                .accessibilityLabel("실행할 명령")
-        }
-        .padding(.horizontal, Space.sm).frame(height: RowHeight.toolbar)
-        .background(Color.pBg, in: RoundedRectangle(cornerRadius: Radius.sm))
-        .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: RowHeight.hairline))
-    }
-
-    /// 실행 버튼 — 입력 필드 옆.
-    private var runButton: some View {
-        Button(action: runOneOff) {
-            Text("실행").font(.muxa(.label)).foregroundStyle(canRunOneOff ? Color.pOnBrand : Color.pMuted)
-                .padding(.horizontal, Space.md).frame(height: RowHeight.toolbar)
-                .background(canRunOneOff ? Color.pBrand : Color.pBtnHover, in: RoundedRectangle(cornerRadius: Radius.sm))
-                .contentShape(RoundedRectangle(cornerRadius: Radius.sm))
-        }
-        .buttonStyle(.plain).clickCursor().disabled(!canRunOneOff)
-        .help("실행 (Return)").accessibilityLabel("실행")
-    }
-
-    /// 실행 경로 칩 — 클릭하면 제안·폴더선택(NSOpenPanel)·직접입력 팝오버. 즉석 실행이 이 cwd로 돈다.
-    private var cwdChip: some View {
-        Button { cwdInput = selectedCwd.map { PathComplete.display($0) + "/" } ?? ""; showCwdPicker.toggle() } label: {
-            HStack(spacing: Space.xs) {
-                Image(systemName: "folder").font(.muxa(.micro))
-                Text(cwdLabel).font(.muxa(.caption)).lineLimit(1).frame(maxWidth: 90, alignment: .leading)
-                Image(systemName: "chevron.down").font(.muxa(.nano))
-            }
-            .foregroundStyle(Color.pMuted)
-            .padding(.horizontal, Space.sm).frame(height: RowHeight.toolbar)
-            .background(Color.pBg, in: RoundedRectangle(cornerRadius: Radius.sm))
-            .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: RowHeight.hairline))
-        }
-        .buttonStyle(.plain).clickCursor()
-        .help("실행 경로 — 클릭해 폴더 선택")
-        .popover(isPresented: $showCwdPicker, arrowEdge: .bottom) { cwdPicker }
-    }
-
-    private var cwdLabel: String {
-        guard let p = selectedCwd else { return state.activeProject?.name ?? "프로젝트" }
-        return (p as NSString).lastPathComponent
-    }
-
-    /// 자동완성 기준 — 활성 프로젝트 경로(없으면 홈).
-    private var cwdBase: String { state.activeProjectCwd ?? NSHomeDirectory() }
-
-    /// cwd 팝오버 — **터미널 `cd`처럼** 경로를 치면 상위/하위 폴더가 리스트로 뜨고 자동완성된다.
-    /// `~`·절대·`..`·숨김(`.g`) 다 타이핑으로 간다. 폴더 클릭=진입(계속 탐색), Enter=여기서 실행 확정.
-    private var cwdPicker: some View {
-        let (dir, prefix) = PathComplete.split(cwdInput, base: cwdBase)
-        let matches = PathComplete.directories(in: dir, prefix: prefix)
-        return VStack(alignment: .leading, spacing: Space.xs) {
-            Text("실행 경로 — cd").font(.muxa(.micro, weight: .semibold)).tracking(Tracking.label)
-                .textCase(.uppercase).foregroundStyle(Color.pMuted)
-            HStack(spacing: Space.xs) {
-                Image(systemName: "chevron.right").font(.muxa(.nano)).foregroundStyle(Color.pMuted)
-                TextField("경로 입력 — 하위 폴더가 자동완성됩니다", text: $cwdInput)
-                    .textFieldStyle(.plain).font(.muxaMono(.caption)).foregroundStyle(Color.pFg)
-                    .onSubmit(commitCwd)
-            }
-            .padding(.horizontal, Space.sm).frame(height: RowHeight.tight)
-            .background(Color.pBg, in: RoundedRectangle(cornerRadius: Radius.sm))
-            .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: RowHeight.hairline))
-            Text(PathComplete.display(dir)).font(.muxaMono(.nano)).foregroundStyle(Color.pMuted).lineLimit(1)
-            Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    cwdFolderRow("..", target: (dir as NSString).deletingLastPathComponent)
-                    ForEach(matches, id: \.self) { name in
-                        cwdFolderRow(name, target: (dir as NSString).appendingPathComponent(name))
-                    }
-                    if matches.isEmpty {
-                        Text("하위 폴더 없음").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
-                            .padding(.horizontal, Space.sm).padding(.vertical, Space.tight)
-                    }
-                }
-            }
-            .frame(maxHeight: 200)
-            Divider()
-            HStack {
-                Button("여기서 실행", action: commitCwd)
-                    .buttonStyle(.plain).clickCursor().foregroundStyle(Color.pBrand).font(.muxa(.label, weight: .semibold))
-                Spacer(minLength: Space.sm)
-                Button("파인더로 선택…", action: pickFolder)
-                    .buttonStyle(.plain).clickCursor().foregroundStyle(Color.pMuted).font(.muxa(.caption))
-            }
-        }
-        .padding(Space.sm).frame(width: 300)
-    }
-
-    /// 폴더 한 줄 — 클릭하면 그 폴더로 **진입**(입력에 채워 계속 하위를 탐색). `..`는 상위로.
-    private func cwdFolderRow(_ name: String, target: String) -> some View {
-        Button { cwdInput = PathComplete.display(target) + "/" } label: {
-            HStack(spacing: Space.xs) {
-                Image(systemName: name == ".." ? "arrow.up.left" : "folder")
-                    .font(.muxa(.micro)).foregroundStyle(Color.pMuted).frame(width: IconSize.statusSlot)
-                Text(name).font(.muxaMono(.label)).foregroundStyle(Color.pFg).lineLimit(1)
-            }
-            .padding(.horizontal, Space.sm).frame(height: RowHeight.tight)
-            .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-        }
-        .buttonStyle(.plain).clickCursor()
-    }
-
-    /// 입력한 경로를 실행 경로로 확정(프로젝트 루트면 nil로 두어 "상속"으로 표시).
-    private func commitCwd() {
-        let path = PathComplete.expand(cwdInput, base: cwdBase)
-        selectedCwd = (path == state.activeProjectCwd) ? nil : path
-        showCwdPicker = false
-    }
-
-    /// macOS 폴더 선택 다이얼로그 — 숨김 폴더·루트까지 자유 탐색(GUI 드롭다운의 한계를 메운다).
-    private func pickFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.showsHiddenFiles = true
-        if let base = selectedCwd ?? state.activeProjectCwd {
-            panel.directoryURL = URL(fileURLWithPath: base)
-        }
-        if panel.runModal() == .OK, let url = panel.url {
-            selectedCwd = url.path
-        }
-        showCwdPicker = false
-    }
-
-    private var canRunOneOff: Bool {
-        !oneOffCommand.trimmingCharacters(in: .whitespaces).isEmpty
-    }
-
-    private func runOneOff() {
-        guard canRunOneOff else { return }
-        state.runCommand(oneOffCommand, cwd: selectedCwd, in: projId)
-        oneOffCommand = ""
-    }
-
-    /// 기록 0 — 입력창은 위에 그대로 두고, 아래에 가벼운 안내 + 프로젝트 감지 채움 칩(클릭=입력, 실행 아님).
-    private var oneOffEmpty: some View {
-        VStack(alignment: .leading, spacing: Space.sm) {
-            VStack(alignment: .leading, spacing: Space.tight) {
-                Text("아직 실행한 일회용 명령이 없습니다")
-                    .font(.muxa(.label, weight: .semibold)).foregroundStyle(Color.pFg)
-                Text("위에 명령을 적고 실행하면 백그라운드에서 한 번 돌고, 출력·종료 로그가 여기 남습니다. 자주 쓰면 기록에서 등록으로 스크립트에 올립니다.")
-                    .font(.muxa(.caption)).foregroundStyle(Color.pMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if !suggestions.isEmpty {
-                Text("이 프로젝트")
-                    .font(.muxa(.micro, weight: .semibold)).tracking(Tracking.label)
-                    .foregroundStyle(Color.pMuted)
-                ForEach(suggestions, id: \.self) { cmd in
-                    Button { oneOffCommand = cmd; oneOffFocused = true } label: {
-                        HStack(spacing: Space.xs) {
-                            Image(systemName: "arrow.up.left").font(.muxa(.micro))
-                            Text(cmd).font(.muxaMono(.caption))
-                        }
-                        .foregroundStyle(Color.pFg)
-                        .padding(.horizontal, Space.sm).padding(.vertical, Space.tight)
-                        .background(Color.pBg, in: RoundedRectangle(cornerRadius: Radius.sm))
-                        .overlay(RoundedRectangle(cornerRadius: Radius.sm).stroke(Color.pBorder, lineWidth: RowHeight.hairline))
-                        .contentShape(RoundedRectangle(cornerRadius: Radius.sm))
-                    }
-                    .buttonStyle(.plain).clickCursor()
-                    .help("명령 채우기(실행 아님)")
-                    .accessibilityLabel("명령 채우기: \(cmd)")
-                }
-            }
-        }
-        .padding(.horizontal, Space.sm)
-        .padding(.top, Space.sm)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
 
     // MARK: 우 — 상세 (선택 종류별)
 
