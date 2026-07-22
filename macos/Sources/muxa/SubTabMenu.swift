@@ -29,6 +29,17 @@ enum SubTabMenu {
                 NSPasteboard.general.setString(hash, forType: .string)
             })
         }
+        if case .web(let tab) = item {
+            let url = tab.currentURL.absoluteString
+            items.append(.separator)
+            items.append(MuxaMenuItem(icon: "link", title: "URL 복사") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(url, forType: .string)
+            })
+            items.append(MuxaMenuItem(icon: "arrow.up.right.square", title: "시스템 브라우저로 열기") {
+                NSWorkspace.shared.open(tab.currentURL)
+            })
+        }
         return items
     }
 
@@ -42,6 +53,8 @@ enum SubTabMenu {
             return dir.isEmpty ? nil : (dir as NSString).appendingPathComponent(change.path)
         case .diff:
             return nil
+        case .web:
+            return nil // 브라우저 서브탭은 파일이 아니다(URL 복사는 items에서 따로 붙인다)
         }
     }
 }

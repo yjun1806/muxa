@@ -6,6 +6,10 @@ struct MarkdownView: View {
     let target: FileViewTarget
     var chrome: Bool = true // 그룹 서브탭 안에서는 자체 헤더 숨김(서브탭 바가 헤더 역할)
     var onClose: () -> Void
+    /// 문서 내 로컬 파일 링크를 앱 내 새 탭으로 연다.
+    var onOpenFile: (String) -> Void = { _ in }
+    /// 문서 내 외부 http(s) 링크를 인앱 브라우저 새 탭으로 연다.
+    var onOpenURL: (URL) -> Void = { _ in }
 
     @State private var content = ""
     @State private var state: LoadState = .loading
@@ -53,7 +57,12 @@ struct MarkdownView: View {
         case .loading: centerLabel("불러오는 중…")
         case .tooLarge: centerLabel("파일이 너무 큽니다")
         case .error: centerLabel("열 수 없음")
-        case .ok: MarkdownWebView(content: content, isRawHTML: isHTML)
+        case .ok: MarkdownWebView(
+            content: content, isRawHTML: isHTML,
+            baseDir: (target.path as NSString).deletingLastPathComponent,
+            onOpenFile: onOpenFile,
+            onOpenURL: onOpenURL
+        )
         }
     }
 

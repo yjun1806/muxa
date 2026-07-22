@@ -81,7 +81,9 @@ struct BonsplitWorkspaceView: View {
                     group: state, dir: store.workingDir ?? "",
                     onFocus: { store.controller.focusPane(paneId) },
                     onCloseItem: { store.closeGroupItem(tabId, itemId: $0) },
-                    onCloseOtherItems: { store.closeOtherGroupItems(tabId, keeping: $0) }
+                    onCloseOtherItems: { store.closeOtherGroupItems(tabId, keeping: $0) },
+                    onOpenFile: { _ = store.openFile($0) },
+                    onOpenURL: { _ = store.openURL($0) }
                 )
             }
         }

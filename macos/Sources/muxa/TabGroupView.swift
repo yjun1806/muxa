@@ -12,6 +12,10 @@ struct TabGroupView: View {
     var onCloseItem: (String) -> Void
     /// 이 서브탭만 남기고 나머지를 닫는다(우클릭 메뉴).
     var onCloseOtherItems: (String) -> Void = { _ in }
+    /// 문서 뷰어 안의 로컬 파일 링크를 앱 내 새 탭으로 연다.
+    var onOpenFile: (String) -> Void = { _ in }
+    /// 문서 뷰어 안의 외부 http(s) 링크를 인앱 브라우저 새 탭으로 연다.
+    var onOpenURL: (URL) -> Void = { _ in }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -73,7 +77,7 @@ struct TabGroupView: View {
     private var content: some View {
         ZStack {
             ForEach(group.items) { item in
-                itemView(item)
+                itemView(item, selected: item.id == group.selectedId)
                     .opacity(item.id == group.selectedId ? 1 : 0)
                     .allowsHitTesting(item.id == group.selectedId)
             }
@@ -82,17 +86,25 @@ struct TabGroupView: View {
     }
 
     @ViewBuilder
-    private func itemView(_ item: GroupItemContent) -> some View {
+    private func itemView(_ item: GroupItemContent, selected: Bool) -> some View {
         switch item {
         case .file(let target):
-            switch target.kind {
-            case .markdown, .html: MarkdownView(target: target, chrome: false, onClose: {})
-            case .code: CodeView(target: target, chrome: false, onClose: {})
-            case .image: ImageFileView(target: target, chrome: false, onClose: {})
-            case .video: VideoFileView(target: target, chrome: false, onClose: {})
-            }
+            fileItemView(target)
         case .diff(let target):
             DiffView(target: target, dir: dir, chrome: false, onClose: {})
+        case .web(let tab):
+            BrowserView(tab: tab, shouldLoad: selected)
+        }
+    }
+
+    @ViewBuilder
+    private func fileItemView(_ target: FileViewTarget) -> some View {
+        switch target.kind {
+        case .markdown, .html: MarkdownView(target: target, chrome: false, onClose: {},
+                                            onOpenFile: onOpenFile, onOpenURL: onOpenURL)
+        case .code: CodeView(target: target, chrome: false, onClose: {})
+        case .image: ImageFileView(target: target, chrome: false, onClose: {})
+        case .video: VideoFileView(target: target, chrome: false, onClose: {})
         }
     }
 }

@@ -8,6 +8,7 @@ enum TabGroupKind: Equatable {
     case code
     case media // 이미지·영상
     case diffs
+    case browser // 인앱 웹 브라우저
 
     var title: String {
         switch self {
@@ -16,6 +17,7 @@ enum TabGroupKind: Equatable {
         case .code: return "코드"
         case .media: return "미디어"
         case .diffs: return "변경"
+        case .browser: return "웹"
         }
     }
 
@@ -26,6 +28,7 @@ enum TabGroupKind: Equatable {
         case .code: return "curlybraces"
         case .media: return "photo"
         case .diffs: return "plusminus"
+        case .browser: return "globe"
         }
     }
 
@@ -37,6 +40,7 @@ enum TabGroupKind: Equatable {
         case .code: return "code"
         case .media: return "media"
         case .diffs: return "diffs"
+        case .browser: return "browser"
         }
     }
 
@@ -47,6 +51,7 @@ enum TabGroupKind: Equatable {
         case "code": self = .code
         case "media": self = .media
         case "diffs": self = .diffs
+        case "browser": self = .browser
         default: return nil
         }
     }
@@ -56,11 +61,13 @@ enum TabGroupKind: Equatable {
 enum GroupItemContent: Identifiable {
     case file(FileViewTarget)
     case diff(GitDiffTarget)
+    case web(BrowserTab)
 
     var id: String {
         switch self {
         case .file(let t): return t.id
         case .diff(let t): return "diff:\(t.id)"
+        case .web(let t): return t.id
         }
     }
 
@@ -68,6 +75,8 @@ enum GroupItemContent: Identifiable {
         switch self {
         case .file(let t): return t.tabTitle
         case .diff(let t): return t.tabTitle
+        // 서브탭 라벨은 nonisolated 컨텍스트라 불변 initialURL(let)로만 잡는다(페이지 제목 실시간 반영은 안 함).
+        case .web(let t): return t.initialURL.host ?? t.initialURL.absoluteString
         }
     }
 
@@ -75,6 +84,7 @@ enum GroupItemContent: Identifiable {
         switch self {
         case .file(let t): return t.tabIcon
         case .diff(let t): return t.tabIcon
+        case .web: return "globe"
         }
     }
 
@@ -88,6 +98,7 @@ enum GroupItemContent: Identifiable {
             case .image, .video: return .media
             }
         case .diff: return .diffs
+        case .web: return .browser
         }
     }
 }

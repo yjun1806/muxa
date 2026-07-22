@@ -1603,6 +1603,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         case .group(.code): return 3
         case .group(.media): return 4
         case .group(.diffs): return 5
+        case .group(.browser): return 6
         }
     }
 
@@ -1631,6 +1632,22 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         revealSeq += 1 // 익스플로러 reveal 트리거(같은 파일 재-open도 반영)
         persist()
         return id
+    }
+
+    /// URL을 인앱 브라우저(웹 그룹) 서브탭으로 연다. 같은 URL이면 기존 탭을 선택한다.
+    /// md 외부 링크·클로드 출처 등 앱 곳곳에서 재사용하는 공개 진입점.
+    @discardableResult
+    func openURL(_ url: URL) -> TabID? {
+        let id = openInGroup(.web(makeBrowserTab(url: url)))
+        persist()
+        return id
+    }
+
+    /// BrowserTab 생성 + 네비게이션 시 스냅샷을 갱신하도록 훅 연결(복원 정확도). openURL·복원이 함께 쓴다.
+    private func makeBrowserTab(url: URL) -> BrowserTab {
+        let tab = BrowserTab(url: url)
+        tab.onNavigated = { [weak self] in self?.persist() }
+        return tab
     }
 
     /// 그룹 탭 상태 접근 — BonsplitWorkspaceView가 .group 탭 렌더 시 사용.
@@ -1846,6 +1863,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     private func itemSnapshot(_ item: GroupItemContent) -> ItemSnapshot {
         switch item {
         case .file(let t): return ItemSnapshot(file: t.path, commit: nil, commitSubject: nil)
+        case .web(let t): return ItemSnapshot(file: nil, commit: nil, commitSubject: nil,
+                                              url: t.currentURL.absoluteString)
         case .diff(let target):
             switch target {
             case .commit(let hash, let subject):
@@ -1862,6 +1881,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     private func itemContent(_ s: ItemSnapshot) -> GroupItemContent? {
         if let f = s.file { return .file(FileViewTarget(path: f)) }
+        if let u = s.url, let url = URL(string: u) { return .web(makeBrowserTab(url: url)) }
         guard let h = s.commit else { return nil }
         // 경로가 있으면 커밋 **안 파일 하나** — 통짜 커밋 diff보다 먼저 판정해야 한다
         // (둘 다 `commit`을 쓰므로 순서가 뒤집히면 파일 서브탭이 통짜로 복원된다).

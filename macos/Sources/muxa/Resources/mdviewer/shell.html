@@ -62,6 +62,17 @@
     }
     window.scrollTo(0, 0);
   }
+
+  // 링크 클릭은 뷰어 안에서 이동시키지 않고 네이티브로 넘긴다(외부=브라우저, 로컬 파일=앱 내 새 탭).
+  // 페이지 내 앵커(#…)만 기본 동작(스크롤)을 남긴다. 이벤트 위임이라 render마다 다시 걸 필요 없다.
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest && e.target.closest('a[href]');
+    if (!a) return;
+    const href = a.getAttribute('href') || '';
+    if (href.startsWith('#')) return; // 페이지 내 앵커는 그대로 스크롤
+    e.preventDefault();
+    try { window.webkit.messageHandlers.muxaLink.postMessage(href); } catch (err) {}
+  });
 </script>
 </body>
 </html>

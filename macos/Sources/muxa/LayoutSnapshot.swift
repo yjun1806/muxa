@@ -128,4 +128,6 @@ struct ItemSnapshot: Codable {
     var commitFile: String?
     // 리네임된 파일의 옛 경로 — 없으면 복원된 diff가 빈다.
     var commitFileOldPath: String?
+    // 인앱 브라우저 서브탭의 URL(마지막 본 페이지). 복원 시 lazy 로드로만 되살아난다.
+    var url: String?
 }
