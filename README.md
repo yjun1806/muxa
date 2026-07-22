@@ -4,151 +4,217 @@
 
 # muxa
 
-### 문서 뷰어와 diff를 내장한 macOS 에이전트 터미널
+### A macOS agent terminal with a built-in document viewer and diff
 
-에이전트가 만든 걸 보려고 에디터와 Git 클라이언트를 따로 켜지 않는다.
+Stop opening a separate editor and Git client just to see what your agent built.
+
+**English** · [한국어](README.ko.md)
 
 <br />
 
-[![macOS 14+](https://img.shields.io/badge/macOS-14%2B-000000?logo=apple&logoColor=white)](https://github.com/yjun1806/muxa/releases/latest)
-[![Claude Code](https://img.shields.io/badge/agent-Claude%20Code-D97757?logo=anthropic&logoColor=white)](#지원-에이전트)
+[![macOS 14+](https://img.shields.io/badge/macOS-14%2B-000000?logo=apple&logoColor=white)](#build-from-source)
+[![Claude Code](https://img.shields.io/badge/agent-Claude%20Code-D97757?logo=anthropic&logoColor=white)](#supported-agents)
 [![Swift](https://img.shields.io/badge/Swift-SwiftUI%20%2B%20AppKit-F05138?logo=swift&logoColor=white)](macos/Package.swift)
 [![Stars](https://img.shields.io/github/stars/yjun1806/muxa?style=flat&logo=github)](https://github.com/yjun1806/muxa/stargazers)
 
 <br />
 
-### [⬇︎ 다운로드 (macOS)](https://github.com/yjun1806/muxa/releases/latest)
+<img src="docs/assets/real-split.png" width="960" alt="muxa — explorer and viewer next to the terminal" />
 
-<br />
-
-<img src="docs/assets/real-split.png" width="960" alt="muxa — 터미널 옆에 탐색기와 뷰어" />
-
-<sub><i>왼쪽 사이드바가 실행 중인 에이전트를, 오른쪽 인스펙터가 탐색기·Git·알림을 맡는다. 칸 테두리는 에이전트가 부를 때만 켜진다.</i></sub>
+<sub><i>The left sidebar tracks running agents; the right inspector handles the explorer, Git, and notifications. Pane borders light up only when an agent calls for you.</i></sub>
 
 </div>
 
 <br />
 
-에이전트에게 일을 맡기는 곳은 터미널인데, 뭘 만들었는지 확인하려면 결국 에디터를 켜고 Git 클라이언트를 켠다. README 하나 읽자고 창을 옮기고, 다이어그램을 보려고 또 옮긴다. **muxa**는 파일 탐색기·마크다운/코드 뷰어·diff를 터미널과 같은 창에 둔다. 문서는 렌더된 상태로 보이고, 변경은 그 문서 위에 표시된다.
+You hand work to an agent in the terminal — but to see what it built, you end up opening an editor and a Git client anyway. Move a window to read one README, move another to view a diagram. **muxa** puts the file explorer, the markdown/code viewer, and diffs in the same window as the terminal. Documents show up rendered, and changes are drawn on top of them.
 
-여러 세션을 나눠 띄우는 일도 한다. 이름은 **mux + a(gent)** — 터미널 멀티플렉서에 "보는 눈"을 더했다. 터미널 코어는 **[ghostty](https://ghostty.org)를 그대로 임베딩**했다. 웹뷰로 흉내 낸 게 아니라 GPU로 그리는 실제 터미널이 들어 있다.
+It also splits sessions across panes. The name is **mux + a(gent)** — a terminal multiplexer with eyes added. The terminal core **embeds [ghostty](https://ghostty.org) directly**: not a webview imitation, but a real GPU-drawn terminal inside.
 
-> **현재 Claude Code 전용입니다.** 알림·상태 표시의 1차 소스가 Claude Code 훅이라 지금은 Claude Code에 맞춰져 있습니다. 다른 에이전트 지원은 로드맵에 있습니다. → [지원 에이전트](#지원-에이전트)
-
-<br />
-
-## 기능
-
-<table>
-<tr>
-<td width="54%"><img src="docs/assets/real-viewer.png" alt="렌더된 Markdown 뷰어" /></td>
-<td width="46%" valign="top">
-
-### 렌더된 문서로 읽는다
-
-마크다운은 표와 **mermaid 다이어그램까지 그려서** 보여준다. 코드는 문법 강조가 붙고, 이미지·영상도 그 자리에서 열린다. 에이전트가 파일을 고치면 뷰어가 알아서 갱신되는데, 이때 **보던 위치는 그대로다.**
-
-</td>
-</tr>
-
-<tr>
-<td width="46%" valign="top">
-
-### 파일 탐색기
-
-VSCode와 같은 세트(Material Icon Theme)의 컬러 아이콘이 붙은 트리. 파일 이름 색이 git 상태를 함께 말한다. 더블클릭하면 뷰어로 열리고, 우클릭으로 그 자리에서 터미널을 연다.
-
-</td>
-<td width="54%"><img src="docs/assets/real-explorer.png" alt="파일 익스플로러 트리" /></td>
-</tr>
-</table>
-
-### 많이 열어도 어지럽지 않다
-
-뷰어가 편하면 파일을 많이 연다. 그러면 탭이 스무 개가 되고 결국 안 쓰게 된다. muxa는 파일을 열 때 종류를 보고 알아서 묶는다. **문서·HTML·코드·미디어·변경** 다섯 갈래뿐이라 상위 탭이 그 이상 늘지 않고, 각 그룹 안에서 서브탭으로 오간다. `⌘W`는 서브탭 하나만 닫는다.
-
-<table>
-<tr>
-<td width="46%" valign="top">
-
-### 변경을 문서 위에서 본다
-
-커밋 단위로 바뀐 파일을 훑는다. 마크다운은 **렌더한 다음 그 위에 변경을 칠하므로**, 표는 표로 남고 셀 하나가 바뀌면 그 셀만 강조된다. 코드는 줄 번호와 미니맵이 붙은 일반 diff다.
-
-바뀐 줄에 남긴 **코멘트는 터미널로 전달된다.** 검토 의견이 그대로 다음 지시가 된다. 반영하지 않을 변경은 파일 단위나 헝크 단위로 되돌린다. 커밋과 푸시는 터미널에서 한다.
-
-</td>
-<td width="54%"><img src="docs/assets/real-git.png" alt="git 변경·리뷰 패널" /></td>
-</tr>
-</table>
-
-### 워크트리를 넘어 세션이 따라온다
-
-에이전트에게 브랜치를 맡기면 워크트리가 늘어난다. muxa는 저장소를 감시하다가 새 폴더가 생기면 **즉시 인식하고** 프로젝트로 추가할지 묻는다. 추가된 워크트리는 사이드바에 나란히 서고 클릭 한 번으로 전환한다.
-
-워크트리 안에서 도는 세션이 감지되면 그 칸 위에 **이동 제안**이 뜬다. 수락하면 작업이 끊기지 않고 옮겨간다. 폴더가 삭제되어도 탭을 자동으로 닫지 않는다 — 안에서 실행 중인 작업이 있을 수 있어 취소선으로 표시만 하고 판단은 사용자에게 맡긴다.
-
-### 앱을 닫아도 에이전트가 죽지 않는다
-
-터미널 세션을 앱 바깥의 **tmux**에 맡긴다. 앱을 종료해도, 강제 종료해도, 업데이트로 재시작해도 돌던 작업이 그대로 이어진다. tmux가 설치돼 있으면 **새 탭이 기본으로 지속 세션(∞)** 이다. 불필요한 세션은 낭비로 끝나지만 지속이 아닌 탭의 에이전트는 앱을 닫는 순간 되돌릴 수 없이 죽는다. 기본은 살아남는 쪽이어야 한다.
-
-### 누가 나를 기다리는지 한눈에
-
-작업중·대기·완료를 **칸 테두리·탭·사이드바·알림 목록이 같은 기호**로 말한다(스피너·⏸·✓). 승인을 기다리는 세션은 사이드바 맨 위 큐 카드에 모이고, 자리를 비운 사이의 알림은 인박스에 쌓인다. 알림 본문에는 에이전트가 마지막으로 한 말이 그대로 들어간다.
-
-포커스는 밝기로만 표시한다. **테두리는 알림이 독점**하므로, 칸이 넷이어도 확인이 필요한 곳을 즉시 구분한다.
-
-**그 밖에** — 서비스·스크립트(dev 서버를 탭 밖 전용 tmux에서 돌리고 중단되면 종료 코드와 로그가 남는다) · Claude 사용량 표시(세션·주간 한도와 리셋까지) · 창 분리(별도 창으로 떼었다 셸을 죽이지 않고 다시 합치기) · `⌘F` libghostty 네이티브 검색 · 세션 복원(분할 트리·탭·cwd) · `⌘K` 명령 팔레트.
+> **This is still just a public personal repo.** There's no distributable `.dmg` or notarization — you **clone and build it yourself**. → [Build from source](#build-from-source)
+>
+> **Claude Code only, for now.** Notifications and status come first from a Claude Code hook, so everything is tuned to Claude Code today. Other agents are on the roadmap. → [Supported agents](#supported-agents)
 
 <br />
 
-## 설치
+## Why muxa?
 
-### DMG (권장)
+Even after moving my coding work onto agents in the terminal through Claude Code, checking the result still needed another app. Open a Git GUI, open VSCode, and once I'd looked, back to the terminal. That round trip is what this fixes.
 
-1. [최신 릴리스](https://github.com/yjun1806/muxa/releases/latest)에서 `.dmg`를 받아 열고 **muxa.app을 `/Applications`로 드래그**한다.
-2. 처음 실행하면 **"개발자를 확인할 수 없어 열 수 없습니다"**가 뜬다. 아직 공증(notarization) 전이라 정상이다.
-   **시스템 설정 › 개인정보 보호 및 보안**을 열고 아래쪽 "muxa이(가) 차단되었습니다"에서 **'그래도 열기'**를 누른다.
-   (macOS 15+에서는 Control-클릭 '열기' 우회가 막혀 이 경로만 동작한다.)
+So the "terminal quality" muxa polishes isn't renderer fidelity. It's the **reading experience** — showing documents as documents, marking changes on top of their original shape, and gathering the state of many sessions into one list.
 
-### Homebrew
+<br />
+
+## Features
+
+<table>
+<tr>
+<td width="54%"><img src="docs/assets/real-viewer.png" alt="Rendered Markdown viewer" /></td>
+<td width="46%" valign="top">
+
+### Documents, rendered
+
+Markdown is drawn with tables and **even mermaid diagrams** — you see the design an agent drew as a picture, not as syntax. Code gets syntax highlighting and line numbers; images and video open right there too. When an agent edits a file the viewer refreshes on its own, and **your scroll position stays put** — it doesn't jump to the top.
+
+</td>
+</tr>
+
+<tr>
+<td width="46%" valign="top">
+
+### File explorer
+
+A tree with the same colored icons as VSCode (Material Icon Theme), so file types read by color first. A file's name color also tells you its git status. Double-click to open it in the viewer; right-click to open a terminal right there. Create, rename, and delete happen in the explorer too (delete moves to Trash).
+
+</td>
+<td width="54%"><img src="docs/assets/real-explorer.png" alt="File explorer tree" /></td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td width="40%"><img src="docs/assets/mock-group.png" alt="Tabs grouped by file kind" /></td>
+<td width="60%" valign="top">
+
+### Open many files without the clutter
+
+When the viewer is pleasant, you open a lot of files. Then you have twenty tabs and stop using them. muxa looks at each file's kind and groups it automatically. There are only five lanes — **Docs, HTML, Code, Media, Changes** — so the top-level tabs never grow past that; inside each group you move between sub-tabs. Group tabs always keep **the same order**, so positions don't shift, and reopening the same file **jumps to its existing sub-tab** instead of duplicating it. Each sub-tab keeps its own scroll position. `⌘W` closes just one sub-tab. Terminals aren't grouped — the lanes are viewer-only.
+
+</td>
+</tr>
+
+<tr>
+<td width="60%" valign="top">
+
+### Review changes on the rendered document
+
+Agents don't only touch code. They keep rewriting READMEs, design docs, work logs. Read those as `+`/`−` patches and tables break and code blocks scramble. muxa **renders the markdown first and then paints the changes on top**, so a table stays a table and a single changed cell is the only thing highlighted. Diagrams are drawn as shapes, and a paragraph edited many times doesn't collapse into a black smear of overlapping colors. Code is a normal diff with line numbers and a minimap.
+
+A **comment left on a changed line is sent to the terminal** — your review note becomes the next instruction. Changes you won't keep are reverted per file or per hunk. Commit and push from the terminal.
+
+</td>
+<td width="40%"><img src="docs/assets/real-git.png" alt="git changes and review panel" /></td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td width="40%"><img src="docs/assets/mock-worktree.png" alt="Worktree session move offer" /></td>
+<td width="60%" valign="top">
+
+### Sessions follow you across worktrees
+
+Hand branches to an agent and worktrees pile up. muxa watches the repo, and the moment a new folder appears it **recognizes it immediately** and asks whether to add it as a project (it watches for changes directly, not on a polling sweep). Added worktrees line up in the sidebar and switch with one click — each keeps its own tabs, splits, and services. You can even **create a new worktree from inside the app** (pick a branch and it handles the folder and git setup).
+
+When a session is detected running inside a worktree, a **move offer** appears above that pane. Accept it and the work moves over without breaking. But only an **∞ persistent session** — one that lives outside the app — can be transplanted; a plain terminal only gets "Go look," because muxa won't present what can't happen as if it could. If a folder is deleted, the tab isn't closed automatically: work might still be running inside, so it's only struck through and the call is left to you.
+
+</td>
+</tr>
+</table>
+
+### Closing the app doesn't kill your agents
+
+Terminal sessions are handed to **tmux** outside the app. Quit it, force-quit it, restart for an update — the work keeps going, unlike the common approach that restores only the layout and kills the processes. With tmux installed, **new tabs are persistent (∞) by default**. That default is deliberate, because the loss is asymmetric: an unneeded persistent session is just waste, but the agent in a non-persistent tab dies irreversibly the moment you close the app. The default should be the one that survives — if you don't need it, close the tab. Without tmux, tabs open as plain shells and get no ∞ badge. It doesn't pretend.
+
+<table>
+<tr>
+<td width="60%" valign="top">
+
+### See who's waiting on you at a glance
+
+Working, waiting, and done are spoken by **the same symbols across pane borders, tabs, the sidebar, and the notification list** (spinner, ⏸, ✓). Sessions waiting for approval collect in a queue card at the top of the sidebar; sessions with no activity fold into "Idle N" so only the ones needing attention stay as individual rows. The last instruction you sent can ride along on a second line, so you know where things stand without opening the pane. Split work and personal projects into workspaces (`⌘1`/`⌘2`), and worktrees of the same repo line up alongside.
+
+</td>
+<td width="40%"><img src="docs/assets/mock-sidebar.png" alt="Agent status list and queue card" /></td>
+</tr>
+</table>
+
+<table>
+<tr>
+<td width="40%"><img src="docs/assets/mock-notify.png" alt="Missed-notifications inbox" /></td>
+<td width="60%" valign="top">
+
+### Notifications — approvals and completions
+
+When an agent asks for approval or finishes, a macOS notification fires. Ones you miss while away pile up in an inbox, and **the body carries the agent's last words verbatim** (an actual result summary, not a canned line). Pick one to jump to its pane. The icons are **the same status glyphs** as the sidebar and tabs, so there's nothing new to learn.
+
+To turn notifications on, connect Claude Code to signal muxa **once** (a button under the inbox; your existing config is backed up). Connected, it tells approval-waiting from done precisely; before connecting it **guesses** idle when the screen goes quiet — and the app doesn't hide that it's guessing.
+
+</td>
+</tr>
+</table>
+
+### Splits and tabs — a different agent per pane
+
+Split the screen to any ratio and run a different session in each pane. Focus is shown **by brightness only** — unselected panes dim, no border appears. **Borders are reserved for notifications** — approval-waiting blinks, done is steady — so even with four panes you instantly tell which one needs you. Each pane has its own tab bar, and a mark on the left of a tab is the status of the agent inside it. An **∞ before the title means a persistent session**. `⌘F` searches the whole scrollback.
+
+<table>
+<tr>
+<td width="60%" valign="top">
+
+### Services — run independently of tabs
+
+Run a dev server or file watcher in a tab and it dies when you close the tab. muxa manages these in a **bottom dock** instead. Three kinds: **Services** (long-running — port and status always shown), **Scripts** (run on demand — built automatically from your Makefile if there is one), and **One-off** (keeps running even if you close the tab or switch projects). When one stops, **its exit code and last logs are kept** and a count appears next to the project name in the sidebar. It **doesn't auto-restart** — restart loops overwrite the logs and hide the cause. The service features need tmux.
+
+</td>
+<td width="40%"><img src="docs/assets/mock-services.png" alt="Service dock — exit code and logs preserved on stop" /></td>
+</tr>
+</table>
+
+**Also** — Claude usage display (session and weekly limits, down to the reset) · window detach (pop a pane into its own window and merge it back without killing the shell) · session restore (split tree, tabs, cwd) · `⌘K` command palette · resume a dropped session (bring a dead agent back with `--resume`; the app finds the session number).
+
+<sub>The grouping, worktree, status, notifications, and services screens are mockups that reproduce the real UI on the web; the other four are actual app screenshots.</sub>
+
+<br />
+
+## Build from source
+
+There's no prebuilt binary, so you **build from source**. No zig required — the terminal core is downloaded prebuilt, not compiled.
+
+**You need**: macOS 14+ · Xcode Command Line Tools (`xcode-select --install`)
 
 ```sh
-brew install --cask yjun1806/tap/muxa   # 준비 중 — tap 출시 후 활성화됩니다
+git clone https://github.com/yjun1806/muxa.git
+cd muxa
+./scripts/bootstrap.sh   # install GhosttyKit.xcframework (once; pinned-SHA download)
+make app                 # build & run as an .app bundle (proper icon & system notifications)
 ```
 
-### 첫 실행 권한
+`make app` launches a proper app with an icon and bundle id. To install into `/Applications`, use `make install` (release build). Full setup and upgrade steps are in **[docs/SETUP.md](docs/SETUP.md)**.
 
-- **알림** — 에이전트가 나를 기다릴 때 알려준다(거부해도 앱 안 인박스에는 쌓인다).
-- **폴더 접근**(문서·데스크탑·다운로드) — 그 폴더의 프로젝트를 열고 git 상태를 읽는다. 거부하면 파일 트리가 빈다.
+### External tools you need
 
-알림을 받으려면 Claude Code가 muxa에 신호를 보내도록 한 번 연결해야 한다. 인박스 아래 **설치** 버튼을 누르면 되고, 기존 설정은 백업된다. 연결하지 않아도 쓸 수 있지만 상태 표시가 화면 변화를 보고 추정하는 방식으로 내려간다.
-
-### 필요한 외부 도구
-
-| 도구 | 용도 | |
+| Tool | Used for | |
 |---|---|---|
-| `git` | diff·히스토리·워크트리 | 필수 |
-| `tmux` | 지속 세션·서비스·스크립트 (없으면 앱이 설치 명령을 안내) | 선택 |
-| `gh` | PR 배지 | 선택 |
+| `git` | diff, history, worktrees | required |
+| `tmux` | persistent sessions, services, scripts (the app shows the install command if missing) | optional |
+| `gh` | PR badges | optional |
 
-**설정**은 앱 메뉴 › `설정 파일 열기…`(`⌘,`) — `~/.config/muxa/config`에 주석 달린 기본본이 생기고, 저장하면 즉시 반영된다.
-**단축키**는 메뉴바 `명령` 메뉴에 전부 있다.
+### First-run permissions
 
-<br />
+- **Notifications** — tells you when an agent is waiting on you (deny it and things still pile up in the in-app inbox).
+- **Folder access** (Documents, Desktop, Downloads) — opens projects in those folders and reads their git status. Deny it and the file tree stays empty.
 
-## 왜 muxa?
+To receive notifications, connect Claude Code once so it signals muxa. Press the **Install** button under the inbox; your existing config is backed up. It works without connecting, but status detection falls back to guessing from what changes on screen.
 
-터미널로 코딩 작업을 하게 된 뒤로도 결과를 볼 때만은 다른 앱이 필요했다. Git GUI를 띄우고 VSCode를 띄우고, 확인이 끝나면 다시 터미널로 돌아왔다. 그 왕복이 불편해서 만들었다.
-
-그래서 muxa가 갈고닦는 "터미널 품질"은 렌더러 충실도가 아니다. **읽는 경험** — 문서를 문서로 보여주는 것, 변경을 원래 모양 위에 표시하는 것, 여러 세션의 상태를 한 목록에 모으는 것이다.
-
-그리고 muxa는 **편집기가 아니다.** 코드는 에이전트가 고치고, 사람이 직접 손댈 일이 생기면 에디터를 연다. muxa의 뷰어가 전부 읽기 전용인 이유다. 보고, 판단하고, 다음 지시를 내리는 자리다.
+**Settings**: app menu › `Open config file…` (`⌘,`) — a commented default is created at `~/.config/muxa/config`, and saving applies immediately.
+**Shortcuts** are all in the `Commands` menu in the menu bar.
 
 <br />
 
-## 지원 에이전트
+## What it doesn't do
 
-지금은 **Claude Code 전용**이다. 알림·상태 표시의 1차 소스가 Claude Code 훅(`muxa-notify`)이라, 완결된 상태 판정(작업중·대기·완료·유휴)이 Claude Code에 맞춰져 있다. 다른 CLI 에이전트도 터미널로 띄워 쓸 수는 있지만 정밀한 알림은 아직 Claude Code에서만 완전하다.
+muxa focuses on one thing: **a local workspace for driving several agents at once**. The following are out of scope by design or not yet supported.
 
-다른 에이전트(Codex·Gemini 등) 지원은 **로드맵**에 있다.
+- **It doesn't edit code.** Every viewer is read-only. Agents change code; you read and decide. When you need to touch it yourself, open a separate editor.
+- **Claude Code only.** Status and notifications are tuned to Claude Code. Other agents run in the terminal fine, but their status isn't tracked precisely.
+- **macOS only.** Runs on macOS 14+. No Windows or Linux plans.
+- **No remote status.** It's a terminal, so `ssh`-ing into another server works. But notifications and status detection rely on a local hook and socket, so an agent running remotely won't show its waiting/done state. There's no phone companion either.
+
+<br />
+
+## Supported agents
+
+**Claude Code only** for now. Notifications and status come first from a Claude Code hook (`muxa-notify`), so the full status model (working, waiting, done, idle) is tuned to Claude Code. Other CLI agents run in a terminal fine, but precise notifications are complete only on Claude Code today.
+
+Support for other agents (Codex, Gemini, …) is on the **roadmap**.
