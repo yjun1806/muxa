@@ -51,7 +51,7 @@ muxa는 macOS 전용 터미널 기반 에이전틱 개발 환경 (Swift/SwiftUI 
 
 ## 패키지 매니저 · 의존성
 
-**SPM** (`macos/Package.swift`). 분할·탭은 Bonsplit(MIT, 1.1.1).
+**SPM** (`macos/Package.swift`). 분할·탭은 우리 Bonsplit 포크(MIT, `yjun1806/bonsplit`의 `muxa` 브랜치, 리비전 고정 — almonk 원본 → manaflow-ai fork → 우리 fork).
 터미널 코어는 libghostty — cmux fork가 배포하는 prebuilt `GhosttyKit.xcframework`(universal, self-contained)를
 임베딩한다. `vendor/`는 gitignore(리포에 안 넣음)이고, **새 머신은 `./scripts/bootstrap.sh`가 SHA 고정으로
 내려받아 설치**한다(zig 불필요). 세팅 절차는 [docs/SETUP.md](docs/SETUP.md).
