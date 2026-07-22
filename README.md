@@ -31,7 +31,7 @@ You hand work to an agent in the terminal — but to see what it built, you end 
 
 It also splits sessions across panes. The name is **mux + a(gent)** — a terminal multiplexer with eyes added. The terminal core **embeds [ghostty](https://ghostty.org) directly**: not a webview imitation, but a real GPU-drawn terminal inside.
 
-> **This is still just a public personal repo.** There's no distributable `.dmg` or notarization — you **clone and build it yourself**. → [Build from source](#build-from-source)
+> **A personal project, shared as-is.** Not a commercial product, and there's no support — updates are irregular and may stop entirely. There's no distributable `.dmg` or notarization either; you **clone and build it yourself** if it's useful to you. → [Build from source](#build-from-source)
 >
 > **Claude Code only, for now.** Notifications and status come first from a Claude Code hook, so everything is tuned to Claude Code today. Other agents are on the roadmap. → [Supported agents](#supported-agents)
 
@@ -218,3 +218,18 @@ muxa focuses on one thing: **a local workspace for driving several agents at onc
 **Claude Code only** for now. Notifications and status come first from a Claude Code hook (`muxa-notify`), so the full status model (working, waiting, done, idle) is tuned to Claude Code. Other CLI agents run in a terminal fine, but precise notifications are complete only on Claude Code today.
 
 Support for other agents (Codex, Gemini, …) is on the **roadmap**.
+
+<br />
+
+## Credits & license
+
+muxa is **MIT-licensed** — see [LICENSE](LICENSE). It's a personal project, provided as-is (see the note at the top). Build it if it's useful to you.
+
+**Built on / bundles** (full texts in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)):
+
+- [**ghostty**](https://github.com/ghostty-org/ghostty) — the terminal core, embedded as a prebuilt `GhosttyKit.xcframework` (MIT)
+- [**Bonsplit**](https://github.com/yjun1806/bonsplit) — split/tab framework (MIT; our fork of `manaflow-ai/bonsplit`, orig. `almonk/bonsplit`)
+- [markdown-it](https://github.com/markdown-it/markdown-it) (MIT) · [highlight.js](https://github.com/highlightjs/highlight.js) (BSD-3-Clause) · [Mermaid](https://github.com/mermaid-js/mermaid) (MIT) · [Shiki](https://github.com/shikijs/shiki) (MIT) — document/code rendering
+- [Material Icon Theme](https://github.com/PKief/vscode-material-icon-theme) — file-tree icons (MIT)
+
+**Referenced for design** (no code copied) — [**cmux**](https://github.com/manaflow-ai/cmux) (GPL-3.0) and orca were studied as reference implementations for the native Swift + libghostty approach and feature design.
