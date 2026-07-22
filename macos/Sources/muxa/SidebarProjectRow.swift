@@ -29,10 +29,14 @@ struct SidebarProjectRow: View {
     private var hovered: Bool { hoveredId == project.id || menuOpenId == project.id }
     /// 이 프로젝트의 워크트리 폴더가 디스크에서 사라졌나(닫지 않고 배지로만 표시 — D31).
     private var worktreeGone: Bool { state.deadWorktreeProjectIds.contains(project.id) }
-    /// 펼칠 값이 있나 — 신호(작업중·대기·완료)가 있거나 탭이 여럿(뷰어 포함)이면. 유휴 1개뿐이면 접어 둔다.
+    /// 펼칠 값이 있나 — 신호(작업중·대기·완료)가 있거나 탭이 여럿(**뷰어 포함**)이면. 유휴 1개뿐이면 접어 둔다.
+    ///
+    /// "탭이 여럿"은 **열린 스토어의 총 탭 수**(`projectOpenTabCount`)로 센다 — `projectTabStatus`는
+    /// 터미널만 세므로, 그걸로 판정하면 터미널 1 + 뷰어 N인 프로젝트가 펼쳐지지 않아 뷰어 칩에 닿을 길이
+    /// 막힌다(터미널이 여전히 여럿이면 신호·개수 어느 쪽으로든 그대로 펼쳐진다).
     private var expandable: Bool {
         let s = state.projectTabStatus(project.id)
-        return (s.working + s.waiting + s.done > 0) || (s.working + s.waiting + s.done + s.idle) > 1
+        return (s.working + s.waiting + s.done > 0) || state.projectOpenTabCount(project.id) > 1
     }
 
     var body: some View {
@@ -163,9 +167,29 @@ struct SidebarProjectRow: View {
             // 유휴 폴드는 **선 위**(터미널 쪽)에 남는다 — 아래로 내려가면 뷰어를 접는다는 오해를 준다.
             if sections.idleTerminals > 0 { idleFold(sections.idleTerminals) }
             if sections.showsSeparator { sectionSeparator }
-            ForEach(sections.viewers) { agentRowView($0, selected: selected) }
+            // **뷰어는 칩으로 흘려 담는다** — 문서·HTML·코드처럼 가만히 있는 파일 탭은 각자 한 줄을 차지할
+            // 값이 약하다(개수만 알면 된다). 줄바꿈 칩이라 7개가 두어 줄로 접힌다. 클릭은 여전히 칩 단위
+            // (그 탭 지목 이동) — 행이 하던 일을 그대로 한다. 터미널은 위에서 계속 행으로 산다.
+            if !sections.viewers.isEmpty {
+                FlowLayout(spacing: Space.xs, lineSpacing: Space.xs) {
+                    ForEach(sections.viewers) { viewerChip($0, selected: selected) }
+                }
+                .padding(.leading, agentIndent)
+                .padding(.trailing, Space.sm)
+            }
         }
         .padding(.top, Space.tight)
+    }
+
+    /// 뷰어 한 칩 — 종류+개수 알약(`ViewerChip`). 클릭=그 탭 지목 이동(행과 같은 `focusAgentTab`).
+    /// 툴팁·접근성 라벨은 뷰어 행과 한 문법(`rowDescription` 재사용) — 표현만 칩으로 바뀌고 의미는 그대로.
+    private func viewerChip(_ r: AgentRow, selected: TabID?) -> some View {
+        ViewerChip(icon: r.typeIcon, title: r.title, count: r.subtabCount,
+                   selected: r.tabId == selected) {
+            state.focusAgentTab(project.id, r.tabId)
+        }
+        .help("\(rowDescription(r)). 클릭해 이동")
+        .accessibilityLabel("\(rowDescription(r)) 탭으로 이동")
     }
 
     /// 터미널 ↔ 뷰어 경계 — **목록 폭에만** 걸리는 1pt 선.

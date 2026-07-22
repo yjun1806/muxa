@@ -849,6 +849,14 @@ final class AppState {
         return savedLayouts[projectId]?.tabCount() ?? 0
     }
 
+    /// **지금 열린 스토어**의 탭 수(터미널+뷰어+링크). 안 연 프로젝트는 0.
+    /// 펼침 판정(`SidebarProjectRow.expandable`) 전용 — `projectTabCount`와 달리 **복원 스냅샷을 세지
+    /// 않는다**. 안 연 프로젝트는 나열할 실제 탭(`agentRows`)이 없으므로, 스냅샷 수로 펼치면 "펼쳐도 빈
+    /// 목록"이 된다. 유휴 1개뿐인지(=접어 둠)와 뷰어가 붙어 여럿인지(=펼침)를 뷰어까지 세어 가른다.
+    func projectOpenTabCount(_ projectId: String) -> Int {
+        stores[projectId]?.controller.allTabIds.count ?? 0
+    }
+
     /// 프로젝트 행을 펼쳤을 때의 **에이전트 목록** — 이미 만들어진 스토어의 탭을 긴급도순으로 정렬해 돌려준다.
     /// 안 연 프로젝트는 빈 배열(조회가 PTY를 스폰하지 않는다). 정렬은 순수 함수 `AgentRow.ordered`.
     func agentRows(_ projectId: String) -> [AgentRow] {
