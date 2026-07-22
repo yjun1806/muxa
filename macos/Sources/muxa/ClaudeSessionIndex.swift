@@ -10,11 +10,11 @@ import Foundation
 /// 부작용(디렉터리 읽기)은 이 경계 타입에 격리하고, 인코딩 규칙(`encodeProjectDir`)·세션 id 검증
 /// (`isSafeSessionId`)은 순수 함수로 분리해 테스트 가능하게 둔다.
 enum ClaudeSessionIndex {
-    /// Claude가 cwd로 프로젝트 디렉터리 이름을 만드는 규칙: `/`와 `.`를 모두 `-`로 바꾼다.
-    /// (예: `/Users/x/repo/.claude` → `-Users-x-repo--claude`.) cmux `encodeClaudeProjectDir`로 검증된 규칙.
+    /// Claude Code가 cwd를 `~/.claude/projects/` 아래 폴더 이름으로 바꾸는 규칙을 재현한다:
+    /// 경로의 `/`와 `.`을 전부 `-`로 치환한다. Claude의 온디스크 규약이라, 그 폴더를 찾으려면
+    /// 같은 방식으로 인코딩해야 한다. (예: `/Users/me/app` → `-Users-me-app`)
     static func encodeProjectDir(_ cwd: String) -> String {
-        cwd.replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ".", with: "-")
+        String(cwd.map { ($0 == "/" || $0 == ".") ? "-" : $0 })
     }
 
     /// 세션 id가 안전한지 — **UUID 꼴만** 통과시킨다. Claude가 실제로 쓰는 형식이고, 이 id는

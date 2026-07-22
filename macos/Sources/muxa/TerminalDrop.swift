@@ -11,21 +11,25 @@ enum TerminalDrop {
         paths.map(shellEscaped).joined(separator: " ")
     }
 
-    /// 셸에 안전하게 넘길 이스케이프 — **따옴표로 감싸지 않고 문자마다 백슬래시**를 붙인다(cmux 동일).
-    /// claude code는 드롭된 경로를 "터미널이 드래그로 넣어준 경로" 형태(백슬래시 이스케이프)로만 이미지
-    /// 첨부로 인식한다. `'/path/img.png'`처럼 통째로 인용하면 경로로 보지 않아 첨부가 안 된다.
-    /// 개행이 든 값만 예외로 단일 인용한다(개행은 백슬래시로 이스케이프하면 입력이 쪼개진다).
+    /// 드롭 경로를 셸 입력으로 넘길 때의 이스케이프 — **따옴표로 감싸지 않고 문자마다 백슬래시**를 붙인다.
+    /// 이렇게 하는 이유는 Claude Code의 파싱 때문이다: 경로가 **백슬래시 이스케이프된 토큰**일 때만
+    /// 이미지 첨부로 인식하고, `'/path/img.png'`처럼 통째로 인용하면 경로로 안 봐 첨부가 실패한다.
+    /// 이스케이프 대상은 셸이 단어 분리·글롭·확장에 쓰는 메타문자 집합(터미널이 드래그로 넣는 경로에서
+    /// 이스케이프하는 문자와 같다). 예외로, 개행/캐리지리턴이 든 값은 백슬래시로 막으면 입력이 쪼개지므로
+    /// 통째로 단일 인용한다.
     static func shellEscaped(_ value: String) -> String {
-        guard !value.contains(where: { $0 == "\n" || $0 == "\r" }) else {
-            return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        if value.contains("\n") || value.contains("\r") {
+            return "'\(value.replacingOccurrences(of: "'", with: #"'\''"#))'"
         }
-        var result = value
-        for char in shellEscapeCharacters {
-            result = result.replacingOccurrences(of: String(char), with: "\\\(char)")
+        var out = ""
+        out.reserveCapacity(value.count)
+        for scalar in value.unicodeScalars {
+            if shellMetacharacters.contains(scalar) { out.unicodeScalars.append("\\") }
+            out.unicodeScalars.append(scalar)
         }
-        return result
+        return out
     }
 
-    /// 백슬래시를 붙일 셸 특수문자 — 백슬래시 자신이 맨 앞이어야 뒤 문자의 이스케이프가 이중으로 먹지 않는다.
-    private static let shellEscapeCharacters = "\\ ()[]{}<>\"'`!#$&;|*?\t"
+    /// 백슬래시를 앞에 붙일 셸 메타문자. 멤버십으로 판정하므로 백슬래시 자신도 안전하게 한 번만 이스케이프된다.
+    private static let shellMetacharacters = CharacterSet(charactersIn: #" ()[]{}<>"'`!#$&;|*?\"# + "\t")
 }
