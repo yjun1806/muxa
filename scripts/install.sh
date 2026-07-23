@@ -6,6 +6,8 @@
 #
 # 재실행하면 git pull로 최신화(업그레이드 경로로도 쓴다).
 # 설치 위치 바꾸기:  MUXA_DIR=~/code/muxa  앞에 붙여 실행.
+# 설치 후 빌드 산출물 정리: MUXA_SLIM=1 앞에 붙이면 .build/를 지워 공간 회수
+#   (git 소스는 남아 업데이트는 되지만, 다음 업데이트는 콜드 빌드).
 set -euo pipefail
 
 REPO="https://github.com/yjun1806/muxa.git"
@@ -114,6 +116,14 @@ printf '\n%s✓ muxa %s %s%s — /Applications/muxa.app\n\n' "$G" "$NEW_VER" "$D
 printf '  실행:            open -a muxa\n'
 printf '  알림 연결(선택): 앱에서 %sInstall%s 버튼, 또는  make integrate\n' "$B" "$Z"
 printf '  소스:            %s\n' "$DIR"
+
+# .build/ 정리 (선택) — MUXA_SLIM=1이면 빌드 산출물을 지워 수백 MB 회수한다.
+# 설치는 이미 끝났으니(앱은 /Applications) 정리 실패가 전체를 실패시키지 않게 가드한다.
+if [ -n "${MUXA_SLIM:-}" ] && [ -d macos/.build ]; then
+  freed="$(du -sh macos/.build 2>/dev/null | cut -f1 || true)"
+  rm -rf macos/.build 2>/dev/null || true
+  printf '  정리:            .build/ 삭제 (%s 회수 — 다음 업데이트는 콜드 빌드)\n' "${freed:-공간}"
+fi
 
 # tmux는 선택이지만 강력 권장 — 앱을 꺼도 세션이 살아남고(∞) 서비스 기능이 켜진다.
 # 직접 설치하지 않는다(앱이 brew를 대신 실행하지 않는다) — 명령만 안내한다.
