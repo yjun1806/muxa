@@ -9,7 +9,7 @@ MACOS := macos
 IDENTITY := source scripts/app-identity.sh debug
 
 .DEFAULT_GOAL := help
-.PHONY: help bootstrap worktree build test dev dev-kill dev-relaunch whoami release-install release-dmg icons integrate clean
+.PHONY: help bootstrap worktree build test dev dev-kill dev-relaunch whoami release-install release-dmg icons integrate changelog clean
 
 help: ## 사용 가능한 명령 보기
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -51,6 +51,9 @@ icons: ## 앱 아이콘·파일 아이콘 리소스 재생성
 
 integrate: ## Claude Code 훅·muxa notify 설치 (기본 dry-run, 실제 적용은 --apply)
 	./scripts/integrate.sh
+
+changelog: ## 직전 태그 이후 커밋으로 CHANGELOG에 새 릴리스 섹션 추가 — 예: make changelog TAG=v0.3.0
+	@./scripts/changelog.sh $(TAG)
 
 clean: ## 빌드 산출물 삭제
 	cd $(MACOS) && swift package clean
