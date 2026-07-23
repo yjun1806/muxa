@@ -10,7 +10,7 @@ import Foundation
 enum ClaudeHookSettings {
     /// muxa가 심은 훅을 식별하는 표식. 이 문자열이 command에 있으면 muxa 소유로 보고 제거·교체한다.
     ///
-    /// `muxa-notify hook`이 아니라 `muxa-notify`로 넓게 잡는 이유: 예전 방식(`scripts/install-integration.sh`가
+    /// `muxa-notify hook`이 아니라 `muxa-notify`로 넓게 잡는 이유: 예전 방식(`scripts/integrate.sh`가
     /// 심던 `muxa-notify --state done …`)이 남아 있으면 Stop 한 번에 레거시 알림과 훅 알림이 **두 번** 울린다.
     /// muxa-notify를 부르는 훅은 어느 형식이든 muxa 소유로 보고 새 형식으로 갈아끼운다.
     static let hookMarker = "muxa-notify"

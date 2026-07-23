@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # muxa 앱 정체성(이름·번들 id·실행파일명)의 **단일 출처**.
 #
-# 왜 한 곳에 모으나: 이름 규칙이 build-app.sh(번들 조립)와 Makefile(kill/relaunch/app)에 따로
+# 왜 한 곳에 모으나: 이름 규칙이 build-app.sh(번들 조립)와 Makefile(dev-kill/dev-relaunch/dev)에 따로
 # 있으면 서로 어긋나, dev/prod를 헷갈려 **엉뚱한 인스턴스를 죽인다**(실제로 반복됐다).
 # 이름을 정하는 곳도, 죽일 대상을 계산하는 곳도 전부 이 스크립트를 source 해서 같은 값을 쓴다.
 #

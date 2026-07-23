@@ -55,7 +55,7 @@ echo
 echo "다음:"
 echo "  cd $WT"
 echo "  make build      # 첫 빌드는 콜드(전체 컴파일)라 좀 걸린다"
-echo "  make app        # .app 번들로 실행"
+echo "  make dev        # .app 번들로 실행"
 echo
 echo "제거할 땐 (워크트리 + 심링크 정리):"
 echo "  git worktree remove $WT"

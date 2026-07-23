@@ -82,7 +82,7 @@ final class ClaudeHookSettingsTests: XCTestCase {
         XCTAssertFalse(ClaudeHookSettings.isInstalled(in: merged, executable: exe))
     }
 
-    /// 예전 방식(install-integration.sh가 심던 `muxa-notify --state done`)이 남아 있으면 Stop 한 번에
+    /// 예전 방식(integrate.sh가 심던 `muxa-notify --state done`)이 남아 있으면 Stop 한 번에
     /// 알림이 두 번 울린다. 형식이 달라도 muxa-notify를 부르는 훅은 전부 새 형식으로 갈아끼워야 한다.
     func testMergeReplacesLegacyStateStyleHooks() throws {
         let legacy: [String: Any] = ["hooks": [

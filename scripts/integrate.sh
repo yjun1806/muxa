@@ -12,10 +12,10 @@
 #   • settings.json 은 jq 가 있으면 병합, 없으면 수동 안내만.
 #
 # 사용:
-#   ./scripts/install-integration.sh            # dry-run (권장: 먼저 확인)
-#   ./scripts/install-integration.sh --apply     # 실제 적용
-#   ./scripts/install-integration.sh --apply --resume   # 재개(SessionStart) 훅까지
-#   ./scripts/install-integration.sh --help
+#   ./scripts/integrate.sh            # dry-run (권장: 먼저 확인)
+#   ./scripts/integrate.sh --apply     # 실제 적용
+#   ./scripts/integrate.sh --apply --resume   # 재개(SessionStart) 훅까지
+#   ./scripts/integrate.sh --help
 set -euo pipefail
 
 # ── 색 출력 ────────────────────────────────────────────────────────────────

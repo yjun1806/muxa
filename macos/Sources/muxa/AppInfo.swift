@@ -10,9 +10,8 @@ import Foundation
 /// 모두 같은 이름을 쓰게 한다.
 ///
 /// bare 실행(`swift build`의 `.build/debug/muxa` 직접)은 번들이 아니라 이름을 못 박고 시스템 알림도 못 쓴다
-/// — 그래서 개발은 **`make app`/`make relaunch`로 번들을 띄운다**(프로세스명 `muxa-dev-<slug>`).
-/// `make run`도 bare지만 실행파일을 `muxa-dev-<slug>`로 복사해 프로세스명만은 구분되게 한다.
-/// 종료는 **`make kill`**(이 워크트리 개발 앱만 — 릴리스·타 워크트리 불가침).
+/// — 그래서 개발은 **`make dev`/`make dev-relaunch`로 번들을 띄운다**(프로세스명 `muxa-dev-<slug>`).
+/// 종료는 **`make dev-kill`**(이 워크트리 개발 앱만 — 릴리스·타 워크트리 불가침).
 enum AppInfo {
     /// 앱 번들이 아니면(=bare 실행) 개발 실행이다. 번들 개발빌드는 id가 `com.muxa.dev.*`다.
     static let isDev = bundleId == nil || bundleId?.hasPrefix(devBundlePrefix) == true

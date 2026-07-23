@@ -12,7 +12,7 @@ Stop opening a separate editor and Git client just to see what your agent built.
 
 <br />
 
-[![macOS 14+](https://img.shields.io/badge/macOS-14%2B-000000?logo=apple&logoColor=white)](#build-from-source)
+[![macOS 14+](https://img.shields.io/badge/macOS-14%2B-000000?logo=apple&logoColor=white)](#install)
 [![Claude Code](https://img.shields.io/badge/agent-Claude%20Code-D97757?logo=anthropic&logoColor=white)](#supported-agents)
 [![Swift](https://img.shields.io/badge/Swift-SwiftUI%20%2B%20AppKit-F05138?logo=swift&logoColor=white)](macos/Package.swift)
 [![Stars](https://img.shields.io/github/stars/yjun1806/muxa?style=flat&logo=github)](https://github.com/yjun1806/muxa/stargazers)
@@ -31,7 +31,7 @@ You hand work to an agent in the terminal — but to see what it built, you end 
 
 It also splits sessions across panes. The name is **mux + a(gent)** — a terminal multiplexer with eyes added. The terminal core **embeds [ghostty](https://ghostty.org) directly**: not a webview imitation, but a real GPU-drawn terminal inside.
 
-> **A personal project, shared as-is.** Not a commercial product, and there's no support — updates are irregular and may stop entirely. There's no distributable `.dmg` or notarization either; you **clone and build it yourself** if it's useful to you. → [Build from source](#build-from-source)
+> **A personal project, shared as-is.** Not a commercial product, and there's no support — updates are irregular and may stop entirely. There's no distributable `.dmg` or notarization either; it **builds on your machine** — a one-line installer or by hand — if it's useful to you. → [Install](#install)
 >
 > **Claude Code only, for now.** Notifications and status come first from a Claude Code hook, so everything is tuned to Claude Code today. Other agents are on the roadmap. → [Supported agents](#supported-agents)
 
@@ -167,20 +167,34 @@ Run a dev server or file watcher in a tab and it dies when you close the tab. mu
 
 <br />
 
-## Build from source
+## Install
 
-There's no prebuilt binary, so you **build from source**. No zig required — the terminal core is downloaded prebuilt, not compiled.
+There's no prebuilt binary — muxa is built on your machine either way (no zig required; the terminal core is downloaded prebuilt, not compiled). Two paths, depending on what you want.
 
 **You need**: macOS 14+ · Xcode Command Line Tools (`xcode-select --install`)
+
+### Quick install
+
+One line — clones, downloads the terminal core, builds, and installs to `/Applications`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/yjun1806/muxa/main/scripts/install.sh | bash
+```
+
+Re-run it anytime to update (it `git pull`s and rebuilds). Prefer to inspect first? [Read the script](scripts/install.sh) — it's short. Then just `open -a muxa`.
+
+### Build from source
+
+Want to change things, run dev builds, work across worktrees? Clone it and drive it with `make`:
 
 ```sh
 git clone https://github.com/yjun1806/muxa.git
 cd muxa
 ./scripts/bootstrap.sh   # install GhosttyKit.xcframework (once; pinned-SHA download)
-make app                 # build & run as an .app bundle (proper icon & system notifications)
+make dev                 # dev build & run as an .app bundle (icon & system notifications)
 ```
 
-`make app` launches a proper app with an icon and bundle id. To install into `/Applications`, use `make install` (release build). Full setup and upgrade steps are in **[docs/SETUP.md](docs/SETUP.md)**.
+`make dev` runs a **debug** build in place for iteration; `make dev-relaunch` rebuilds and restarts it; `make worktree BRANCH=…` spins up an isolated dev worktree. (`make release-install` is the release-to-`/Applications` build — the same thing the one-line installer above does for you.) Full setup and upgrade steps are in **[docs/SETUP.md](docs/SETUP.md)**.
 
 ### External tools you need
 

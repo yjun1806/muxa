@@ -15,7 +15,7 @@ CONFIG="${1:-debug}"
 # ── 빌드 식별자 — 이름 규칙은 app-identity.sh 한 곳에서만 정한다(단일 출처) ────────────
 # dev/prod가 이름만 봐도 완전히 갈린다: 릴리스 `muxa`, 개발 `muxa-dev-<slug>`.
 # 번들 id도 갈려(com.muxa.app vs com.muxa.dev.<slug>) 알림 권한·LaunchServices 등록이 각각이라
-# 창·프로세스가 서로 섞이지 않는다. → docs/SETUP.md, 종료는 `make kill`(이 워크트리 것만).
+# 창·프로세스가 서로 섞이지 않는다. → docs/SETUP.md, 종료는 `make dev-kill`(이 워크트리 것만).
 # shellcheck source=app-identity.sh
 source "$SCRIPT_DIR/app-identity.sh" "$CONFIG"
 BIN="$APP_BIN"
@@ -85,7 +85,7 @@ PLIST
 # 서명 정체성 결정. 명시 지정(CODESIGN_ID)이 없으면 로컬 self-signed 인증서를 찾고, 그것도 없으면 ad-hoc.
 # **로컬 인증서를 자동으로 쓰는 이유**: ad-hoc은 재빌드마다 정체성이 바뀌어 TCC(문서 폴더 접근) 권한이
 # 리셋된다 — "허용"을 눌러도 재설치하면 또 묻는다. self-signed는 designated requirement가 인증서 leaf에
-# 고정돼 재빌드해도 권한이 유지된다. 인증서는 scripts/make-local-signing-cert.sh가 한 번 만든다.
+# 고정돼 재빌드해도 권한이 유지된다. 인증서는 scripts/create-signing-cert.sh가 한 번 만든다.
 LOCAL_CERT="muxa Local Signing"
 if [ -z "${CODESIGN_ID:-}" ]; then
   if security find-certificate -c "$LOCAL_CERT" >/dev/null 2>&1; then
@@ -118,7 +118,7 @@ if [ "$CONFIG" = "release" ]; then
   codesign --verify --strict --verbose=2 "$APP" || { echo "서명 검증 실패 — 중단." >&2; exit 1; }
   if [ "$CODESIGN_ID" = "-" ]; then
     echo "  경고: ad-hoc 서명이다 — 재빌드마다 TCC 권한이 리셋돼 문서 폴더 접근 프롬프트가 반복된다." >&2
-    echo "  로컬은 './scripts/make-local-signing-cert.sh' 한 번이면 해결된다. 배포는 Developer ID + 공증." >&2
+    echo "  로컬은 './scripts/create-signing-cert.sh' 한 번이면 해결된다. 배포는 Developer ID + 공증." >&2
   elif [ "$CODESIGN_ID" = "$LOCAL_CERT" ]; then
     echo "  로컬 self-signed 서명('$LOCAL_CERT') — 재빌드해도 TCC 권한이 유지된다. 배포는 Developer ID + 공증." >&2
   else

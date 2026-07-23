@@ -65,11 +65,11 @@ muxa는 macOS 전용 터미널 기반 에이전틱 개발 환경 (Swift/SwiftUI 
 make worktree BRANCH=feat/foo  # 새 개발 워크트리 생성 + vendor 연결까지 (아래 주의)
 make build             # 빌드            (= cd macos && swift build)
 make test              # 순수 로직 단위 테스트
-make app               # 번들로 빌드·실행 (권장 — 이름·알림·아이콘 정상)
+make dev               # 번들로 빌드·실행 (권장 — 이름·알림·아이콘 정상)
 make whoami            # 이 워크트리 앱의 이름·번들 id·프로세스명 확인
-make kill              # 이 워크트리 개발 앱만 종료
-make relaunch          # 종료 → 재빌드 → 실행 (안전한 테스트 루프)
-make install           # 프로덕션(release) 빌드 → /Applications 설치 (재시작해야 반영)
+make dev-kill              # 이 워크트리 개발 앱만 종료
+make dev-relaunch          # 종료 → 재빌드 → 실행 (안전한 테스트 루프)
+make release-install           # 프로덕션(release) 빌드 → /Applications 설치 (재시작해야 반영)
 ```
 
 **새 워크트리는 `make worktree`로 만든다 (`git worktree add`만 쓰면 빌드가 깨진다).**
@@ -92,8 +92,8 @@ make install           # 프로덕션(release) 빌드 → /Applications 설치 (
 | 개발 | `muxa-dev-<slug>` | `com.muxa.dev.<slug>` | `Muxa Dev · <slug>` |
 
 - **`pkill muxa`·`pgrep -f muxa` 금지.** 부분 문자열이라 릴리스·모든 워크트리·`muxa-notify`까지 다 잡아 **서로 죽인다**. 실제로 반복된 실수다.
-- **죽일 땐 `make kill`을 쓴다** — `make whoami`가 뽑은 이 워크트리의 `muxa-dev-<slug>`만 정확히 종료한다. 릴리스·타 워크트리 불가침.
+- **죽일 땐 `make dev-kill`을 쓴다** — `make whoami`가 뽑은 이 워크트리의 `muxa-dev-<slug>`만 정확히 종료한다. 릴리스·타 워크트리 불가침.
 - 굳이 직접 잡을 땐: 이 워크트리 개발 = `pkill -f muxa-dev-<slug>`, 릴리스만 = `pkill -x muxa`. **`-x`(정확 매치)나 유니크한 `muxa-dev-<slug>` 문자열**만 쓴다.
-- 프로세스 종료는 **사용자 승인**이 필요하다(글로벌 규칙) — `make kill`이라도 실행 전 확인받는다.
+- 프로세스 종료는 **사용자 승인**이 필요하다(글로벌 규칙) — `make dev-kill`이라도 실행 전 확인받는다.
 
 - 커밋 자유(private), push만 승인. 커밋 트레일러 금지. 응답은 한국어.
