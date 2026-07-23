@@ -28,18 +28,22 @@ PREV="$(git describe --tags --abbrev=0 2>/dev/null || true)"
 [ -n "$PREV" ] || { echo "직전 태그를 못 찾음 — 첫 릴리스는 수동으로" >&2; exit 1; }
 prevver="${PREV#v}"
 
+# 임시파일 세 개를 한 번에 정리 대상으로 등록(중간 실패로 새는 것 방지).
+sectmp="$(mktemp)"; out="$(mktemp)"; errlog="$(mktemp)"
+trap 'rm -f "$sectmp" "$out" "$errlog"' EXIT
+
 # 직전 태그 이후 커밋으로 섹션 생성(앞뒤 빈 줄은 정리 — BSD/GNU 공통 awk로).
-sectmp="$(mktemp)"; trap 'rm -f "$sectmp"' EXIT
-git-cliff "$PREV..HEAD" --tag "$TAG" 2>/dev/null \
+# git-cliff stderr는 캡처해 실패 시 보여준다 — 조용히 죽지 않게(set -euo pipefail).
+git-cliff "$PREV..HEAD" --tag "$TAG" 2>"$errlog" \
   | awk 'NF{p=1} p' \
   | awk '{a[NR]=$0} END{n=NR; while(n>0 && a[n] ~ /^[ \t]*$/) n--; for(i=1;i<=n;i++) print a[i]}' \
-  > "$sectmp"
+  > "$sectmp" \
+  || { echo "git-cliff 실패 ($PREV..HEAD):" >&2; cat "$errlog" >&2; exit 1; }
 
 grep -q '^- ' "$sectmp" \
   || echo "경고: $PREV..HEAD 에 노트에 넣을 커밋이 없음(전부 chore/ci/비컨벤션?) — 빈 섹션이 들어간다" >&2
 
 # [Unreleased] 아래에 섹션 삽입 + compare 링크 갱신/추가. 나머지는 그대로 통과.
-out="$(mktemp)"
 awk -v secfile="$sectmp" -v tag="$TAG" -v ver="$ver" \
     -v prev="$PREV" -v prevver="$prevver" -v repo="$REPO" '
   /^## \[Unreleased\]/ {
