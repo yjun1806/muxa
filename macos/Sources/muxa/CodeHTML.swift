@@ -50,9 +50,9 @@ enum CodeHTML {
            읽을 게 없어 열을 균등 분할해버린다(줄번호 열이 화면의 1/4을 먹었다). colgroup으로 못 박는다. */
         table.code col.cln{width:64px;}
         table.code td{vertical-align:top;}
-        table.code td.ln{width:1%;white-space:nowrap;text-align:right;padding:0 18px 0 16px;color:\(t.muted);
+        table.code td.ln{width:1%;white-space:nowrap;text-align:right;padding:0 10px 0 16px;color:\(t.muted);
               user-select:none;position:sticky;left:0;background:\(t.bg);border-right:1px solid \(t.gutter);}
-        table.code td.src{white-space:pre-wrap;overflow-wrap:anywhere;padding:0 16px 0 44px;}
+        table.code td.src{white-space:pre-wrap;overflow-wrap:anywhere;padding:0 16px 0 12px;}
         .dl{white-space:pre-wrap;overflow-wrap:anywhere;padding:0 16px;}
         /* 변경 위치 레일 — macOS 오버레이 스크롤바는 CSS로 못 칠하므로 별도 div로 띄운다. */
         #muxa-minimap{position:fixed;top:0;right:0;width:10px;height:100%;z-index:50;
