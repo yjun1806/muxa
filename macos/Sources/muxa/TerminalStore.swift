@@ -69,6 +69,22 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         action: .custom(persistentTerminalKind)
     )
 
+    /// Claude 지속 세션 버튼 — `+`·`∞` 옆에 선다. 누르면 tmux 지속 탭이 열리고 **`claude`가 바로 실행**된다.
+    /// 지속 세션이라 tmux가 있을 때만 노출한다(∞와 같은 게이트).
+    static let claudeTerminalKind = "claudeTerminal"
+    static let claudeTerminalButton: BonsplitConfiguration.SplitActionButton = {
+        // 공식 Claude 심볼(정체성 마크)을 그대로 쓴다. Bonsplit `.imageData`는 `NSImage(data:)`만 받아
+        // SVG를 PNG로 래스터화해 넘긴다. 래스터화 실패 시에만 SF Symbol로 폴백(동작은 동일).
+        let icon: BonsplitConfiguration.SplitActionButton.Icon =
+            ClaudeMark.pngData().map { .imageData($0) } ?? .systemImage("sparkle")
+        return BonsplitConfiguration.SplitActionButton(
+            id: claudeTerminalKind,
+            icon: icon,
+            tooltip: "Claude 지속 세션 — claude를 바로 실행합니다",
+            action: .custom(claudeTerminalKind)
+        )
+    }()
+
     /// 탭이 닫혔지만 안에서 작업이 돌고 있어 백그라운드로 남겼다 — AppState가 프로젝트에 기록한다.
     /// 기록하지 않으면 다음 시작 때 GC가 고아로 보고 죽인다(= 남긴 의미가 없다).
     @ObservationIgnored var onDetachSession: ((DetachedSession) -> Void)?
@@ -395,8 +411,6 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     @ObservationIgnored private var restoreSnap: PaneSnapshot?
     /// 복원 replay 중에는 delegate 부작용(자동 새 터미널 생성)을 막는다.
     @ObservationIgnored private var restoring = false
-    /// 서브탭 분리로 만드는 빈 분할 패인 — didSplitPane의 자동 새 터미널을 막고, 곧 그룹 탭을 직접 심는다.
-    @ObservationIgnored private var detachingSplit = false
     /// 진행 중인 서브탭 드래그의 페이로드 — 드래그 시작 시 심고 드롭 때 읽는다.
     /// pasteboard 커스텀 타입 데이터는 lazy라 생짜로는 0바이트로 읽혀(콜백 미호출), 데이터는 여기로 나른다.
     /// 판별(우리 드래그인가)은 pasteboard의 **타입 존재**로 하므로 이 값이 남아 있어도 Finder 드롭엔 안 샌다.
@@ -437,11 +451,14 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         var config = BonsplitConfiguration(contentViewLifecycle: .keepAllAlive)
         // 탭바 내장 액션 버튼: [새 터미널(+), 우측 분할, 하단 분할]. 브라우저는 muxa에 없어 제외.
         // .newTerminal → requestNewTab(kind:"terminal") → didRequestNewTab 델리게이트 → newTerminal().
-        // 새 터미널(+), 지속 세션 터미널(∞), 우측 분할, 하단 분할.
-        // 지속 세션 버튼은 tmux가 있을 때만 — 없는데 버튼을 보여주면 눌러도 아무 일이 안 일어난다.
+        // 새 터미널(+), 지속 세션 터미널(∞), Claude 지속 세션, 우측 분할, 하단 분할.
+        // 지속 세션 버튼(∞·Claude)은 tmux가 있을 때만 — 없는데 버튼을 보여주면 눌러도 아무 일이 안 일어난다.
         var buttons: [BonsplitConfiguration.SplitActionButton] = [.newTerminal]
-        // 일회용(스크래치)엔 지속 세션이 없다 — ∞ 버튼을 숨겨 tmux 세션이 아예 안 생기게 한다(파괴 안전).
-        if !ephemeral && TmuxService.isAvailable { buttons.append(Self.persistentTerminalButton) }
+        // 일회용(스크래치)엔 지속 세션이 없다 — ∞·Claude 버튼을 숨겨 tmux 세션이 아예 안 생기게 한다(파괴 안전).
+        if !ephemeral && TmuxService.isAvailable {
+            buttons.append(Self.persistentTerminalButton)
+            buttons.append(Self.claudeTerminalButton)
+        }
         buttons.append(contentsOf: [.splitRight, .splitDown])
         config.appearance.splitButtons = buttons
         // 칸 탭바를 도구 패널(탐색기·git) 헤더와 같은 높이로 — 두 줄이 한 선에 이어져 보이게.
@@ -477,13 +494,11 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         controller.onExternalFileDrop = { [weak self] request in
             guard let self else { return false }
             // 서브탭 드래그면 파일 삽입이 아니라 서브탭 이동이다(드래그 pasteboard의 커스텀 타입으로 판별).
-            // 분할·탭 생성은 뷰 트리를 크게 바꾼다 — performDrop 안에서 동기로 하면 살아 있는 드래그 세션과
-            // 겹쳐 런루프가 멈춘다. 드롭은 즉시 수락하고 실제 이동은 다음 런루프로 미룬다.
+            // Bonsplit 네이티브 탭 드래그와 같은 idiom(movingTab)이라 performDrop 안에서 동기로 처리해도
+            // 멈추지 않는다(빈 패인 레이스가 없다).
             if let payload = self.subtabDragPayload() {
                 self.pendingSubtabDrag = nil // 소비 — 다음 드롭에 안 새게
-                DispatchQueue.main.async { [weak self] in
-                    self?.applySubtabDrop(payload, destination: request.destination)
-                }
+                self.applySubtabDrop(payload, destination: request.destination)
                 return true
             }
             let paneId: PaneID
@@ -550,8 +565,6 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 복원 중엔 replay가 탭을 직접 채우므로 자동 생성을 건너뛴다.
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
         if restoring { return }
-        // 서브탭 분리가 만든 빈 패인 — detachGroupItem이 곧 그룹 탭을 심으므로 자동 터미널을 채우지 않는다.
-        if detachingSplit { return }
         // 탭을 **끌어다** 만든 분할은 그 탭이 이미 새 칸에 들어와 있다(Bonsplit이 splitPaneWithTab 뒤에
         // 이 델리게이트를 부른다) — 거기에 또 터미널을 채우면 여분 탭이 생긴다(실측 버그).
         // 빈 칸(분할 버튼)일 때만 채운다.
@@ -564,13 +577,16 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         newTerminal(inPane: pane)
     }
 
-    /// 탭바의 커스텀 액션 버튼 — 지금은 `∞`(지속 세션 터미널) 하나뿐.
+    /// 탭바의 커스텀 액션 버튼 — `∞`(지속 세션 터미널)·Claude(지속 세션 + `claude` 미리 입력).
     ///
     /// **`.custom`은 `didRequestNewTab`으로 오지 않는다**(Bonsplit은 `requestCustomAction`으로 따로 보낸다).
     /// 이걸 구현하지 않아 버튼을 눌러도 아무 일이 없었다.
     func splitTabBar(_ controller: BonsplitController, didRequestCustomAction identifier: String, inPane pane: PaneID) {
-        guard identifier == Self.persistentTerminalKind else { return }
-        newTerminal(inPane: pane, persistent: true)
+        switch identifier {
+        case Self.persistentTerminalKind: newTerminal(inPane: pane, persistent: true)
+        case Self.claudeTerminalKind: newTerminal(inPane: pane, persistent: true, initialKeys: "claude")
+        default: break
+        }
     }
 
     /// ∞ 지속 세션 탭을 **안에서 작업이 돌고 있는데** 닫으려 하면 확인을 받는다(자동으로 백그라운드에
@@ -1592,7 +1608,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     ///   일반 셸을 명시적으로 원하는 자리(데모 등)는 `persistent: false`를 넘긴다.
     @discardableResult
     func newTerminal(inPane pane: PaneID? = nil, inheritingFrom source: PaneID? = nil,
-                     persistent: Bool? = nil) -> TabID? {
+                     persistent: Bool? = nil, initialKeys: String? = nil) -> TabID? {
         // createTab이 새 탭을 즉시 선택하므로, 원본 칸의 pwd·지속 여부는 생성 전에 읽는다.
         // cwd는 **분할일 때만** 물려받고(새 탭은 프로젝트 기본 경로), 지속 여부는 분할이면 상속·아니면 기본값.
         let start = source.flatMap { inheritedCwd(inPane: $0) } ?? cwd
@@ -1608,12 +1624,47 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             pendingCwd[id] = start
             // 의도는 서피스가 만들어지기 전에 정해져야 한다 — term(for:)가 이걸 보고 tmux로 띄울지 정한다.
             persistentIntent[id] = wantsPersistent
+            // Claude 버튼(initialKeys) — 지속(tmux) 탭이면 셸이 준비된 뒤 앱에서 명령을 입력·실행한다.
+            // 세션명은 tmuxSessionName이 확정(term(for:)도 같은 이름을 재사용). tmux 없으면 nil이라 건너뛴다.
+            if let initialKeys, wantsPersistent, let session = tmuxSessionName(for: id) {
+                runInitialCommand(initialKeys, session: session)
+            }
             regroup(id, inPane: pane ?? controller.focusedPaneId)
         }
         syncHasTabs() // 빈 상태에서 새 터미널을 열면 BonsplitView로 복귀(관측 갱신)
         persist()
         return id
     }
+
+    /// 갓 연 지속(tmux) 탭에서 명령을 **입력하고 실행**한다 — Claude 버튼(`claude`)의 실체.
+    ///
+    /// **tmux 명령 체인이 아니라 앱에서 넣는다.** 체인(`new-session … ; send-keys ; attach`)에 끼우면 두 가지로 깨진다:
+    ///  ① 셸 프롬프트가 뜨기 **전에** send-keys가 나가 키가 유실된다(셸 시작 시 대기 입력을 버린다 — 실측).
+    ///  ② 한 서브명령이라도 실패하면(예: 구버전 tmux가 모르는 플래그) tmux 서버가 통째로 죽어 **탭이 안 열린다**(실측).
+    /// 여기선 세션이 서고 포그라운드가 '그냥 셸'이 될 때까지 폴링한 뒤 보내므로 레이스가 없고, 실패해도 탭은 멀쩡하다.
+    ///
+    /// **셸 감지 후 한 박자 더 기다린다**(`promptSettleNs`): p10k·starship류 instant-prompt는 첫 프롬프트를
+    /// 그린 뒤 **다시 그리는데**, 그 사이에 넣으면 임시 프롬프트에 찍힌 `claude%` 잔상 + 실제 프롬프트에 중복
+    /// 입력이라는 이중 렌더가 난다(실측 스크린샷). 안정된 뒤 리터럴+Enter로 한 번에 실행한다.
+    private func runInitialCommand(_ text: String, session: String) {
+        Task { [weak self] in
+            // 셸 준비 대기 — 세션이 서고(빈 배열 아님) 포그라운드가 셸이 될 때까지 최대 ~5s(200ms×25).
+            for _ in 0..<25 {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                guard self != nil else { return } // 스토어가 사라지면 폴링 중단(닫힌 탭 등)
+                let fg = await TmuxService.paneForeground(session: session)
+                guard !fg.isEmpty, fg.allSatisfy(TerminalSession.isShell) else { continue }
+                try? await Task.sleep(nanoseconds: Self.promptSettleNs) // instant-prompt 재렌더가 끝나길
+                guard self != nil else { return }
+                await TmuxService.runCommand(session: session, text: text)
+                return
+            }
+        }
+    }
+
+    /// 셸 포그라운드 감지 후 명령을 보내기 전 대기 — instant-prompt(p10k/starship)의 두 번째 렌더가
+    /// 끝나 프롬프트가 안정되게 한다. 너무 짧으면 이중 렌더(`claude%` 잔상), 너무 길면 실행이 굼떠 보인다.
+    private static let promptSettleNs: UInt64 = 500_000_000
 
     // MARK: 탭 그룹핑 — 같은 종류끼리 묶기 (터미널 | 문서 | diff)
     //
@@ -1718,22 +1769,33 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     // 기존 같은 종류 그룹에 합치므로.
 
     /// 서브탭을 새 분할 패인의 같은 종류 그룹 탭으로 분리한다. 항목이 하나뿐이면 무동작(분리할 게 없다).
+    /// Bonsplit 네이티브 탭 드래그와 같은 idiom — 그룹 탭을 만들고 `movingTab`으로 새 패인에 놓는다
+    /// (빈 패인 레이스 없음, didSplitPane 자동터미널은 새 패인이 안 비어 스스로 걸러진다).
     func detachGroupItem(_ tabId: TabID, itemId: String, orientation: SplitOrientation) {
         guard let state = groups[tabId], GroupSplitPlan.canDetach(itemCount: state.items.count),
               let item = state.items.first(where: { $0.id == itemId }),
-              let sourcePane = controller.paneId(containing: tabId) else { return }
-        _ = state.remove(itemId) // 원본에서 먼저 뺀다(그룹은 아직 비지 않음).
-        detachingSplit = true
-        let newPane = controller.splitPane(sourcePane, orientation: orientation, withTab: nil)
-        detachingSplit = false
-        guard let newPane else { state.add(item); persist(); return } // 분할 거부 → 롤백.
-        guard let newTab = controller.createTab(title: item.kind.title, icon: item.kind.icon, inPane: newPane) else {
-            _ = controller.closePane(newPane); state.add(item); persist(); return // 탭 생성 실패 → 빈 패인 정리 후 롤백.
+              let sourcePane = controller.paneId(containing: tabId),
+              let newTab = createGroupTab(with: item, inPane: sourcePane) else { return }
+        if controller.splitPane(sourcePane, orientation: orientation, movingTab: newTab, insertFirst: false) == nil {
+            _ = controller.closeTab(newTab); return // 분할 거부 → 임시 탭 정리, 원본 보존.
         }
-        tabContent[newTab] = .group(item.kind)
-        groups[newTab] = TabGroupState(first: item)
         controller.selectTab(newTab)
+        _ = state.remove(itemId) // 놓인 뒤 원본에서 뺀다(canDetach로 ≥1 남음).
         persist()
+    }
+
+    /// 항목 하나를 담은 새 그룹 탭을 그 패인에 만든다(분리·드래그 공용). 생성 실패면 nil.
+    ///
+    /// `createTab`이 새 탭을 **그 패인의 앞 탭으로 자동 선택**하는데, 이 탭은 곧 movingTab으로 다른 패인에
+    /// 옮겨지거나 호출부가 최종 선택을 따로 정한다. 그대로 두면 옮겨질 때 만든 패인 선택이 엉뚱한 탭(∞ 등)으로
+    /// 튀므로, **원래 선택을 복원**해 만든 패인의 앞 탭을 안 흔든다. 호출부는 마지막에 원하는 탭을 selectTab한다.
+    private func createGroupTab(with item: GroupItemContent, inPane pane: PaneID) -> TabID? {
+        let prevSelected = controller.selectedTabId(inPane: pane)
+        guard let tab = controller.createTab(title: item.kind.title, icon: item.kind.icon, inPane: pane) else { return nil }
+        tabContent[tab] = .group(item.kind)
+        groups[tab] = TabGroupState(first: item)
+        if let prevSelected { controller.selectTab(prevSelected) } // 만든 패인의 앞 탭 보존(∞ 튐 방지)
+        return tab
     }
 
     /// 이 그룹 탭을 병합할 수 있는 대상 — 같은 종류이고 다른 패인에 있는 그룹 탭들(요약 라벨 포함).
@@ -1797,53 +1859,41 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         return types.contains(.init(SubtabDrag.typeId)) ? pendingSubtabDrag : nil
     }
 
-    /// 서브탭 드롭 적용 — 가장자리(.split)=분할해 새 패인으로, 중심(.insert)=그 패인의 같은 종류 그룹으로.
-    /// 원본에서 빼고, 원본 그룹이 비면 그 탭을 닫는다(패인도 접힘). 제자리 드롭은 무동작.
-    /// **다음 런루프에서** 불린다(onExternalFileDrop이 미룸) — 그 사이 원본이 사라졌으면 조용히 무동작.
+    /// 서브탭 드롭 적용 — 가장자리(.split)=분할해 드롭한 쪽 새 패인으로(insertFirst 존중), 중심(.insert)=그
+    /// 패인의 같은 종류 그룹으로. 원본에서 빼고, 원본 그룹이 비면 그 탭을 닫는다(패인도 접힘). 제자리 드롭은 무동작.
     private func applySubtabDrop(_ payload: SubtabDrag.Payload,
                                  destination: BonsplitController.ExternalTabDropRequest.Destination) {
         guard let source = groups[payload.sourceTab],
               let item = source.items.first(where: { $0.id == payload.itemId }) else { return }
-        // **놓인 것이 확인될 때만** 원본에서 뺀다 — 배치 실패(대상 패인이 그새 닫힘 등) 시 원본에서도
-        // 지우면 항목이 통째로 사라진다(보존 우선, 의심되면 안 지운다).
-        let placed: Bool
+        // 놓인 대상 탭 — 마지막에 선택한다. **원본 탭 닫기(패인 접힘)보다 뒤에** 선택해야,
+        // 접힘이 살아남은 패인의 초점을 엉뚱한 탭(∞ 터미널 등)으로 옮기는 걸 이긴다.
+        let target: TabID?
         switch destination {
-        case .split(let targetPane, let orientation, _):
-            detachingSplit = true
-            let newPane = controller.splitPane(targetPane, orientation: orientation, withTab: nil)
-            detachingSplit = false
-            guard let newPane else { return }
-            placed = placeItem(item, inPane: newPane)
+        case .split(let targetPane, let orientation, let insertFirst):
+            // Bonsplit 네이티브 탭 드래그와 같은 idiom: 임시 그룹 탭을 **원본 패인**에 만들고 movingTab으로
+            // 대상 쪽 새 패인에 옮긴다. 대상 패인에 만들면 auto-select됐다 빠져나가며 대상 선택이 ∞ 등으로 튄다 —
+            // 원본에서 만들어 옮기면 대상 패인은 손 안 대므로 선택이 안 흔들린다.
+            guard let sourcePane = controller.paneId(containing: payload.sourceTab),
+                  let newTab = createGroupTab(with: item, inPane: sourcePane) else { return }
+            if controller.splitPane(targetPane, orientation: orientation,
+                                    movingTab: newTab, insertFirst: insertFirst) == nil {
+                _ = controller.closeTab(newTab); return // 분할 거부 → 임시 탭 정리, 원본 보존
+            }
+            target = newTab
         case .insert(let targetPane, _):
             if let existing = groupTab(ofKind: item.kind, inPane: targetPane) {
                 guard existing != payload.sourceTab else { return } // 제자리 — 무동작
                 guard let state = groups[existing] else { return }  // 그룹 상태 없으면 놓을 곳이 없다 — 원본 보존
                 state.add(item)
-                controller.selectTab(existing)
-                placed = true
+                target = existing
             } else {
-                placed = placeItem(item, inPane: targetPane)
+                target = createGroupTab(with: item, inPane: targetPane) // 놓을 곳 없어 nil이면 아래서 원본 보존
             }
         }
-        guard placed else { return } // 못 놓았으면 원본 그대로 둔다
+        guard let target else { return } // 못 놓았으면 원본 그대로 둔다
         if source.remove(payload.itemId) { _ = controller.closeTab(payload.sourceTab) } // 비면 탭 닫힘(→ 패인 접힘)
+        controller.selectTab(target) // 접힘 뒤에 선택 — 초점을 확실히 대상으로(∞ 등으로 안 튀게)
         persist()
-    }
-
-    /// 항목을 그 패인의 같은 종류 그룹에 넣는다 — 없으면 새 그룹 탭을 만든다. 실제로 놓았으면 true.
-    @discardableResult
-    private func placeItem(_ item: GroupItemContent, inPane pane: PaneID) -> Bool {
-        if let existing = groupTab(ofKind: item.kind, inPane: pane) {
-            groups[existing]?.add(item)
-            controller.selectTab(existing)
-            return true
-        } else if let tab = controller.createTab(title: item.kind.title, icon: item.kind.icon, inPane: pane) {
-            tabContent[tab] = .group(item.kind)
-            groups[tab] = TabGroupState(first: item)
-            controller.selectTab(tab)
-            return true
-        }
-        return false // 대상 패인이 사라져 탭 생성 실패 — 놓지 못했다
     }
 
     /// 병합 대상 라벨 — 무엇이 든 그룹인지로 구별한다(같은 종류라 종류명은 도움이 안 된다).

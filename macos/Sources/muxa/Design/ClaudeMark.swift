@@ -28,4 +28,21 @@ struct ClaudeMark: View {
         image.isTemplate = false // 원본 색(주황)을 유지 — 템플릿이면 시스템이 단색으로 덮는다
         return image
     }()
+
+    /// 벡터 심볼을 PNG 데이터로 래스터화 — `NSImage(data:)`만 받는 API(Bonsplit `SplitActionButton`의
+    /// `.imageData`)를 위해. 원본 색(주황)을 유지하는 정체성 마크라 템플릿으로 만들지 않는다.
+    /// 리소스가 없거나 렌더에 실패하면 nil(호출부가 SF Symbol 등으로 폴백).
+    static func pngData(side: CGFloat = 36) -> Data? {
+        guard let symbol else { return nil }
+        let px = Int(side)
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: px, pixelsHigh: px,
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                         isPlanar: false, colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        symbol.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
+        NSGraphicsContext.restoreGraphicsState()
+        return rep.representation(using: .png, properties: [:])
+    }
 }
