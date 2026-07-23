@@ -9,7 +9,8 @@
 set -euo pipefail
 
 REPO="https://github.com/yjun1806/muxa.git"
-DIR="${MUXA_DIR:-$HOME/Developer/muxa}"
+# 설치 위치: XDG 데이터 홈(기본 ~/.local/share)에 둔다 — muxa의 ~/.config/muxa 설정과 같은 관례.
+DIR="${MUXA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/muxa}"
 
 # 스피너가 출력을 숨기므로, git이 자격증명 프롬프트로 조용히 멈추지 않게 막는다.
 export GIT_TERMINAL_PROMPT=0
