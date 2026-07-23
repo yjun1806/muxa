@@ -6,6 +6,23 @@ All notable changes to muxa are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-23
+
+### Added
+- **Activity rail** — the tool panels (explorer, git, notifications, settings) now sit on an always-visible right-side rail with one-click entry and notification badges, instead of a single toggle that reopened the last panel. The active panel is shown by background emphasis alone.
+- **Subtab split & merge** — pull a viewer subtab out into its own split pane, or merge a pane back into a group, from the right-click menu or by dragging a file subtab (no libghostty fork needed).
+- **Claude button** — a Claude icon in the tab action lane opens a persistent (∞) session and launches `claude` right away, run as the tab's first process (via a login shell) so there's no prompt-timing flicker.
+- **Installer** — the one-line install script gained a progress spinner, version display, and an update mode; an optional `MUXA_SLIM` mode reclaims disk by cleaning `.build/` after install.
+
+### Changed
+- The install clone now lives under XDG (`~/.local/share/muxa`).
+
+### Fixed
+- Close-confirmation banner shortcuts (⌘W / ⌘B / ⌘C) now work with a Korean input source active — they were matched by character, which returns Hangul jamo, so only the mouse worked.
+- Subtab drag-to-detach rewritten (movingTab); splitting or merging no longer jumps the tab selection.
+- Code viewer — tightened the gap between line numbers and code (dropped a stray 44px pad).
+
+
 ## [0.2.0] - 2026-07-23
 
 ### Added
@@ -30,6 +47,7 @@ First tagged release — a macOS agent terminal with a built-in document viewer 
 ### Notes
 - Status and notifications are tuned to Claude Code. macOS 14+. Build from source — no prebuilt binary; install with the one-line script or `make`.
 
-[Unreleased]: https://github.com/yjun1806/muxa/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/yjun1806/muxa/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/yjun1806/muxa/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/yjun1806/muxa/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/yjun1806/muxa/releases/tag/v0.1.0
