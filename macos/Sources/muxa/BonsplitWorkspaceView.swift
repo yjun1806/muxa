@@ -83,7 +83,18 @@ struct BonsplitWorkspaceView: View {
                     onCloseItem: { store.closeGroupItem(tabId, itemId: $0) },
                     onCloseOtherItems: { store.closeOtherGroupItems(tabId, keeping: $0) },
                     onOpenFile: { _ = store.openFile($0) },
-                    onOpenURL: { _ = store.openURL($0) }
+                    onOpenURL: { _ = store.openURL($0) },
+                    onDetachRight: { store.detachGroupItem(tabId, itemId: $0, orientation: .horizontal) },
+                    onDetachDown: { store.detachGroupItem(tabId, itemId: $0, orientation: .vertical) },
+                    mergeOptions: {
+                        store.groupMergeTargets(for: tabId).map { target in
+                            MuxaMenuItem(icon: "arrow.triangle.merge", title: "이 그룹 병합 → \(target.summary)") {
+                                store.mergeGroup(tabId, into: target.tab)
+                            }
+                        }
+                    },
+                    canDrag: { store.subtabFilePath(for: $0) != nil },
+                    dragProvider: { store.subtabDragProvider($0, sourceTab: tabId) }
                 )
             }
         }

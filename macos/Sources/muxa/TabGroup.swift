@@ -101,6 +101,16 @@ enum GroupItemContent: Identifiable {
         case .web: return .browser
         }
     }
+
+    /// 이 서브탭이 가리키는 실제 파일 경로 — 파일 뷰어는 절대 경로, 파일 diff는 `dir`(리포 루트) 기준.
+    /// 커밋·전체 diff·웹은 특정 파일이 없다(nil). 서브탭 메뉴(경로 복사·Finder)·드래그 게이트의 단일 출처.
+    func filePath(dir: String) -> String? {
+        switch self {
+        case .file(let target): return target.path
+        case .diff(.file(let change)): return dir.isEmpty ? nil : (dir as NSString).appendingPathComponent(change.path)
+        case .diff, .web: return nil
+        }
+    }
 }
 
 /// 그룹 탭 하나의 서브탭 상태 — 항목 순서 + 선택. 뷰가 controlled로 관측한다.

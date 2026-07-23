@@ -6,13 +6,26 @@ import AppKit
 enum SubTabMenu {
     /// `dir`은 리포 루트 — diff 항목의 상대 경로를 절대 경로로 풀 때 쓴다.
     static func items(_ item: GroupItemContent, dir: String, siblings: Int,
-                      onClose: @escaping () -> Void, onCloseOthers: @escaping () -> Void) -> [MuxaMenuItem] {
+                      onClose: @escaping () -> Void, onCloseOthers: @escaping () -> Void,
+                      onDetachRight: @escaping () -> Void = {}, onDetachDown: @escaping () -> Void = {},
+                      mergeOptions: [MuxaMenuItem] = []) -> [MuxaMenuItem] {
         var items: [MuxaMenuItem] = [
             MuxaMenuItem(icon: "xmark", title: "닫기", shortcut: "⌘W", action: onClose),
             MuxaMenuItem(icon: "xmark.square.fill", title: "다른 서브탭 모두 닫기",
                          enabled: siblings > 1, action: onCloseOthers),
         ]
-        if let path = absolutePath(item, dir: dir) {
+        // 분리 — 항목이 둘 이상일 때만(하나뿐이면 그룹 탭 통째 이동이라 의미 없음).
+        if siblings > 1 {
+            items.append(.separator)
+            items.append(MuxaMenuItem(icon: "rectangle.split.2x1", title: "옆으로 분리", action: onDetachRight))
+            items.append(MuxaMenuItem(icon: "rectangle.split.1x2", title: "아래로 분리", action: onDetachDown))
+        }
+        // 병합 — 다른 패인의 같은 종류 그룹으로 이 그룹째 합친다("단 같은 그룹만"). 대상이 있을 때만.
+        if !mergeOptions.isEmpty {
+            items.append(.separator)
+            items.append(contentsOf: mergeOptions)
+        }
+        if let path = item.filePath(dir: dir) {
             items.append(.separator)
             items.append(MuxaMenuItem(icon: "doc.on.doc", title: "경로 복사") {
                 NSPasteboard.general.clearContents()
@@ -41,20 +54,5 @@ enum SubTabMenu {
             })
         }
         return items
-    }
-
-    /// 이 서브탭이 가리키는 실제 파일 경로 — 파일 뷰어는 절대 경로, 파일 diff는 리포 루트 기준 상대 경로다.
-    /// 커밋·전체 diff는 특정 파일이 없다(nil).
-    private static func absolutePath(_ item: GroupItemContent, dir: String) -> String? {
-        switch item {
-        case .file(let target):
-            return target.path
-        case .diff(.file(let change)):
-            return dir.isEmpty ? nil : (dir as NSString).appendingPathComponent(change.path)
-        case .diff:
-            return nil
-        case .web:
-            return nil // 브라우저 서브탭은 파일이 아니다(URL 복사는 items에서 따로 붙인다)
-        }
     }
 }

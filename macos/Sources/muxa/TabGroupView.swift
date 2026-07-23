@@ -16,6 +16,15 @@ struct TabGroupView: View {
     var onOpenFile: (String) -> Void = { _ in }
     /// 문서 뷰어 안의 외부 http(s) 링크를 인앱 브라우저 새 탭으로 연다.
     var onOpenURL: (URL) -> Void = { _ in }
+    /// 이 서브탭을 옆/아래 새 분할 패인으로 분리한다.
+    var onDetachRight: (String) -> Void = { _ in }
+    var onDetachDown: (String) -> Void = { _ in }
+    /// 지금 병합할 수 있는 대상(같은 종류·다른 패인 그룹)을 메뉴 항목으로 만든다 — 열 때마다 최신 상태로.
+    var mergeOptions: () -> [MuxaMenuItem] = { [] }
+    /// 이 서브탭을 드래그로 분리할 수 있나(파일 서브탭만) — 게이트용 값싼 판정.
+    var canDrag: (GroupItemContent) -> Bool = { _ in false }
+    /// 드래그 시작 시 페이로드(파일 URL + 서브탭 대상)를 만든다.
+    var dragProvider: (GroupItemContent) -> NSItemProvider? = { _ in nil }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,7 +50,17 @@ struct TabGroupView: View {
         .background(Color.pPanel)
     }
 
+    /// 파일 서브탭은 드래그로 분리 가능(다른 패인 가장자리=분할, 같은 종류 그룹 위=이동). 나머지는 메뉴로만.
+    @ViewBuilder
     private func chip(_ item: GroupItemContent) -> some View {
+        if canDrag(item) {
+            chipContent(item).onDrag { dragProvider(item) ?? NSItemProvider() }
+        } else {
+            chipContent(item)
+        }
+    }
+
+    private func chipContent(_ item: GroupItemContent) -> some View {
         let selected = item.id == group.selectedId
         return HStack(spacing: 5) {
             Image(systemName: item.icon).font(.muxa(.caption))
@@ -68,7 +87,10 @@ struct TabGroupView: View {
         .onRightClick { point in
             let menu = SubTabMenu.items(item, dir: dir, siblings: group.items.count,
                                         onClose: { onCloseItem(item.id) },
-                                        onCloseOthers: { onCloseOtherItems(item.id) })
+                                        onCloseOthers: { onCloseOtherItems(item.id) },
+                                        onDetachRight: { onDetachRight(item.id) },
+                                        onDetachDown: { onDetachDown(item.id) },
+                                        mergeOptions: mergeOptions())
             MuxaMenuWindow.show(menu, at: point)
         }
     }

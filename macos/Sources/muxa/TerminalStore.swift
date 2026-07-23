@@ -13,6 +13,13 @@ enum TabContent {
     case worktreeLink
 }
 
+/// 서브탭 병합 대상 하나 — 대상 그룹 탭 id + 메뉴에 보일 요약 라벨.
+struct GroupMergeTarget: Identifiable {
+    let tab: TabID
+    let summary: String
+    var id: TabID { tab }
+}
+
 /// 워크스페이스 하나의 터미널 집합 + Bonsplit 분할·탭 컨트롤러. (cmux DockSplitStore 대응)
 ///
 /// Bonsplit이 분할 트리·탭 레이아웃을 SwiftUI로 관리하고, 우리는 tabId마다 TermView 하나를
@@ -388,6 +395,12 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     @ObservationIgnored private var restoreSnap: PaneSnapshot?
     /// 복원 replay 중에는 delegate 부작용(자동 새 터미널 생성)을 막는다.
     @ObservationIgnored private var restoring = false
+    /// 서브탭 분리로 만드는 빈 분할 패인 — didSplitPane의 자동 새 터미널을 막고, 곧 그룹 탭을 직접 심는다.
+    @ObservationIgnored private var detachingSplit = false
+    /// 진행 중인 서브탭 드래그의 페이로드 — 드래그 시작 시 심고 드롭 때 읽는다.
+    /// pasteboard 커스텀 타입 데이터는 lazy라 생짜로는 0바이트로 읽혀(콜백 미호출), 데이터는 여기로 나른다.
+    /// 판별(우리 드래그인가)은 pasteboard의 **타입 존재**로 하므로 이 값이 남아 있어도 Finder 드롭엔 안 샌다.
+    @ObservationIgnored private var pendingSubtabDrag: SubtabDrag.Payload?
     /// ensureInitialTerminal 1회 보장 — Bonsplit이 초기 "Welcome" 탭을 넣어 allTabIds가 비지 않으므로 플래그로 판별.
     /// 관측 대상(뷰가 showEmptyState에서 읽음) — 초기화 전엔 빈 상태 뷰를 띄우지 않게 게이트한다.
     private(set) var initialized = false
@@ -462,12 +475,23 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         // onExternalFileDrop은 모든 zone을 허용한다. muxa 의미론은 zone과 무관하게
         // "그 칸의 터미널에 경로 삽입"이므로 destination의 targetPane만 뽑아 쓴다.
         controller.onExternalFileDrop = { [weak self] request in
+            guard let self else { return false }
+            // 서브탭 드래그면 파일 삽입이 아니라 서브탭 이동이다(드래그 pasteboard의 커스텀 타입으로 판별).
+            // 분할·탭 생성은 뷰 트리를 크게 바꾼다 — performDrop 안에서 동기로 하면 살아 있는 드래그 세션과
+            // 겹쳐 런루프가 멈춘다. 드롭은 즉시 수락하고 실제 이동은 다음 런루프로 미룬다.
+            if let payload = self.subtabDragPayload() {
+                self.pendingSubtabDrag = nil // 소비 — 다음 드롭에 안 새게
+                DispatchQueue.main.async { [weak self] in
+                    self?.applySubtabDrop(payload, destination: request.destination)
+                }
+                return true
+            }
             let paneId: PaneID
             switch request.destination {
             case .insert(let targetPane, _), .split(let targetPane, _, _):
                 paneId = targetPane
             }
-            return self?.insertDroppedPaths(request.urls.map(\.path), inPane: paneId) ?? false
+            return self.insertDroppedPaths(request.urls.map(\.path), inPane: paneId)
         }
         // 칸 사이 divider를 더블클릭하면 모든 칸을 같은 크기로 되돌린다.
         // 어느 divider를 눌렀는지는 무시한다 — 요청은 "전부 균등"이다.
@@ -526,6 +550,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 복원 중엔 replay가 탭을 직접 채우므로 자동 생성을 건너뛴다.
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
         if restoring { return }
+        // 서브탭 분리가 만든 빈 패인 — detachGroupItem이 곧 그룹 탭을 심으므로 자동 터미널을 채우지 않는다.
+        if detachingSplit { return }
         // 탭을 **끌어다** 만든 분할은 그 탭이 이미 새 칸에 들어와 있다(Bonsplit이 splitPaneWithTab 뒤에
         // 이 델리게이트를 부른다) — 거기에 또 터미널을 채우면 여분 탭이 생긴다(실측 버그).
         // 빈 칸(분할 버튼)일 때만 채운다.
@@ -1682,6 +1708,149 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         } else {
             persist()
         }
+    }
+
+    // MARK: 서브탭 분리·병합 — 같은 종류끼리만
+    //
+    // 분리: 서브탭 하나를 새 분할 패인의 같은 종류 그룹 탭으로 뽑아 나란히 본다.
+    // 병합: 그 그룹의 모든 서브탭을 다른 패인의 같은 종류 그룹으로 도로 합치고 원본 그룹 탭을 닫는다.
+    // "패인당 종류 1그룹" 불변식은 유지된다 — 분리는 **다른** 패인에 새 그룹을 만들고, 병합은 대상 패인의
+    // 기존 같은 종류 그룹에 합치므로.
+
+    /// 서브탭을 새 분할 패인의 같은 종류 그룹 탭으로 분리한다. 항목이 하나뿐이면 무동작(분리할 게 없다).
+    func detachGroupItem(_ tabId: TabID, itemId: String, orientation: SplitOrientation) {
+        guard let state = groups[tabId], GroupSplitPlan.canDetach(itemCount: state.items.count),
+              let item = state.items.first(where: { $0.id == itemId }),
+              let sourcePane = controller.paneId(containing: tabId) else { return }
+        _ = state.remove(itemId) // 원본에서 먼저 뺀다(그룹은 아직 비지 않음).
+        detachingSplit = true
+        let newPane = controller.splitPane(sourcePane, orientation: orientation, withTab: nil)
+        detachingSplit = false
+        guard let newPane else { state.add(item); persist(); return } // 분할 거부 → 롤백.
+        guard let newTab = controller.createTab(title: item.kind.title, icon: item.kind.icon, inPane: newPane) else {
+            _ = controller.closePane(newPane); state.add(item); persist(); return // 탭 생성 실패 → 빈 패인 정리 후 롤백.
+        }
+        tabContent[newTab] = .group(item.kind)
+        groups[newTab] = TabGroupState(first: item)
+        controller.selectTab(newTab)
+        persist()
+    }
+
+    /// 이 그룹 탭을 병합할 수 있는 대상 — 같은 종류이고 다른 패인에 있는 그룹 탭들(요약 라벨 포함).
+    func groupMergeTargets(for tabId: TabID) -> [GroupMergeTarget] {
+        guard case .group(let kind) = content(for: tabId),
+              let sourcePane = controller.paneId(containing: tabId) else { return [] }
+        let candidates = controller.allPaneIds.flatMap { pane in
+            controller.tabs(inPane: pane).compactMap { tab -> (tab: TabID, kind: TabGroupKind, pane: PaneID)? in
+                guard case .group(let k) = content(for: tab.id) else { return nil }
+                return (tab.id, k, pane)
+            }
+        }
+        let targets = GroupSplitPlan.mergeTargets(
+            sourceTab: tabId, sourceKind: kind, sourcePane: sourcePane, candidates: candidates)
+        return targets.compactMap { id in
+            groups[id].map { GroupMergeTarget(tab: id, summary: mergeSummary($0)) }
+        }
+    }
+
+    /// 원본 그룹의 모든 서브탭을 대상 그룹으로 옮기고 원본 그룹 탭을 닫는다. 중복 항목은 add가 걸러낸다.
+    /// 탭을 닫는 파괴적 동작이므로 대상 판정을 여기서 좁게 지킨다 — 자기 자신·다른 종류로의 병합은 무동작.
+    func mergeGroup(_ sourceTabId: TabID, into targetTabId: TabID) {
+        guard let source = groups[sourceTabId], let target = groups[targetTabId],
+              sourceTabId != targetTabId, source.kind == target.kind else { return }
+        for item in source.items { target.add(item) } // add는 dedup + 마지막 추가를 선택.
+        _ = controller.closeTab(sourceTabId) // didCloseTab에서 groups 정리(+persist). 마지막 탭이면 패인도 접힌다.
+        controller.selectTab(targetTabId)
+        persist()
+    }
+
+    // MARK: 서브탭 드래그-분리 (no-fork) — 파일 서브탭만
+    //
+    // Bonsplit 드롭존은 `.fileURL`만 받으므로(PaneContainerView), 파일 URL을 입장권으로 싣고 실제
+    // 이동 대상은 커스텀 타입(SubtabDrag)으로 나른다. 드롭은 `onExternalFileDrop`이 받아 여기로 온다.
+    // 파일이 없는 서브탭(.web·커밋 diff)은 입장권을 못 만들어 드래그 불가 — 메뉴로만 옮긴다.
+
+    /// 이 서브탭의 파일 경로(canonical은 `GroupItemContent.filePath`) — 없으면(웹·커밋 diff) 드래그 불가.
+    /// 드래그 게이트가 이 값으로 판정한다.
+    func subtabFilePath(for item: GroupItemContent) -> String? {
+        item.filePath(dir: workingDir ?? "")
+    }
+
+    /// 서브탭 드래그용 NSItemProvider — `.fileURL`(입장권) + SubtabDrag 표식. 파일이 없으면 nil.
+    /// **부작용**: 드래그 시작 시점이므로 실제 페이로드(`pendingSubtabDrag`)를 여기서 심는다(드롭 때 읽는다).
+    func subtabDragProvider(_ item: GroupItemContent, sourceTab: TabID) -> NSItemProvider? {
+        guard let path = subtabFilePath(for: item) else { return nil }
+        let provider = NSItemProvider(object: URL(fileURLWithPath: path) as NSURL)
+        // 커스텀 타입은 **세션 판별용 표식**으로만 등록한다 — 데이터는 lazy라 드롭 때 생짜로 못 읽는다
+        // (NSPasteboard.data(forType:)가 provider 콜백을 안 깨워 0바이트). 실제 페이로드는 store에 심어 나른다.
+        pendingSubtabDrag = SubtabDrag.Payload(sourceTab: sourceTab, itemId: item.id)
+        provider.registerDataRepresentation(forTypeIdentifier: SubtabDrag.typeId, visibility: .all) { done in
+            done(Data(), nil); return nil
+        }
+        return provider
+    }
+
+    /// 이번 드롭이 서브탭 이동인지 판별하고 페이로드를 준다 — 드래그 pasteboard에 우리 타입이 있으면
+    /// (= 우리 드래그 세션) store에 심어둔 페이로드를 돌려준다. Finder 드롭엔 이 타입이 없어 nil.
+    private func subtabDragPayload() -> SubtabDrag.Payload? {
+        let types = NSPasteboard(name: .drag).types ?? []
+        return types.contains(.init(SubtabDrag.typeId)) ? pendingSubtabDrag : nil
+    }
+
+    /// 서브탭 드롭 적용 — 가장자리(.split)=분할해 새 패인으로, 중심(.insert)=그 패인의 같은 종류 그룹으로.
+    /// 원본에서 빼고, 원본 그룹이 비면 그 탭을 닫는다(패인도 접힘). 제자리 드롭은 무동작.
+    /// **다음 런루프에서** 불린다(onExternalFileDrop이 미룸) — 그 사이 원본이 사라졌으면 조용히 무동작.
+    private func applySubtabDrop(_ payload: SubtabDrag.Payload,
+                                 destination: BonsplitController.ExternalTabDropRequest.Destination) {
+        guard let source = groups[payload.sourceTab],
+              let item = source.items.first(where: { $0.id == payload.itemId }) else { return }
+        // **놓인 것이 확인될 때만** 원본에서 뺀다 — 배치 실패(대상 패인이 그새 닫힘 등) 시 원본에서도
+        // 지우면 항목이 통째로 사라진다(보존 우선, 의심되면 안 지운다).
+        let placed: Bool
+        switch destination {
+        case .split(let targetPane, let orientation, _):
+            detachingSplit = true
+            let newPane = controller.splitPane(targetPane, orientation: orientation, withTab: nil)
+            detachingSplit = false
+            guard let newPane else { return }
+            placed = placeItem(item, inPane: newPane)
+        case .insert(let targetPane, _):
+            if let existing = groupTab(ofKind: item.kind, inPane: targetPane) {
+                guard existing != payload.sourceTab else { return } // 제자리 — 무동작
+                guard let state = groups[existing] else { return }  // 그룹 상태 없으면 놓을 곳이 없다 — 원본 보존
+                state.add(item)
+                controller.selectTab(existing)
+                placed = true
+            } else {
+                placed = placeItem(item, inPane: targetPane)
+            }
+        }
+        guard placed else { return } // 못 놓았으면 원본 그대로 둔다
+        if source.remove(payload.itemId) { _ = controller.closeTab(payload.sourceTab) } // 비면 탭 닫힘(→ 패인 접힘)
+        persist()
+    }
+
+    /// 항목을 그 패인의 같은 종류 그룹에 넣는다 — 없으면 새 그룹 탭을 만든다. 실제로 놓았으면 true.
+    @discardableResult
+    private func placeItem(_ item: GroupItemContent, inPane pane: PaneID) -> Bool {
+        if let existing = groupTab(ofKind: item.kind, inPane: pane) {
+            groups[existing]?.add(item)
+            controller.selectTab(existing)
+            return true
+        } else if let tab = controller.createTab(title: item.kind.title, icon: item.kind.icon, inPane: pane) {
+            tabContent[tab] = .group(item.kind)
+            groups[tab] = TabGroupState(first: item)
+            controller.selectTab(tab)
+            return true
+        }
+        return false // 대상 패인이 사라져 탭 생성 실패 — 놓지 못했다
+    }
+
+    /// 병합 대상 라벨 — 무엇이 든 그룹인지로 구별한다(같은 종류라 종류명은 도움이 안 된다).
+    private func mergeSummary(_ state: TabGroupState) -> String {
+        let head = state.selected?.title ?? state.items.first?.title ?? state.kind.title
+        let extra = state.items.count - 1
+        return extra > 0 ? "\(head) 외 \(extra)개" : head
     }
 
     // MARK: 2단 탭 — 문서/diff는 종류별 그룹 탭 하나에 서브탭으로 모은다

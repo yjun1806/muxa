@@ -106,6 +106,54 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 추정기 `lastOutputAt`(systemUptime 경과) · 에이전트 판정 = `hookedTabs`. **경량 가드**: 접힘 기본 + 유휴 접기로 절제
 (muxa 우위=가벼움, [[muxa-vs-orca-positioning]]).
 
+## 최근 완료 (2026-07-23) — 서브탭 분리/병합 (SUBTAB-SPLIT)
+
+**왜** — 문서/코드/변경/웹은 종류별 그룹 탭 하나에 서브탭으로 뭉쳐 **한 번에 하나만** 보였다. 두 파일·
+두 diff를 나란히 볼 수가 없었다.
+
+**한 것** — (1) 서브탭 우클릭에 **옆으로/아래로 분리** + **이 그룹 병합 → …**, (2) 파일 서브탭 **드래그-분리**(no-fork).
+
+**드래그-분리(no-fork)** ✅ 육안검증됨 — Bonsplit 드롭존은 `.fileURL`만 받으므로(`PaneContainerView`), 파일 URL을
+"입장권"으로 싣고 드롭은 기존 `onExternalFileDrop`이 받아 **맨 위 early-return**으로 분기한다. 경로가 아니라
+itemId로 실제 `GroupItemContent`를 옮겨 diff/뷰어 종류를 잃지 않는다.
+- 가장자리 드롭(`.split`, 방향은 Bonsplit이 줌) = 그 패인을 분할해 새 패인의 같은 종류 그룹으로.
+- 중심 드롭(`.insert`) = 그 패인의 같은 종류 그룹으로(없으면 새로 생성). 제자리 = 무동작.
+- **뷰 트리 변경은 다음 런루프로** — `splitPane`/`createTab`/`closeTab`을 `performDrop` 안에서 동기 실행하면
+  살아 있는 드래그 세션과 겹쳐 **런루프가 멈춘다**(실측). 드롭은 즉시 수락하고 `DispatchQueue.main.async`로 미룬다.
+- **⚠️ 핵심 함정 — pasteboard 커스텀 타입 데이터는 lazy** — `registerDataRepresentation`으로 실은 데이터는
+  `NSPasteboard.data(forType:)`로 **생짜로 읽으면 0바이트**(provider 콜백 미호출). 그래서 페이로드(원본탭+itemId)는
+  **store(`pendingSubtabDrag`)에 심어 나르고**, pasteboard의 **타입 존재**(`com.muxa.subtab`)는 "우리 드래그 세션인가"
+  판별용으로만 쓴다. Finder 드롭엔 이 타입이 없어 터미널 삽입으로 정확히 갈라진다.
+- **파일 서브탭만 드래그 가능** — `.web`·커밋 diff는 파일 URL이 없어 입장권을 못 만든다 → 메뉴 전용(의도).
+- **미반영**: `insertFirst`(어느 쪽에 붙나) — 기본 분할이라 항상 second쪽. 방향(가로/세로)만 존중.
+- **분리**: 서브탭 하나를 **새 분할 패인**의 같은 종류 그룹 탭으로 뽑는다(`detachGroupItem`). 항목이 둘 이상일
+  때만(하나뿐이면 그룹째 이동이라 무의미 — `GroupSplitPlan.canDetach`). 자동 새터미널은 `detachingSplit` 플래그로 억제.
+- **병합**: 그 그룹의 **모든 서브탭**을 **다른 패인의 같은 종류 그룹**으로 합치고 원본 그룹 탭을 닫는다
+  (`mergeGroup`). 원본 패인이 비면 Bonsplit이 분할을 자동으로 접는다(un-split). 대상은 같은 종류·다른 패인만
+  (`GroupSplitPlan.mergeTargets` — "단 같은 그룹만"). 라벨은 대상 내용으로 구별(`… 외 N개`).
+- **불변식 유지** — "패인당 종류 1그룹"은 그대로. 분리는 **다른** 패인에 새 그룹을 만들고, 병합은 대상 패인의
+  기존 같은 종류 그룹에 합치므로 안 깨진다. 복원(realizeGroup)은 원래 패인별로 그룹을 되살려 그대로 호환.
+- **코드**: `GroupSplitPlan.swift`(순수 판정)·`SubtabDrag.swift`(드래그 페이로드) 신규 · `TerminalStore`
+  (detach/merge/mergeTargets + `GroupMergeTarget` + 드래그 프로바이더·드롭 핸들러·`placeItem`) ·
+  `SubTabMenu`(항목) · `TabGroupView`(chip `.onDrag`)·`BonsplitWorkspaceView`(배선).
+- **테스트**: `GroupSplitPlanTests` 6개(분리 가능 판정·병합 대상 필터) 통과. 드래그·이동은 controller 의존이라 ★.
+
+### ★ 육안 검증 필요 (SUBTAB-SPLIT — `make dev-relaunch`)
+1. ★ **메뉴 분리**: 문서/코드 그룹에 서브탭 2+개 → 우클릭 "옆으로/아래로 분리" → 새 분할 패인에 같은 종류
+   그룹으로 뜨고 원본에서 사라지는지. 항목 1개면 분리 항목이 안 보이는지.
+2. ★ **메뉴 병합**: 분리 후 우클릭 "이 그룹 병합 → …" → 대상 패인 그룹으로 합쳐지고 원본 패인 분할이 접히는지.
+   대상 없으면 항목 안 뜨는지. 같은 파일이 양쪽에 있으면 중복 없이 합쳐지는지.
+3. ★★ **드래그-분리(런타임 가정 검증)**: 파일 서브탭을 끌어 **다른 패인 가장자리**에 떨구면 분할+이동, **같은 종류
+   그룹 위**에 떨구면 이동. ← **SwiftUI `.onDrag`의 커스텀 타입이 드래그 pasteboard에 실제로 실리는지가 핵심 가정**.
+   안 실리면 커스텀 타입을 못 읽어 **터미널에 경로가 삽입되는 폴백**으로 샌다(그때 fork 경로 필요).
+4. ★ **드래그 게이트**: `.web`·커밋 diff 서브탭은 드래그가 안 잡히는지(파일만 드래그). 파일 서브탭을 Finder로
+   끌면 파일로 export되는 부작용 확인.
+5. ★ **재시작 복원**: 분리 상태(패인 2개, 각자 같은 종류 그룹)로 ⌘Q 후 재실행 시 그대로 복원되는지.
+
+**미해결(의도)** — (a) 드래그 `insertFirst` 미반영(항상 second쪽). (b) `.web`/커밋 diff 드래그 불가(메뉴 전용).
+(c) Bonsplit 기본 **탭** 드래그로 그룹 탭을 같은 종류 그룹 있는 패인에 떨구면 "패인당 1그룹"이 깨질 수 있음
+(기존부터 잠복 — 서브탭 드래그와 별개).
+
 ## 최근 완료 (2026-07-23) — 문서 뷰어 원본/미리보기 토글 (SRC-TOGGLE, v0.2.0)
 
 md/HTML 뷰어에 렌더 ↔ 원문 텍스트 전환. 새 웹뷰 없이 `shell.html`의 `render()`에 `source` 파라미터 추가
