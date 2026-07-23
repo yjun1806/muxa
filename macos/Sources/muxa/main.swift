@@ -219,7 +219,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // 닫기 확인 배너가 떠 있으면 그 키(⌘W/⌘B/⌘C/esc)를 배너 결정으로 먼저 소비한다 —
         // keymap.resolve보다 앞서야 ⌘W가 .closeTab이 아니라 "완전 종료"로 간다.
         if state.closeConfirmShortcut(keyCode: Int(event.keyCode),
-                                      characters: event.charactersIgnoringModifiers,
                                       flags: event.modifierFlags, in: windowId) { return true }
         guard let action = keymap.resolve(keyCode: Int(event.keyCode),
                                           characters: event.charactersIgnoringModifiers,

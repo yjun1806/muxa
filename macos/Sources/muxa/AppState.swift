@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import Carbon.HIToolbox
 import Foundation
 import GhosttyKit
 import Observation
@@ -526,18 +527,19 @@ final class AppState {
     /// **keymap.resolve보다 앞서** 불려야 한다: 안 그러면 ⌘W가 `.closeTab`으로 잡혀 "완전 종료" 대신
     /// 또 확인을 돌린다. 배너가 없으면 false를 돌려 기존 단축키·터미널 입력으로 흘려보낸다(평소 흐름 불변).
     /// 배너가 떠 있는 활성(선택+포커스) 칸에만 적용 — 다른 칸의 배너는 클릭으로 결정한다.
-    func closeConfirmShortcut(keyCode: Int, characters: String?,
-                             flags: NSEvent.ModifierFlags, in windowId: WindowID) -> Bool {
+    func closeConfirmShortcut(keyCode: Int, flags: NSEvent.ModifierFlags, in windowId: WindowID) -> Bool {
         guard let store = store(ownedBy: windowId),
               let pane = store.controller.focusedPaneId,
               let tab = store.controller.selectedTab(inPane: pane),
               store.closeConfirmation(for: tab.id) != nil else { return false }
-        if keyCode == 53 { store.cancelClose(tab.id); return true } // esc — ⌘ 없이도 취소
+        if keyCode == kVK_Escape { store.cancelClose(tab.id); return true } // esc — ⌘ 없이도 취소
         guard flags.contains(.command) else { return false } // ⌘ 없는 다른 키는 터미널로 흘려보낸다
-        switch characters?.lowercased() {
-        case "w": store.confirmCloseKilling(tab.id); return true
-        case "b": store.confirmCloseKeeping(tab.id); return true
-        case "c": store.cancelClose(tab.id); return true
+        // **keyCode로 판정한다**(characters 아님) — 한글 IME가 켜져 있으면 charactersIgnoringModifiers가
+        // 자모('ㅈ')를 돌려줘 "w" 문자 비교가 빗나간다. keymap이 keyCode를 쓰는 것과 같은 이유(§KeymapResolver).
+        switch keyCode {
+        case kVK_ANSI_W: store.confirmCloseKilling(tab.id); return true
+        case kVK_ANSI_B: store.confirmCloseKeeping(tab.id); return true
+        case kVK_ANSI_C: store.cancelClose(tab.id); return true
         default: return false
         }
     }
