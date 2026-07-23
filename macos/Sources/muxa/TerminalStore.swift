@@ -49,6 +49,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 두 경로가 채운다 — 세션 복원(저장된 OSC 7 pwd)과 새 탭·분할(원본 칸의 현재 pwd 상속).
     /// TermView가 아직 안 만들어진 탭도 다음 저장 때 cwd를 잃지 않도록 convert의 폴백으로도 쓴다.
     @ObservationIgnored private var pendingCwd: [TabID: String] = [:]
+    /// 새 지속(tmux) 탭이 **첫 프로세스로 실행할 명령** — Claude 버튼이 "claude"를 심는다. term(for:)가 읽어
+    /// startCommand의 baked new-session 명령으로 넘긴다(로그인 셸로 실행 → 끝나면 대화형 셸). 비영속이라
+    /// 재시작 복원 시엔 비어 있어(되살아난 세션은 -A로 재부착·명령 무시) 재실행하지 않는다. pendingCwd와 같은 수명.
+    @ObservationIgnored private var pendingRunCommand: [TabID: String] = [:]
     /// 복원된 탭의 스크롤백 파일 경로 힌트 — term(for:)가 새 셸에 env로 주입한다(④). pendingCwd와 같은 수명.
     @ObservationIgnored private var restoredScrollbackFile: [TabID: String] = [:]
 
@@ -584,7 +588,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didRequestCustomAction identifier: String, inPane pane: PaneID) {
         switch identifier {
         case Self.persistentTerminalKind: newTerminal(inPane: pane, persistent: true)
-        case Self.claudeTerminalKind: newTerminal(inPane: pane, persistent: true, initialKeys: "claude")
+        case Self.claudeTerminalKind: newTerminal(inPane: pane, persistent: true, runCommand: "claude")
         default: break
         }
     }
@@ -639,6 +643,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         terms[tabId] = nil // TermView deinit이 서피스 free
         pendingCwd[tabId] = nil // 시작 cwd 힌트 해제
+        pendingRunCommand[tabId] = nil // 첫 실행 명령 힌트 해제(Claude 버튼)
         restoredScrollbackFile[tabId] = nil // 스크롤백 파일 힌트 해제
         ScrollbackStore.delete(for: tabId) // 이 탭의 스크롤백 파일 정리(누수 방지)
         resumeBindings[tabId] = nil // 에이전트 재개 바인딩 해제
@@ -858,7 +863,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             let inner = TerminalSession.startCommand(tmux: TmuxService.executable ?? "tmux",
                                                      socket: TmuxService.socket,
                                                      session: session, cwd: tabCwd ?? SystemPaths.home,
-                                                     env: env)
+                                                     env: env, runCommand: pendingRunCommand[tabId])
             return TerminalSession.execCommand(inner)
         }
         let t = TermView(app: app, cwd: tabCwd, tabId: tabId, sockPath: NotifyServer.socketPath,
@@ -1608,7 +1613,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     ///   일반 셸을 명시적으로 원하는 자리(데모 등)는 `persistent: false`를 넘긴다.
     @discardableResult
     func newTerminal(inPane pane: PaneID? = nil, inheritingFrom source: PaneID? = nil,
-                     persistent: Bool? = nil, initialKeys: String? = nil) -> TabID? {
+                     persistent: Bool? = nil, runCommand: String? = nil) -> TabID? {
         // createTab이 새 탭을 즉시 선택하므로, 원본 칸의 pwd·지속 여부는 생성 전에 읽는다.
         // cwd는 **분할일 때만** 물려받고(새 탭은 프로젝트 기본 경로), 지속 여부는 분할이면 상속·아니면 기본값.
         let start = source.flatMap { inheritedCwd(inPane: $0) } ?? cwd
@@ -1624,47 +1629,16 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             pendingCwd[id] = start
             // 의도는 서피스가 만들어지기 전에 정해져야 한다 — term(for:)가 이걸 보고 tmux로 띄울지 정한다.
             persistentIntent[id] = wantsPersistent
-            // Claude 버튼(initialKeys) — 지속(tmux) 탭이면 셸이 준비된 뒤 앱에서 명령을 입력·실행한다.
-            // 세션명은 tmuxSessionName이 확정(term(for:)도 같은 이름을 재사용). tmux 없으면 nil이라 건너뛴다.
-            if let initialKeys, wantsPersistent, let session = tmuxSessionName(for: id) {
-                runInitialCommand(initialKeys, session: session)
-            }
+            // Claude 버튼(runCommand) — 지속 탭이면 term(for:)가 startCommand의 baked new-session 명령으로 실행한다
+            // (셸 프롬프트 타이핑이 아니라 탭의 첫 프로세스로 직접 — 타이밍·잔상 없음). 비지속엔 startCommand가
+            // 안 불려 무의미하므로 애초에 지속일 때만 심는다.
+            if let runCommand, wantsPersistent { pendingRunCommand[id] = runCommand }
             regroup(id, inPane: pane ?? controller.focusedPaneId)
         }
         syncHasTabs() // 빈 상태에서 새 터미널을 열면 BonsplitView로 복귀(관측 갱신)
         persist()
         return id
     }
-
-    /// 갓 연 지속(tmux) 탭에서 명령을 **입력하고 실행**한다 — Claude 버튼(`claude`)의 실체.
-    ///
-    /// **tmux 명령 체인이 아니라 앱에서 넣는다.** 체인(`new-session … ; send-keys ; attach`)에 끼우면 두 가지로 깨진다:
-    ///  ① 셸 프롬프트가 뜨기 **전에** send-keys가 나가 키가 유실된다(셸 시작 시 대기 입력을 버린다 — 실측).
-    ///  ② 한 서브명령이라도 실패하면(예: 구버전 tmux가 모르는 플래그) tmux 서버가 통째로 죽어 **탭이 안 열린다**(실측).
-    /// 여기선 세션이 서고 포그라운드가 '그냥 셸'이 될 때까지 폴링한 뒤 보내므로 레이스가 없고, 실패해도 탭은 멀쩡하다.
-    ///
-    /// **셸 감지 후 한 박자 더 기다린다**(`promptSettleNs`): p10k·starship류 instant-prompt는 첫 프롬프트를
-    /// 그린 뒤 **다시 그리는데**, 그 사이에 넣으면 임시 프롬프트에 찍힌 `claude%` 잔상 + 실제 프롬프트에 중복
-    /// 입력이라는 이중 렌더가 난다(실측 스크린샷). 안정된 뒤 리터럴+Enter로 한 번에 실행한다.
-    private func runInitialCommand(_ text: String, session: String) {
-        Task { [weak self] in
-            // 셸 준비 대기 — 세션이 서고(빈 배열 아님) 포그라운드가 셸이 될 때까지 최대 ~5s(200ms×25).
-            for _ in 0..<25 {
-                try? await Task.sleep(nanoseconds: 200_000_000)
-                guard self != nil else { return } // 스토어가 사라지면 폴링 중단(닫힌 탭 등)
-                let fg = await TmuxService.paneForeground(session: session)
-                guard !fg.isEmpty, fg.allSatisfy(TerminalSession.isShell) else { continue }
-                try? await Task.sleep(nanoseconds: Self.promptSettleNs) // instant-prompt 재렌더가 끝나길
-                guard self != nil else { return }
-                await TmuxService.runCommand(session: session, text: text)
-                return
-            }
-        }
-    }
-
-    /// 셸 포그라운드 감지 후 명령을 보내기 전 대기 — instant-prompt(p10k/starship)의 두 번째 렌더가
-    /// 끝나 프롬프트가 안정되게 한다. 너무 짧으면 이중 렌더(`claude%` 잔상), 너무 길면 실행이 굼떠 보인다.
-    private static let promptSettleNs: UInt64 = 500_000_000
 
     // MARK: 탭 그룹핑 — 같은 종류끼리 묶기 (터미널 | 문서 | diff)
     //

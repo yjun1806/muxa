@@ -52,8 +52,8 @@ struct ActivityRail: View {
     }
 }
 
-/// 레일 항목 버튼 — 아이콘 하나 + (옵션) 알림 배지. 활성 표시는 **fill 승격이 아니라** 배경 + 좌측
-/// 브랜드 인셋 바로 통일한다. git 글리프가 커스텀 SVG라 `.fill` variant가 없어, 공통 스타일로 줘야
+/// 레일 항목 버튼 — 아이콘 하나 + (옵션) 알림 배지. 활성 표시는 **fill 승격도 좌측 바도 아니라**
+/// 뒷배경(`pBtnActive`)만 강조한다. git 글리프가 커스텀 SVG라 `.fill` variant가 없어, 공통 스타일로 줘야
 /// SF·커스텀 5글리프가 한 계열로 균질해진다(사용자 요청: 아이콘 통일).
 private struct RailButton: View {
     let icon: String
@@ -72,12 +72,6 @@ private struct RailButton: View {
                 .background {
                     if active {
                         RoundedRectangle(cornerRadius: Radius.sm).fill(Color.pBtnActive)
-                    }
-                }
-                .overlay(alignment: .leading) {
-                    if active {
-                        Capsule().fill(Color.pBrand)
-                            .frame(width: Rail.markBar, height: Rail.icon)
                     }
                 }
                 .overlay(alignment: .topTrailing) {

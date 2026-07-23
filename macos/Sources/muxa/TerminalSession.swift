@@ -56,13 +56,27 @@ enum TerminalSession {
     ///   tmux 세션의 셸은 tmux **서버**의 환경을 상속하지, ghostty가 띄운 바깥 셸의 env를 받지 않는다.
     ///   그래서 MUXA_TAB_ID·MUXA_SOCK이 없어 `muxa notify`가 어느 탭인지 못 찾고(알림·배지 소실),
     ///   rc 스니펫도 조건이 안 맞아 OSC를 안 쏜다(cwd 추적 소실). 실측으로 확인한 실패다.
+    ///
+    /// - Parameter runCommand: 세션을 **새로 만들 때** 셸 대신 첫 프로세스로 실행할 명령(Claude 버튼의 "claude").
+    ///   프롬프트에 타이핑하지 않고 pane의 프로세스로 직접 실행해 프롬프트 렌더 타이밍·잔상을 원천 차단한다.
+    ///   **로그인 셸(`$SHELL -lc`)로 감싼다** — .app은 launchd의 빈약한 PATH를 물려받는데, 로그인 셸이
+    ///   .zprofile을 읽어 PATH를 세워야 `~/.local/bin`의 claude를 찾는다(실측). 명령이 끝나면 `exec -l $SHELL`로
+    ///   대화형 셸에 떨어져 탭이 산다. 세션이 이미 있으면(-A 재부착·복원) tmux가 이 명령을 무시한다.
     static func startCommand(tmux: String, socket: String, session: String, cwd: String,
-                             env: [String: String] = [:]) -> String {
+                             env: [String: String] = [:], runCommand: String? = nil) -> String {
         // -e는 **세션을 새로 만들 때만** 적용된다(이미 있으면 무시). 복원된 세션의 셸에는 옛 tabId가
         // 남아 있는데, 그건 세션명으로 되짚어 현재 탭을 찾는다(§resolve).
         // 값(경로·env)은 외부 입력이므로 모두 탈출한다 — 아포스트로피 든 경로(`~/Bob's app`)나 주입 차단.
         let envArgs = env.keys.sorted().map { " -e \(ShellQuote.single("\($0)=\(env[$0]!)"))" }.joined()
         let q = ShellQuote.single(session)
+        // new-session — 선택적으로 첫 명령을 굽는다(위 runCommand 주석). 없으면 기본 셸이 뜬다.
+        let newSession: String = {
+            let base = "new-session -d -A -s \(q) -c \(ShellQuote.single(cwd))\(envArgs)"
+            guard let runCommand else { return base }
+            let shell = "\"${SHELL:-/bin/zsh}\""
+            let inner = "\(shell) -lc \(ShellQuote.single(runCommand)); exec -l \(shell)"
+            return "\(base) \(ShellQuote.single(inner))"
+        }()
         // tmux는 한 번의 실행에서 `;`로 여러 명령을 잇는다. `;`는 셸이 먹지 않게 인용한다.
         // `remain-on-exit`는 **-t를 생략**한다 — 명령 목록에서 방금 만든 세션이 현재 세션이 되므로
         // 세션명(76바이트)을 한 번 덜 반복한다(실측: 전역 `on`은 그대로 유지돼 서비스 로그 보존이 안 깨진다).
@@ -83,7 +97,8 @@ enum TerminalSession {
             // tmux가 밖으로도 modifyOtherKeys를 요청해 조합을 구분해 받는다.
             "set-option -sa terminal-features 'xterm*:extkeys'",
             // 없으면 만들고 있으면 그대로 둔다(-A). 앱을 껐다 켜도 같은 이름이면 그 세션에 다시 붙는다.
-            "new-session -d -A -s \(q) -c \(ShellQuote.single(cwd))\(envArgs)",
+            // runCommand가 있으면 이 줄에 baked 명령이 붙는다(위 newSession).
+            newSession,
             // 서버 전역은 `on`이다(서비스가 죽은 뒤 exit code·로그를 읽어야 하므로). 터미널에 그대로 두면
             // 사용자가 `exit`를 쳐도 pane이 죽은 채 남아 탭이 안 닫히고 세션이 쌓인다.
             "set-option remain-on-exit off",

@@ -412,17 +412,6 @@ enum TmuxService {
         return AgentProcessDetector.descendantNames(of: root)
     }
 
-    /// 세션의 활성 pane에 명령을 **입력하고 실행**한다(리터럴 텍스트 + Enter) — Claude 버튼이 갓 연 지속
-    /// 탭에서 `claude`를 바로 실행하는 경로(`TerminalStore.runInitialCommand`).
-    ///
-    /// `-t =세션:`은 **pane 타겟**이라 콜론이 필수다 — `=세션`만 쓰면 tmux가 "can't find pane"으로 조용히
-    /// 실패한다(attach의 세션 타겟 문법과 다르다 — 실측). `-l`은 리터럴(키 이름 해석 안 함), Enter는 별도
-    /// 서브명령이라야 한다(`-l Enter`는 "Enter" 5글자를 찍는다). 한 번의 tmux 호출로 원자적으로 보낸다.
-    static func runCommand(session: String, text: String) async {
-        let target = "=\(session):"
-        _ = await run(["send-keys", "-t", target, "-l", text, ";", "send-keys", "-t", target, "Enter"])
-    }
-
     /// 좀비 **스크립트** 세션 정리 — 등록이 사라졌는데 살아남은 실행(과 그 로그 pane)을 죽인다.
     /// 판정은 `ScriptSession.orphans`(순수)에 위임한다 — 등록된 스크립트의 세션은 종료됐어도
     /// 보존된다(종료 로그가 살아야 하므로), 남의 인스턴스·서비스·터미널 세션은 판정에서 걸러진다.

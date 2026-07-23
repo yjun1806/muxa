@@ -93,8 +93,6 @@ enum Rail {
     static let width: CGFloat = 34
     /// 레일 글리프 크기 — 5개 아이콘을 한 계열로 통일하는 단일 값(SF·커스텀 공통).
     static let icon: CGFloat = 15
-    /// 활성 항목 좌측 브랜드 인셋 바 두께 — fill 승격 대신 공통 활성 표시(사이드바 선택 서명선과 같은 어휘).
-    static let markBar: CGFloat = 2
 }
 
 /// 슬림(14pt) 사이드바의 색 막대 — 아이콘이 없어 막대 하나가 상태를 다 말한다.
