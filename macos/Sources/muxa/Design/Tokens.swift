@@ -87,6 +87,16 @@ enum IconSize {
     static let dotOffset: CGFloat = 3
 }
 
+/// 우측 **액티비티 레일** — 도구 슬롯(탐색기·Git·알림·설정) 진입점 + 스크래치 창 액션을 상시 노출하는
+/// 최소 폭 세로 바. 상단바 아이콘 클러스터를 이리로 모았다. 폭은 아이콘(15) + 좌우 여백으로 최소화한다.
+enum Rail {
+    static let width: CGFloat = 34
+    /// 레일 글리프 크기 — 5개 아이콘을 한 계열로 통일하는 단일 값(SF·커스텀 공통).
+    static let icon: CGFloat = 15
+    /// 활성 항목 좌측 브랜드 인셋 바 두께 — fill 승격 대신 공통 활성 표시(사이드바 선택 서명선과 같은 어휘).
+    static let markBar: CGFloat = 2
+}
+
 /// 슬림(14pt) 사이드바의 색 막대 — 아이콘이 없어 막대 하나가 상태를 다 말한다.
 /// 강조는 **색이 아니라 폭·높이**가 한다(불투명도 곱을 쓰지 않는 이유).
 enum SlimBar {

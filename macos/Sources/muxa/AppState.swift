@@ -184,11 +184,6 @@ final class AppState {
         return nil
     }
 
-    /// 인스펙터 열기 버튼이 다시 열 때 돌아갈 마지막 탭(닫아도 기억). 상단바 "사이드 패널" 버튼용.
-    @ObservationIgnored private(set) var lastInspectorTab: InspectorTab = .explorer
-
-    /// 닫혀 있으면 마지막 탭으로 열고, 열려 있으면 닫는다 — 상단바 사이드 패널 버튼.
-    func toggleInspector() { setInspector(inspectorTab == nil ? lastInspectorTab : nil) }
     /// 탭 선택 — 같은 탭을 다시 누르면 닫는다(토글). 항상 하나만 켠다.
     func selectInspector(_ tab: InspectorTab) { setInspector(inspectorTab == tab ? nil : tab) }
     /// 특정 탭을 **강제로 연다**(토글 아님) — 알림·검토 클릭 같은 "이걸 보여줘" 동선.
@@ -216,7 +211,6 @@ final class AppState {
     }
 
     private func setInspector(_ tab: InspectorTab?) {
-        if let tab { lastInspectorTab = tab }
         showSettings = false // 인스펙터를 열면 설정 패널을 닫는다(우측 슬롯은 하나)
         showExplorer = tab == .explorer
         showGitPanel = tab == .git

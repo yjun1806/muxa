@@ -1,50 +1,7 @@
 import SwiftUI
 
-/// 상단바 알림 벨 — 안 읽은 이력 수를 배지로 얹고, 누르면 인박스 팝오버를 연다.
-/// 배지("지금 상태")와 달리 인박스는 "자리 비웠다 돌아왔을 때의 복구 동선"이라 전역(모든 워크스페이스)이다.
-struct AttentionBell: View {
-    let state: AppState
-
-    /// 벨은 상단바에 남는다 — 인스펙터가 닫혀 있어도 배지가 "놓친 게 있다"를 계속 말해야 하기 때문.
-    /// 누르면 인스펙터 알림 탭을 연다(같은 탭이면 닫힘).
-    private var active: Bool { state.showAttention }
-
-    var body: some View {
-        Button {
-            state.selectInspector(.attention)
-            if state.showAttention { state.attention.markAllRead() } // 여는 즉시 읽음(표준 인박스 UX)
-        } label: {
-            Image(systemName: "bell")
-                .font(.muxa(.body))
-                .foregroundStyle(active || unread > 0 ? Color.pFg : Color.pMuted)
-                .frame(width: IconSize.control, height: IconSize.control)
-                // 배경·클립은 **아이콘 칸에만** 건다(`in:`). 예전엔 버튼 전체에 clipShape를 걸어서
-                // 밖으로 튀어나온 숫자 배지가 잘렸다 — 배지는 클립 밖 overlay라 이제 안 잘린다.
-                .background(active ? Color.pBtnActive.opacity(0.6) : Color.clear,
-                            in: RoundedRectangle(cornerRadius: Radius.sm))
-                .overlay(alignment: .topTrailing) {
-                    if unread > 0 {
-                        Text(unread > 99 ? "99+" : "\(unread)")
-                            .font(.muxaMono(.nano, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 3)
-                            .frame(minWidth: 12)
-                            .frame(height: 12)
-                            .background(Color(nsColor: Palette.borderActivity), in: Capsule())
-                            .fixedSize()
-                            .offset(x: 5, y: -3)
-                    }
-                }
-        }
-        .buttonStyle(.plain)
-        .clickCursor()
-        .help("알림 인박스")
-    }
-
-    // 놓친 알림 + 처리 안 한 워크트리 제안(공유 계산). 인박스를 열면 알림은 읽음 처리되지만 제안은
-    // 추가/무시할 때까지 남아 배지를 유지한다 — "아직 결정할 워크트리가 있다"는 지속 넛지(orca 인박스 취지).
-    private var unread: Int { state.attentionBadgeCount }
-}
+// 알림 진입점(벨)은 우측 **액티비티 레일**의 알림 항목으로 옮겼다(`ActivityRail`) — 배지·읽음 처리
+// 동선은 그대로다(`attentionBadgeCount`·`markAllRead`). 인박스 본문(`AttentionInbox`)은 그대로 쓴다.
 
 /// 인박스 팝오버 본문 — 놓친 주의 이력 목록(최신 우선). 항목 클릭 → 그 칸으로 점프.
 struct AttentionInbox: View {

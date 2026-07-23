@@ -7,87 +7,8 @@ enum InspectorTab: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var icon: String {
-        switch self {
-        case .explorer: return "folder"
-        case .git: return MuxaSymbol.gitBranch
-        case .attention: return "bell"
-        }
-    }
-
-    var label: String {
-        switch self {
-        case .explorer: return "탐색기"
-        case .git: return "Git"
-        case .attention: return "알림"
-        }
-    }
-}
-
-/// 인스펙터 상단의 탭 스트립 — 세 탭을 **Flex 균등 분할**(각 영역 동일 폭)로 나눈다. 닫기는 상단바 패널 버튼이 한다.
-/// 활성 표시는 matchedGeometry로 탭 사이를 미끄러진다(전환감).
-struct InspectorTabStrip: View {
-    let state: AppState
-    @Namespace private var indicator
-
-    var body: some View {
-        HStack(spacing: Space.xs) {
-            ForEach(InspectorTab.allCases) { tab in
-                tabButton(tab)
-            }
-        }
-        .padding(.horizontal, Space.xs)
-        .frame(height: RowHeight.panelHeader)
-        .animation(Motion.fast, value: state.inspectorTab)
-    }
-
-    private func tabButton(_ tab: InspectorTab) -> some View {
-        let active = state.inspectorTab == tab
-        let icon = MuxaIcon(name: tab.icon)
-            .overlay(alignment: .topTrailing) { badge(tab) }
-        return Button {
-            state.selectInspector(tab)
-            if tab == .attention, state.showAttention { state.attention.markAllRead() }
-        } label: {
-            // 폭 반응형 — 세그먼트가 넓으면 아이콘+라벨, 좁아지면 아이콘만(ViewThatFits가 고른다).
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: Space.xs) {
-                    icon
-                    Text(tab.label)
-                        .font(.muxa(.label, weight: active ? .semibold : .regular))
-                        .lineLimit(1)
-                }
-                icon
-            }
-            .foregroundStyle(active ? Color.pFg : Color.pMuted)
-            .frame(maxWidth: .infinity) // Flex — 각 탭이 동일 폭을 차지한다
-            .frame(height: RowHeight.row)
-            .background {
-                if active {
-                    RoundedRectangle(cornerRadius: Radius.sm)
-                        .fill(Color.pBtnActive)
-                        .matchedGeometryEffect(id: "activeInspectorTab", in: indicator)
-                }
-            }
-            .contentShape(Rectangle()) // 히트 영역을 세그먼트 전체로 — 클릭 씹힘 방지
-        }
-        .buttonStyle(.plain)
-        .clickCursor()
-        .help(tab.label)
-    }
-
-    /// 알림 탭 점 배지 — 아이콘 밖으로 나가되 클리핑 없는 overlay라 안 잘린다.
-    @ViewBuilder
-    private func badge(_ tab: InspectorTab) -> some View {
-        if tab == .attention, unread > 0 {
-            Circle()
-                .fill(Color(nsColor: Palette.borderActivity))
-                .frame(width: IconSize.dotSmall, height: IconSize.dotSmall)
-                .offset(x: IconSize.dotOffset, y: -IconSize.dotOffset)
-        }
-    }
-
-    private var unread: Int { state.attentionBadgeCount }
+    // 아이콘·라벨은 진입점인 우측 **액티비티 레일**(`ActivityRail`)이 소유한다 — 탭 스트립이 없어져
+    // 여기서 그리지 않는다. 레일은 탐색기·Git·알림에 스크래치·설정까지 5글리프를 한 계열로 통일해 나열한다.
 }
 
 /// 인스펙터 본문 — 방문한 탭을 **살려둔다**(keep-alive). 활성 탭만 보이고 나머지는 opacity 0으로 대기해,

@@ -121,13 +121,9 @@ struct ContentView: View {
                         .help(path)
                 }
                 Spacer(minLength: Space.lg)
-                // 사용량 칩이 헤더 오른쪽 설정이면 벨·토글 앞에 둔다.
+                // 사용량 칩(계정 단위)만 상단바에 남는다 — 나머지 도구 진입점(탐색기·Git·알림·설정·스크래치)은
+                // 우측 **액티비티 레일**(workspaceColumn 끝)로 옮겼다. 패널이 닫혀 있어도 상시 1클릭 접근.
                 if statusBarSettings.position == .headerRight { UsageChip(state: state) }
-                scratchTerminalButton // 앱 레벨 스크래치 터미널 — 워크스페이스와 무관하게 별도 창으로
-                // 상단바는 **알림 벨 + 사이드 패널 열기**만 — 탐색기·Git·설정은 인스펙터 탭 스트립에서 전환한다.
-                AttentionBell(state: state)
-                settingsIcon
-                inspectorToggle
             } else {
                 Spacer(minLength: 0)
             }
@@ -154,27 +150,8 @@ struct ContentView: View {
         .help(AppInfo.name)
     }
 
-    /// 스크래치(~) 터미널 열기 — 워크스페이스와 무관한 별도 창(⌘⌥T와 같은 경로).
-    private var scratchTerminalButton: some View {
-        IconButton(icon: "terminal", help: "스크래치 터미널 (⌘⌥T)", label: "스크래치 터미널") {
-            state.openScratchWindow()
-        }
-    }
-
-    /// 파일 익스플로러 토글 버튼(상단바 우측).
-    /// 설정 패널 열기/닫기(별도) — 인스펙터와 같은 우측 슬롯을 쓴다(상호배타).
-    private var settingsIcon: some View {
-        PanelToggle(icon: "gearshape", on: state.showSettings, help: "설정") {
-            state.toggleSettings()
-        }
-    }
-
-    /// 사이드 패널(인스펙터) 열기/닫기 — 마지막 탭으로 연다. 탭 전환은 인스펙터 안 스트립에서.
-    private var inspectorToggle: some View {
-        PanelToggle(icon: "sidebar.right", on: state.inspectorTab != nil, help: "사이드 패널") {
-            state.toggleInspector()
-        }
-    }
+    // 스크래치 터미널·설정·사이드 패널 토글은 우측 **액티비티 레일**(`ActivityRail`)로 옮겼다 —
+    // 상단바 잔류 버튼이 없어져 이 프로퍼티들도 제거됐다.
 
     /// 활성 워크스페이스 열 = 활성 프로젝트의 Bonsplit(터미널 탭·분할) + (옵션) 우측 Git 패널.
     ///
@@ -182,10 +159,12 @@ struct ContentView: View {
     /// 한 창의 뷰 트리에서만 렌더된다). 대신 되돌릴 길을 주는 플레이스홀더를 그린다.
     private var workspaceColumn: some View {
         // 서비스 서랍·인스펙터는 본문 오른쪽에 도킹 사이블링으로 붙어 본문을 밀어낸다.
+        // 액티비티 레일은 **맨 오른쪽에 상시** — rightSlot(패널) 개폐와 무관하게 항상 그린다(폭 고정, 리플로우 없음).
         HStack(spacing: 0) {
             mainColumn
             serviceDock
             rightSlot
+            ActivityRail(state: state)
         }
     }
 
@@ -236,15 +215,11 @@ struct ContentView: View {
             .id(project.id)
     }
 
-    /// 인스펙터 = [탭 스트립] / [활성 탭 본문]. 탭 전환은 스트립·상단바 아이콘·벨이 한다.
+    /// 인스펙터 본문 — 탭 전환은 우측 **액티비티 레일**이 한다(패널 안 탭 스트립은 제거됐다).
+    /// 활성 탭 하나만 그리되 방문한 탭을 살려둔다(keep-alive) — 재생성 flash 없이 즉시 전환·스크롤 보존.
     private var inspectorPanel: some View {
-        VStack(spacing: 0) {
-            InspectorTabStrip(state: state)
-            HDivider()
-            // 방문한 탭을 살려둔다(keep-alive) — 재생성 flash 없이 즉시 전환·스크롤 보존.
-            InspectorContent(state: state, target: mainOwnedProject)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.pPanel)
+        InspectorContent(state: state, target: mainOwnedProject)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.pPanel)
     }
 }
