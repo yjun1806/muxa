@@ -8,6 +8,8 @@ import WebKit
 struct MarkdownWebView: NSViewRepresentable {
     let content: String
     let isRawHTML: Bool
+    /// 원본 보기 — 렌더 대신 원문 텍스트를 그대로. md/html 공통.
+    var showSource: Bool = false
     /// 상대경로 링크 해석의 기준 — 현재 문서의 디렉토리.
     let baseDir: String
     /// 로컬 파일 링크를 앱 내 뷰어 새 탭으로 연다.
@@ -23,7 +25,7 @@ struct MarkdownWebView: NSViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
-        context.coordinator.pending = (content, isRawHTML)
+        context.coordinator.pending = (content, isRawHTML, showSource)
         if let url = Bundle.module.url(forResource: "shell", withExtension: "html", subdirectory: "mdviewer") {
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         }
@@ -34,7 +36,7 @@ struct MarkdownWebView: NSViewRepresentable {
         context.coordinator.baseDir = baseDir
         context.coordinator.onOpenFile = onOpenFile
         context.coordinator.onOpenURL = onOpenURL
-        context.coordinator.render(content: content, isRawHTML: isRawHTML)
+        context.coordinator.render(content: content, isRawHTML: isRawHTML, source: showSource)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -47,7 +49,7 @@ struct MarkdownWebView: NSViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         weak var webView: WKWebView?
-        var pending: (String, Bool)?
+        var pending: (String, Bool, Bool)?
         var baseDir = ""
         var onOpenFile: (String) -> Void = { _ in }
         var onOpenURL: (URL) -> Void = { _ in }
@@ -56,21 +58,22 @@ struct MarkdownWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             ready = true
-            if let (c, raw) = pending {
+            if let (c, raw, source) = pending {
                 pending = nil
-                render(content: c, isRawHTML: raw)
+                render(content: c, isRawHTML: raw, source: source)
             }
         }
 
-        func render(content: String, isRawHTML: Bool) {
-            guard ready, let webView else { pending = (content, isRawHTML); return }
-            let key = "\(isRawHTML)|\(content.count)|\(content.prefix(80))"
+        func render(content: String, isRawHTML: Bool, source: Bool) {
+            guard ready, let webView else { pending = (content, isRawHTML, source); return }
+            // source 플래그를 키에 넣어야 한다 — 안 넣으면 원본 토글 시 content가 같아 재렌더가 스킵된다.
+            let key = "\(isRawHTML)|\(source)|\(content.count)|\(content.prefix(80))"
             guard key != lastKey else { return }
             lastKey = key
             let dark = GhosttyRuntime.systemIsDark
             // UTF-8 base64로 전달 — shell의 decodeURIComponent(escape(atob(...)))가 복원한다.
             let b64 = Data(content.utf8).base64EncodedString()
-            webView.evaluateJavaScript("render(\"\(b64)\", \(dark), \(isRawHTML))")
+            webView.evaluateJavaScript("render(\"\(b64)\", \(dark), \(isRawHTML), \(source))")
         }
 
         // shell.html이 넘긴 링크 클릭 — 판정은 순수 함수(resolveMarkdownLink), 실행만 여기서.

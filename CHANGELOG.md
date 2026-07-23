@@ -6,6 +6,11 @@ All notable changes to muxa are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-23
+
+### Added
+- **Document source toggle** — a "원본 / 미리보기" button in the top-right of the document viewer flips between the rendered document and the raw text. Works for both Markdown and HTML files, and inside grouped subtabs; scroll resets to top on switch.
+
 ## [0.1.0] - 2026-07-23
 
 First tagged release — a macOS agent terminal with a built-in document viewer and diff.
@@ -25,5 +30,6 @@ First tagged release — a macOS agent terminal with a built-in document viewer 
 ### Notes
 - Status and notifications are tuned to Claude Code. macOS 14+. Build from source — no prebuilt binary; install with the one-line script or `make`.
 
-[Unreleased]: https://github.com/yjun1806/muxa/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/yjun1806/muxa/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/yjun1806/muxa/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/yjun1806/muxa/releases/tag/v0.1.0

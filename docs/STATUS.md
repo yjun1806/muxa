@@ -106,6 +106,20 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 추정기 `lastOutputAt`(systemUptime 경과) · 에이전트 판정 = `hookedTabs`. **경량 가드**: 접힘 기본 + 유휴 접기로 절제
 (muxa 우위=가벼움, [[muxa-vs-orca-positioning]]).
 
+## 최근 완료 (2026-07-23) — 문서 뷰어 원본/미리보기 토글 (SRC-TOGGLE, v0.2.0)
+
+md/HTML 뷰어에 렌더 ↔ 원문 텍스트 전환. 새 웹뷰 없이 `shell.html`의 `render()`에 `source` 파라미터 추가
+(escape 후 `<pre>`, md=markdown·html=xml 하이라이트). 버튼은 뷰어 우상단 오버레이 — 그룹 서브탭(`chrome:false`)엔
+자체 헤더가 없어 오버레이가 유일한 자리. `MarkdownWebView.Coordinator`의 dedupe 키에 source 포함(안 넣으면 토글 무반응).
+
+- **코드**: `shell.html`(render+source CSS) · `MarkdownWebView`(showSource+키) · `MarkdownView`(@State+오버레이 버튼)
+- **버전**: CHANGELOG 0.2.0 준비 완료. 태그(`git tag v0.2.0`)는 사용자 승인 후.
+
+### ★ 육안 검증 필요 (SRC-TOGGLE — `make dev-relaunch`)
+1. ★ **토글 표시·동작**: 문서 뷰어 우상단 "원본" 버튼 → 원문 텍스트(pre), "미리보기"로 되돌림. 그룹 서브탭에서도 뜨는지.
+2. ★ **md/html 양쪽**: .md는 markdown 하이라이트, .html은 xml 하이라이트로 원문이 보이는지.
+3. ★ **다크/라이트·긴 줄**: 테마 따라가고 긴 줄이 접히는지(pre-wrap). 전환 시 스크롤 top 리셋.
+
 ## 최근 완료 (2026-07-21) — 명령 탭 재설계 v2: 실행→즐겨찾기·실행내역·로그영속 (CMD-V2)
 
 CMD-UNIFY를 사용자 요구 재정의로 갈아엎었다. **등록 폼 폐기 → 실행 후 ★즐겨찾기=등록.** 명령당 실행

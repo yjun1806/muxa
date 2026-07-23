@@ -15,6 +15,7 @@ struct MarkdownView: View {
     @State private var state: LoadState = .loading
     @State private var watcher: FileWatcher? // 디스크 변경 시 자동 재로드
     @State private var lastMTime: Date?      // 이 파일 실제 변경만 재로드(FSEvents 재귀 소음 무시)
+    @State private var showSource = false     // 렌더 ↔ 원본 텍스트 토글
 
     enum LoadState { case loading, ok, tooLarge, error }
 
@@ -58,12 +59,34 @@ struct MarkdownView: View {
         case .tooLarge: centerLabel("파일이 너무 큽니다")
         case .error: centerLabel("열 수 없음")
         case .ok: MarkdownWebView(
-            content: content, isRawHTML: isHTML,
+            content: content, isRawHTML: isHTML, showSource: showSource,
             baseDir: (target.path as NSString).deletingLastPathComponent,
             onOpenFile: onOpenFile,
             onOpenURL: onOpenURL
         )
+        .overlay(alignment: .topTrailing) { sourceToggle }
         }
+    }
+
+    /// 렌더 ↔ 원본 토글 — 뷰어 우상단에 떠 있다(그룹 서브탭에선 자체 헤더가 없어 오버레이가 유일한 자리).
+    private var sourceToggle: some View {
+        Button { showSource.toggle() } label: {
+            HStack(spacing: Space.xs) {
+                Image(systemName: showSource ? "doc.richtext" : "chevron.left.forwardslash.chevron.right")
+                    .font(.muxa(.micro))
+                Text(showSource ? "미리보기" : "원본").font(.muxa(.label))
+            }
+            .foregroundStyle(Color.pFg)
+            .padding(.horizontal, Space.sm)
+            .padding(.vertical, Space.tight)
+            .background(Color.pBtnActive, in: Capsule())
+            .overlay { Capsule().strokeBorder(Color.pBorder, lineWidth: RowHeight.hairline) }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .clickCursor()
+        .help(showSource ? "렌더된 문서로 보기" : "원본 텍스트로 보기")
+        .padding(Space.sm)
     }
 
     private func centerLabel(_ t: String) -> some View {

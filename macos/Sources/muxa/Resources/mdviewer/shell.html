@@ -18,6 +18,9 @@
   /* 본문 조판은 md-body.css 공용 — diff 문서 뷰어와 한 파일을 쓴다 */
   /* raw HTML 문서(.html)는 셸 스타일 없이 그대로 */
   body.raw .markdown-body { max-width: none; padding: 0; }
+  /* 원본(source) 보기 — 파싱 없이 원문 텍스트를 폭 가득 채운 pre로. 긴 줄은 접는다. */
+  body.source .markdown-body { max-width: none; padding: 16px; }
+  body.source pre.src { margin: 0; white-space: pre-wrap; word-break: break-word; }
 </style>
 <script src="markdown-it.min.js"></script>
 <script src="highlight.min.js"></script>
@@ -44,9 +47,24 @@
   }
 
   // b64: UTF-8 base64. raw=true면 md 파싱 없이 원문 HTML 그대로(.html 파일).
-  function render(b64, dark, raw) {
+  // source=true면 렌더 대신 원문 텍스트를 그대로 보여준다(md/html 공통 "원본 보기").
+  function render(b64, dark, raw, source) {
     setTheme(dark);
     const text = decodeURIComponent(escape(atob(b64)));
+    document.body.classList.toggle('source', !!source);
+    if (source) {
+      // .raw와 겹치지 않게 명시적으로 정리 — CSS 규칙 순서에 기대지 않는다(.html을 원본으로 볼 때).
+      document.body.classList.remove('raw');
+      // 원문을 escape해 pre로. md는 markdown, html은 xml 문법 하이라이트(실패해도 escape로 폴백).
+      const lang = raw ? 'xml' : 'markdown';
+      let html;
+      try { html = hljs.highlight(text, { language: lang }).value; }
+      catch (e) { html = md.utils.escapeHtml(text); }
+      document.getElementById('content').innerHTML =
+        '<pre class="src"><code class="hljs">' + html + '</code></pre>';
+      window.scrollTo(0, 0);
+      return;
+    }
     document.body.classList.toggle('raw', !!raw);
     const el = document.getElementById('content');
     el.innerHTML = raw ? text : md.render(text);
