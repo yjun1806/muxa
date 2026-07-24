@@ -12,12 +12,19 @@ struct TerminalFooterBand: View {
 
     private var filename: String { (context.filePath as NSString).lastPathComponent }
 
-    /// 선택 줄 라벨(1-기반 표시) 또는 전체 파일.
-    private var detail: String {
-        guard !context.isEmpty else { return "전체 파일" }
-        let s = context.startLine + 1, e = max(context.endLine + 1, context.startLine + 1)
-        let n = e - s + 1
-        return s == e ? "L\(s) · \(n)줄" : "L\(s)–\(e) · \(n)줄"
+    /// 선택 텍스트의 **실제 줄 수**(렌더가 아닌 원문 기준 — claude가 받은 것과 일치).
+    private var lineCount: Int {
+        context.text.isEmpty ? 0 : context.text.split(separator: "\n", omittingEmptySubsequences: false).count
+    }
+
+    /// 파일 크기/선택 요약. 선택이면 줄 수, 없으면 전체 파일.
+    private var detail: String { context.isEmpty ? "전체 파일" : "\(lineCount)줄" }
+
+    /// 선택 텍스트 한 줄 미리보기 — "무엇이 공유됐나"를 눈으로 확인(개행은 공백으로, 길면 …).
+    private var preview: String {
+        let flat = context.text.replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return flat.count > 48 ? String(flat.prefix(48)) + "…" : flat
     }
 
     var body: some View {
@@ -26,8 +33,13 @@ struct TerminalFooterBand: View {
             if context.isEmpty {
                 Text("◉").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
             }
-            Text(filename).font(.muxa(.label)).foregroundStyle(Color.pFg).lineLimit(1)
-            Text("· \(detail)").font(.muxa(.label)).foregroundStyle(Color.pMuted).lineLimit(1)
+            Text(filename).font(.muxa(.label)).foregroundStyle(Color.pFg).lineLimit(1).layoutPriority(1)
+            Text("· \(detail)").font(.muxa(.label)).foregroundStyle(Color.pMuted).fixedSize()
+            // 실제 공유된 선택 텍스트 미리보기(선택일 때만) — claude가 받은 원문과 일치.
+            if !context.isEmpty, !preview.isEmpty {
+                Text("“\(preview)”").font(.muxa(.label)).italic()
+                    .foregroundStyle(Color.pMuted).lineLimit(1)
+            }
             Spacer(minLength: Space.sm)
             // 밴드가 "무엇이 공유 중"인지 이미 보여주므로 ✕만으로 자명하다(채팅 첨부 지우기 패턴).
             Button(action: onClear) {
