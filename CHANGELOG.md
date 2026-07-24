@@ -6,6 +6,12 @@ All notable changes to muxa are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-24
+
+### Added
+- **Claude Code IDE integration** — muxa now acts as an IDE that the `claude` CLI connects to (like the VS Code extension). Select text in a document or code viewer and it's shared with the Claude session in that pane automatically; a footer band under the terminal shows exactly what's shared (file · lines · preview) and clears it with an ✕. Each Claude session gets its own isolated endpoint, so a selection reaches only the session you're working in.
+- **Auto-update** — muxa checks GitHub for newer tagged versions and can install them itself (source rebuild); an update entry surfaces on the activity rail, with controls in Settings.
+
 ## [0.3.0] - 2026-07-23
 
 ### Added
