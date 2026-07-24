@@ -24,9 +24,19 @@ enum IdeProtocol {
     /// `prompts/list` 결과 — 빈 배열.
     static let promptsListResult: [String: Any] = ["prompts": [Any]()]
 
-    /// `tools/list` 결과 — CLI가 모델에 노출할 툴 목록. 스키마는 레퍼런스 그대로(draft-07).
+    /// muxa가 **제대로 지원하는** 툴만 광고한다. 쓰기/편집 계열(openDiff·openFile·saveDocument·
+    /// closeAllDiffTabs)은 아직 스텁이라 **일부러 뺀다** — 광고하면 claude가 편집을 openDiff로 보내는데
+    /// 스텁이 DIFF_REJECTED를 주면 편집이 반려돼 "연결 안 함"보다 나빠진다. M3에서 구현하면 여기 추가한다.
+    static let supportedTools: Set<String> = [
+        "getCurrentSelection", "getLatestSelection", "getOpenEditors",
+        "getWorkspaceFolders", "getDiagnostics", "checkDocumentDirty",
+    ]
+
+    /// `tools/list` 결과 — supportedTools로 필터한 목록. 스키마는 레퍼런스 그대로(draft-07).
     static var toolsListResult: [String: Any] {
-        (try? JSONSerialization.jsonObject(with: Data(toolsListJSON.utf8)) as? [String: Any]) ?? ["tools": [Any]()]
+        guard let all = (try? JSONSerialization.jsonObject(with: Data(toolsListJSON.utf8)) as? [String: Any]),
+              let tools = all["tools"] as? [[String: Any]] else { return ["tools": [Any]()] }
+        return ["tools": tools.filter { supportedTools.contains($0["name"] as? String ?? "") }]
     }
 
     // MARK: 툴 결과 엔벨로프

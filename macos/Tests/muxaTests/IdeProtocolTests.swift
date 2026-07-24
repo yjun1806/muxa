@@ -110,12 +110,14 @@ final class IdeProtocolTests: XCTestCase {
         XCTAssertTrue(s.contains("\"protocolVersion\":\"2024-11-05\""), s)
     }
 
-    func testToolsListHasTenTools() {
+    func testToolsListAdvertisesOnlySupportedTools() {
         let tools = IdeProtocol.toolsListResult["tools"] as? [[String: Any]]
-        XCTAssertEqual(tools?.count, 10)
         let names = Set(tools!.compactMap { $0["name"] as? String })
+        XCTAssertEqual(names, IdeProtocol.supportedTools)
         XCTAssertTrue(names.contains("getCurrentSelection"))
-        XCTAssertTrue(names.contains("openDiff"))
+        // 쓰기 계열은 아직 광고 안 함(편집 반려 방지).
+        XCTAssertFalse(names.contains("openDiff"))
+        XCTAssertFalse(names.contains("saveDocument"))
     }
 
     func testSelectionTextNilIsFailure() {
