@@ -22,7 +22,7 @@ struct ScratchWindowView: View {
             // 항상 존재한다. 뷰에서 scratchStore()(스폰형)를 부르면 창을 닫는 중 body가 재평가될 때
             // 렌더되지 않는 고아 store+PTY를 되살릴 수 있다 — 스폰은 경계(openScratchWindow)에만 둔다.
             if let store = state.existingStore(Scratch.projectId) {
-                BonsplitWorkspaceView(store: store, windowId: Scratch.windowId.rawValue)
+                BonsplitWorkspaceView(store: store, state: state, windowId: Scratch.windowId.rawValue)
                     .contentCard(radius: Radius.lg, border: Color.pBorder)
                     .padding(.horizontal, Space.sm)
                     .padding(.bottom, Space.xs)

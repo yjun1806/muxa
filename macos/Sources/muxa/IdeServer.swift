@@ -9,12 +9,10 @@ private let ideLog = Logger(subsystem: "com.muxa.ide", category: "server")
 /// 진단을 받아간다(VS Code 확장과 같은 역할). 부작용(소켓·락파일)을 이 경계에 격리한다. 순수 로직
 /// (핸드셰이크·프레임·JSON-RPC·MCP 응답 조립)은 IdeWs*/IdeJsonRpc/IdeProtocol에 있고 테스트로 못 박혔다.
 ///
-/// 수명은 앱 수준(NotifyServer와 같은 패턴, AppState 소유). 창당 하나가 아니라 **프로세스당 하나** —
-/// getCurrentSelection은 "앱 전역 포커스 문서의 선택"을 준다(VS Code의 창당 활성 편집기에 대응).
+/// **CC 칸마다 하나**(IdeServerRegistry가 탭별로 소유) — 각 claude 세션이 자기 포트/락파일에 붙어
+/// 선택이 그 세션에만 간다(VS Code가 창마다 엔드포인트를 갖는 격리). getCurrentSelection은 이 세션에
+/// 마지막으로 라우팅된 선택을 준다.
 final class IdeServer {
-    /// 실행 중인 인스턴스 — TerminalStore가 터미널 env(`CLAUDE_CODE_SSE_PORT` 등)를 읽어 주입한다.
-    private(set) static weak var current: IdeServer?
-
     /// 관측한 컨텍스트 스냅샷(플레인 값) — 네트워크 큐에서 락으로 읽는다(메인 홉 없이 안전).
     struct Context {
         var workspaceFolders: [String] = []
@@ -45,27 +43,41 @@ final class IdeServer {
                 "FORCE_CODE_TERMINAL": "true"]
     }
 
+    /// 지금 claude가 이 서버에 붙어 있나(업그레이드된 연결이 하나라도) — 라우팅 대상 판정에 쓴다.
+    var isConnected: Bool { queue.sync { connections.values.contains { $0.upgraded } } }
+
     // MARK: 수명
 
-    /// 루프백에 바인딩하고 락파일을 쓴다. 성공하면 port가 채워진다. 실패는 조용히 무시(IDE 기능만 꺼짐).
+    /// 루프백(랜덤 포트)에 바인딩하고 락파일을 쓴다. **ready까지 짧게 동기 대기**해 `port`를 확정한다 —
+    /// 터미널 생성 시점(term(for:))에 env로 포트를 심어야 하므로 반환 전에 포트가 있어야 한다. 실패는 조용히 무시.
     func start(workspaceFolders: [String]) {
         context.workspaceFolders = workspaceFolders
-        IdeLockfile.cleanOrphans(ideName: ideName) // 이전 실행이 남긴 죽은 락파일 정리(우리 것만)
         let params = NWParameters.tcp
         params.requiredInterfaceType = .loopback // 127.0.0.1 only
         guard let listener = try? NWListener(using: params, on: .any) else { return }
         self.listener = listener
+        let sem = DispatchSemaphore(value: 0)
+        var settled = false
         listener.stateUpdateHandler = { [weak self] state in
-            guard let self, case .ready = state, let p = listener.port?.rawValue else { return }
-            self.port = p
-            let content = IdeLockfile.content(pid: ProcessInfo.processInfo.processIdentifier,
-                                              workspaceFolders: workspaceFolders,
-                                              ideName: self.ideName, authToken: self.authToken)
-            IdeLockfile.write(port: p, content: content)
-            IdeServer.current = self
+            guard let self else { return }
+            switch state {
+            case .ready:
+                if let p = listener.port?.rawValue {
+                    self.port = p
+                    IdeLockfile.write(port: p, content: IdeLockfile.content(
+                        pid: ProcessInfo.processInfo.processIdentifier,
+                        workspaceFolders: self.context.workspaceFolders,
+                        ideName: self.ideName, authToken: self.authToken))
+                }
+                if !settled { settled = true; sem.signal() }
+            case .failed:
+                if !settled { settled = true; sem.signal() }
+            default: break
+            }
         }
         listener.newConnectionHandler = { [weak self] conn in self?.accept(conn) }
         listener.start(queue: queue)
+        _ = sem.wait(timeout: .now() + 1.0) // 포트 확정까지 최대 1초(터미널 생성 전 보장)
     }
 
     func stop() {

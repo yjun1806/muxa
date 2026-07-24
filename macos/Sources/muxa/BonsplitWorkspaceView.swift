@@ -5,6 +5,8 @@ import SwiftUI
 /// muxa의 수동 WorkspaceView/TabBarView/Tree를 대체한다.
 struct BonsplitWorkspaceView: View {
     let store: TerminalStore
+    /// IDE 공유 컨텍스트 관측용 — 터미널 푸터 밴드가 `state.ideSharedContext[tabId]`를 읽는다.
+    let state: AppState
     /// 이 뷰 트리를 그리는 창 — 터미널 서피스가 "내 창이 소유한 것인가"를 판정하는 데 쓴다(→ TermAttach).
     let windowId: String
 
@@ -57,23 +59,11 @@ struct BonsplitWorkspaceView: View {
             WorktreeLinkPane(store: store, tabId: tabId)
         case .terminal:
             let term = store.term(for: tabId)
-            // **[weak store]가 필수다.** 이 클로저는 TerminalRepresentable이 `term.onFocus`에 대입해
-            // TermView가 들고 있고, store는 `terms[tabId]`로 그 TermView를 들고 있다 — 강하게 잡으면
-            // store ↔ TermView가 서로를 붙잡는 순환이 되어, 프로젝트를 닫아 스토어를 버려도(stores[id]=nil)
-            // 아무도 해제되지 않는다. TermView.deinit이 안 돌면 ghostty_surface_free가 호출되지 않아
-            // 자식 셸(PTY)·타이머·배지 신호가 영원히 산다. 바로 아래 onContextMenu와 같은 패턴.
-            TerminalRepresentable(term: term, windowId: windowId) { [weak store] in
-                store?.controller.focusPane(paneId)
-                store?.noteTerminalFocused(tabId) // 문서 "Claude에 보내기"의 주입 대상(직전 CC)을 새긴다
-            }
-            // 칸 우클릭 메뉴 — TermView가 "터미널이 마우스를 캡처했는가"를 코어에 물어 이 콜백을 부를지 정한다.
-            // 캡처 중(vim·tmux 등)이면 우클릭은 그 앱으로 가고 여기 오지 않는다.
-            .onAppear {
-                // 칸 포커스는 TermView.rightMouseDown이 이미 옮긴다(onFocus → focusPane) — 여기선 메뉴만 띄운다.
-                term.onContextMenu = { [weak store] point in
-                    guard let store else { return }
-                    MuxaMenuWindow.show(
-                        TerminalPaneMenu.items(store: store, tabId: tabId, paneId: paneId), at: point)
+            VStack(spacing: 0) {
+                terminalSurface(term, tabId: tabId, paneId: paneId)
+                // muxa 소유 푸터 밴드 — 이 CC가 공유 중인 컨텍스트가 있을 때만(서피스 밖, 비침범).
+                if let ctx = state.ideSharedContext[tabId] {
+                    TerminalFooterBand(context: ctx) { state.clearIdeContext(tabId) }
                 }
             }
         case .group:
@@ -98,9 +88,27 @@ struct BonsplitWorkspaceView: View {
                     dragProvider: { store.subtabDragProvider($0, sourceTab: tabId) },
                     onSendToClaude: { store.sendFileToClaude(path: $0) },
                     canSendToClaude: { store.hasInjectionTarget },
-                    onSelection: { store.reportDocSelection($0) },
-                    onClearContext: { store.clearClaudeContext() }
+                    onSelection: { store.reportDocSelection($0) }
                 )
+            }
+        }
+    }
+
+    /// 터미널 서피스(ghostty) 한 칸 — 포커스 통지 + 칸 우클릭 메뉴. 푸터 밴드와 VStack으로 쌓기 위해 분리.
+    /// **[weak store]가 필수다.** 이 클로저는 `term.onFocus`에 대입돼 TermView가 들고, store는 terms로 그
+    /// TermView를 든다 — 강참조면 순환이 되어 프로젝트를 닫아도 TermView.deinit(=ghostty_surface_free)이 안 돈다.
+    @ViewBuilder
+    private func terminalSurface(_ term: TermView, tabId: TabID, paneId: PaneID) -> some View {
+        TerminalRepresentable(term: term, windowId: windowId) { [weak store] in
+            store?.controller.focusPane(paneId)
+            store?.noteTerminalFocused(tabId) // 직전 CC(주입 대상·IDE 라우팅 대상)를 새긴다
+        }
+        // 칸 우클릭 메뉴 — 터미널이 마우스를 캡처 중(claude·vim 등)이면 우클릭은 그 앱으로 가고 여기 안 온다.
+        .onAppear {
+            term.onContextMenu = { [weak store] point in
+                guard let store else { return }
+                MuxaMenuWindow.show(
+                    TerminalPaneMenu.items(store: store, tabId: tabId, paneId: paneId), at: point)
             }
         }
     }

@@ -642,6 +642,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         terms[tabId] = nil // TermView deinit이 서피스 free
+        onCloseTab?(tabId) // 이 탭의 IDE 서버 정리(있으면)
         pendingCwd[tabId] = nil // 시작 cwd 힌트 해제
         pendingRunCommand[tabId] = nil // 첫 실행 명령 힌트 해제(Claude 버튼)
         restoredScrollbackFile[tabId] = nil // 스크롤백 파일 힌트 해제
@@ -832,6 +833,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         guard case .terminal = content(for: tabId) else { return }
         lastActiveTerminalTab = tabId
         if agentActivity[tabId] != nil || agentDetail[tabId] != nil { lastActiveCCTab = tabId }
+        onTerminalFocused?(tabId) // 상위(AppState)가 IDE 라우팅 대상을 새긴다(claude 붙은 칸이면)
     }
 
     /// 주입 대상 터미널 탭 — 마지막 활성 CC 우선 → 마지막 활성 터미널 → 트리 첫 터미널.
@@ -846,13 +848,21 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 지금 문서를 붙여넣을 살아있는 터미널이 있나 — "Claude에 보내기" 메뉴 항목 활성화 판정.
     var hasInjectionTarget: Bool { injectionTargetTab != nil }
 
-    /// 문서 본문 선택 → 상위(AppState)가 IDE 서버로 라우팅한다(앰비언트 컨텍스트 공유). 선택 해제는 isEmpty로 온다.
+    /// 문서 본문 선택 → 상위(AppState)가 마지막 활성 CC 서버로 라우팅한다. 선택 해제는 isEmpty로 온다.
     var onDocSelection: ((IdeSelection) -> Void)?
     func reportDocSelection(_ sel: IdeSelection) { onDocSelection?(sel) }
 
-    /// 공유 중인 IDE 컨텍스트를 명시적으로 지운다(우클릭). 상위가 IDE 서버로 라우팅한다.
-    var onClearClaudeContext: (() -> Void)?
-    func clearClaudeContext() { onClearClaudeContext?() }
+    /// 이 CC 칸의 공유 컨텍스트를 지운다(터미널 푸터 밴드 ✕). 상위가 그 탭 서버를 clear한다.
+    var onClearIdeContext: ((TabID) -> Void)?
+    func clearIdeContext(_ tabId: TabID) { onClearIdeContext?(tabId) }
+
+    // MARK: per-CC IDE 서버 배선(AppState 주입)
+    /// 이 탭 터미널에 심을 IDE env(그 탭 전용 서버 포트). 지속(claude) 터미널에만 쓴다.
+    var ideEnv: ((TabID) -> [String: String])?
+    /// 터미널 칸이 포커스를 얻었다 — 상위가 라우팅 대상(마지막 활성 CC)을 새긴다.
+    var onTerminalFocused: ((TabID) -> Void)?
+    /// 탭이 닫혔다 — 상위가 그 탭의 IDE 서버를 내린다.
+    var onCloseTab: ((TabID) -> Void)?
 
     /// 문서 서브탭 우클릭 "Claude에 보내기" — 마지막 활성 CC(없으면 첫 터미널)의 프롬프트에 `@경로`를 붙인다.
     /// 제출(Enter)은 하지 않는다 — 사용자가 확인하고 직접 보낸다(주입 경계, injectToTerminal과 같은 규칙).
@@ -907,8 +917,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         // ghostty `command` 필드로 직접 exec한다(초기입력 주입 아님) — tmux attach 명령이 셸에
         // 에코돼 탭이 열릴 때 번쩍이던 것을 없앤다. execCommand가 `/bin/sh -c '…; exec -l $SHELL'`로
         // 감싸 detach 후에도 셸이 남는다(탭 생존 유지).
-        // IDE 통합 env — muxa 터미널의 claude가 IdeServer에 붙는다(CLAUDE_CODE_SSE_PORT 등). 서버가 없으면 빈 값.
-        let ideEnv = IdeServer.current?.terminalEnv ?? [:]
+        // IDE 통합 env — **지속(claude) 터미널에만** 이 탭 전용 서버 포트를 심는다(per-CC 격리). 일회용
+        // 스크래치 터미널엔 안 심는다(서버·락파일 남발 방지 — claude는 ∞/Claude 버튼의 지속 세션에서 돈다).
+        let ideEnv = tmuxSession != nil ? (self.ideEnv?(tabId) ?? [:]) : [:]
         let command = tmuxSession.map { session in
             var env = ["MUXA_TAB_ID": tabId.uuid.uuidString,
                        "MUXA_SURFACE_ID": tabId.uuid.uuidString,

@@ -61,7 +61,7 @@ struct ProjectWindowView: View {
         let store = state.store(for: project, in: workspace)
         let dir = project.path ?? workspace.path
         return HStack(spacing: 0) {
-            BonsplitWorkspaceView(store: store, windowId: windowId.rawValue)
+            BonsplitWorkspaceView(store: store, state: state, windowId: windowId.rawValue)
                 .id(project.id)
             if model.showExplorer {
                 ResizablePanel(width: explorerWidth(model), range: AppState.panelWidthRange) { w in

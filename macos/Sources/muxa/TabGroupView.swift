@@ -31,8 +31,6 @@ struct TabGroupView: View {
     var canSendToClaude: () -> Bool = { false }
     /// 문서 본문 선택 → IDE 통합(앰비언트 컨텍스트 공유).
     var onSelection: (IdeSelection) -> Void = { _ in }
-    /// 공유 중인 IDE 컨텍스트를 지운다(우클릭 메뉴).
-    var onClearContext: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 0) {
@@ -100,8 +98,7 @@ struct TabGroupView: View {
                                         onDetachDown: { onDetachDown(item.id) },
                                         mergeOptions: mergeOptions(),
                                         onSendToClaude: onSendToClaude,
-                                        canSend: canSendToClaude(),
-                                        onClearContext: onClearContext)
+                                        canSend: canSendToClaude())
             MuxaMenuWindow.show(menu, at: point)
         }
     }

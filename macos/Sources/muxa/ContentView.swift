@@ -211,6 +211,7 @@ struct ContentView: View {
     private func projectColumn(_ ws: Workspace, _ project: Project) -> some View {
         // 프로젝트별 안정 identity — 전환해도 store(터미널들)는 AppState가 유지한다.
         BonsplitWorkspaceView(store: state.store(for: project, in: ws),
+                              state: state,
                               windowId: WindowID.main.rawValue)
             .id(project.id)
     }
