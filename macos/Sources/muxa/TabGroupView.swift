@@ -119,7 +119,7 @@ struct TabGroupView: View {
     private func itemView(_ item: GroupItemContent, selected: Bool) -> some View {
         switch item {
         case .file(let target):
-            fileItemView(target)
+            fileItemView(target, selected: selected)
         case .diff(let target):
             DiffView(target: target, dir: dir, chrome: false, onClose: {})
         case .web(let tab):
@@ -128,12 +128,13 @@ struct TabGroupView: View {
     }
 
     @ViewBuilder
-    private func fileItemView(_ target: FileViewTarget) -> some View {
+    private func fileItemView(_ target: FileViewTarget, selected: Bool) -> some View {
         switch target.kind {
         case .markdown, .html: MarkdownView(target: target, chrome: false, onClose: {},
                                             onOpenFile: onOpenFile, onOpenURL: onOpenURL,
-                                            onSelection: onSelection)
-        case .code: CodeView(target: target, chrome: false, onClose: {}, onSelection: onSelection)
+                                            onSelection: onSelection, isSelected: selected)
+        case .code: CodeView(target: target, chrome: false, onClose: {},
+                             onSelection: onSelection, isSelected: selected)
         case .image: ImageFileView(target: target, chrome: false, onClose: {})
         case .video: VideoFileView(target: target, chrome: false, onClose: {})
         }

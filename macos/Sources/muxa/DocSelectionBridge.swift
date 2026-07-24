@@ -9,6 +9,9 @@ import Foundation
 enum DocSelectionBridge {
     static let messageName = "muxaSelection"
 
+    /// 이 문서가 활성 서브탭이 됐을 때 Swift가 evaluateJavaScript로 불러 현재 선택을 강제 재보고시킨다.
+    static let reportJS = "window.__muxaReportSelection && window.__muxaReportSelection()"
+
     /// 메시지 body → IdeSelection. body가 dict가 아니면 nil.
     static func selection(from body: Any, filePath: String) -> IdeSelection? {
         guard let d = body as? [String: Any] else { return nil }
@@ -47,6 +50,9 @@ enum DocSelectionBridge {
       document.addEventListener('selectionchange', function(){
         clearTimeout(window.__muxaSelT); window.__muxaSelT = setTimeout(post, 150);
       });
+      // 서브탭 전환 시 Swift가 부른다 — 이 문서가 활성이 됐으니 현재 선택을 **강제로 다시 보고**한다
+      // (dedup 우회). 선택이 없으면 빈 값(활성 파일)을 보내 컨텍스트가 이 문서로 정확히 따라온다.
+      window.__muxaReportSelection = function(){ last = ""; post(); };
     })();
     """#
 }

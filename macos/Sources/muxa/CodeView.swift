@@ -8,6 +8,8 @@ struct CodeView: View {
     var onClose: () -> Void
     /// 본문 선택을 IDE 통합으로 흘려보낸다.
     var onSelection: (IdeSelection) -> Void = { _ in }
+    /// 이 문서가 활성 서브탭인가 — 전환 시 컨텍스트가 따라오게 재보고 트리거.
+    var isSelected: Bool = false
 
     @State private var html = ""
     @State private var state: LoadState = .loading
@@ -49,7 +51,7 @@ struct CodeView: View {
         case .tooLarge: centerLabel("파일이 너무 큽니다")
         case .binary: centerLabel("바이너리 파일")
         case .error: centerLabel("열 수 없음")
-        case .ok: CodeWebView(html: html, filePath: target.path, onSelection: onSelection)
+        case .ok: CodeWebView(html: html, filePath: target.path, onSelection: onSelection, isSelected: isSelected)
         }
     }
 

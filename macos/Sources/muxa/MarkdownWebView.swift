@@ -20,6 +20,8 @@ struct MarkdownWebView: NSViewRepresentable {
     var filePath: String = ""
     /// 본문 텍스트 선택(또는 해제) — IDE 통합으로 흘려보낸다(빈 선택 = isEmpty).
     var onSelection: (IdeSelection) -> Void = { _ in }
+    /// 이 문서가 지금 활성(선택된) 서브탭인가 — 활성이 되는 순간 현재 선택을 재보고해 컨텍스트가 따라오게 한다.
+    var isSelected: Bool = false
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -44,6 +46,7 @@ struct MarkdownWebView: NSViewRepresentable {
         context.coordinator.filePath = filePath
         context.coordinator.onSelection = onSelection
         context.coordinator.render(content: content, isRawHTML: isRawHTML, source: showSource)
+        context.coordinator.applySelected(isSelected) // 활성 전환 시 재보고
     }
 
     func makeCoordinator() -> Coordinator {
@@ -66,10 +69,19 @@ struct MarkdownWebView: NSViewRepresentable {
         var onSelection: (IdeSelection) -> Void = { _ in }
         private var ready = false
         private var lastKey = ""
+        private var isSelected = false
+
+        /// 활성 서브탭이 됐으면 현재 선택을 강제 재보고 — 컨텍스트가 이 문서로 정확히 따라온다.
+        func applySelected(_ sel: Bool) {
+            guard sel != isSelected else { return }
+            isSelected = sel
+            if sel, ready { webView?.evaluateJavaScript(DocSelectionBridge.reportJS) }
+        }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             ready = true
             webView.evaluateJavaScript(DocSelectionBridge.js) // 선택 → IDE 브리지 주입
+            if isSelected { webView.evaluateJavaScript(DocSelectionBridge.reportJS) } // 로드 시 활성이면 즉시 보고
             if let (c, raw, source) = pending {
                 pending = nil
                 render(content: c, isRawHTML: raw, source: source)

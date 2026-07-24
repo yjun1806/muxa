@@ -12,6 +12,8 @@ struct MarkdownView: View {
     var onOpenURL: (URL) -> Void = { _ in }
     /// 본문 선택을 IDE 통합으로 흘려보낸다(우상단 위임).
     var onSelection: (IdeSelection) -> Void = { _ in }
+    /// 이 문서가 활성 서브탭인가 — 전환 시 컨텍스트가 따라오게 재보고 트리거.
+    var isSelected: Bool = false
 
     @State private var content = ""
     @State private var state: LoadState = .loading
@@ -66,7 +68,8 @@ struct MarkdownView: View {
             onOpenFile: onOpenFile,
             onOpenURL: onOpenURL,
             filePath: target.path,
-            onSelection: onSelection
+            onSelection: onSelection,
+            isSelected: isSelected
         )
         .overlay(alignment: .topTrailing) { sourceToggle }
         }
