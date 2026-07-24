@@ -136,6 +136,16 @@ final class IdeProtocolTests: XCTestCase {
         XCTAssertTrue(IdeProtocol.selectionText(nil).contains("\"success\":false"))
     }
 
+    func testSelectionTextEmptyIsNoEditor() {
+        // 선택 해제 → 활성 파일도 광고 안 함(완전 clear).
+        XCTAssertTrue(IdeProtocol.selectionText(IdeSelection.empty(filePath: "/a/b.swift")).contains("\"success\":false"))
+    }
+
+    func testEmptySelectionParamsClearsFilePath() {
+        let p = IdeProtocol.selectionParams(IdeSelection.empty(filePath: "/a/b.swift"))
+        XCTAssertEqual(p["filePath"] as? String, "") // 파일 참조까지 비워야 claude가 파일을 안 문다
+    }
+
     func testSelectionTextEncodesRange() {
         let sel = IdeSelection(filePath: "/a/b.swift", text: "hi",
                                startLine: 2, startCharacter: 0, endLine: 2, endCharacter: 2)
