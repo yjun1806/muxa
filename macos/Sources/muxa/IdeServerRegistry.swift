@@ -34,6 +34,9 @@ final class IdeServerRegistry {
     /// 이 탭에 claude가 붙어 있나 — 라우팅 대상(마지막 활성 CC) 판정.
     func isConnected(_ tabId: TabID) -> Bool { servers[tabId]?.isConnected ?? false }
 
+    /// 지금 claude가 붙어 있는 CC 탭들 — 라우팅 대상 선택(하나면 항상 그 하나, 여럿이면 포커스 기준).
+    func connectedTabs() -> [TabID] { servers.compactMap { $0.value.isConnected ? $0.key : nil } }
+
     /// 선택을 **이 탭의 서버로만** 흘린다(격리). 서버 없으면 무동작.
     func route(_ selection: IdeSelection, to tabId: TabID) {
         servers[tabId]?.updateContext { $0.selection = selection }

@@ -29,22 +29,19 @@ struct TerminalFooterBand: View {
             Text(filename).font(.muxa(.label)).foregroundStyle(Color.pFg).lineLimit(1)
             Text("· \(detail)").font(.muxa(.label)).foregroundStyle(Color.pMuted).lineLimit(1)
             Spacer(minLength: Space.sm)
+            // 밴드가 "무엇이 공유 중"인지 이미 보여주므로 ✕만으로 자명하다(채팅 첨부 지우기 패턴).
             Button(action: onClear) {
-                HStack(spacing: 4) {
-                    Text("떼기").font(.muxa(.label))
-                    Image(systemName: "xmark").font(.muxa(.nano, weight: .bold))
-                }
-                .foregroundStyle(hovering ? Color.pBrand : Color.pMuted)
-                .padding(.horizontal, Space.sm)
-                .padding(.vertical, 3)
-                .background(hovering ? Color.pBrandSubtle : Color.clear,
-                            in: RoundedRectangle(cornerRadius: Radius.sm))
+                Image(systemName: "xmark").font(.muxa(.label, weight: .medium))
+                    .foregroundStyle(hovering ? Color.pBrand : Color.pMuted)
+                    .frame(width: 20, height: 20)
+                    .background(hovering ? Color.pBrandSubtle : Color.clear,
+                                in: RoundedRectangle(cornerRadius: Radius.sm))
             }
             .buttonStyle(.plain)
             .clickCursor()
             .onHover { hovering = $0 }
-            .help("이 세션에서 공유 컨텍스트를 뗀다")
-            .accessibilityLabel("\(filename) 공유 떼기")
+            .help("공유 해제")
+            .accessibilityLabel("\(filename) 공유 해제")
         }
         .padding(.horizontal, Space.md)
         .frame(height: RowHeight.bar)

@@ -330,11 +330,20 @@ final class AppState {
         ideServers.workspaceFolders = { [weak self] in self?.ideWorkspaceFolders() ?? [SystemPaths.home] }
     }
 
-    /// 문서 선택을 마지막 활성 CC 칸의 서버로만 흘린다(격리) + 그 칸 푸터가 그릴 컨텍스트를 새긴다.
+    /// 문서 선택을 대상 CC 서버로 흘린다(격리) + 그 칸 푸터가 그릴 컨텍스트를 새긴다.
     private func routeIdeSelection(_ sel: IdeSelection) {
-        guard let target = lastFocusedCCTab else { return }
+        guard let target = ideRoutingTarget() else { return }
         ideServers.route(sel, to: target)
         ideSharedContext[target] = sel
+    }
+
+    /// 선택을 보낼 CC — **연결된 CC가 하나면 항상 그 하나**(반응성), 여럿이면 마지막 활성, 폴백은 아무 연결된 CC.
+    /// 포커스 타이밍(연결 전 포커스)에 의존하지 않아 "선택하면 바로 공유"가 안정적이다.
+    private func ideRoutingTarget() -> TabID? {
+        let connected = ideServers.connectedTabs()
+        if connected.count == 1 { return connected.first }
+        if let last = lastFocusedCCTab, connected.contains(last) { return last }
+        return connected.first
     }
 
     /// 이 CC 칸의 공유 컨텍스트를 지운다(푸터 ✕).
