@@ -71,7 +71,7 @@ final class TermView: NSView, NSTextInputClient {
 
     init(app: ghostty_app_t, cwd: String?, tabId: TabID? = nil, sockPath: String? = nil,
          restoreScrollbackFile: String? = nil, initialCommand: String? = nil,
-         command: String? = nil) {
+         extraEnv: [String: String] = [:], command: String? = nil) {
         self.tabId = tabId
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false // 수동 프레임 — 제약 엔진 제외
@@ -103,6 +103,11 @@ final class TermView: NSView, NSTextInputClient {
         }
         if let sockPath {
             envVars.append(ghostty_env_var_s(key: dup("MUXA_SOCK"), value: dup(sockPath)))
+        }
+        // IDE 통합 env(CLAUDE_CODE_SSE_PORT 등) — 비-tmux 터미널에서 실행된 claude가 muxa에 붙게 한다.
+        // tmux 지속 세션은 tmux `-e`로 따로 심는다(server 상속 문제 때문에 — term(for:) 참조).
+        for (k, v) in extraEnv {
+            envVars.append(ghostty_env_var_s(key: dup(k), value: dup(v)))
         }
         // 세션 복원: 새 셸이 시작하면 저장된 이전 화면을 재출력해 프롬프트 위에 복원한다(rc 훅 불필요).
         // initial_input은 셸 stdin으로 들어가 "정상 출력 경로"를 타므로 엔진 렌더와 충돌하지 않는다(process_output

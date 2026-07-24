@@ -25,6 +25,10 @@ struct TabGroupView: View {
     var canDrag: (GroupItemContent) -> Bool = { _ in false }
     /// 드래그 시작 시 페이로드(파일 URL + 서브탭 대상)를 만든다.
     var dragProvider: (GroupItemContent) -> NSItemProvider? = { _ in nil }
+    /// 이 문서(파일 경로)를 마지막 활성 CC 프롬프트에 `@경로`로 붙인다(우클릭 "Claude에 보내기").
+    var onSendToClaude: (String) -> Void = { _ in }
+    /// 지금 붙여넣을 살아있는 터미널이 있나 — 메뉴 항목 활성화(메뉴 열 때 평가).
+    var canSendToClaude: () -> Bool = { false }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -90,7 +94,9 @@ struct TabGroupView: View {
                                         onCloseOthers: { onCloseOtherItems(item.id) },
                                         onDetachRight: { onDetachRight(item.id) },
                                         onDetachDown: { onDetachDown(item.id) },
-                                        mergeOptions: mergeOptions())
+                                        mergeOptions: mergeOptions(),
+                                        onSendToClaude: onSendToClaude,
+                                        canSend: canSendToClaude())
             MuxaMenuWindow.show(menu, at: point)
         }
     }

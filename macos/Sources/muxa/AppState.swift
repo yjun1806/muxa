@@ -270,6 +270,12 @@ final class AppState {
     /// 훅 알림 리스너(Unix 소켓). 앱 상태가 소유하고, 수신 시 tabId→store로 라우팅한다.
     @ObservationIgnored private let notifyServer = NotifyServer()
 
+    /// IDE 통합 서버(로컬 ws). muxa를 IDE로 노출해 터미널의 claude가 붙어 선택·활성파일을 받아간다.
+    /// NotifyServer와 같은 패턴(앱 상태 소유·시작 시 1회 기동). 종료 시 락파일을 지운다.
+    @ObservationIgnored private let ideServer = IdeServer(
+        version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev",
+        ideName: AppInfo.name)
+
     init(app: ghostty_app_t, config: MuxaConfig = .defaults) {
         self.app = app
         self.config = config
@@ -308,6 +314,17 @@ final class AppState {
         }
     }
 
+    /// IDE 서버가 CLI에 알릴 워크스페이스 루트 — 열린 프로젝트들의 작업 디렉터리(중복 제거), 없으면 홈.
+    private func ideWorkspaceFolders() -> [String] {
+        let roots = stores.values.compactMap { $0.workingDir }
+        return roots.isEmpty ? [SystemPaths.home] : Array(Set(roots)).sorted()
+    }
+
+    /// 열린 프로젝트가 바뀌면 IDE 서버의 워크스페이스 루트를 갱신한다(load·프로젝트 개폐 후).
+    func refreshIdeWorkspace() {
+        ideServer.updateContext { $0.workspaceFolders = ideWorkspaceFolders() }
+    }
+
     /// 훅 알림 리스너를 켜고 라우팅 콜백을 건다. AppDelegate가 앱 시작 시 1회 호출.
     func startNotifyServer() {
         notifyServer.onMessage = { [weak self] msg in
@@ -317,6 +334,7 @@ final class AppState {
             MainActor.assumeIsolated { self?.routeHook(msg) }
         }
         notifyServer.start()
+        ideServer.start(workspaceFolders: ideWorkspaceFolders())
         refreshHookInstallState()
         migrateCommandsIfNeeded() // v1(scripts+commandHistory) → v2 commands, 로드 후 1회
     }
@@ -2632,6 +2650,7 @@ final class AppState {
             break
         }
         restoreWarnings.append(contentsOf: decision.warnings)
+        refreshIdeWorkspace() // 복원된 프로젝트들의 루트를 IDE 서버에 반영
     }
 
     /// 파일 하나를 읽고 디코드까지 시도한다(경계). 결과를 순수 판정에 넘길 형태로 돌려준다.
@@ -2715,6 +2734,7 @@ final class AppState {
     /// applicationWillTerminate가 호출한다. 이 경로를 못 타면(크래시) 마커가 남아 다음 시작에 더티로 잡힌다.
     func endSession() {
         save(captureScrollback: true) // 종료 시 1회만 스크롤백을 최신 화면으로 갱신 — 복원이 이걸 재출력한다
+        ideServer.stop() // IDE 락파일 정리(고아 방지)
         CrashMarker.disarm()
     }
 }

@@ -64,6 +64,7 @@ struct BonsplitWorkspaceView: View {
             // 자식 셸(PTY)·타이머·배지 신호가 영원히 산다. 바로 아래 onContextMenu와 같은 패턴.
             TerminalRepresentable(term: term, windowId: windowId) { [weak store] in
                 store?.controller.focusPane(paneId)
+                store?.noteTerminalFocused(tabId) // 문서 "Claude에 보내기"의 주입 대상(직전 CC)을 새긴다
             }
             // 칸 우클릭 메뉴 — TermView가 "터미널이 마우스를 캡처했는가"를 코어에 물어 이 콜백을 부를지 정한다.
             // 캡처 중(vim·tmux 등)이면 우클릭은 그 앱으로 가고 여기 오지 않는다.
@@ -94,7 +95,9 @@ struct BonsplitWorkspaceView: View {
                         }
                     },
                     canDrag: { store.subtabFilePath(for: $0) != nil },
-                    dragProvider: { store.subtabDragProvider($0, sourceTab: tabId) }
+                    dragProvider: { store.subtabDragProvider($0, sourceTab: tabId) },
+                    onSendToClaude: { store.sendFileToClaude(path: $0) },
+                    canSendToClaude: { store.hasInjectionTarget }
                 )
             }
         }

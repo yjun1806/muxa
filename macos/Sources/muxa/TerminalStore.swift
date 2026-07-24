@@ -804,14 +804,57 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         return term(for: tab.id)
     }
 
-    /// 칸→탭 순서로 만나는 첫 터미널(포커스가 diff 등 비-터미널일 때의 폴백). 없으면 nil.
-    private var firstTerminal: TermView? {
+    /// 칸→탭 순서로 만나는 첫 터미널 탭(포커스가 diff 등 비-터미널일 때의 폴백). 없으면 nil.
+    private var firstTerminalTab: TabID? {
         for paneId in controller.allPaneIds {
             for tab in controller.tabs(inPane: paneId) where terms[tab.id] != nil {
-                if case .terminal = content(for: tab.id) { return term(for: tab.id) }
+                if case .terminal = content(for: tab.id) { return tab.id }
             }
         }
         return nil
+    }
+
+    /// 칸→탭 순서로 만나는 첫 터미널(포커스가 diff 등 비-터미널일 때의 폴백). 없으면 nil.
+    private var firstTerminal: TermView? { firstTerminalTab.map { term(for: $0) } }
+
+    // MARK: 마지막 활성 (CC) 터미널 — 문서 서브탭 "Claude에 보내기" 주입 대상
+    //
+    // 문서 칸에서 주입을 걸 때 포커스는 이미 그 문서 칸에 있어(focusedTerm=nil), "직전에 있던 터미널"을
+    // 미리 새겨둬야 한다. 문서·diff 칸 포커스는 이 값을 안 건드리므로, 문서를 봐도 직전 CC가 대상으로 남는다.
+
+    /// 마지막으로 포커스된 터미널 탭(CC든 아니든). 폴백용.
+    @ObservationIgnored private var lastActiveTerminalTab: TabID?
+    /// 마지막으로 포커스된 **CC** 터미널 탭 — 에이전트 양성신호(활동·진행표시)로 근사한다(★ 순수 CC 판정은 후속).
+    @ObservationIgnored private var lastActiveCCTab: TabID?
+
+    /// 터미널 칸이 포커스를 얻었다 — "마지막 활성 터미널/CC"를 새긴다. 비-터미널이면 무동작.
+    func noteTerminalFocused(_ tabId: TabID) {
+        guard case .terminal = content(for: tabId) else { return }
+        lastActiveTerminalTab = tabId
+        if agentActivity[tabId] != nil || agentDetail[tabId] != nil { lastActiveCCTab = tabId }
+    }
+
+    /// 주입 대상 터미널 탭 — 마지막 활성 CC 우선 → 마지막 활성 터미널 → 트리 첫 터미널.
+    /// 닫힌 탭 id는 걸러낸다(terms에 없거나 비-터미널이면 통과). 살아있는 터미널이 없으면 nil.
+    private var injectionTargetTab: TabID? {
+        for cand in [lastActiveCCTab, lastActiveTerminalTab] {
+            if let id = cand, terms[id] != nil, case .terminal = content(for: id) { return id }
+        }
+        return firstTerminalTab
+    }
+
+    /// 지금 문서를 붙여넣을 살아있는 터미널이 있나 — "Claude에 보내기" 메뉴 항목 활성화 판정.
+    var hasInjectionTarget: Bool { injectionTargetTab != nil }
+
+    /// 문서 서브탭 우클릭 "Claude에 보내기" — 마지막 활성 CC(없으면 첫 터미널)의 프롬프트에 `@경로`를 붙인다.
+    /// 제출(Enter)은 하지 않는다 — 사용자가 확인하고 직접 보낸다(주입 경계, injectToTerminal과 같은 규칙).
+    /// 대상 CC의 cwd 아래 파일이면 상대경로, 아니면 절대경로로 멘션한다(AtMention). 보낼 터미널이 없으면 false.
+    @discardableResult
+    func sendFileToClaude(path: String) -> Bool {
+        guard let tabId = injectionTargetTab else { return false }
+        let mention = AtMention.path(for: path, relativeTo: pwds[tabId] ?? pendingCwd[tabId])
+        term(for: tabId).sendText("@\(mention) ")
+        return true
     }
 
     /// 외부 텍스트(리뷰 코멘트 등)를 에이전트 터미널에 붙여 다음 턴 지시로 되먹인다. 포커스가 diff면 첫 터미널로.
@@ -856,10 +899,13 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         // ghostty `command` 필드로 직접 exec한다(초기입력 주입 아님) — tmux attach 명령이 셸에
         // 에코돼 탭이 열릴 때 번쩍이던 것을 없앤다. execCommand가 `/bin/sh -c '…; exec -l $SHELL'`로
         // 감싸 detach 후에도 셸이 남는다(탭 생존 유지).
+        // IDE 통합 env — muxa 터미널의 claude가 IdeServer에 붙는다(CLAUDE_CODE_SSE_PORT 등). 서버가 없으면 빈 값.
+        let ideEnv = IdeServer.current?.terminalEnv ?? [:]
         let command = tmuxSession.map { session in
-            let env = ["MUXA_TAB_ID": tabId.uuid.uuidString,
+            var env = ["MUXA_TAB_ID": tabId.uuid.uuidString,
                        "MUXA_SURFACE_ID": tabId.uuid.uuidString,
                        "MUXA_SOCK": NotifyServer.socketPath]
+            env.merge(ideEnv) { _, new in new } // tmux 지속 세션은 -e로 심어야 서버 셸이 상속한다
             let inner = TerminalSession.startCommand(tmux: TmuxService.executable ?? "tmux",
                                                      socket: TmuxService.socket,
                                                      session: session, cwd: tabCwd ?? SystemPaths.home,
@@ -868,7 +914,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         }
         let t = TermView(app: app, cwd: tabCwd, tabId: tabId, sockPath: NotifyServer.socketPath,
                          restoreScrollbackFile: tmuxSession == nil ? restoredScrollbackFile[tabId] : nil,
-                         command: command)
+                         extraEnv: ideEnv, command: command)
         // 나중에 만들어지는 TermView도 현재 소유 창을 물려받아야 한다 — 안 그러면 분리 창에서 새로 연
         // 탭이 "메인 소유"로 태어나 어느 창에도 안 붙는다.
         t.ownerWindowId = ownerWindowId
