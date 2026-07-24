@@ -20,27 +20,34 @@ struct TerminalFooterBand: View {
     /// 파일 크기/선택 요약. 선택이면 줄 수, 없으면 전체 파일.
     private var detail: String { context.isEmpty ? "전체 파일" : "\(lineCount)줄" }
 
-    /// 선택 텍스트 한 줄 미리보기 — "무엇이 공유됐나"를 눈으로 확인(개행은 공백으로, 길면 …).
+    /// 선택 텍스트 미리보기(개행→공백) — 폭이 허락하는 만큼 보이고 넘치면 SwiftUI가 …로 자른다(1줄).
     private var preview: String {
-        let flat = context.text.replacingOccurrences(of: "\n", with: " ")
+        context.text.replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return flat.count > 48 ? String(flat.prefix(48)) + "…" : flat
+    }
+
+    /// 호버 툴팁 — claude에 실제로 전달되는 것(전체 경로 포함)을 그대로 노출.
+    private var shareInfo: String {
+        context.isEmpty
+            ? "claude에 공유: 전체 파일 · \(context.filePath)"
+            : "claude에 공유: 선택 \(lineCount)줄 · \(context.filePath)"
     }
 
     var body: some View {
         HStack(spacing: Space.xs) {
-            // 전체 파일 마커(선택과 구분). ⧉는 muxa에서 "diff 서브탭 열기"라 재사용 안 함.
-            if context.isEmpty {
-                Text("◉").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
-            }
+            // 링킹 아이콘 — Claude의 컨텍스트 칩(⧉)과 맞춘 두-사각형 글리프. 선택/전체 구분은 텍스트로.
+            Image(systemName: "square.on.square").font(.muxa(.label))
+                .foregroundStyle(Color.pBrand)
             Text(filename).font(.muxa(.label)).foregroundStyle(Color.pFg).lineLimit(1).layoutPriority(1)
             Text("· \(detail)").font(.muxa(.label)).foregroundStyle(Color.pMuted).fixedSize()
-            // 실제 공유된 선택 텍스트 미리보기(선택일 때만) — claude가 받은 원문과 일치.
+            // 실제 공유된 선택 텍스트 미리보기(선택일 때만) — claude가 받은 원문과 일치. 남은 폭을 flex로 채우고 …로 자름.
             if !context.isEmpty, !preview.isEmpty {
                 Text("“\(preview)”").font(.muxa(.label)).italic()
-                    .foregroundStyle(Color.pMuted).lineLimit(1)
+                    .foregroundStyle(Color.pMuted).lineLimit(1).truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Spacer(minLength: Space.sm)
             }
-            Spacer(minLength: Space.sm)
             // 밴드가 "무엇이 공유 중"인지 이미 보여주므로 ✕만으로 자명하다(채팅 첨부 지우기 패턴).
             Button(action: onClear) {
                 Image(systemName: "xmark").font(.muxa(.label, weight: .medium))
@@ -58,6 +65,7 @@ struct TerminalFooterBand: View {
         .padding(.horizontal, Space.md)
         .frame(height: RowHeight.bar)
         .frame(maxWidth: .infinity)
+        .help(shareInfo) // 호버 시 claude에 전달되는 전체 경로·내용
         .background(Color.pPanel)
         .overlay(alignment: .top) { Color.pBorder.frame(height: 1) } // 1px 경계 — 유채색 아님
     }
