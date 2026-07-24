@@ -118,6 +118,15 @@ struct TerminalSessionTests {
         #expect(!cmd.contains("set-option -g remain-on-exit")) // 전역을 끄면 서비스 로그 보존이 깨진다
     }
 
+    /// 도크·서비스가 켠 `-g mouse on`(서버 전역)이 공유 소켓을 타고 터미널 탭까지 새어들면 드래그가
+    /// tmux copy-mode로 잡혀 뗄 때 선택이 풀린다(복사 불가). 이 세션만 per-session으로 mouse를 꺼
+    /// 순정 ghostty 선택으로 되돌린다. **`-g`로 끄면 안 된다** — 서비스 도크 로그 스크롤이 죽는다.
+    @Test func 터미널_세션은_mouse를_끈다() {
+        let cmd = startCmd()
+        #expect(cmd.contains("';' set-option mouse off ';'"))
+        #expect(!cmd.contains("set-option -g mouse")) // 전역을 끄면 서비스 도크 마우스 스크롤이 깨진다
+    }
+
     /// **한 줄이 1024바이트(tty 정규 모드의 `MAX_CANON`)를 넘으면 명령이 통째로 죽는다** —
     /// 넘친 뒤엔 끝의 개행까지 버려져 셸이 그 줄을 영영 실행하지 않고, 화면엔 에코만 남고 멈춘다.
     /// 실제로 그렇게 터졌다: 개발빌드 슬러그가 소켓·지원경로에 붙으면서 1150바이트가 됐다.

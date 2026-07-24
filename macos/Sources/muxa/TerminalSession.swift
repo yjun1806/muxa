@@ -102,6 +102,12 @@ enum TerminalSession {
             // 서버 전역은 `on`이다(서비스가 죽은 뒤 exit code·로그를 읽어야 하므로). 터미널에 그대로 두면
             // 사용자가 `exit`를 쳐도 pane이 죽은 채 남아 탭이 안 닫히고 세션이 쌓인다.
             "set-option remain-on-exit off",
+            // 이 터미널 세션만 mouse를 끈다. 도크·서비스는 스크롤을 위해 `-g mouse on`(서버 전역)을 켜는데,
+            // 터미널 탭이 같은 소켓을 공유해 그게 새어들면 드래그가 tmux copy-mode로 잡혀 뗄 때 선택이
+            // 풀린다(복사 불가). per-session override(`-g` 아님)라 서비스는 그대로 두고 터미널만 순정
+            // ghostty 선택으로 되돌린다(드래그 유지 + copy-on-select→클립보드). `-t` 생략은 remain-on-exit와
+            // 같은 이유 — 방금 만든 세션이 현재 세션이다. 대가: ∞탭에서 마우스 휠 tmux 기록 스크롤 상실.
+            "set-option mouse off",
             // 붙는다. **exec를 쓰지 않는다**: detach하면 셸 프롬프트로 돌아와 탭이 살아남는다.
             "attach -t \(ShellQuote.single("=\(session)"))",
         ].joined(separator: " ';' ")

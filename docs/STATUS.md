@@ -106,6 +106,35 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 추정기 `lastOutputAt`(systemUptime 경과) · 에이전트 판정 = `hookedTabs`. **경량 가드**: 접힘 기본 + 유휴 접기로 절제
 (muxa 우위=가벼움, [[muxa-vs-orca-positioning]]).
 
+## 최근 완료 (2026-07-24) — 터미널 탭 드래그 선택/복사 복원 (TMUX-MOUSE)
+
+**증상** — ∞ 터미널 탭에서 마우스로 드래그하면 선택이 유지되지 않고 뗄 때 풀려 복사가 안 됐다(claude 꺼진
+셸에서도). **근본 원인** — CC 터미널 탭과 도크·서비스가 **같은 tmux 소켓**(`TmuxService.socket`)을 공유하는데,
+도크·서비스가 스크롤용으로 켠 `set-option -g mouse on`(**서버 전역**)이 터미널 탭까지 새어들어, 드래그가
+tmux copy-mode로 잡혀 뗄 때 하이라이트·선택이 사라졌다.
+
+**한 것** — `TerminalSession.startCommand`에 **이 세션만** `set-option mouse off`(per-session, `-g` 아님) 추가.
+서비스 도크 스크롤(전역 on)은 그대로 두고 터미널 탭만 순정 ghostty 선택으로 되돌린다(드래그 유지 + copy-on-select
+→ 클립보드). `-t` 생략은 remain-on-exit와 같은 이유(방금 만든 세션이 현재 세션). **대가**: ∞탭에서 마우스 휠
+tmux 기록 스크롤 상실(키보드 prefix·Shift+휠로 대체). 사용자 결정으로 mouse off 채택.
+
+**테스트** — `TerminalSessionTests.터미널_세션은_mouse를_끈다`(per-session off · `-g` 아님) 추가, 순수 로직 348개 통과.
+
+**적용 범위** — startCommand는 **탭 생성·재부착마다** 재실행되므로, **앱 재시작하면 복원되는 기존 ∞탭에도** mouse off가
+다시 걸린다(재부착 시 세션이 현재 세션이 됨). 단 **지금 떠 있는 세션**은 재시작 전까지 mouse on 유지.
+
+### ★ 육안 검증 필요 (TMUX-MOUSE — `make release-install` 후 재시작, 또는 새 ∞탭)
+1. ★ 새 ∞탭에서 claude 없이 셸 프롬프트 → **평범한 드래그**로 텍스트 선택이 유지되고 ⌘V로 붙는지(copy-on-select).
+2. ★ claude 실행 중 → claude UI가 마우스(클릭·스크롤)를 여전히 받는지(tmux mouse off는 안쪽 앱엔 투명).
+3. ★ **도크(서비스 로그)**는 마우스 휠 스크롤이 **그대로 되는지**(전역 on 불가침 확인).
+4. ★ 재시작 후 **기존 ∞탭**도 드래그 선택이 되는지(재부착 경로에 mouse off 적용 확인).
+
+### ⚠ 별개 잠재 버그 (미수정) — 소켓 공유
+`TmuxService.socket` 주석(9~14행)은 *"터미널 세션(`__term__`)이 서비스 소켓에 얹히면 서비스 청소가 남의 터미널을
+죽인다, 실제로 터졌다"*며 **분리돼야 한다**고 못박는데, 실제로는 CC 터미널 탭이 그 소켓을 그대로 쓰고 있다
+(`socket_path=…/muxa-services`, 세션명 `muxa__…__term__…` 실측). mouse 누수는 이 미분리의 부산물. 소켓 분리는
+고아 청소 안전(파괴적 동작)까지 걸린 더 큰 변경이라 이번 범위 밖 — **다음 후보로 남김.**
+
 ## 최근 완료 (2026-07-24) — Claude Code IDE 통합 (IDE-INTEGRATION, `feat/cross-pane-context`)
 
 **왜** — 문서/코드를 보다가 그 일부(또는 파일 전체)를 옆 칸 claude 세션의 맥락으로 주는 게 우클릭·복붙 없이
