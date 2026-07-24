@@ -17,8 +17,22 @@ struct TerminalFooterBand: View {
         context.text.isEmpty ? 0 : context.text.split(separator: "\n", omittingEmptySubsequences: false).count
     }
 
-    /// 파일 크기/선택 요약. 선택이면 줄 수, 없으면 전체 파일.
-    private var detail: String { context.isEmpty ? "전체 파일" : "\(lineCount)줄" }
+    /// 코드 파일인가 — highlight.js가 줄 구조를 보존해 렌더 줄번호=소스 줄번호(정확). 마크다운은 어긋나서 제외.
+    private var isCode: Bool { FileViewTarget(path: context.filePath).kind == .code }
+
+    /// 절대 줄번호 라벨(코드 파일·선택일 때만). 시작줄은 렌더 앵커, 끝줄은 줄 수와 일관되게 파생.
+    private var lineRange: String? {
+        guard isCode, !context.isEmpty else { return nil }
+        let s = context.startLine + 1, e = s + max(lineCount, 1) - 1
+        return s == e ? "L\(s)" : "L\(s)–\(e)"
+    }
+
+    /// 선택 요약. 코드면 절대 줄번호+줄 수, 그 외는 줄 수, 선택 없으면 전체 파일.
+    private var detail: String {
+        guard !context.isEmpty else { return "전체 파일" }
+        if let r = lineRange { return "\(r) · \(lineCount)줄" }
+        return "\(lineCount)줄"
+    }
 
     /// 선택 텍스트 미리보기(개행→공백) — 폭이 허락하는 만큼 보이고 넘치면 SwiftUI가 …로 자른다(1줄).
     private var preview: String {
