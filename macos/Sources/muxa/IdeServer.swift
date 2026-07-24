@@ -1,5 +1,9 @@
 import Foundation
 import Network
+import os
+
+/// IDE 서버 관측 로그 — 사용자가 "연결 안 됨"을 보고할 때 진단할 수 있게 연결/거절/해제만 남긴다.
+private let ideLog = Logger(subsystem: "com.muxa.ide", category: "server")
 
 /// muxa를 **IDE**로 노출하는 로컬 ws 서버 — muxa 터미널에서 실행된 `claude` CLI가 붙어 선택·활성파일·
 /// 진단을 받아간다(VS Code 확장과 같은 역할). 부작용(소켓·락파일)을 이 경계에 격리한다. 순수 로직
@@ -104,6 +108,7 @@ final class IdeServer {
         let c = Conn(nwConn)
         connections[ObjectIdentifier(nwConn)] = c
         nwConn.stateUpdateHandler = { [weak self] state in
+            if case .failed(let e) = state { ideLog.error("IDE conn failed: \(e.localizedDescription, privacy: .public)") }
             switch state {
             case .cancelled, .failed:
                 self?.queue.async { self?.connections[ObjectIdentifier(nwConn)] = nil }
@@ -139,10 +144,13 @@ final class IdeServer {
             return
         }
         if let reason = IdeWsHandshake.rejectReason(req, expectedToken: authToken) {
+            ideLog.error("handshake rejected: \(reason, privacy: .public)")
             send(Data(IdeWsHandshake.errorResponse(reason: reason).utf8), on: c, thenClose: true)
             return
         }
-        send(Data(IdeWsHandshake.successResponse(secWebSocketKey: key).utf8), on: c)
+        let sub = IdeWsHandshake.negotiateSubprotocol(req.headers["sec-websocket-protocol"])
+        ideLog.notice("IDE connected (subprotocol=\(sub ?? "none", privacy: .public))")
+        send(Data(IdeWsHandshake.successResponse(secWebSocketKey: key, subprotocol: sub).utf8), on: c)
         c.upgraded = true
         if !c.buffer.isEmpty { processFrames(c) } // 업그레이드 뒤 붙어온 프레임 처리
     }

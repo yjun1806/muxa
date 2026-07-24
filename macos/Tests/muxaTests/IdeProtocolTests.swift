@@ -38,6 +38,18 @@ final class IdeProtocolTests: XCTestCase {
         XCTAssertNil(IdeWsHandshake.rejectReason(upgrade(auth: nil), expectedToken: nil))
     }
 
+    func testSubprotocolEchoedWhenMcpOffered() {
+        // claude(2.1.218)는 mcp 서브프로토콜을 요구 — echo 없으면 업그레이드 직후 끊는다.
+        XCTAssertEqual(IdeWsHandshake.negotiateSubprotocol("mcp"), "mcp")
+        XCTAssertEqual(IdeWsHandshake.negotiateSubprotocol("foo, mcp"), "mcp")
+        XCTAssertNil(IdeWsHandshake.negotiateSubprotocol("foo"))
+        XCTAssertNil(IdeWsHandshake.negotiateSubprotocol(nil))
+        let resp = IdeWsHandshake.successResponse(secWebSocketKey: "dGhlIHNhbXBsZSBub25jZQ==", subprotocol: "mcp")
+        XCTAssertTrue(resp.contains("Sec-WebSocket-Protocol: mcp\r\n"), resp)
+        // 서브프로토콜 없으면 그 헤더 없음.
+        XCTAssertFalse(IdeWsHandshake.successResponse(secWebSocketKey: "x").contains("Sec-WebSocket-Protocol"))
+    }
+
     func testConstantTimeEqual() {
         XCTAssertTrue(IdeWsHandshake.constantTimeEqual("abc", "abc"))
         XCTAssertFalse(IdeWsHandshake.constantTimeEqual("abc", "abd"))

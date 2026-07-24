@@ -62,12 +62,23 @@ enum IdeWsHandshake {
         return nil
     }
 
-    /// 101 응답(성공) — key로 accept를 계산해 붙인다. 서브프로토콜은 쓰지 않는다.
-    static func successResponse(secWebSocketKey: String) -> String {
-        "HTTP/1.1 101 Switching Protocols\r\n"
+    /// 101 응답(성공) — key로 accept를 계산해 붙인다. 클라가 요청한 서브프로토콜(있으면)을 **반드시 echo**한다:
+    /// claude(2.1.218)는 `Sec-WebSocket-Protocol: mcp`를 요청하고, 응답에 echo가 없으면 업그레이드 직후
+    /// 연결을 끊는다(ws 라이브러리 규칙). 압축 확장(permessage-deflate)은 echo하지 않아 비압축으로 협상된다.
+    static func successResponse(secWebSocketKey: String, subprotocol: String? = nil) -> String {
+        var r = "HTTP/1.1 101 Switching Protocols\r\n"
             + "Upgrade: websocket\r\n"
             + "Connection: Upgrade\r\n"
-            + "Sec-WebSocket-Accept: \(acceptKey(for: secWebSocketKey))\r\n\r\n"
+            + "Sec-WebSocket-Accept: \(acceptKey(for: secWebSocketKey))\r\n"
+        if let subprotocol { r += "Sec-WebSocket-Protocol: \(subprotocol)\r\n" }
+        return r + "\r\n"
+    }
+
+    /// 클라가 제안한 서브프로토콜 중 우리가 지원하는 것("mcp")을 고른다. 없으면 nil(echo 안 함).
+    static func negotiateSubprotocol(_ header: String?) -> String? {
+        guard let header else { return nil }
+        let offered = header.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        return offered.contains("mcp") ? "mcp" : nil
     }
 
     /// 400 응답(거절) — 레퍼런스와 같은 본문 형식.
