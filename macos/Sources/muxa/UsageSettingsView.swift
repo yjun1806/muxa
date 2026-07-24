@@ -124,7 +124,8 @@ private struct PositionZone: View {
 // MARK: - 커스텀 컨트롤
 
 /// [제목 / 보조]  ────  [pill 스위치]. 행 전체가 탭 영역(작은 스위치만 겨냥 안 해도 된다).
-private struct SettingToggleRow: View {
+/// 사용량·업데이트 등 여러 설정 섹션이 공유한다(중복 방지).
+struct SettingToggleRow: View {
     let title: String
     let detail: String
     @Binding var isOn: Bool

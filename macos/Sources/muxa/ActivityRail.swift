@@ -34,6 +34,9 @@ struct ActivityRail: View {
 
             Spacer(minLength: 0)
 
+            // 업데이트 — 있을 때만 나타난다(없으면 렌더 안 함). 상태는 UpdateChecker 싱글턴에서.
+            UpdateRailButton(checker: UpdateChecker.shared)
+
             RailDivider()
 
             // ③ 전역 슬롯 — 설정은 자주 안 봐서 맨 아래로(우측 슬롯을 인스펙터와 상호배타로 공유)

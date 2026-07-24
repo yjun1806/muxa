@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 설정 패널의 섹션 — 외부(사용량 팝오버 톱니 등)에서 "이 섹션 보여줘"로 스크롤·강조 대상을 가리킨다.
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case tabStyle, paneIndicator, usage
+    case tabStyle, paneIndicator, usage, update
     var id: String { rawValue }
 }
 
@@ -37,6 +37,10 @@ struct SettingsPanel: View {
                                 ClaudeHookControls(state: state)
                                 UsageSettingsView(settings: .shared)
                             }
+                        }
+                        HDivider()
+                        category("업데이트", "새 버전 자동 확인", section: .update) {
+                            UpdateSettingsView(checker: .shared)
                         }
                     }
                     .padding(.vertical, Space.lg)

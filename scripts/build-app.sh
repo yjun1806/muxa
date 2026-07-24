@@ -20,6 +20,9 @@ CONFIG="${1:-debug}"
 source "$SCRIPT_DIR/app-identity.sh" "$CONFIG"
 BIN="$APP_BIN"
 
+# 자기-업데이트가 되돌아올 소스 저장소 루트 — 워크트리·커스텀 MUXA_DIR도 정확히 잡게 git에 묻는다.
+SOURCE_ROOT="$(git -C "$SCRIPT_DIR/.." rev-parse --show-toplevel 2>/dev/null || echo "$SCRIPT_DIR/..")"
+
 if [ "$CONFIG" = "release" ]; then
   swift build -c release
 else
@@ -56,6 +59,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
     <key>CFBundleVersion</key><string>$APP_BUILD</string>
+    <!-- 자기-업데이트가 pull·재빌드할 소스 저장소 루트 — 릴리스 앱은 /Applications에 있어
+         번들 경로만으론 소스 위치를 모른다. 여기 구워두면 AppInfo.sourceRoot가 그대로 읽는다. -->
+    <key>MUXASourceRoot</key><string>$SOURCE_ROOT</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHighResolutionCapable</key><true/>

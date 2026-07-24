@@ -72,3 +72,43 @@ enum AppInfo {
     private static let bundleId = Bundle.main.bundleIdentifier
     private static let devBundlePrefix = "com.muxa.dev."
 }
+
+// MARK: - 버전 · 소스 저장소 (자기-업데이트)
+
+extension AppInfo {
+    /// 이 빌드의 버전 문자열 — 릴리스는 `CFBundleShortVersionString`(예: `0.3.0`), dev·bare는 `"dev"`.
+    /// 업데이트 판정(`UpdateCheck`)의 current 입력이다. dev는 semver가 아니라 nag되지 않는다.
+    static let version: String = {
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+            .flatMap { $0.isEmpty ? nil : $0 } ?? "dev"
+    }()
+
+    /// 이 앱을 빌드한 **소스 저장소 루트** — 자기-업데이트가 여기서 `git pull` 후 재빌드·재설치한다.
+    ///
+    /// 릴리스 앱은 `/Applications/muxa.app`에 있어 번들 경로만으로는 소스 위치를 모른다. 그래서
+    /// 빌드 시 plist에 구워둔 `MUXASourceRoot`(build-app.sh)를 먼저 쓰고, 없으면 install.sh의 표준
+    /// 설치 위치(XDG 데이터 홈)를 폴백한다. **muxa 저장소로 검증된 경우만** 반환한다 — 엉뚱한 디렉터리에서
+    /// pull 하지 않게. dev는 워크트리 루트(자기-업데이트는 안 하지만 일관성 위해 계산).
+    static let sourceRoot: String? = {
+        if isDev { return worktreeRoot.flatMap(validatedRepo) }
+        if let baked = Bundle.main.object(forInfoDictionaryKey: "MUXASourceRoot") as? String,
+           let ok = validatedRepo(baked) { return ok }
+        return validatedRepo(defaultInstallDir)
+    }()
+
+    /// install.sh와 같은 표준 설치 위치 — `${XDG_DATA_HOME:-~/.local/share}/muxa`.
+    private static var defaultInstallDir: String {
+        let env = ProcessInfo.processInfo.environment
+        let base = env["XDG_DATA_HOME"].flatMap { $0.isEmpty ? nil : $0 }
+            ?? (NSHomeDirectory() + "/.local/share")
+        return base + "/muxa"
+    }
+
+    /// `.git` + `scripts/app-identity.sh`가 있으면 muxa 저장소로 본다(셸아웃 없이 값싸게 확인).
+    private static func validatedRepo(_ dir: String) -> String? {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: dir + "/.git"),
+              fm.fileExists(atPath: dir + "/scripts/app-identity.sh") else { return nil }
+        return dir
+    }
+}

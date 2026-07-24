@@ -104,6 +104,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // 알림 권한이 거부돼 있으면 인박스에 표면화한다 — 조용한 Dock 바운스 폴백은 "고장"으로 읽힌다.
         NotificationService.shared.onDenied = { [weak state] in state?.surfaceNotificationsDisabled() }
         self.state = state
+        // 업데이트 확인 — 실행 시 1회 + 24h 폴링(dev 빌드·opt-out이면 무동작). 있으면 레일에 배지가 뜬다.
+        UpdateChecker.shared.startPolling()
         // 단축키 테이블 — 설정의 keybinding 재정의를 기본 위에 얹고(없으면 기본 그대로) 진단을 로그·노출한다. (ARCHITECTURE 7)
         rebuildKeymap(config)
         // 휠 마우스로도 탭바를 좌우로 굴릴 수 있게 — 가로 전용 스크롤뷰에만 적용된다.
