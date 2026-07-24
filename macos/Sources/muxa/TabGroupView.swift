@@ -31,6 +31,8 @@ struct TabGroupView: View {
     var canSendToClaude: () -> Bool = { false }
     /// 문서 본문 선택 → IDE 통합(앰비언트 컨텍스트 공유).
     var onSelection: (IdeSelection) -> Void = { _ in }
+    /// 이 그룹이 지금 포커스된 패인의 선택 탭인가 — 활성 문서만 IDE 컨텍스트를 재보고한다(그룹 전환 정확도).
+    var isActiveGroup: Bool = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -119,7 +121,9 @@ struct TabGroupView: View {
     private func itemView(_ item: GroupItemContent, selected: Bool) -> some View {
         switch item {
         case .file(let target):
-            fileItemView(target, selected: selected)
+            // WebView의 isSelected = 서브탭 선택 **AND 이 그룹이 활성**(포커스된 선택 탭) — 그래야 그룹 전환 시
+            // 새 그룹의 활성 문서만 컨텍스트를 다시 보고한다. (opacity·BrowserView는 서브탭 선택 그대로.)
+            fileItemView(target, selected: selected && isActiveGroup)
         case .diff(let target):
             DiffView(target: target, dir: dir, chrome: false, onClose: {})
         case .web(let tab):
