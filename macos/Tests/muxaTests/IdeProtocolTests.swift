@@ -82,6 +82,13 @@ final class IdeProtocolTests: XCTestCase {
         if case .incomplete = IdeWsFrame.decode(Data([0x81])) {} else { XCTFail() }
     }
 
+    func testHugeDeclaredLengthIsError() {
+        // FIN+text, masked, len=127(64-bit) + 거대 길이 → 버퍼 무한증식 방어로 .error.
+        var f: [UInt8] = [0x81, 0xFF]
+        f += [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF] // 2^64-1
+        if case .error = IdeWsFrame.decode(Data(f)) {} else { XCTFail() }
+    }
+
     func testExtendedLength126RoundTrips() {
         let big = String(repeating: "x", count: 300)
         let data = IdeWsFrame.encodeText(big)

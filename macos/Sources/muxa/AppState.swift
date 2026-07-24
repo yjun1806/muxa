@@ -1069,7 +1069,10 @@ final class AppState {
         s.ideEnv = { [weak self] tabId in self?.ideServers.env(for: tabId) ?? [:] }
         s.onDocSelection = { [weak self] sel in self?.routeIdeSelection(sel) }
         s.onTerminalFocused = { [weak self] tabId in self?.noteTerminalFocused(tabId) }
-        s.onCloseTab = { [weak self] tabId in self?.ideServers.remove(tabId); self?.ideSharedContext[tabId] = nil }
+        // 탭 닫기 = 푸터 컨텍스트만 정리(서버는 유지 — 백그라운드 keep 시 세션·claude가 산다).
+        s.onCloseTab = { [weak self] tabId in self?.ideSharedContext[tabId] = nil }
+        // 세션이 실제로 kill됐을 때만 그 탭 IDE 서버를 내린다.
+        s.onSessionKilled = { [weak self] tabId in self?.ideServers.remove(tabId); self?.ideSharedContext[tabId] = nil }
         // 워크트리 링크 탭(D31) — 대상 판정·프로젝트를 넘나드는 액션은 AppState 몫(스토어는 다른 프로젝트를 모른다).
         s.worktreeLink = { [weak self] in self?.externalLiveSession(for: pid) }
         s.onWorktreeLinkAction = { [weak self] link, action in

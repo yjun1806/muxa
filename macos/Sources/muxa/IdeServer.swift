@@ -52,7 +52,8 @@ final class IdeServer {
     /// 터미널 생성 시점(term(for:))에 env로 포트를 심어야 하므로 반환 전에 포트가 있어야 한다. 실패는 조용히 무시.
     /// (재시작 시 복원 터미널은 새 세션으로 만들어져 현재 포트 env를 받으므로 포트 고정은 필요 없다 — 실측 확인.)
     func start(workspaceFolders: [String]) {
-        context.workspaceFolders = workspaceFolders
+        lock.lock(); context.workspaceFolders = workspaceFolders; lock.unlock()
+        let folders = workspaceFolders // 락파일용 지역 캡처 — 네트워크 큐 핸들러가 self.context를 안 건드리게(레이스 회피)
         let params = NWParameters.tcp
         params.requiredInterfaceType = .loopback // 127.0.0.1 only
         guard let listener = try? NWListener(using: params, on: .any) else { return }
@@ -67,7 +68,7 @@ final class IdeServer {
                     self.port = p
                     IdeLockfile.write(port: p, content: IdeLockfile.content(
                         pid: ProcessInfo.processInfo.processIdentifier,
-                        workspaceFolders: self.context.workspaceFolders,
+                        workspaceFolders: folders,
                         ideName: self.ideName, authToken: self.authToken))
                 }
                 if !settled { settled = true; sem.signal() }
@@ -78,7 +79,7 @@ final class IdeServer {
         }
         listener.newConnectionHandler = { [weak self] conn in self?.accept(conn) }
         listener.start(queue: queue)
-        _ = sem.wait(timeout: .now() + 1.0) // 포트 확정까지 최대 1초(터미널 생성 전 보장)
+        _ = sem.wait(timeout: .now() + 0.5) // 포트 확정까지 최대 0.5초(터미널 생성 전 보장 — 보통 수 ms)
     }
 
     func stop() {
@@ -156,7 +157,10 @@ final class IdeServer {
     }
 
     private func processHandshake(_ c: Conn) {
-        guard let range = c.buffer.range(of: Data("\r\n\r\n".utf8)) else { return } // 헤더 끝까지 대기
+        guard let range = c.buffer.range(of: Data("\r\n\r\n".utf8)) else {
+            if c.buffer.count > 65_536 { c.conn.cancel() } // 인증 전 상한 — 헤더 없이 바이트만 흘리는 것 차단
+            return // 헤더 끝까지 대기
+        }
         let headerData = c.buffer.subdata(in: c.buffer.startIndex..<range.upperBound)
         c.buffer.removeSubrange(c.buffer.startIndex..<range.upperBound)
         guard let req = IdeWsHandshake.parse(String(decoding: headerData, as: UTF8.self)),
@@ -195,7 +199,7 @@ final class IdeServer {
             dispatch(req, c)
         case .ping: send(IdeWsFrame.encodePong(frame.payload), on: c, framed: false)
         case .close: send(IdeWsFrame.encodeClose(), on: c, framed: false, thenClose: true)
-        default: break
+        default: break // 프래그먼트(continuation, fin=false)는 미처리 — IDE JSON-RPC 메시지는 한 프레임에 들어온다
         }
     }
 

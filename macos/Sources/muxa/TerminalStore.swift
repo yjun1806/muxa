@@ -255,8 +255,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             switch decision {
             case .kill:
                 await TmuxService.kill(session: session)
+                await MainActor.run { self?.onSessionKilled?(tabId) } // 세션이 죽었으니 이 탭 IDE 서버도 내린다
                 return
             case .keep(let label):
+                // 세션(+claude)이 살아 있으므로 IDE 서버는 **내리지 않는다**(claude가 그 포트에 계속 붙어 있다).
                 await MainActor.run {
                     self?.onDetachSession?(DetachedSession(session: session, command: label, cwd: cwd,
                                                            title: title, detachedAt: Date()))
@@ -268,6 +270,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             let foreground = await TmuxService.paneForeground(session: session)
             guard TerminalSession.shouldDetach(foreground: foreground) else {
                 await TmuxService.kill(session: session)
+                await MainActor.run { self?.onSessionKilled?(tabId) } // 자동 kill 경로도 서버 정리
                 return
             }
             // 표시용 이름 — 셸이 아닌 첫 프로세스가 "무엇을 되찾는지"다(래퍼 셸·버전 이름에 속지 않는다).
@@ -861,8 +864,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     var ideEnv: ((TabID) -> [String: String])?
     /// 터미널 칸이 포커스를 얻었다 — 상위가 라우팅 대상(마지막 활성 CC)을 새긴다.
     var onTerminalFocused: ((TabID) -> Void)?
-    /// 탭이 닫혔다 — 상위가 그 탭의 IDE 서버를 내린다.
+    /// 탭이 닫혔다 — 상위가 그 탭의 공유 컨텍스트(푸터)를 지운다. **서버는 여기서 안 내린다**(세션이 살 수 있다).
     var onCloseTab: ((TabID) -> Void)?
+    /// 이 탭의 tmux 세션이 **실제로 kill됐다** — 상위가 그 탭의 IDE 서버를 내린다(keep이면 안 온다).
+    var onSessionKilled: ((TabID) -> Void)?
 
     /// 문서 서브탭 우클릭 "Claude에 보내기" — 마지막 활성 CC(없으면 첫 터미널)의 프롬프트에 `@경로`를 붙인다.
     /// 제출(Enter)은 하지 않는다 — 사용자가 확인하고 직접 보낸다(주입 경계, injectToTerminal과 같은 규칙).
@@ -933,7 +938,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         }
         let t = TermView(app: app, cwd: tabCwd, tabId: tabId, sockPath: NotifyServer.socketPath,
                          restoreScrollbackFile: tmuxSession == nil ? restoredScrollbackFile[tabId] : nil,
-                         extraEnv: ideEnv, command: command)
+                         command: command)
         // 나중에 만들어지는 TermView도 현재 소유 창을 물려받아야 한다 — 안 그러면 분리 창에서 새로 연
         // 탭이 "메인 소유"로 태어나 어느 창에도 안 붙는다.
         t.ownerWindowId = ownerWindowId

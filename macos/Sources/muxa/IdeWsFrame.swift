@@ -3,6 +3,9 @@ import Foundation
 /// IDE 통합 ws의 **프레임 코덱**(RFC 6455) 순수 구현. 클라→서버 프레임은 마스킹돼 오므로 언마스크하고,
 /// 서버→클라 프레임은 마스크 없이 인코딩한다. 버퍼 경계(TCP는 조각나 온다)는 IdeServer가, 조립/해체는 여기.
 enum IdeWsFrame {
+    /// 프레임 payload 상한(16MB) — 클라가 거대 길이를 선언해 버퍼를 무한 키우는 것을 막는다. IDE 메시지는 작다.
+    static let maxPayload = 16 * 1024 * 1024
+
     /// 오피코드(하위 4비트).
     enum Opcode: UInt8 {
         case continuation = 0x0, text = 0x1, binary = 0x2, close = 0x8, ping = 0x9, pong = 0xA
@@ -63,12 +66,13 @@ enum IdeWsFrame {
             for i in 0..<8 { v = (v << 8) | Int(b[offset + i]) }
             len = v; offset += 8
         }
+        guard len >= 0, len <= maxPayload else { return .error } // 거대 길이 선언 방어(버퍼 무한 증식 차단) — 마스크키 대기 전에
         var maskKey: [UInt8] = []
         if masked {
             guard b.count >= offset + 4 else { return .incomplete }
             maskKey = Array(b[offset..<offset + 4]); offset += 4
         }
-        guard len >= 0, b.count >= offset + len else { return .incomplete }
+        guard b.count >= offset + len else { return .incomplete }
         var payload = Array(b[offset..<offset + len])
         if masked {
             for i in payload.indices { payload[i] ^= maskKey[i % 4] }
