@@ -8,7 +8,8 @@ enum SubTabMenu {
     static func items(_ item: GroupItemContent, dir: String, siblings: Int,
                       onClose: @escaping () -> Void, onCloseOthers: @escaping () -> Void,
                       onDetachRight: @escaping () -> Void = {}, onDetachDown: @escaping () -> Void = {},
-                      mergeOptions: [MuxaMenuItem] = []) -> [MuxaMenuItem] {
+                      mergeOptions: [MuxaMenuItem] = [],
+                      onSendToClaude: @escaping (String) -> Void = { _ in }, canSend: Bool = false) -> [MuxaMenuItem] {
         var items: [MuxaMenuItem] = [
             MuxaMenuItem(icon: "xmark", title: "닫기", shortcut: "⌘W", action: onClose),
             MuxaMenuItem(icon: "xmark.square.fill", title: "다른 서브탭 모두 닫기",
@@ -27,6 +28,9 @@ enum SubTabMenu {
         }
         if let path = item.filePath(dir: dir) {
             items.append(.separator)
+            // 이 문서를 마지막 활성 CC 프롬프트에 `@경로`로 붙인다(제출은 사용자). 보낼 터미널이 없으면 비활성.
+            items.append(MuxaMenuItem(icon: "sparkle", title: "Claude에 보내기",
+                                      enabled: canSend, action: { onSendToClaude(path) }))
             items.append(MuxaMenuItem(icon: "doc.on.doc", title: "경로 복사") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(path, forType: .string)

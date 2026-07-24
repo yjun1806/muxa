@@ -270,6 +270,17 @@ final class AppState {
     /// 훅 알림 리스너(Unix 소켓). 앱 상태가 소유하고, 수신 시 tabId→store로 라우팅한다.
     @ObservationIgnored private let notifyServer = NotifyServer()
 
+    /// IDE 통합 — **CC 칸마다 독립 서버**를 소유하는 레지스트리(진짜 per-session 격리). 터미널이 자기 포트를
+    /// env로 받아 claude가 그 서버에 붙고, 문서 선택은 마지막 활성 CC 하나에만 라우팅된다.
+    @ObservationIgnored private let ideServers = IdeServerRegistry(
+        version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev",
+        ideName: AppInfo.name)
+
+    /// 각 CC 칸이 지금 공유 중인 컨텍스트 — 그 칸의 터미널 푸터 밴드가 관측해 칩으로 그린다(없으면 밴드 숨김).
+    var ideSharedContext: [TabID: IdeSelection] = [:]
+    /// 마지막으로 포커스된, claude가 붙어 있는 CC 칸 — 문서 선택의 라우팅 대상.
+    @ObservationIgnored private var lastFocusedCCTab: TabID?
+
     init(app: ghostty_app_t, config: MuxaConfig = .defaults) {
         self.app = app
         self.config = config
@@ -308,6 +319,44 @@ final class AppState {
         }
     }
 
+    /// IDE 서버가 CLI에 알릴 워크스페이스 루트 — 열린 프로젝트들의 작업 디렉터리(중복 제거), 없으면 홈.
+    private func ideWorkspaceFolders() -> [String] {
+        let roots = stores.values.compactMap { $0.workingDir }
+        return roots.isEmpty ? [SystemPaths.home] : Array(Set(roots)).sorted()
+    }
+
+    /// IDE 서버 레지스트리가 새 서버를 만들 때 실을 워크스페이스 루트 공급자를 건다(라이브로 읽음).
+    func refreshIdeWorkspace() {
+        ideServers.workspaceFolders = { [weak self] in self?.ideWorkspaceFolders() ?? [SystemPaths.home] }
+    }
+
+    /// 문서 선택을 대상 CC 서버로 흘린다(격리) + 그 칸 푸터가 그릴 컨텍스트를 새긴다.
+    private func routeIdeSelection(_ sel: IdeSelection) {
+        guard let target = ideRoutingTarget() else { return }
+        ideServers.route(sel, to: target)
+        ideSharedContext[target] = sel
+    }
+
+    /// 선택을 보낼 CC — **연결된 CC가 하나면 항상 그 하나**(반응성), 여럿이면 마지막 활성, 폴백은 아무 연결된 CC.
+    /// 포커스 타이밍(연결 전 포커스)에 의존하지 않아 "선택하면 바로 공유"가 안정적이다.
+    private func ideRoutingTarget() -> TabID? {
+        let connected = ideServers.connectedTabs()
+        if connected.count == 1 { return connected.first }
+        if let last = lastFocusedCCTab, connected.contains(last) { return last }
+        return connected.first
+    }
+
+    /// 이 CC 칸의 공유 컨텍스트를 지운다(푸터 ✕).
+    func clearIdeContext(_ tabId: TabID) {
+        ideServers.clear(tabId)
+        ideSharedContext[tabId] = nil
+    }
+
+    /// 터미널이 포커스를 얻었다 — claude가 붙어 있으면 라우팅 대상으로 새긴다(문서로 포커스가 옮겨가도 유지).
+    private func noteTerminalFocused(_ tabId: TabID) {
+        if ideServers.isConnected(tabId) { lastFocusedCCTab = tabId }
+    }
+
     /// 훅 알림 리스너를 켜고 라우팅 콜백을 건다. AppDelegate가 앱 시작 시 1회 호출.
     func startNotifyServer() {
         notifyServer.onMessage = { [weak self] msg in
@@ -317,6 +366,7 @@ final class AppState {
             MainActor.assumeIsolated { self?.routeHook(msg) }
         }
         notifyServer.start()
+        refreshIdeWorkspace() // IDE 서버 워크스페이스 공급자 배선(서버는 CC 칸 생성 시 탭별로 뜬다)
         refreshHookInstallState()
         migrateCommandsIfNeeded() // v1(scripts+commandHistory) → v2 commands, 로드 후 1회
     }
@@ -1015,6 +1065,14 @@ final class AppState {
         s.onStateChange = { [weak self] in MainActor.assumeIsolated { self?.save() } }
         // 셸이 새 워크트리로 들어갔을 수 있다(에이전트의 worktree add + cd) — 자동 승격을 판정한다(D31 보완).
         s.onPwdChange = { [weak self] in self?.autoImportWorktrees() }
+        // IDE 통합(per-CC): 터미널 env는 그 탭 서버 포트, 문서 선택은 마지막 활성 CC로만 라우팅, 종료 시 서버 정리.
+        s.ideEnv = { [weak self] tabId in self?.ideServers.env(for: tabId) ?? [:] }
+        s.onDocSelection = { [weak self] sel in self?.routeIdeSelection(sel) }
+        s.onTerminalFocused = { [weak self] tabId in self?.noteTerminalFocused(tabId) }
+        // 탭 닫기 = 푸터 컨텍스트만 정리(서버는 유지 — 백그라운드 keep 시 세션·claude가 산다).
+        s.onCloseTab = { [weak self] tabId in self?.ideSharedContext[tabId] = nil }
+        // 세션이 실제로 kill됐을 때만 그 탭 IDE 서버를 내린다.
+        s.onSessionKilled = { [weak self] tabId in self?.ideServers.remove(tabId); self?.ideSharedContext[tabId] = nil }
         // 워크트리 링크 탭(D31) — 대상 판정·프로젝트를 넘나드는 액션은 AppState 몫(스토어는 다른 프로젝트를 모른다).
         s.worktreeLink = { [weak self] in self?.externalLiveSession(for: pid) }
         s.onWorktreeLinkAction = { [weak self] link, action in
@@ -2632,6 +2690,7 @@ final class AppState {
             break
         }
         restoreWarnings.append(contentsOf: decision.warnings)
+        refreshIdeWorkspace() // 복원된 프로젝트들의 루트를 IDE 서버에 반영
     }
 
     /// 파일 하나를 읽고 디코드까지 시도한다(경계). 결과를 순수 판정에 넘길 형태로 돌려준다.
@@ -2715,6 +2774,7 @@ final class AppState {
     /// applicationWillTerminate가 호출한다. 이 경로를 못 타면(크래시) 마커가 남아 다음 시작에 더티로 잡힌다.
     func endSession() {
         save(captureScrollback: true) // 종료 시 1회만 스크롤백을 최신 화면으로 갱신 — 복원이 이걸 재출력한다
+        ideServers.stopAll() // 모든 CC 서버 종료 + 락파일 정리(고아 방지)
         CrashMarker.disarm()
     }
 }

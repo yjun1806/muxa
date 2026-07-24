@@ -255,8 +255,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             switch decision {
             case .kill:
                 await TmuxService.kill(session: session)
+                await MainActor.run { self?.onSessionKilled?(tabId) } // 세션이 죽었으니 이 탭 IDE 서버도 내린다
                 return
             case .keep(let label):
+                // 세션(+claude)이 살아 있으므로 IDE 서버는 **내리지 않는다**(claude가 그 포트에 계속 붙어 있다).
                 await MainActor.run {
                     self?.onDetachSession?(DetachedSession(session: session, command: label, cwd: cwd,
                                                            title: title, detachedAt: Date()))
@@ -268,6 +270,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             let foreground = await TmuxService.paneForeground(session: session)
             guard TerminalSession.shouldDetach(foreground: foreground) else {
                 await TmuxService.kill(session: session)
+                await MainActor.run { self?.onSessionKilled?(tabId) } // 자동 kill 경로도 서버 정리
                 return
             }
             // 표시용 이름 — 셸이 아닌 첫 프로세스가 "무엇을 되찾는지"다(래퍼 셸·버전 이름에 속지 않는다).
@@ -642,6 +645,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         terms[tabId] = nil // TermView deinit이 서피스 free
+        onCloseTab?(tabId) // 이 탭의 IDE 서버 정리(있으면)
         pendingCwd[tabId] = nil // 시작 cwd 힌트 해제
         pendingRunCommand[tabId] = nil // 첫 실행 명령 힌트 해제(Claude 버튼)
         restoredScrollbackFile[tabId] = nil // 스크롤백 파일 힌트 해제
@@ -804,14 +808,76 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         return term(for: tab.id)
     }
 
-    /// 칸→탭 순서로 만나는 첫 터미널(포커스가 diff 등 비-터미널일 때의 폴백). 없으면 nil.
-    private var firstTerminal: TermView? {
+    /// 칸→탭 순서로 만나는 첫 터미널 탭(포커스가 diff 등 비-터미널일 때의 폴백). 없으면 nil.
+    private var firstTerminalTab: TabID? {
         for paneId in controller.allPaneIds {
             for tab in controller.tabs(inPane: paneId) where terms[tab.id] != nil {
-                if case .terminal = content(for: tab.id) { return term(for: tab.id) }
+                if case .terminal = content(for: tab.id) { return tab.id }
             }
         }
         return nil
+    }
+
+    /// 칸→탭 순서로 만나는 첫 터미널(포커스가 diff 등 비-터미널일 때의 폴백). 없으면 nil.
+    private var firstTerminal: TermView? { firstTerminalTab.map { term(for: $0) } }
+
+    // MARK: 마지막 활성 (CC) 터미널 — 문서 서브탭 "Claude에 보내기" 주입 대상
+    //
+    // 문서 칸에서 주입을 걸 때 포커스는 이미 그 문서 칸에 있어(focusedTerm=nil), "직전에 있던 터미널"을
+    // 미리 새겨둬야 한다. 문서·diff 칸 포커스는 이 값을 안 건드리므로, 문서를 봐도 직전 CC가 대상으로 남는다.
+
+    /// 마지막으로 포커스된 터미널 탭(CC든 아니든). 폴백용.
+    @ObservationIgnored private var lastActiveTerminalTab: TabID?
+    /// 마지막으로 포커스된 **CC** 터미널 탭 — 에이전트 양성신호(활동·진행표시)로 근사한다(★ 순수 CC 판정은 후속).
+    @ObservationIgnored private var lastActiveCCTab: TabID?
+
+    /// 터미널 칸이 포커스를 얻었다 — "마지막 활성 터미널/CC"를 새긴다. 비-터미널이면 무동작.
+    func noteTerminalFocused(_ tabId: TabID) {
+        guard case .terminal = content(for: tabId) else { return }
+        lastActiveTerminalTab = tabId
+        if agentActivity[tabId] != nil || agentDetail[tabId] != nil { lastActiveCCTab = tabId }
+        onTerminalFocused?(tabId) // 상위(AppState)가 IDE 라우팅 대상을 새긴다(claude 붙은 칸이면)
+    }
+
+    /// 주입 대상 터미널 탭 — 마지막 활성 CC 우선 → 마지막 활성 터미널 → 트리 첫 터미널.
+    /// 닫힌 탭 id는 걸러낸다(terms에 없거나 비-터미널이면 통과). 살아있는 터미널이 없으면 nil.
+    private var injectionTargetTab: TabID? {
+        for cand in [lastActiveCCTab, lastActiveTerminalTab] {
+            if let id = cand, terms[id] != nil, case .terminal = content(for: id) { return id }
+        }
+        return firstTerminalTab
+    }
+
+    /// 지금 문서를 붙여넣을 살아있는 터미널이 있나 — "Claude에 보내기" 메뉴 항목 활성화 판정.
+    var hasInjectionTarget: Bool { injectionTargetTab != nil }
+
+    /// 문서 본문 선택 → 상위(AppState)가 마지막 활성 CC 서버로 라우팅한다. 선택 해제는 isEmpty로 온다.
+    var onDocSelection: ((IdeSelection) -> Void)?
+    func reportDocSelection(_ sel: IdeSelection) { onDocSelection?(sel) }
+
+    /// 이 CC 칸의 공유 컨텍스트를 지운다(터미널 푸터 밴드 ✕). 상위가 그 탭 서버를 clear한다.
+    var onClearIdeContext: ((TabID) -> Void)?
+    func clearIdeContext(_ tabId: TabID) { onClearIdeContext?(tabId) }
+
+    // MARK: per-CC IDE 서버 배선(AppState 주입)
+    /// 이 탭 터미널에 심을 IDE env(그 탭 전용 서버 포트). 지속(claude) 터미널에만 쓴다.
+    var ideEnv: ((TabID) -> [String: String])?
+    /// 터미널 칸이 포커스를 얻었다 — 상위가 라우팅 대상(마지막 활성 CC)을 새긴다.
+    var onTerminalFocused: ((TabID) -> Void)?
+    /// 탭이 닫혔다 — 상위가 그 탭의 공유 컨텍스트(푸터)를 지운다. **서버는 여기서 안 내린다**(세션이 살 수 있다).
+    var onCloseTab: ((TabID) -> Void)?
+    /// 이 탭의 tmux 세션이 **실제로 kill됐다** — 상위가 그 탭의 IDE 서버를 내린다(keep이면 안 온다).
+    var onSessionKilled: ((TabID) -> Void)?
+
+    /// 문서 서브탭 우클릭 "Claude에 보내기" — 마지막 활성 CC(없으면 첫 터미널)의 프롬프트에 `@경로`를 붙인다.
+    /// 제출(Enter)은 하지 않는다 — 사용자가 확인하고 직접 보낸다(주입 경계, injectToTerminal과 같은 규칙).
+    /// 대상 CC의 cwd 아래 파일이면 상대경로, 아니면 절대경로로 멘션한다(AtMention). 보낼 터미널이 없으면 false.
+    @discardableResult
+    func sendFileToClaude(path: String) -> Bool {
+        guard let tabId = injectionTargetTab else { return false }
+        let mention = AtMention.path(for: path, relativeTo: pwds[tabId] ?? pendingCwd[tabId])
+        term(for: tabId).sendText("@\(mention) ")
+        return true
     }
 
     /// 외부 텍스트(리뷰 코멘트 등)를 에이전트 터미널에 붙여 다음 턴 지시로 되먹인다. 포커스가 diff면 첫 터미널로.
@@ -856,10 +922,14 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         // ghostty `command` 필드로 직접 exec한다(초기입력 주입 아님) — tmux attach 명령이 셸에
         // 에코돼 탭이 열릴 때 번쩍이던 것을 없앤다. execCommand가 `/bin/sh -c '…; exec -l $SHELL'`로
         // 감싸 detach 후에도 셸이 남는다(탭 생존 유지).
+        // IDE 통합 env — **지속(claude) 터미널에만** 이 탭 전용 서버 포트를 심는다(per-CC 격리). 일회용
+        // 스크래치 터미널엔 안 심는다(서버·락파일 남발 방지 — claude는 ∞/Claude 버튼의 지속 세션에서 돈다).
+        let ideEnv = tmuxSession != nil ? (self.ideEnv?(tabId) ?? [:]) : [:]
         let command = tmuxSession.map { session in
-            let env = ["MUXA_TAB_ID": tabId.uuid.uuidString,
+            var env = ["MUXA_TAB_ID": tabId.uuid.uuidString,
                        "MUXA_SURFACE_ID": tabId.uuid.uuidString,
                        "MUXA_SOCK": NotifyServer.socketPath]
+            env.merge(ideEnv) { _, new in new } // tmux 지속 세션은 -e로 심어야 서버 셸이 상속한다
             let inner = TerminalSession.startCommand(tmux: TmuxService.executable ?? "tmux",
                                                      socket: TmuxService.socket,
                                                      session: session, cwd: tabCwd ?? SystemPaths.home,

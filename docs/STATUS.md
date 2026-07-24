@@ -1,4 +1,4 @@
-# muxa 진행 상태 · 인수인계 (2026-07-17 · rev15)
+# muxa 진행 상태 · 인수인계 (2026-07-24 · rev16)
 
 > 다음 세션이 여기서 이어간다. 아키텍처·결정은 [ARCHITECTURE.md](ARCHITECTURE.md), UI 디자인 시스템은
 > [DESIGN.md](DESIGN.md). 이 문서는 **현재 상태·다음 할 일**만.
@@ -105,6 +105,41 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 **데이터 준비(전부 있음):** 라이브 활동 = `ToolActivity`(편집/실행/검색) + 탭 제목(Claude OSC) · 경과/대기시간 =
 추정기 `lastOutputAt`(systemUptime 경과) · 에이전트 판정 = `hookedTabs`. **경량 가드**: 접힘 기본 + 유휴 접기로 절제
 (muxa 우위=가벼움, [[muxa-vs-orca-positioning]]).
+
+## 최근 완료 (2026-07-24) — Claude Code IDE 통합 (IDE-INTEGRATION, `feat/cross-pane-context`)
+
+**왜** — 문서/코드를 보다가 그 일부(또는 파일 전체)를 옆 칸 claude 세션의 맥락으로 주는 게 우클릭·복붙 없이
+자동이면 좋겠다(VS Code 확장 수준). 주입은 쉬운데 **끄는 법이 안 보이던** 게 핵심 문제였다.
+
+**한 것** — muxa가 로컬 ws로 **claude에 IDE로 붙는다**. CC 칸마다 독립 서버(ARCHITECTURE D38).
+- **연결(M1)**: 수동 RFC6455 + MCP(`2024-11-05`). **`mcp` 서브프로토콜 echo**가 핵심(없으면 claude가 업그레이드
+  직후 끊음 — 실측·수정). 실제 claude ↔ muxa TCP ESTABLISHED + 전체 핸드셰이크 확인.
+- **앰비언트 선택 공유(M2)**: 문서 WebView 선택 → `selection_changed` 푸시 + `getCurrentSelection`. **그룹/서브탭
+  전환 시 활성 문서가 재보고**(`window.__muxaReportSelection`, isSelected = 서브탭 선택 AND 그룹이 포커스된 선택 탭)해
+  컨텍스트가 정확히 따라온다.
+- **per-CC 격리(M4)**: `IdeServerRegistry`가 탭별 서버(자기 포트/락파일) — 선택은 **마지막 활성 CC**(연결된 게
+  하나면 그 하나 — 반응성)로만. 실측: persistent 터미널마다 독립 락파일.
+- **터미널 푸터 밴드(M5, DESIGN §6)**: CC 칸 아래 muxa 밴드에 `⧉ 파일 · 줄 · "미리보기"` + ✕ 해제. **UI 디자이너
+  승인 반영**(1px 경계·⧉ 아이콘 Claude 맞춤·코드 절대 줄번호·자기이름표 제거). 미리보기 flex(1줄)·전달정보 툴팁.
+- **Stage0 폴백**: 문서 서브탭 우클릭 "Claude에 보내기"(`@경로` 주입) 유지.
+- **코드**: `Ide{Server,ServerRegistry,Protocol,JsonRpc,Lockfile,WsHandshake,WsFrame,Selection}`·`DocSelectionBridge`·
+  `AtMention`·`TerminalFooterBand` 신규 · `TerminalStore`/`AppState`/`BonsplitWorkspaceView`/`TabGroupView`/
+  `Markdown·CodeWebView`/`Markdown·CodeView` 배선.
+- **테스트**: `IdeProtocolTests` 25(핸드셰이크·프레임·JSON-RPC·MCP·락파일) + `AtMentionTests` 6 통과. ws·UI는 ★.
+- **미구현(의도)**: **openDiff**(에이전트 편집을 뷰어에서 accept/reject) — 블로킹+파일쓰기라 보류, tools/list에서 제외
+  (스텁 광고 시 claude 편집이 반려됨). `getDiagnostics`는 LSP 없어 빈 배열.
+
+### ★ 육안 검증 필요 (IDE-INTEGRATION — 실제 claude 필요)
+1. ★ CC 칸에서 `claude` → 다른 칸 문서 **선택** → 그 CC 칸 아래 밴드에 `⧉ 파일 · 줄 · "미리보기"` 뜨는지.
+2. ★ **그룹/서브탭 전환** → 컨텍스트가 활성 문서로 따라오는지.
+3. ★ 밴드 **✕** → claude 컨텍스트가 지워지는지.
+4. ★ **코드 파일 절대 줄번호**(L12–14)가 실제 소스와 맞는지(상수 오프셋 나면 보정).
+5. ★ **CC 2개** → 마지막 활성 CC에만 밴드/컨텍스트(격리)인지.
+6. ★ **프라이버시**: "활성 문서 = 자동 공유"라 선택 없이 **보기만 해도** 그 파일이 연결된 claude로 감(밴드로 노출·
+   ✕로 해제). 민감 파일 유의. — 리뷰(코드리뷰 #9) 지적, 설계상 의도이나 사용자 인지 필요.
+7. ★ **백그라운드 keep 후 재오픈/재시작 시 claude 재연결**: 서버는 이제 **세션 kill에서만** 내려간다(keep이면 유지 —
+   코드리뷰 #1). reattach가 새 탭ID면 옛 서버가 앱 종료 전까지 잠깐 잔류할 수 있음. claude가 env 포트로 재연결하는지
+   `/ide` 재스캔이 필요한지 **실측 확인** 필요.
 
 ## 최근 완료 (2026-07-23) — 서브탭 분리/병합 (SUBTAB-SPLIT)
 

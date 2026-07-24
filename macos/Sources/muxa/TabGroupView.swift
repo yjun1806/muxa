@@ -25,6 +25,14 @@ struct TabGroupView: View {
     var canDrag: (GroupItemContent) -> Bool = { _ in false }
     /// 드래그 시작 시 페이로드(파일 URL + 서브탭 대상)를 만든다.
     var dragProvider: (GroupItemContent) -> NSItemProvider? = { _ in nil }
+    /// 이 문서(파일 경로)를 마지막 활성 CC 프롬프트에 `@경로`로 붙인다(우클릭 "Claude에 보내기").
+    var onSendToClaude: (String) -> Void = { _ in }
+    /// 지금 붙여넣을 살아있는 터미널이 있나 — 메뉴 항목 활성화(메뉴 열 때 평가).
+    var canSendToClaude: () -> Bool = { false }
+    /// 문서 본문 선택 → IDE 통합(앰비언트 컨텍스트 공유).
+    var onSelection: (IdeSelection) -> Void = { _ in }
+    /// 이 그룹이 지금 포커스된 패인의 선택 탭인가 — 활성 문서만 IDE 컨텍스트를 재보고한다(그룹 전환 정확도).
+    var isActiveGroup: Bool = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -90,7 +98,9 @@ struct TabGroupView: View {
                                         onCloseOthers: { onCloseOtherItems(item.id) },
                                         onDetachRight: { onDetachRight(item.id) },
                                         onDetachDown: { onDetachDown(item.id) },
-                                        mergeOptions: mergeOptions())
+                                        mergeOptions: mergeOptions(),
+                                        onSendToClaude: onSendToClaude,
+                                        canSend: canSendToClaude())
             MuxaMenuWindow.show(menu, at: point)
         }
     }
@@ -111,7 +121,9 @@ struct TabGroupView: View {
     private func itemView(_ item: GroupItemContent, selected: Bool) -> some View {
         switch item {
         case .file(let target):
-            fileItemView(target)
+            // WebView의 isSelected = 서브탭 선택 **AND 이 그룹이 활성**(포커스된 선택 탭) — 그래야 그룹 전환 시
+            // 새 그룹의 활성 문서만 컨텍스트를 다시 보고한다. (opacity·BrowserView는 서브탭 선택 그대로.)
+            fileItemView(target, selected: selected && isActiveGroup)
         case .diff(let target):
             DiffView(target: target, dir: dir, chrome: false, onClose: {})
         case .web(let tab):
@@ -120,11 +132,13 @@ struct TabGroupView: View {
     }
 
     @ViewBuilder
-    private func fileItemView(_ target: FileViewTarget) -> some View {
+    private func fileItemView(_ target: FileViewTarget, selected: Bool) -> some View {
         switch target.kind {
         case .markdown, .html: MarkdownView(target: target, chrome: false, onClose: {},
-                                            onOpenFile: onOpenFile, onOpenURL: onOpenURL)
-        case .code: CodeView(target: target, chrome: false, onClose: {})
+                                            onOpenFile: onOpenFile, onOpenURL: onOpenURL,
+                                            onSelection: onSelection, isSelected: selected)
+        case .code: CodeView(target: target, chrome: false, onClose: {},
+                             onSelection: onSelection, isSelected: selected)
         case .image: ImageFileView(target: target, chrome: false, onClose: {})
         case .video: VideoFileView(target: target, chrome: false, onClose: {})
         }
