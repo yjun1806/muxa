@@ -61,26 +61,19 @@ enum IdeProtocol {
 
     // MARK: 선택(selection) 페이로드
 
-    /// selection_changed 알림 params = 선택 객체(0-기반 line/character). **선택 해제(isEmpty)면 파일 참조까지
-    /// 비운다** — 그래야 claude가 "활성 파일"로도 안 물고 컨텍스트를 완전히 지운다(사용자가 선택만 풀면 사라진다).
+    /// selection_changed 알림 params = 선택 객체 그 자체(0-기반 line/character).
     static func selectionParams(_ sel: IdeSelection) -> [String: Any] {
-        guard !sel.isEmpty else {
-            return ["text": "", "filePath": "", "fileUrl": "",
-                    "selection": ["start": ["line": 0, "character": 0],
-                                  "end": ["line": 0, "character": 0], "isEmpty": true]]
-        }
-        return ["text": sel.text,
-                "filePath": sel.filePath,
-                "fileUrl": sel.fileURL,
-                "selection": ["start": ["line": sel.startLine, "character": sel.startCharacter],
-                              "end": ["line": sel.endLine, "character": sel.endCharacter],
-                              "isEmpty": false]]
+        ["text": sel.text,
+         "filePath": sel.filePath,
+         "fileUrl": sel.fileURL,
+         "selection": ["start": ["line": sel.startLine, "character": sel.startCharacter],
+                       "end": ["line": sel.endLine, "character": sel.endCharacter],
+                       "isEmpty": sel.isEmpty]]
     }
 
-    /// getCurrentSelection/getLatestSelection 툴의 text(JSON문자열). 선택이 없거나 해제됐으면 success:false
-    /// (활성 파일도 광고하지 않는다 — 선택이 있을 때만 컨텍스트로 준다).
+    /// getCurrentSelection/getLatestSelection 툴의 text(JSON문자열). 활성 편집기가 없으면 success:false.
     static func selectionText(_ sel: IdeSelection?) -> String {
-        guard let sel, !sel.isEmpty else { return toolText(["success": false, "message": "No active editor found"]) }
+        guard let sel else { return toolText(["success": false, "message": "No active editor found"]) }
         var obj = selectionParams(sel)
         obj["success"] = true
         return toolText(obj)

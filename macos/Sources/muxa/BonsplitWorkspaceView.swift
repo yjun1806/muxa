@@ -98,7 +98,8 @@ struct BonsplitWorkspaceView: View {
                     dragProvider: { store.subtabDragProvider($0, sourceTab: tabId) },
                     onSendToClaude: { store.sendFileToClaude(path: $0) },
                     canSendToClaude: { store.hasInjectionTarget },
-                    onSelection: { store.reportDocSelection($0) }
+                    onSelection: { store.reportDocSelection($0) },
+                    onClearContext: { store.clearClaudeContext() }
                 )
             }
         }

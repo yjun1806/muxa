@@ -87,6 +87,14 @@ final class IdeServer {
         if let sel = snapshot.selection { broadcastSelection(sel) }
     }
 
+    /// 공유 중인 컨텍스트를 **명시적으로 지운다**(우클릭 "Claude 컨텍스트 지우기"). 선택 해제와 달리 파일
+    /// 참조까지 비운 selection_changed를 즉시 푸시하고 getCurrentSelection도 no-editor가 되게 한다.
+    func clearSelection() {
+        lock.lock(); context.selection = nil; lock.unlock()
+        let cleared = IdeSelection(filePath: "", text: "", startLine: 0, startCharacter: 0, endLine: 0, endCharacter: 0)
+        broadcastSelection(cleared)
+    }
+
     private func snapshot() -> Context { lock.lock(); defer { lock.unlock() }; return context }
 
     private func broadcastSelection(_ sel: IdeSelection) {

@@ -850,6 +850,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     var onDocSelection: ((IdeSelection) -> Void)?
     func reportDocSelection(_ sel: IdeSelection) { onDocSelection?(sel) }
 
+    /// 공유 중인 IDE 컨텍스트를 명시적으로 지운다(우클릭). 상위가 IDE 서버로 라우팅한다.
+    var onClearClaudeContext: (() -> Void)?
+    func clearClaudeContext() { onClearClaudeContext?() }
+
     /// 문서 서브탭 우클릭 "Claude에 보내기" — 마지막 활성 CC(없으면 첫 터미널)의 프롬프트에 `@경로`를 붙인다.
     /// 제출(Enter)은 하지 않는다 — 사용자가 확인하고 직접 보낸다(주입 경계, injectToTerminal과 같은 규칙).
     /// 대상 CC의 cwd 아래 파일이면 상대경로, 아니면 절대경로로 멘션한다(AtMention). 보낼 터미널이 없으면 false.
