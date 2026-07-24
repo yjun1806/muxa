@@ -50,6 +50,7 @@ final class IdeServer {
 
     /// 루프백(랜덤 포트)에 바인딩하고 락파일을 쓴다. **ready까지 짧게 동기 대기**해 `port`를 확정한다 —
     /// 터미널 생성 시점(term(for:))에 env로 포트를 심어야 하므로 반환 전에 포트가 있어야 한다. 실패는 조용히 무시.
+    /// (재시작 시 복원 터미널은 새 세션으로 만들어져 현재 포트 env를 받으므로 포트 고정은 필요 없다 — 실측 확인.)
     func start(workspaceFolders: [String]) {
         context.workspaceFolders = workspaceFolders
         let params = NWParameters.tcp

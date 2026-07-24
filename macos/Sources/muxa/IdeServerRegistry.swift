@@ -45,7 +45,7 @@ final class IdeServerRegistry {
     /// 이 탭의 공유 컨텍스트를 지운다(푸터 ✕).
     func clear(_ tabId: TabID) { servers[tabId]?.clearSelection() }
 
-    /// 탭이 닫혔다 — 그 서버를 내리고 락파일을 지운다.
+    /// 탭이 닫혔다 — 서버를 내리고 락파일을 지운다.
     func remove(_ tabId: TabID) {
         servers[tabId]?.stop()
         servers[tabId] = nil
