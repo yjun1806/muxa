@@ -16,12 +16,17 @@ struct MarkdownWebView: NSViewRepresentable {
     var onOpenFile: (String) -> Void = { _ in }
     /// 외부 http(s) 링크를 인앱 브라우저 새 탭으로 연다.
     var onOpenURL: (URL) -> Void = { _ in }
+    /// 이 문서의 실제 파일 경로 — 선택을 IDE에 알릴 때 필요.
+    var filePath: String = ""
+    /// 본문 텍스트 선택(또는 해제) — IDE 통합으로 흘려보낸다(빈 선택 = isEmpty).
+    var onSelection: (IdeSelection) -> Void = { _ in }
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         // Coordinator를 그대로 핸들러로 쓰면 config가 강하게 잡아 순환이 생긴다(Coordinator.webView도 강참조면).
         // webView는 weak로 들고, 핸들러 등록만 Coordinator가 받는다 — 순환 없음.
         config.userContentController.add(context.coordinator, name: "muxaLink")
+        config.userContentController.add(context.coordinator, name: DocSelectionBridge.messageName)
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
@@ -36,6 +41,8 @@ struct MarkdownWebView: NSViewRepresentable {
         context.coordinator.baseDir = baseDir
         context.coordinator.onOpenFile = onOpenFile
         context.coordinator.onOpenURL = onOpenURL
+        context.coordinator.filePath = filePath
+        context.coordinator.onSelection = onSelection
         context.coordinator.render(content: content, isRawHTML: isRawHTML, source: showSource)
     }
 
@@ -44,6 +51,8 @@ struct MarkdownWebView: NSViewRepresentable {
         c.baseDir = baseDir
         c.onOpenFile = onOpenFile
         c.onOpenURL = onOpenURL
+        c.filePath = filePath
+        c.onSelection = onSelection
         return c
     }
 
@@ -53,11 +62,14 @@ struct MarkdownWebView: NSViewRepresentable {
         var baseDir = ""
         var onOpenFile: (String) -> Void = { _ in }
         var onOpenURL: (URL) -> Void = { _ in }
+        var filePath = ""
+        var onSelection: (IdeSelection) -> Void = { _ in }
         private var ready = false
         private var lastKey = ""
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             ready = true
+            webView.evaluateJavaScript(DocSelectionBridge.js) // 선택 → IDE 브리지 주입
             if let (c, raw, source) = pending {
                 pending = nil
                 render(content: c, isRawHTML: raw, source: source)
@@ -78,6 +90,10 @@ struct MarkdownWebView: NSViewRepresentable {
 
         // shell.html이 넘긴 링크 클릭 — 판정은 순수 함수(resolveMarkdownLink), 실행만 여기서.
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+            if message.name == DocSelectionBridge.messageName {
+                if let sel = DocSelectionBridge.selection(from: message.body, filePath: filePath) { onSelection(sel) }
+                return
+            }
             guard message.name == "muxaLink", let href = message.body as? String else { return }
             switch resolveMarkdownLink(href: href, baseDir: baseDir) {
             case .external(let url):

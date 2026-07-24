@@ -1033,6 +1033,8 @@ final class AppState {
         s.onStateChange = { [weak self] in MainActor.assumeIsolated { self?.save() } }
         // 셸이 새 워크트리로 들어갔을 수 있다(에이전트의 worktree add + cd) — 자동 승격을 판정한다(D31 보완).
         s.onPwdChange = { [weak self] in self?.autoImportWorktrees() }
+        // 문서 본문 선택 → IDE 서버(앰비언트 컨텍스트 공유). 앱 전역 활성 선택 하나를 유지한다.
+        s.onDocSelection = { [weak self] sel in self?.ideServer.updateContext { $0.selection = sel } }
         // 워크트리 링크 탭(D31) — 대상 판정·프로젝트를 넘나드는 액션은 AppState 몫(스토어는 다른 프로젝트를 모른다).
         s.worktreeLink = { [weak self] in self?.externalLiveSession(for: pid) }
         s.onWorktreeLinkAction = { [weak self] link, action in

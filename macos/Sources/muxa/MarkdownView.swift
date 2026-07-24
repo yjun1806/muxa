@@ -10,6 +10,8 @@ struct MarkdownView: View {
     var onOpenFile: (String) -> Void = { _ in }
     /// 문서 내 외부 http(s) 링크를 인앱 브라우저 새 탭으로 연다.
     var onOpenURL: (URL) -> Void = { _ in }
+    /// 본문 선택을 IDE 통합으로 흘려보낸다(우상단 위임).
+    var onSelection: (IdeSelection) -> Void = { _ in }
 
     @State private var content = ""
     @State private var state: LoadState = .loading
@@ -62,7 +64,9 @@ struct MarkdownView: View {
             content: content, isRawHTML: isHTML, showSource: showSource,
             baseDir: (target.path as NSString).deletingLastPathComponent,
             onOpenFile: onOpenFile,
-            onOpenURL: onOpenURL
+            onOpenURL: onOpenURL,
+            filePath: target.path,
+            onSelection: onSelection
         )
         .overlay(alignment: .topTrailing) { sourceToggle }
         }

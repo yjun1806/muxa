@@ -39,6 +39,10 @@ struct CodeWebView: NSViewRepresentable {
     var onComment: ((ReviewBridgeMessage) -> Void)?
     /// 재적용(스테이지·재로딩) 중이면 true — hunk 스테이지 버튼을 시각적으로 비활성(pointer-events off).
     var busy: Bool = false
+    /// 이 문서의 실제 파일 경로 — 선택을 IDE에 알릴 때 필요(코드 뷰어).
+    var filePath: String = ""
+    /// 본문 텍스트 선택(또는 해제) — IDE 통합으로 흘려보낸다(코드는 줄번호가 소스와 거의 일치).
+    var onSelection: (IdeSelection) -> Void = { _ in }
 
     /// diff HTML의 hunk 스테이지 버튼이 postMessage로 부르는 핸들러 이름.
     static let messageName = "muxaStage"
@@ -58,6 +62,7 @@ struct CodeWebView: NSViewRepresentable {
         if onComment != nil {
             config.userContentController.add(context.coordinator, name: CodeWebView.commentMessageName)
         }
+        config.userContentController.add(context.coordinator, name: DocSelectionBridge.messageName)
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.setValue(false, forKey: "drawsBackground") // 로드 전 흰 깜빡임 방지
         webView.navigationDelegate = context.coordinator
@@ -65,6 +70,8 @@ struct CodeWebView: NSViewRepresentable {
         context.coordinator.onMessage = onMessage
         context.coordinator.onDiscard = onDiscard
         context.coordinator.onComment = onComment
+        context.coordinator.filePath = filePath
+        context.coordinator.onSelection = onSelection
         context.coordinator.setBusy(busy)
         context.coordinator.load(html)
         return webView
@@ -74,6 +81,8 @@ struct CodeWebView: NSViewRepresentable {
         context.coordinator.onMessage = onMessage
         context.coordinator.onDiscard = onDiscard
         context.coordinator.onComment = onComment
+        context.coordinator.filePath = filePath
+        context.coordinator.onSelection = onSelection
         context.coordinator.setBusy(busy)
         context.coordinator.load(html)
     }
@@ -85,6 +94,8 @@ struct CodeWebView: NSViewRepresentable {
         var onMessage: ((Int) -> Void)?
         var onDiscard: ((Int) -> Void)?
         var onComment: ((ReviewBridgeMessage) -> Void)?
+        var filePath = ""
+        var onSelection: (IdeSelection) -> Void = { _ in }
         private var lastHTML = ""
         private var busy = false
         /// 리로드 직전에 저장한 세로 스크롤 위치 — didFinish에서 복원 후 0으로 되돌린다.
@@ -118,6 +129,7 @@ struct CodeWebView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            webView.evaluateJavaScript(DocSelectionBridge.js) // 선택 → IDE 브리지 주입
             if savedScrollY > 0 {
                 webView.evaluateJavaScript("window.scrollTo(0, \(savedScrollY))")
                 savedScrollY = 0
@@ -126,6 +138,10 @@ struct CodeWebView: NSViewRepresentable {
         }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+            if message.name == DocSelectionBridge.messageName {
+                if let sel = DocSelectionBridge.selection(from: message.body, filePath: filePath) { onSelection(sel) }
+                return
+            }
             switch message.name {
             case CodeWebView.messageName:
                 if let index = Self.hunkIndex(message.body) { onMessage?(index) }

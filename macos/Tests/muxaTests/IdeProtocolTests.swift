@@ -149,4 +149,25 @@ final class IdeProtocolTests: XCTestCase {
     func testDefaultIsAliveTrueForSelf() {
         XCTAssertTrue(IdeLockfile.defaultIsAlive(ProcessInfo.processInfo.processIdentifier))
     }
+
+    // MARK: 문서 선택 브리지
+
+    func testDocSelectionParsesMessage() {
+        let body: [String: Any] = ["text": "hi", "startLine": 2, "startChar": 1, "endLine": 3, "endChar": 4]
+        let sel = DocSelectionBridge.selection(from: body, filePath: "/a/b.swift")
+        XCTAssertEqual(sel?.text, "hi")
+        XCTAssertEqual(sel?.startLine, 2)
+        XCTAssertEqual(sel?.endCharacter, 4)
+        XCTAssertEqual(sel?.filePath, "/a/b.swift")
+        XCTAssertFalse(sel!.isEmpty)
+    }
+
+    func testDocSelectionEmptyTextIsEmptySelection() {
+        let sel = DocSelectionBridge.selection(from: ["text": ""], filePath: "/a")
+        XCTAssertTrue(sel!.isEmpty)
+    }
+
+    func testDocSelectionNonDictReturnsNil() {
+        XCTAssertNil(DocSelectionBridge.selection(from: "nope", filePath: "/a"))
+    }
 }

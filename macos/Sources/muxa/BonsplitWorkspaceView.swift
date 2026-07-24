@@ -97,7 +97,8 @@ struct BonsplitWorkspaceView: View {
                     canDrag: { store.subtabFilePath(for: $0) != nil },
                     dragProvider: { store.subtabDragProvider($0, sourceTab: tabId) },
                     onSendToClaude: { store.sendFileToClaude(path: $0) },
-                    canSendToClaude: { store.hasInjectionTarget }
+                    canSendToClaude: { store.hasInjectionTarget },
+                    onSelection: { store.reportDocSelection($0) }
                 )
             }
         }

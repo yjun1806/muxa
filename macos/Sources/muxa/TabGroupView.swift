@@ -29,6 +29,8 @@ struct TabGroupView: View {
     var onSendToClaude: (String) -> Void = { _ in }
     /// 지금 붙여넣을 살아있는 터미널이 있나 — 메뉴 항목 활성화(메뉴 열 때 평가).
     var canSendToClaude: () -> Bool = { false }
+    /// 문서 본문 선택 → IDE 통합(앰비언트 컨텍스트 공유).
+    var onSelection: (IdeSelection) -> Void = { _ in }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -129,8 +131,9 @@ struct TabGroupView: View {
     private func fileItemView(_ target: FileViewTarget) -> some View {
         switch target.kind {
         case .markdown, .html: MarkdownView(target: target, chrome: false, onClose: {},
-                                            onOpenFile: onOpenFile, onOpenURL: onOpenURL)
-        case .code: CodeView(target: target, chrome: false, onClose: {})
+                                            onOpenFile: onOpenFile, onOpenURL: onOpenURL,
+                                            onSelection: onSelection)
+        case .code: CodeView(target: target, chrome: false, onClose: {}, onSelection: onSelection)
         case .image: ImageFileView(target: target, chrome: false, onClose: {})
         case .video: VideoFileView(target: target, chrome: false, onClose: {})
         }

@@ -846,6 +846,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 지금 문서를 붙여넣을 살아있는 터미널이 있나 — "Claude에 보내기" 메뉴 항목 활성화 판정.
     var hasInjectionTarget: Bool { injectionTargetTab != nil }
 
+    /// 문서 본문 선택 → 상위(AppState)가 IDE 서버로 라우팅한다(앰비언트 컨텍스트 공유). 선택 해제는 isEmpty로 온다.
+    var onDocSelection: ((IdeSelection) -> Void)?
+    func reportDocSelection(_ sel: IdeSelection) { onDocSelection?(sel) }
+
     /// 문서 서브탭 우클릭 "Claude에 보내기" — 마지막 활성 CC(없으면 첫 터미널)의 프롬프트에 `@경로`를 붙인다.
     /// 제출(Enter)은 하지 않는다 — 사용자가 확인하고 직접 보낸다(주입 경계, injectToTerminal과 같은 규칙).
     /// 대상 CC의 cwd 아래 파일이면 상대경로, 아니면 절대경로로 멘션한다(AtMention). 보낼 터미널이 없으면 false.
