@@ -35,6 +35,44 @@ struct SidebarTreeTests {
         #expect(SidebarTree.prune(["a", "x"], workspaceIds: ["a", "b"]) == ["a"])
     }
 
+    // MARK: 순서 (드래그 앤 드롭 재정렬)
+
+    @Test func 뒤로_옮기면_대상_다음에_들어간다() {
+        // a를 c 뒤로 — remove 후 target을 다시 찾아 off-by-one을 막는다.
+        #expect(SidebarTree.reordered(["a", "b", "c", "d"], move: "a",
+                                      adjacentTo: "c", placeBefore: false) == ["b", "c", "a", "d"])
+    }
+
+    @Test func 바로_다음_이웃_뒤로_옮기는_off_by_one() {
+        // a를 바로 뒤 이웃 b의 뒤로 — 앞→뒤 이동에서 인덱스가 당겨지는 고전적 함정.
+        #expect(SidebarTree.reordered(["a", "b", "c"], move: "a",
+                                      adjacentTo: "b", placeBefore: false) == ["b", "a", "c"])
+    }
+
+    @Test func 앞으로_옮기면_대상_바로_앞에_들어간다() {
+        #expect(SidebarTree.reordered(["a", "b", "c", "d"], move: "d",
+                                      adjacentTo: "b", placeBefore: true) == ["a", "d", "b", "c"])
+    }
+
+    @Test func 맨_뒤와_맨_앞으로_옮길_수_있다() {
+        #expect(SidebarTree.reordered(["a", "b", "c", "d"], move: "b",
+                                      adjacentTo: "d", placeBefore: false) == ["a", "c", "d", "b"])
+        #expect(SidebarTree.reordered(["a", "b", "c", "d"], move: "c",
+                                      adjacentTo: "a", placeBefore: true) == ["c", "a", "b", "d"])
+    }
+
+    @Test func 자기_자신_위로는_원본_그대로다() {
+        #expect(SidebarTree.reordered(["a", "b", "c"], move: "b",
+                                      adjacentTo: "b", placeBefore: true) == ["a", "b", "c"])
+    }
+
+    @Test func 미존재_id는_no_op이다() {
+        #expect(SidebarTree.reordered(["a", "b"], move: "x",
+                                      adjacentTo: "a", placeBefore: true) == ["a", "b"])
+        #expect(SidebarTree.reordered(["a", "b"], move: "a",
+                                      adjacentTo: "zzz", placeBefore: false) == ["a", "b"])
+    }
+
     // MARK: 상태 신호
 
     @Test func 주의는_작업중을_이긴다() {

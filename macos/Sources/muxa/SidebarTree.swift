@@ -67,6 +67,21 @@ enum SidebarTree {
         expanded.intersection(workspaceIds)
     }
 
+    // MARK: 순서 (드래그 앤 드롭 재정렬 — 순서의 진실은 이 배열 위치다, YJ-1)
+
+    /// `draggedId`를 `targetId` 바로 앞/뒤로 옮긴 새 순서. **target 인덱스는 제거 후 다시 찾는다** —
+    /// 앞→뒤로 옮길 때 인덱스가 한 칸 당겨지는 off-by-one을 막는다. 자기 자신 위로 옮기거나
+    /// dragged/target이 목록에 없으면 원본을 그대로 돌려준다(무의미한 이동은 no-op).
+    static func reordered(_ ids: [String], move draggedId: String,
+                          adjacentTo targetId: String, placeBefore: Bool) -> [String] {
+        guard draggedId != targetId, let from = ids.firstIndex(of: draggedId) else { return ids }
+        var next = ids
+        next.remove(at: from)
+        guard let target = next.firstIndex(of: targetId) else { return ids }
+        next.insert(draggedId, at: placeBefore ? target : target + 1)
+        return next
+    }
+
     // MARK: 주의 큐 (트리 맨 위 카드)
 
     /// 큐 카드 한 행이 가리키는 "나를 기다리는 프로젝트" — 워크스페이스 **이름**까지 실어

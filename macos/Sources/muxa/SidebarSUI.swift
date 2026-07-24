@@ -17,6 +17,10 @@ struct SidebarSUI: View {
     /// 우클릭/+ 메뉴가 열려 있는 행 — 강조를 유지하고, hover 모드에선 사이드바를 펼친 채로 붙든다
     /// (메뉴는 별도 창이라 마우스가 사이드바를 벗어나므로, 이게 없으면 메뉴만 남고 사이드바가 접힌다).
     @State private var menuOpenId: String?
+    /// 드래그 중인 워크스페이스 id — 재정렬 소스(자기 위 드롭 방지·드롭 시 대상 지정에 쓴다).
+    @State private var draggingWorkspaceId: String?
+    /// 지금 삽입선을 그릴 자리(대상 행 + 위/아래). 확장·compact가 공유한다.
+    @State private var workspaceDropMark: WorkspaceDropMark?
 
     private var effectiveMode: SidebarMode {
         (state.sidebarMode == .hover && (peeking || menuOpenId != nil)) ? .expanded : state.sidebarMode
@@ -88,6 +92,8 @@ struct SidebarSUI: View {
                 VStack(alignment: .leading, spacing: Space.tight) {
                     SidebarWorkspaceRow(state: state, workspace: ws, index: index,
                                         hoveredId: $hoveredId, menuOpenId: $menuOpenId)
+                        .workspaceReorderRow(id: ws.id, state: state, isHovered: hoveredId == ws.id,
+                                             draggingId: $draggingWorkspaceId, mark: $workspaceDropMark)
                     if state.isExpanded(ws.id) {
                         // **프로젝트 레인**(D안) — 자식 묶음이 옅은 면 위에 앉아 소속을 그린다.
                         // 세로 가이드선·들여쓰기를 대체한다: 선이 아니라 형태가 "한 워크스페이스"를 말하고,
@@ -104,6 +110,8 @@ struct SidebarSUI: View {
                         .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
                     }
                 }
+                // 삽입선은 그룹(행+레인) 기준 — 펼침 시 "뒤로" 선이 자식 레인 아래로 간다.
+                .workspaceDropLine(id: ws.id, mark: workspaceDropMark)
             }
             Spacer()
         }
@@ -117,6 +125,7 @@ struct SidebarSUI: View {
             // 스크래치(~)는 사이드바에 없다 — 독립 창(상단바 우측 버튼·⌘⌥T)에서만 산다(workspaces 밖).
             ForEach(state.workspaces) { ws in
                 VStack(alignment: .leading, spacing: Space.tight) {
+                    // compact/slim은 폭이 좁아 그립 자리가 없다 — 재정렬은 확장 모드에서만(YJ-1).
                     SidebarIconItem(state: state, workspace: ws, slim: effectiveMode == .slim,
                                     sidebarWidth: width, showsNameChip: showsNameChip,
                                     hoveredId: $hoveredId, menuOpenId: $menuOpenId)

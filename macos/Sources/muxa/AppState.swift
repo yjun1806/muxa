@@ -2199,6 +2199,24 @@ final class AppState {
         return copy
     }
 
+    /// 워크스페이스 순서 변경(드래그 앤 드롭). `draggedId`를 `targetId` 바로 앞/뒤로 옮긴다.
+    /// **순서의 유일한 진실은 `workspaces` 배열 위치** — 정렬 필드 없이 배열만 재배치하고 save()로
+    /// 영속화한다(state.v4.json에 배열 순서 그대로 직렬화된다). 활성 워크스페이스·펼침 상태는
+    /// 건드리지 않는다(순서만 바뀐다). 순서 규칙은 순수 함수 `SidebarTree.reordered`에 있다(재구현 금지).
+    func moveWorkspace(_ draggedId: String, adjacentTo targetId: String, placeBefore: Bool) {
+        let currentOrder = workspaces.map(\.id)
+        let order = SidebarTree.reordered(currentOrder,
+                                          move: draggedId, adjacentTo: targetId, placeBefore: placeBefore)
+        guard order != currentOrder else { return } // no-op(자기 드롭·미존재 id)이면 저장도 생략
+        let byId = Dictionary(workspaces.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let next = order.compactMap { byId[$0] }
+        // 불변식: reordered는 같은 id 집합의 순열이라 개수가 보존된다. 깨지면(워크스페이스 유실 위험)
+        // 저장하지 않는다 — compactMap이 조용히 하나를 떨구는 사고를 막는 방어선.
+        guard next.count == workspaces.count else { return }
+        workspaces = next
+        save()
+    }
+
     /// 워크스페이스 제거(마지막 하나는 남긴다). 소속 프로젝트의 스토어·저장 레이아웃·배지·**서비스**를
     /// 함께 정리한다.
     func removeWorkspace(_ id: String) {
