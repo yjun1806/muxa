@@ -403,6 +403,11 @@ struct ServiceDock: View {
         CommandStore.panelSections(state.commandEntries(of: projId), discovered: discoveredScripts)
     }
 
+    /// 스크립트를 발견·실행할 폴더 — 프롬프트에서 `cd`로 옮긴 곳(`selectedCwd`), 없으면 프로젝트 루트.
+    /// 프롬프트 표시(`promptPath`)와 달리 홈 폴백을 두지 않는다 — 프로젝트가 없으면 발견도 없다(빈 목록).
+    /// 발견과 실행이 **같은 경로**를 봐야 "목록에 뜬 스크립트 = 실제 실행되는 스크립트"가 어긋나지 않는다.
+    private var scriptCwd: String? { selectedCwd ?? state.activeProjectCwd }
+
     private var commandsColumn: some View {
         // 프롬프트(inputArea)는 이제 도크 전폭(content)에 있다 — 여기는 목록만.
         // flat 섹션 하나의 스크롤 — 자주 쓰는 순서(즐겨찾기 → 최근 실행 → 프로젝트 스크립트 카탈로그).
@@ -417,8 +422,8 @@ struct ServiceDock: View {
             .padding(.vertical, Space.md)
         }
         .tick(every: 1, into: $now)
-        .task(id: state.activeProjectCwd) {
-            let found = ProjectScripts.discover(in: state.activeProjectCwd)
+        .task(id: scriptCwd) {
+            let found = ProjectScripts.discover(in: scriptCwd)
             discoveredScripts = found.scripts.map {
                 DiscoveredScript(name: $0.name,
                                  command: ProjectScripts.command(for: $0, manager: found.manager ?? .npm),
@@ -543,8 +548,31 @@ struct ServiceDock: View {
         PathComplete.display(selectedCwd ?? (state.activeProjectCwd ?? NSHomeDirectory()))
     }
 
+    /// 타이핑한 `cd` 인자가 그 자체로 존재하는 폴더인가(`cd ..`·`cd macos`·`cd macos/`).
+    /// 맞으면 Enter는 하이라이트가 아니라 타이핑한 경로로 이동한다(기존 동작 보존).
+    private var typedPathIsExistingDir: Bool {
+        guard oneOffCommand.hasPrefix("cd ") else { return false }
+        let arg = String(oneOffCommand.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+        guard !arg.isEmpty else { return false }
+        let base = selectedCwd ?? (state.activeProjectCwd ?? NSHomeDirectory())
+        var isDir: ObjCBool = false
+        return FileManager.default.fileExists(atPath: PathComplete.expand(arg, base: base), isDirectory: &isDir)
+            && isDir.boolValue
+    }
+
     /// 입력 처리(Enter) — `cd <경로>`면 실행 경로를 옮기고, 그 외는 그 경로에서 실행한다.
     private func handleInput() {
+        // 폴더 드롭다운이 떠 있고 **타이핑한 경로 자체로는 갈 수 없을 때**(빈 `cd ` 나 접두사 `cd mac`),
+        // Enter는 하이라이트한 폴더로 이동한다 — 목록에서 골라 Enter가 그 폴더로 가는 자연스러운 기대.
+        // (`cd ..`·`cd macos`처럼 타이핑 경로가 그대로 존재하면 아래 일반 처리가 그리로 보낸다. Tab은 채우기만.)
+        if let names = pathCompletions, !names.isEmpty, !typedPathIsExistingDir {
+            let base = selectedCwd ?? (state.activeProjectCwd ?? NSHomeDirectory())
+            let (dir, _) = PathComplete.split(String(oneOffCommand.dropFirst(3)), base: base)
+            let target = (dir as NSString).appendingPathComponent(names[min(completionSelection, names.count - 1)])
+            selectedCwd = (target == state.activeProjectCwd) ? nil : target
+            oneOffCommand = ""
+            return
+        }
         let trimmed = oneOffCommand.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
         let base = selectedCwd ?? (state.activeProjectCwd ?? NSHomeDirectory())
@@ -623,8 +651,8 @@ struct ServiceDock: View {
         flatSection("프로젝트 스크립트") {
             ForEach(items) { script in
                 CommandScriptRow(script: script, run: runFor(command: script.command),
-                    onRun: { state.runCommand(script.command, cwd: nil, in: projId) },
-                    onFavorite: { state.toggleCommandFavorite(script.command, name: script.name, cwd: nil, in: projId) })
+                    onRun: { state.runCommand(script.command, cwd: selectedCwd, in: projId) },
+                    onFavorite: { state.toggleCommandFavorite(script.command, name: script.name, cwd: selectedCwd, in: projId) })
             }
         }
     }

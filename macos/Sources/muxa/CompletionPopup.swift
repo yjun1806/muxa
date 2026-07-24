@@ -27,14 +27,19 @@ struct CompletionPopup: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                        row(index: index, item: item)
+            // 키보드(↑↓) 하이라이트가 목록 밖으로 나가면 스크롤이 따라가야 한다 — ScrollViewReader로
+            // selection이 바뀔 때마다 그 행이 보이게 최소 스크롤한다(hover는 이미 보이는 행이라 무해).
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                            row(index: index, item: item).id(index)
+                        }
                     }
                 }
+                .frame(maxHeight: Self.maxListHeight)
+                .onChange(of: selection) { proxy.scrollTo(selection) }
             }
-            .frame(maxHeight: Self.maxListHeight)
 
             // 타입 힌트 푸터 — 무엇을 고르는지와 완성 키를 알린다(이미지의 `folder`·`^k` 자리).
             HDivider()
