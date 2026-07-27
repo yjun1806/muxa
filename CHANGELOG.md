@@ -6,6 +6,16 @@ All notable changes to muxa are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-07-27
+
+### Fixed
+- **Markdown diff highlights land on the right characters** — in a document diff the highlight could sit on entirely the wrong text, from two independent causes. The model measured offsets against the raw markdown source while the painter looked them up in the rendered DOM, so any paragraph containing bold, inline code, or a link drifted by the length of its markup — and when a long link sat near the front, the offset ran past the end of the text and *nothing* was painted. Separately, restored deletions were inserted into the DOM before the highlight ranges were resolved, so editing `이 문단을` → `이 문단이` painted the deleted `을` instead of the new `이`; that one hit plain paragraphs, code blocks, and table cells alike.
+- **Changed HTML blocks now say so** — a modified `html_block` silently painted nothing, because its offsets were measured against the raw HTML with tags included. It falls back to an "HTML 변경됨" badge now, the same way a table does when its row/column structure changes. Which part of the HTML changed is still not marked: stripping tags with a regex breaks on `>` inside attribute values, and an offset that is wrong paints the wrong characters without telling you.
+
+### Documentation
+- README brought up to date with everything shipped in 0.2.0–0.5.1.
+
+
 ## [0.5.1] - 2026-07-27
 
 ### Fixed
@@ -70,7 +80,8 @@ First tagged release — a macOS agent terminal with a built-in document viewer 
 ### Notes
 - Status and notifications are tuned to Claude Code. macOS 14+. Build from source — no prebuilt binary; install with the one-line script or `make`.
 
-[Unreleased]: https://github.com/yjun1806/muxa/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/yjun1806/muxa/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/yjun1806/muxa/compare/v0.5.1...v0.5.2
 [0.3.0]: https://github.com/yjun1806/muxa/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/yjun1806/muxa/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/yjun1806/muxa/releases/tag/v0.1.0
