@@ -72,10 +72,36 @@
   var BLOCK_SELF = { fence: 'code', code_block: 'code', hr: 'hr', html_block: 'html' };
 
   /**
+   * inline 토큰 → **렌더된 DOM에서 텍스트 노드가 될 글자만** 이어붙인 프로젝션.
+   *
+   * `tok.content`는 렌더 결과가 아니라 **원본 마크다운 소스**다(`**굵게**`는 7자, 렌더는 2자).
+   * 페인트는 렌더된 DOM 위에서 오프셋을 찾으므로, 소스 오프셋을 그대로 넘기면 하이라이트가
+   * 마크업 기호 길이만큼 밀리고 — 밀린 양이 텍스트 길이를 넘으면 아무것도 안 칠해진다.
+   *
+   * `children`이 없는 경우는 방어하지 않는다 — `md.parse`가 inline 토큰의 children을 항상 채우고,
+   * 호출부도 `t.type === 'inline'`인 곳뿐이다. 없는 상황을 지어내 감싸면 raw가 조용히 새어나온다.
+   */
+  function inlineText(tok) {
+    var out = '';
+    for (var i = 0; i < tok.children.length; i++) {
+      var c = tok.children[i];
+      // `code_inline`은 `<code>` **안**이 텍스트 노드다 — 세야 한다.
+      if (c.type === 'text' || c.type === 'code_inline') out += c.content;
+      // 소프트랩·강제개행은 렌더 결과에 `\n` 텍스트 노드로 남는다(`breaks:false` 기준).
+      else if (c.type === 'softbreak' || c.type === 'hardbreak') out += '\n';
+      // `image`의 alt는 **속성**이고 `html_inline`은 태그다 — 둘 다 텍스트 노드가 아니다.
+      // (인라인 HTML 사이의 본문은 별도 `text` 토큰으로 이미 잡힌다.)
+    }
+    return out;
+  }
+
+  /**
    * 토큰 시퀀스 → 블록 배열.
-   * 각 블록: {type, text, norm, map, tokens, info}
-   *  - text: 인라인 텍스트 프로젝션(마크업 기호가 없는 순수 텍스트)
-   *  - norm: 매칭용 정규화(공백 collapse) — 소스 랩·마커 차이를 여기서 흡수한다
+   * 각 블록: {type, text, raw, norm, map, tokens, info}
+   *  - text: **렌더된 DOM 기준** 텍스트 프로젝션 — 스팬 오프셋의 유일한 좌표계다
+   *  - raw:  원본 마크다운 소스 — 정체성 판정과 코멘트 앵커가 쓴다
+   *  - norm: 매칭용 정규화(공백 collapse) — **raw 기준**. 프로젝션으로 정규화하면
+   *          `굵게`→`**굵게**` 같은 서식만의 변경이 무변경으로 삼켜진다
    */
   function toBlocks(md, src) {
     var tokens = md.parse(src || '', {});
@@ -91,10 +117,10 @@
       // ── 표: 블록은 통짜지만 **셀 좌표는 기억한다** ──
       // 통짜로 두는 이유는 행 하나가 유효한 표 문법이 아니라서고(헤더·구분선이 없다),
       // 셀 좌표를 남기는 이유는 "어느 칸이 바뀌었나"를 칸 안에서 짚어주기 위해서다.
-      if (t.type === 'table_open') { table = { tok: t, text: '', cells: [], row: -1, col: 0 }; continue; }
+      if (t.type === 'table_open') { table = { tok: t, text: '', raw: '', cells: [], row: -1, col: 0 }; continue; }
       if (t.type === 'table_close') {
         if (table) {
-          var tb = mkBlock('table', table.text, table.tok.map, [table.tok], '',
+          var tb = mkBlock('table', table.text, table.raw, table.tok.map, [table.tok], '',
                            lists[lists.length - 1]);
           tb.cells = table.cells;
           blocks.push(tb);
@@ -105,8 +131,11 @@
       if (table) {
         if (t.type === 'tr_open') { table.row++; table.col = 0; }
         else if (t.type === 'inline') {
-          table.text += t.content + ' ';
-          table.cells.push({ row: table.row, col: table.col++, text: t.content });
+          // 칸 오프셋도 셀 DOM 위에서 쓰이므로 프로젝션이 기준이다. raw는 정체성 비교용.
+          var cellText = inlineText(t);
+          table.text += cellText + ' ';
+          table.raw += t.content + ' ';
+          table.cells.push({ row: table.row, col: table.col++, text: cellText, raw: t.content });
         }
         continue;   // 표 안의 tr/td는 블록으로 세지 않는다
       }
@@ -117,16 +146,24 @@
       }
       if (t.type === 'bullet_list_close' || t.type === 'ordered_list_close') { lists.pop(); continue; }
       if (BLOCK_SELF[t.type]) {
-        blocks.push(mkBlock(BLOCK_SELF[t.type], t.content || '', t.map, [t], t.info || '',
-                            lists[lists.length - 1]));
+        // 코드는 `content`가 곧 렌더된 텍스트라 프로젝션과 raw가 같다.
+        // **`html_block`은 다르다** — `content`가 태그를 포함한 원본이라 여기서도 좌표계가
+        // 어긋난다(`<div>안녕</div>` 원본 16자 vs 렌더 2자). 아직 안 고쳤다 — YJ-5.
+        blocks.push(mkBlock(BLOCK_SELF[t.type], t.content || '', t.content || '',
+                            t.map, [t], t.info || '', lists[lists.length - 1]));
         continue;
       }
       if (BLOCK_OPEN[t.type]) {
         // 열 때 현재 블록 수를 기억한다 — 닫을 때 "내 안에서 블록이 나왔나"를 이걸로 안다.
-        stack.push({ kind: BLOCK_OPEN[t.type], tok: t, text: '', mark: blocks.length });
+        stack.push({ kind: BLOCK_OPEN[t.type], tok: t, text: '', raw: '', mark: blocks.length });
         continue;
       }
-      if (t.type === 'inline' && stack.length) { stack[stack.length - 1].text += t.content; continue; }
+      if (t.type === 'inline' && stack.length) {
+        var top = stack[stack.length - 1];
+        top.text += inlineText(t);
+        top.raw += t.content;
+        continue;
+      }
       if (t.nesting === -1 && stack.length) {
         var open = stack[stack.length - 1];
         var closes = t.type.replace('_close', '_open');
@@ -135,8 +172,8 @@
           // **잎 컨테이너만 원자로 삼는다.** 리스트 항목·인용은 안에 문단을 품는데, 바깥까지
           // 블록으로 뱉으면 같은 내용이 두 번 세어져 "항목 하나 추가"가 2개 삽입으로 보인다.
           var emittedChild = blocks.length > open.mark;
-          if (!emittedChild && open.text.length) {
-            blocks.push(mkBlock(open.kind, open.text, open.tok.map, [open.tok],
+          if (!emittedChild && open.raw.length) {
+            blocks.push(mkBlock(open.kind, open.text, open.raw, open.tok.map, [open.tok],
                                 open.kind === 'heading' ? open.tok.tag : '',
                                 lists[lists.length - 1]));
           }
@@ -146,19 +183,19 @@
     return blocks;
   }
 
-  function mkBlock(type, text, map, tokens, info, list) {
+  function mkBlock(type, text, raw, map, tokens, info, list) {
     return {
-      type: type, text: text, info: info || '',
+      type: type, text: text, raw: raw, info: info || '',
       // 같은 리스트에 속한 연속 항목은 페인트가 하나의 `<ul>`/`<ol>`로 묶는다.
       listTag: list ? list.tag : null, listId: list ? list.id : null,
-      norm: normalize(text),
+      norm: normalize(raw),
       line: map ? map[0] : 0,
       endLine: map ? map[1] : 0,
       tokens: tokens
     };
   }
 
-  /** 매칭용 정규화 — 공백 접기. 프로젝션엔 마커·소프트랩이 애초에 없다. */
+  /** 매칭용 정규화 — 공백 접기. 소스 랩·리스트 마커 차이를 여기서 흡수한다. */
   function normalize(s) { return String(s).replace(/\s+/g, ' ').trim(); }
 
   /** 매칭 키 — 타입과 정규화 텍스트가 같으면 같은 블록으로 본다(동등성 술어). */
@@ -440,14 +477,15 @@
   function tableCellSpans(oldCells, newCells, opts) {
     if (!oldCells || !newCells) return null;
     var byKey = {};
-    oldCells.forEach(function (c) { byKey[c.row + ',' + c.col] = c.text; });
+    oldCells.forEach(function (c) { byKey[c.row + ',' + c.col] = c; });
     var out = [];
     for (var i = 0; i < newCells.length; i++) {
       var c = newCells[i];
       var prev = byKey[c.row + ',' + c.col];
       if (prev === undefined) return null;      // 구조가 바뀌었다 — 칸 매칭을 포기한다
-      if (prev === c.text) continue;
-      var spans = textSpans(prev, c.text, opts);
+      // 같은 칸인지는 **raw**로 본다 — 프로젝션으로 보면 칸 안의 서식만 바뀐 변경이 삼켜진다.
+      if (prev.raw === c.raw) continue;
+      var spans = textSpans(prev.text, c.text, opts);
       if (spans.tooFragmented) { spans = { ins: [{ start: 0, end: c.text.length }], del: [] }; }
       out.push({ row: c.row, col: c.col, ins: spans.ins, del: spans.del });
     }
@@ -490,7 +528,7 @@
 
     function flushDel(at) {
       (pendingDel[at] || []).forEach(function (b) {
-        out.push({ kind: 'deleted', type: b.type, info: b.info, text: b.text,
+        out.push({ kind: 'deleted', type: b.type, info: b.info, text: b.text, raw: b.raw,
                    listTag: b.listTag, listId: b.listId,
                    line: b.line, source: sliceSource(oldSrc, b) });
         stats.deleted++;
@@ -501,20 +539,20 @@
       flushDel(ni);
       var b = news[ni], pair = byNew[ni];
       if (!pair) {
-        out.push({ kind: 'inserted', type: b.type, info: b.info, text: b.text,
+        out.push({ kind: 'inserted', type: b.type, info: b.info, text: b.text, raw: b.raw,
                    listTag: b.listTag, listId: b.listId,
                    line: b.line, source: sliceSource(newSrc, b) });
         stats.inserted++;
         continue;
       }
       if (pair.kind === 'same') {
-        out.push({ kind: 'same', type: b.type, info: b.info, text: b.text,
+        out.push({ kind: 'same', type: b.type, info: b.info, text: b.text, raw: b.raw,
                    listTag: b.listTag, listId: b.listId,
                    line: b.line, source: sliceSource(newSrc, b) });
         continue;
       }
       if (pair.kind === 'moved') {
-        out.push({ kind: 'moved', type: b.type, info: b.info, text: b.text,
+        out.push({ kind: 'moved', type: b.type, info: b.info, text: b.text, raw: b.raw,
                    listTag: b.listTag, listId: b.listId,
                    line: b.line, fromLine: olds[pair.o].line, source: sliceSource(newSrc, b) });
         stats.moved++;
@@ -538,15 +576,16 @@
       // 어느 단어가 바뀌었는지 못 읽는 화면보다, 두 판을 나란히 보는 쪽이 정직하다.
       if (spans.tooFragmented) {
         out.push({ kind: 'deleted', type: b.type, info: b.info, text: olds[pair.o].text,
+                   raw: olds[pair.o].raw,
                    listTag: b.listTag, listId: b.listId,
                    line: olds[pair.o].line, source: sliceSource(oldSrc, olds[pair.o]) });
-        out.push({ kind: 'inserted', type: b.type, info: b.info, text: b.text,
+        out.push({ kind: 'inserted', type: b.type, info: b.info, text: b.text, raw: b.raw,
                    listTag: b.listTag, listId: b.listId,
                    line: b.line, source: sliceSource(newSrc, b) });
         stats.deleted++; stats.inserted++;
         continue;
       }
-      out.push({ kind: 'modified', type: b.type, info: b.info, text: b.text, line: b.line,
+      out.push({ kind: 'modified', type: b.type, info: b.info, text: b.text, raw: b.raw, line: b.line,
                  listTag: b.listTag, listId: b.listId,
                  oldText: olds[pair.o].text, source: sliceSource(newSrc, b),
                  oldSource: sliceSource(oldSrc, olds[pair.o]),

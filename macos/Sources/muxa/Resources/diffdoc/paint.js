@@ -99,6 +99,37 @@
     }
   }
 
+  /**
+   * `insertDeletions`가 끼워 넣을 `<del>` 텍스트만큼 스팬 오프셋을 뒤로 민다.
+   *
+   * 모델의 오프셋은 **새 텍스트 기준**인데, 페인트는 삭제 텍스트를 되살린 **뒤에** 칠한다.
+   * `textIndex`의 TreeWalker가 `<del>` 안 텍스트까지 걷기 때문에, 보정하지 않으면 새 글자 대신
+   * 방금 되살린 삭제 글자가 칠해진다.
+   *
+   * **순서를 뒤집는 것으로는 못 고친다** — `paintSpans`가 만드는 `StaticRange`는 `(node, offset)`
+   * 스냅샷이라, 뒤이어 `insertDeletions`가 `splitText()`로 그 노드를 쪼개면 range가 무효가 되어
+   * 하이라이트가 밀리는 게 아니라 **아예 사라진다**.
+   *
+   * 경계는 비대칭이다: `start`는 같은 자리의 삭제를 지나쳐 밀고(`<=`), `end`는 밀지 않는다(`<`).
+   * 그래야 스팬 끝에 붙은 삭제 텍스트를 삽입 하이라이트가 삼키지 않는다.
+   *
+   * 보정할 때는 **새 배열·새 객체를 만든다** — 모델을 제자리에서 고치면 `setDensity`가 같은
+   * 모델로 다시 그릴 때 또 밀린다. 삭제가 없으면 보정할 것도 없어 입력을 그대로 돌려준다
+   * (호출부 `paintSpans`는 스팬을 읽기만 한다).
+   */
+  function shiftPastDeletions(spans, dels) {
+    if (!spans || !dels || !dels.length) return spans;
+    return spans.map(function (s) {
+      var ds = 0, de = 0;
+      for (var i = 0; i < dels.length; i++) {
+        var n = dels[i].text.length;
+        if (dels[i].at <= s.start) ds += n;
+        if (dels[i].at < s.end) de += n;
+      }
+      return { start: s.start + ds, end: s.end + de };
+    });
+  }
+
   /** 삭제 조각을 본문 흐름 안에 되살린다(짧은 것만 — 길면 블록 칩으로). */
   function insertDeletions(el, dels) {
     if (!dels || !dels.length) return;
@@ -124,7 +155,7 @@
     var chars = run.reduce(function (n, b) { return n + (b.text || '').length; }, 0);
     if (run.length <= 2) {
       return run.map(function (b) {
-        var el = renderBlock(b.source || b.text);
+        var el = renderBlock(b.source || b.raw);
         el.classList.add('d-blk', 'd-del', 'd-delblock');
         el.setAttribute('data-change', 'deleted');
         stampAnchor(el, b, 'del');
@@ -138,7 +169,7 @@
     chip.addEventListener('click', function () {
       var frag = document.createDocumentFragment();
       run.forEach(function (b) {
-        var el = renderBlock(b.source || b.text);
+        var el = renderBlock(b.source || b.raw);
         el.classList.add('d-blk', 'd-del', 'd-delblock');
         stampAnchor(el, b, 'del');
         frag.appendChild(el);
@@ -151,7 +182,9 @@
   /** 코멘트 앵커 스탬프 — 기존 diff 뷰어와 **같은 키 공간**(file·side·line·text)을 쓴다. */
   function stampAnchor(el, block, side) {
     el.setAttribute('data-line', String((block.line || 0) + 1)); // core는 0-based
-    el.setAttribute('data-text', (block.text || '').slice(0, 400));
+    // **원본 소스**를 쓴다 — 코드 diff 뷰어의 앵커 키가 소스 라인 텍스트라 좌표계를 맞춰야 한다.
+    // (`block.text`는 렌더 기준 프로젝션이라 마크업이 벗겨져 있어 키가 어긋난다.)
+    el.setAttribute('data-text', (block.raw || block.text || '').slice(0, 400));
     el.setAttribute('data-side', side || 'add');
   }
 
@@ -209,7 +242,7 @@
         if (!cell) return;
         cell.classList.add('d-cell');
         insertDeletions(cell, c.del);
-        paintSpans(cell, c.ins, 'd-mod', reg);
+        paintSpans(cell, shiftPastDeletions(c.ins, c.del), 'd-mod', reg);
       });
     }
 
@@ -224,7 +257,7 @@
       if (b.kind === 'deleted') { pendingDel.push(b); return; }
       flushDeletions();
 
-      var el = renderBlock(b.source || b.text);
+      var el = renderBlock(b.source || b.raw);
       el.classList.add('d-blk');
       stampAnchor(el, b, 'add');
 
@@ -247,7 +280,7 @@
           // 같은 오프셋 기계(textIndex/locate)를 그대로 쓴다.
           var codeEl = placed.querySelector('code') || placed;
           insertDeletions(codeEl, b.del);
-          paintSpans(codeEl, b.ins, 'd-mod', registry);
+          paintSpans(codeEl, shiftPastDeletions(b.ins, b.del), 'd-mod', registry);
         } else if (b.cells) {
           // 표 — **바뀐 칸만** 칠한다. 칸 좌표로 찾아 그 안에서만 오프셋을 쓴다
           // (표 전체 텍스트 오프셋을 쓰면 셀 경계를 넘어 엉뚱한 칸이 칠해진다).
@@ -259,7 +292,7 @@
           placed.insertBefore(badge, placed.firstChild);
         } else {
           insertDeletions(placed, b.del);
-          paintSpans(placed, b.ins, 'd-mod', registry);
+          paintSpans(placed, shiftPastDeletions(b.ins, b.del), 'd-mod', registry);
         }
       } else if (b.kind === 'moved') {
         var mark = document.createElement('span');
@@ -328,4 +361,6 @@
 
   global.renderDocDiff = renderDocDiff;
   global.setDocDiffDensity = setDensity;
+  // 테스트가 들여다보는 내부 — 순수 함수라 DOM 없이 JSC에서 그대로 검증된다.
+  global.DiffDocPaint = { _shiftPastDeletions: shiftPastDeletions };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

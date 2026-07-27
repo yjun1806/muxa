@@ -18,7 +18,10 @@ final class DocDiffCoreTests: XCTestCase {
         c.exceptionHandler = { _, e in jsError = e?.toString() }
 
         let res = Self.resourcesDir()
-        for path in ["mdviewer/markdown-it.min.js", "diffdoc/diff-match-patch.js", "diffdoc/core.js"] {
+        // paint.js도 얹는다 — DOM은 함수 **안**에서만 만지므로 로드 자체는 JSC에서 안전하고,
+        // 오프셋 보정(`_shiftPastDeletions`)은 순수 함수라 DOM 없이 그대로 검증된다.
+        for path in ["mdviewer/markdown-it.min.js", "diffdoc/diff-match-patch.js", "diffdoc/core.js",
+                     "diffdoc/paint.js"] {
             let url = res.appendingPathComponent(path)
             let src = try String(contentsOf: url, encoding: .utf8)
             c.evaluateScript(src)
@@ -340,6 +343,142 @@ final class DocDiffCoreTests: XCTestCase {
         XCTAssertEqual(s["inserted"], 0)
         XCTAssertEqual(s["deleted"], 0)
         XCTAssertEqual(s["modified"], 0)
+    }
+
+    // MARK: 오프셋 좌표계 — 모델의 오프셋은 **렌더된 DOM** 기준이어야 한다
+
+    /// 블록 `text`를 이어붙인 것이 렌더된 텍스트와 같아야 한다(프로젝션 불변식).
+    ///
+    /// markdown-it inline 토큰의 `.content`는 렌더 결과가 아니라 **원본 마크다운 소스**다.
+    /// 그걸 그대로 쓰면 굵게·인라인코드·링크가 있는 문단에서 하이라이트가 마크업 기호 길이만큼
+    /// 밀리고, 밀린 양이 텍스트 길이를 넘으면 아무것도 안 칠해진다(실측으로 확인한 회귀).
+    func testProjectionMatchesRenderedText() throws {
+        let c = try ctx()
+        c.evaluateScript("""
+        globalThis.__proj = function (src) {
+          var md = globalThis.__diffdocMarkdownIt;
+          var proj = DiffDocCore._toBlocks(md, src).map(function (b) { return b.text; }).join('');
+          var rendered = md.render(src).replace(/<[^>]*>/g, '')
+            .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+          return JSON.stringify([proj.trim(), rendered.trim()]);
+        };
+        """)
+        // 마크업 종류마다 — 기호가 텍스트로 새면 여기서 갈린다.
+        for src in ["이 **문단이** 수정합니다.",
+                    "값은 `bravo` 입니다.",
+                    "[설명](https://example.com/very/long/path) 참고하세요.",
+                    "![그림](a.png) 뒤 텍스트.",
+                    "*기울임*과 ~~취소~~ 섞임.",
+                    "# **굵은** 제목"] {
+            c.setObject(src, forKeyedSubscript: "__src" as NSString)
+            let v = c.evaluateScript("__proj(__src)")?.toString() ?? ""
+            let pair = (try? JSONSerialization.jsonObject(with: Data(v.utf8))) as? [String] ?? []
+            XCTAssertEqual(pair.count, 2, "프로젝션 검사 실패: \(src)")
+            XCTAssertEqual(pair.first, pair.last,
+                           "프로젝션이 렌더 텍스트와 다르다 — 하이라이트가 밀린다: \(src)")
+        }
+    }
+
+    /// 스팬은 **프로젝션** 텍스트 안에 들어와야 한다. 소스 오프셋이 새면 길이를 넘어버린다.
+    func testSpansStayInsideProjectedText() throws {
+        let r = try diff("[아주아주긴링크텍스트](https://example.com/a/b/c) 뒤 문단을 고칩니다.\n",
+                         "[아주아주긴링크텍스트](https://example.com/a/b/c) 뒤 문단이 고칩니다.\n")
+        let mod = blocks(r).first { $0["kind"] as? String == "modified" }
+        XCTAssertNotNil(mod, "링크가 있는 문단이 수정으로 안 잡혔다")
+        let text = (mod?["text"] as? String) ?? ""
+        let ins = mod?["ins"] as? [[String: Any]] ?? []
+        XCTAssertFalse(ins.isEmpty, "삽입 스팬이 없다")
+        for span in ins {
+            XCTAssertLessThanOrEqual(span["end"] as? Int ?? 0, text.utf16.count,
+                                     "스팬이 프로젝션 길이를 넘었다 — 아무것도 안 칠해진다")
+        }
+        // 링크 URL이 프로젝션에 새어 들어오면 안 된다.
+        XCTAssertFalse(text.contains("example.com"), "링크 URL이 텍스트 프로젝션에 남았다: \(text)")
+    }
+
+    /// **`norm`은 원본 소스 기준으로 남긴다.** 프로젝션으로 정규화하면 `굵게`→`**굵게**` 같은
+    /// 서식만의 변경이 무변경으로 삼켜진다(렌더 텍스트는 같기 때문).
+    func testFormattingOnlyChangeIsNotSwallowed() throws {
+        let kinds = blocks(try diff("굵게 강조합니다.\n", "**굵게** 강조합니다.\n"))
+            .map { $0["kind"] as? String ?? "" }
+        XCTAssertFalse(kinds.allSatisfy { $0 == "same" },
+                       "서식만의 변경이 무변경으로 삼켜졌다: \(kinds)")
+    }
+
+    /// 표 **칸**도 같은 좌표계다 — 칸 오프셋은 셀 DOM 위에서 쓰인다.
+    func testTableCellSpansUseProjectedOffsets() throws {
+        let a = "| 항목 | 값 |\n|---|---|\n| 하나 | **굵은값** 뒤 |\n"
+        let b = "| 항목 | 값 |\n|---|---|\n| 하나 | **굵은값** 앞 |\n"
+        let table = blocks(try diff(a, b)).first { ($0["type"] as? String) == "table" }
+        let cells = table?["cells"] as? [[String: Any]] ?? []
+        XCTAssertEqual(cells.count, 1, "바뀐 칸이 하나여야 한다: \(cells)")
+        // 렌더된 셀 텍스트는 "굵은값 앞"(6자) — 소스 오프셋이면 여기를 넘어간다.
+        for span in (cells.first?["ins"] as? [[String: Any]] ?? []) {
+            XCTAssertLessThanOrEqual(span["end"] as? Int ?? 0, 6,
+                                     "칸 스팬이 렌더된 셀 텍스트 길이를 넘었다")
+        }
+    }
+
+    /// 칸 정체성은 **raw**로 본다 — 프로젝션으로 보면 칸 안의 서식만 바뀐 변경이 삼켜진다.
+    func testTableCellFormattingOnlyChangeIsNotSwallowed() throws {
+        let a = "| 항목 | 값 |\n|---|---|\n| 하나 | 강조 |\n"
+        let b = "| 항목 | 값 |\n|---|---|\n| 하나 | **강조** |\n"
+        let kinds = blocks(try diff(a, b)).map { $0["kind"] as? String ?? "" }
+        XCTAssertFalse(kinds.allSatisfy { $0 == "same" },
+                       "칸 안의 서식 변경이 무변경으로 삼켜졌다: \(kinds)")
+    }
+
+    // MARK: 페인트 좌표 보정 — 삭제 텍스트를 되살린 뒤의 오프셋
+
+    /// `insertDeletions`가 `<del>`을 끼워 넣어 텍스트 총량이 늘어난 만큼 스팬을 민다.
+    /// 안 밀면 새 글자 대신 **방금 되살린 삭제 글자**가 칠해진다("문단이"의 "이" 대신 "을").
+    func testShiftPastDeletionsMovesSpanPastRestoredText() throws {
+        let c = try ctx()
+        let v = c.evaluateScript("""
+        JSON.stringify(DiffDocPaint._shiftPastDeletions(
+          [{start: 4, end: 5}], [{at: 4, text: '을'}]))
+        """)
+        XCTAssertEqual(v?.toString(), "[{\"start\":5,\"end\":6}]",
+                       "삭제 삽입분만큼 안 밀렸다 — 삭제된 글자가 칠해진다")
+    }
+
+    /// **경계는 비대칭이다.** 스팬 끝에 붙은 삭제는 밀지 않는다 —
+    /// 밀면 삽입 하이라이트가 삭제 텍스트까지 삼킨다.
+    func testShiftPastDeletionsDoesNotSwallowTrailingDeletion() throws {
+        let c = try ctx()
+        let v = c.evaluateScript("""
+        JSON.stringify(DiffDocPaint._shiftPastDeletions(
+          [{start: 0, end: 4}], [{at: 4, text: 'X'}]))
+        """)
+        XCTAssertEqual(v?.toString(), "[{\"start\":0,\"end\":4}]",
+                       "스팬 끝의 삭제까지 하이라이트에 삼켜졌다")
+    }
+
+    /// 여러 삭제가 앞에 있으면 **합계**만큼 민다.
+    func testShiftPastDeletionsAccumulates() throws {
+        let c = try ctx()
+        let v = c.evaluateScript("""
+        JSON.stringify(DiffDocPaint._shiftPastDeletions(
+          [{start: 10, end: 12}], [{at: 2, text: '가나'}, {at: 6, text: '다'}]))
+        """)
+        XCTAssertEqual(v?.toString(), "[{\"start\":13,\"end\":15}]", "삭제 길이 합계가 안 맞다")
+    }
+
+    /// **모델을 제자리에서 고치면 안 된다** — `setDensity`가 같은 모델로 다시 그리므로
+    /// 두 번째 페인트에서 스팬이 또 밀린다(밀도를 토글할수록 하이라이트가 흘러간다).
+    func testShiftPastDeletionsDoesNotMutateInput() throws {
+        let c = try ctx()
+        let v = c.evaluateScript("""
+        (function () {
+          var spans = [{start: 4, end: 5}], dels = [{at: 4, text: '을'}];
+          DiffDocPaint._shiftPastDeletions(spans, dels);
+          DiffDocPaint._shiftPastDeletions(spans, dels);
+          return JSON.stringify(spans);
+        })()
+        """)
+        XCTAssertEqual(v?.toString(), "[{\"start\":4,\"end\":5}]",
+                       "입력 스팬이 변형됐다 — 밀도 전환 때마다 하이라이트가 밀린다")
     }
 
     // MARK: 유니코드 안전성 (오프셋 불변식의 전제)
