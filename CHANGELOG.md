@@ -6,6 +6,16 @@ All notable changes to muxa are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-27
+
+### Added
+- **Workspace reordering** — grab the grip on the left of a workspace row in the sidebar (it replaces the avatar on hover) and drag to change the order. The row lifts and follows the cursor while the others shift to open a gap; Esc cancels the drag. Order is the array position itself, so it persists with the rest of the state and needs no migration. Expanded sidebar only — the collapsed modes are too narrow for a grip.
+- **Command tab follows `cd`** — moving the run path with `cd` now re-parses that folder's scripts, and running or favoriting a discovered script uses the same path the list came from, so the list and what actually runs can no longer disagree. The `cd` dropdown moves folders on Enter from the highlighted entry, and ↑↓ scrolls the completion popup to follow the highlight.
+
+### Fixed
+- Terminal tab drag-selection and copy restored (per-session mouse off in tmux).
+
+
 ## [0.4.0] - 2026-07-24
 
 ### Added
@@ -53,7 +63,7 @@ First tagged release — a macOS agent terminal with a built-in document viewer 
 ### Notes
 - Status and notifications are tuned to Claude Code. macOS 14+. Build from source — no prebuilt binary; install with the one-line script or `make`.
 
-[Unreleased]: https://github.com/yjun1806/muxa/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/yjun1806/muxa/compare/v0.5.0...HEAD
 [0.3.0]: https://github.com/yjun1806/muxa/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/yjun1806/muxa/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/yjun1806/muxa/releases/tag/v0.1.0
