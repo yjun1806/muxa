@@ -1066,7 +1066,7 @@ final class AppState {
         // 셸이 새 워크트리로 들어갔을 수 있다(에이전트의 worktree add + cd) — 자동 승격을 판정한다(D31 보완).
         s.onPwdChange = { [weak self] in self?.autoImportWorktrees() }
         // IDE 통합(per-CC): 터미널 env는 그 탭 서버 포트, 문서 선택은 마지막 활성 CC로만 라우팅, 종료 시 서버 정리.
-        s.ideEnv = { [weak self] tabId in self?.ideServers.env(for: tabId) ?? [:] }
+        s.ideEnv = { [weak self] tabId, session in self?.ideServers.env(for: tabId, session: session) ?? [:] }
         s.onDocSelection = { [weak self] sel in self?.routeIdeSelection(sel) }
         s.onTerminalFocused = { [weak self] tabId in self?.noteTerminalFocused(tabId) }
         // 탭 닫기 = 푸터 컨텍스트만 정리(서버는 유지 — 백그라운드 keep 시 세션·claude가 산다).

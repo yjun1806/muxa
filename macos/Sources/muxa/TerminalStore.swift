@@ -861,7 +861,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
 
     // MARK: per-CC IDE 서버 배선(AppState 주입)
     /// 이 탭 터미널에 심을 IDE env(그 탭 전용 서버 포트). 지속(claude) 터미널에만 쓴다.
-    var ideEnv: ((TabID) -> [String: String])?
+    /// tmux 세션 이름을 함께 넘긴다 — 재시작을 넘어 포트를 기억하는 키다(`IdePortStore`).
+    var ideEnv: ((TabID, String) -> [String: String])?
     /// 터미널 칸이 포커스를 얻었다 — 상위가 라우팅 대상(마지막 활성 CC)을 새긴다.
     var onTerminalFocused: ((TabID) -> Void)?
     /// 탭이 닫혔다 — 상위가 그 탭의 공유 컨텍스트(푸터)를 지운다. **서버는 여기서 안 내린다**(세션이 살 수 있다).
@@ -924,7 +925,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         // 감싸 detach 후에도 셸이 남는다(탭 생존 유지).
         // IDE 통합 env — **지속(claude) 터미널에만** 이 탭 전용 서버 포트를 심는다(per-CC 격리). 일회용
         // 스크래치 터미널엔 안 심는다(서버·락파일 남발 방지 — claude는 ∞/Claude 버튼의 지속 세션에서 돈다).
-        let ideEnv = tmuxSession != nil ? (self.ideEnv?(tabId) ?? [:]) : [:]
+        let ideEnv = tmuxSession.map { self.ideEnv?(tabId, $0) ?? [:] } ?? [:]
         let command = tmuxSession.map { session in
             var env = ["MUXA_TAB_ID": tabId.uuid.uuidString,
                        "MUXA_SURFACE_ID": tabId.uuid.uuidString,

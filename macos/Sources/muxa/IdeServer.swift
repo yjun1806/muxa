@@ -48,15 +48,29 @@ final class IdeServer {
 
     // MARK: 수명
 
-    /// 루프백(랜덤 포트)에 바인딩하고 락파일을 쓴다. **ready까지 짧게 동기 대기**해 `port`를 확정한다 —
+    /// 루프백에 바인딩하고 락파일을 쓴다. **ready까지 짧게 동기 대기**해 `port`를 확정한다 —
     /// 터미널 생성 시점(term(for:))에 env로 포트를 심어야 하므로 반환 전에 포트가 있어야 한다. 실패는 조용히 무시.
-    /// (재시작 시 복원 터미널은 새 세션으로 만들어져 현재 포트 env를 받으므로 포트 고정은 필요 없다 — 실측 확인.)
-    func start(workspaceFolders: [String]) {
+    ///
+    /// `preferredPort`(이 탭이 지난 실행에서 쓰던 번호)가 있으면 **먼저 그 번호로** 시도한다 —
+    /// tmux 페인은 앱보다 오래 살아 env의 `CLAUDE_CODE_SSE_PORT`가 그대로 남으므로, 같은 번호로
+    /// 돌아와야 기존 탭의 claude가 다시 붙는다(경위는 `IdePortStore`). 남이 선점했으면 랜덤으로
+    /// 물러선다 — 그 탭만 예전처럼 고아가 될 뿐 다른 탭은 멀쩡하다.
+    func start(workspaceFolders: [String], preferredPort: UInt16? = nil) {
         lock.lock(); context.workspaceFolders = workspaceFolders; lock.unlock()
+        if let preferredPort, let endpoint = NWEndpoint.Port(rawValue: preferredPort),
+           bind(on: endpoint, workspaceFolders: workspaceFolders) {
+            return
+        }
+        _ = bind(on: .any, workspaceFolders: workspaceFolders)
+    }
+
+    /// 한 번의 바인딩 시도 — ready까지 동기 대기하고 성공 여부를 돌려준다. 실패하면 리스너를
+    /// 확실히 걷어낸다(다음 시도가 죽은 리스너를 물고 있지 않게).
+    private func bind(on endpoint: NWEndpoint.Port, workspaceFolders: [String]) -> Bool {
         let folders = workspaceFolders // 락파일용 지역 캡처 — 네트워크 큐 핸들러가 self.context를 안 건드리게(레이스 회피)
         let params = NWParameters.tcp
         params.requiredInterfaceType = .loopback // 127.0.0.1 only
-        guard let listener = try? NWListener(using: params, on: .any) else { return }
+        guard let listener = try? NWListener(using: params, on: endpoint) else { return false }
         self.listener = listener
         let sem = DispatchSemaphore(value: 0)
         var settled = false
@@ -80,6 +94,12 @@ final class IdeServer {
         listener.newConnectionHandler = { [weak self] conn in self?.accept(conn) }
         listener.start(queue: queue)
         _ = sem.wait(timeout: .now() + 0.5) // 포트 확정까지 최대 0.5초(터미널 생성 전 보장 — 보통 수 ms)
+        guard port != nil else { // 선점됐거나 시간 안에 못 떴다 — 흔적을 지우고 호출부가 물러서게 한다
+            listener.cancel()
+            self.listener = nil
+            return false
+        }
+        return true
     }
 
     func stop() {
