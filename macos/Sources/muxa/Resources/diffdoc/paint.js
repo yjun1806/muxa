@@ -65,6 +65,9 @@
 
   var hlSupported = (typeof CSS !== 'undefined' && CSS.highlights);
 
+  // 통짜 변경 배지 문구 — "어디가 바뀌었는지 지어내지 않는다"로 물러선 블록에 붙는다.
+  var ATOM_BADGE = { table: '표 구조 변경됨', html: 'HTML 변경됨', code: '코드 변경됨' };
+
   /** 삽입·수정 스팬을 칠한다. Highlight API가 있으면 Range로, 없으면 span 삽입으로 강등. */
   function paintSpans(el, spans, kind, registry) {
     if (!spans || !spans.length) return;
@@ -288,7 +291,7 @@
         } else if (b.wholeCode) {
           var badge = document.createElement('div');
           badge.className = 'd-atombadge';
-          badge.textContent = b.type === 'table' ? '표 구조 변경됨' : '코드 변경됨';
+          badge.textContent = ATOM_BADGE[b.type] || ATOM_BADGE.code;
           placed.insertBefore(badge, placed.firstChild);
         } else {
           insertDeletions(placed, b.del);

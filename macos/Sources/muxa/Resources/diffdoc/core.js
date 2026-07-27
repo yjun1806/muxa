@@ -147,8 +147,8 @@
       if (t.type === 'bullet_list_close' || t.type === 'ordered_list_close') { lists.pop(); continue; }
       if (BLOCK_SELF[t.type]) {
         // 코드는 `content`가 곧 렌더된 텍스트라 프로젝션과 raw가 같다.
-        // **`html_block`은 다르다** — `content`가 태그를 포함한 원본이라 여기서도 좌표계가
-        // 어긋난다(`<div>안녕</div>` 원본 16자 vs 렌더 2자). 아직 안 고쳤다 — YJ-5.
+        // `html_block`은 `content`가 태그를 포함한 원본이라 프로젝션이 어긋나지만, 그 경로는
+        // 아래 modified 분기에서 **통짜 변경으로 물러선다** — 여기 오프셋은 쓰이지 않는다.
         blocks.push(mkBlock(BLOCK_SELF[t.type], t.content || '', t.content || '',
                             t.map, [t], t.info || '', lists[lists.length - 1]));
         continue;
@@ -569,6 +569,11 @@
         var cells = tableCellSpans(olds[pair.o].cells, b.cells, opts);
         // 칸 매칭이 안 되면(행·열 구조 변경) 통짜 변경으로 물러선다 — 지어내지 않는다.
         spans = cells ? { ins: [], del: [], cells: cells } : { ins: [], del: [], wholeCode: true };
+      } else if (b.type === 'html') {
+        // **원본 HTML은 렌더 텍스트와 좌표계가 다르다**(`<div>안녕</div>` 16자 vs 렌더 2자).
+        // 태그를 정규식으로 걷어내는 건 속성값 속 `>`·주석·`<script>` 본문에서 깨지는데,
+        // 오프셋은 틀리면 **조용히 엉뚱한 글자를 칠하는** 값이다. 통짜로 물러선다.
+        spans = { ins: [], del: [], wholeCode: true };
       } else {
         spans = textSpans(olds[pair.o].text, b.text, opts);
       }

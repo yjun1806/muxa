@@ -256,6 +256,20 @@ final class DocDiffCoreTests: XCTestCase {
         }
     }
 
+    /// **`html_block`은 인라인 스팬을 지어내지 않는다.** 원본 HTML은 태그를 포함해 렌더된
+    /// 텍스트와 좌표계가 다르고(`<div>안녕</div>` 16자 vs 렌더 2자), 태그를 정규식으로 걷어내는 건
+    /// 속성값 속 `>`·주석에서 깨진다. 틀린 오프셋은 **조용히 엉뚱한 글자를 칠하므로** 통짜로 물러선다.
+    func testHtmlBlockFallsBackToWholeChange() throws {
+        let r = try diff("<div class=\"box\">안녕하세요 여기</div>\n",
+                         "<div class=\"box\">안녕하세요 저기</div>\n")
+        let html = blocks(r).first { ($0["type"] as? String) == "html" }
+        XCTAssertNotNil(html, "html_block으로 안 잡혔다: \(blocks(r).map { $0["type"] as? String ?? "" })")
+        XCTAssertEqual(html?["kind"] as? String, "modified")
+        XCTAssertEqual(html?["wholeCode"] as? Bool, true, "HTML에 인라인 스팬을 지어냈다")
+        XCTAssertTrue((html?["ins"] as? [[String: Any]] ?? []).isEmpty,
+                      "통짜로 물러섰는데 스팬이 남았다 — 렌더 텍스트를 넘어 아무것도 안 칠해진다")
+    }
+
     /// 코드펜스 언어 태그가 바뀌면 같은 블록이 아니다(info가 매칭 키에 들어간다).
     /// 렌더된 결과에는 언어가 클래스로만 남아 눈에 안 띄므로, 최소한 "무변경"으로 삼키면 안 된다.
     func testCodeFenceLanguageIsPartOfIdentity() throws {
