@@ -82,6 +82,33 @@ enum SidebarTree {
         return next
     }
 
+    /// `order`(id 나열)대로 재배열한 워크스페이스. **개수가 안 맞으면 nil.**
+    /// `reordered`는 같은 id 집합의 순열이라 개수가 보존된다 — 안 맞는다는 건 하나가 조용히
+    /// 사라졌다는 뜻이므로 결과를 쓰면 안 된다. 화면(미리보기)과 저장이 **같은 방어선**을 쓰도록
+    /// 여기 한 곳에 둔다.
+    static func applyOrder(_ order: [String], to workspaces: [Workspace]) -> [Workspace]? {
+        let byId = Dictionary(workspaces.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let next = order.compactMap { byId[$0] }
+        return next.count == workspaces.count ? next : nil
+    }
+
+    /// 드래그 중인 커서의 세로 위치(`y` — **위에서 아래로 증가**)가 가리키는 삽입 자리.
+    /// 중심이 가장 가까운 행을 대상으로 잡고, 그 중심보다 위면 '앞', 아래면 '뒤'다.
+    /// **가장 가까운 행**으로 정하기에 행 사이 틈이나 목록 위/아래로 벗어난 지점도 자연히 흡수된다
+    /// (행 밴드 포함 판정이면 틈에서 삽입선이 끊긴다). 자기 자신을 가리키면 nil = 이동 없음.
+    ///
+    /// 거리가 같으면 **id가 작은 쪽**으로 정한다 — 호출부가 딕셔너리에서 만든 배열을 넘기므로
+    /// 순회 순서가 실행마다 달라, 타이브레이크가 없으면 같은 입력에 다른 답이 나온다.
+    static func dropTarget(y: CGFloat, rowMids: [(id: String, midY: CGFloat)],
+                           dragged: String) -> (targetId: String, placeBefore: Bool)? {
+        let nearest = rowMids.min { lhs, rhs in
+            let (l, r) = (abs(lhs.midY - y), abs(rhs.midY - y))
+            return l == r ? lhs.id < rhs.id : l < r
+        }
+        guard let nearest, nearest.id != dragged else { return nil }
+        return (nearest.id, y < nearest.midY)
+    }
+
     // MARK: 주의 큐 (트리 맨 위 카드)
 
     /// 큐 카드 한 행이 가리키는 "나를 기다리는 프로젝트" — 워크스페이스 **이름**까지 실어

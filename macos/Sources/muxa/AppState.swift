@@ -2207,12 +2207,10 @@ final class AppState {
         let currentOrder = workspaces.map(\.id)
         let order = SidebarTree.reordered(currentOrder,
                                           move: draggedId, adjacentTo: targetId, placeBefore: placeBefore)
-        guard order != currentOrder else { return } // no-op(자기 드롭·미존재 id)이면 저장도 생략
-        let byId = Dictionary(workspaces.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let next = order.compactMap { byId[$0] }
-        // 불변식: reordered는 같은 id 집합의 순열이라 개수가 보존된다. 깨지면(워크스페이스 유실 위험)
-        // 저장하지 않는다 — compactMap이 조용히 하나를 떨구는 사고를 막는 방어선.
-        guard next.count == workspaces.count else { return }
+        // no-op(자기 드롭·미존재 id)이면 저장도 생략. 워크스페이스 유실 방어선(개수 불변식)은
+        // `applyOrder`가 갖는다 — 사이드바 미리보기도 같은 함수를 쓴다(어긋나면 놓는 순간 튄다).
+        guard order != currentOrder,
+              let next = SidebarTree.applyOrder(order, to: workspaces) else { return }
         workspaces = next
         save()
     }

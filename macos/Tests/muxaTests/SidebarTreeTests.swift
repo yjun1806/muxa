@@ -1,3 +1,4 @@
+import CoreGraphics // 커서 위치 판정(dropTarget)이 CGFloat을 쓴다
 import Testing
 @testable import muxa
 
@@ -71,6 +72,76 @@ struct SidebarTreeTests {
                                       adjacentTo: "a", placeBefore: true) == ["a", "b"])
         #expect(SidebarTree.reordered(["a", "b"], move: "a",
                                       adjacentTo: "zzz", placeBefore: false) == ["a", "b"])
+    }
+
+    // MARK: 커서 위치 → 삽입 자리 (그립 드래그)
+
+    /// 행 높이 24, 간격 4 기준의 세 행 — 중심은 12 / 40 / 68.
+    private static let mids: [(id: String, midY: CGFloat)] = [("a", 12), ("b", 40), ("c", 68)]
+
+    @Test func 행_중심보다_위면_그_행_앞이다() {
+        let hit = SidebarTree.dropTarget(y: 34, rowMids: Self.mids, dragged: "a")
+        #expect(hit?.targetId == "b")
+        #expect(hit?.placeBefore == true)
+    }
+
+    @Test func 행_중심보다_아래면_그_행_뒤다() {
+        let hit = SidebarTree.dropTarget(y: 46, rowMids: Self.mids, dragged: "a")
+        #expect(hit?.targetId == "b")
+        #expect(hit?.placeBefore == false)
+    }
+
+    @Test func 행_사이_틈도_가장_가까운_행으로_흡수된다() {
+        // 26 = b의 윗변 근처(틈) — 중심 12(a)보다 40(b)에 가깝다.
+        #expect(SidebarTree.dropTarget(y: 27, rowMids: Self.mids, dragged: "a")?.targetId == "b")
+    }
+
+    @Test func 목록_위아래로_벗어나도_양끝_행을_가리킨다() {
+        let above = SidebarTree.dropTarget(y: -500, rowMids: Self.mids, dragged: "c")
+        #expect(above?.targetId == "a")
+        #expect(above?.placeBefore == true)
+        let below = SidebarTree.dropTarget(y: 900, rowMids: Self.mids, dragged: "a")
+        #expect(below?.targetId == "c")
+        #expect(below?.placeBefore == false)
+    }
+
+    @Test func 자기_자신을_가리키면_이동_없음이다() {
+        #expect(SidebarTree.dropTarget(y: 12, rowMids: Self.mids, dragged: "a") == nil)
+    }
+
+    @Test func 행이_하나도_없으면_이동_없음이다() {
+        #expect(SidebarTree.dropTarget(y: 10, rowMids: [], dragged: "a") == nil)
+    }
+
+    /// 호출부가 딕셔너리에서 만든 배열을 넘겨 순회 순서가 실행마다 다르다 — 거리가 같을 때
+    /// 답이 흔들리면 안 된다(같은 손놀림에 다른 결과가 나온다).
+    @Test func 거리가_같으면_순회_순서와_무관하게_같은_답이다() {
+        let ab: [(id: String, midY: CGFloat)] = [("a", 12), ("b", 40)]
+        let ba: [(id: String, midY: CGFloat)] = [("b", 40), ("a", 12)]
+        let mid: CGFloat = 26 // a와 b의 정확한 중간
+        #expect(SidebarTree.dropTarget(y: mid, rowMids: ab, dragged: "z")?.targetId
+                == SidebarTree.dropTarget(y: mid, rowMids: ba, dragged: "z")?.targetId)
+    }
+
+    // MARK: 순서 적용 (미리보기와 저장이 공유하는 방어선)
+
+    @Test func 순서대로_워크스페이스를_재배열한다() {
+        let next = SidebarTree.applyOrder(["w1", "w0"], to: fixture())
+        #expect(next?.map(\.id) == ["w1", "w0"])
+    }
+
+    @Test func 개수가_줄면_nil이다() {
+        // compactMap이 조용히 하나를 떨구면 워크스페이스가 사라진다 — 결과를 쓰면 안 된다.
+        #expect(SidebarTree.applyOrder(["w0"], to: fixture()) == nil)
+        #expect(SidebarTree.applyOrder(["w0", "없는id"], to: fixture()) == nil)
+    }
+
+    /// 화면(미리보기)과 저장이 **같은 순서**여야 한다 — 어긋나면 놓는 순간 목록이 튄다.
+    @Test func 미리보기와_확정_순서는_같은_규칙에서_나온다() {
+        let workspaces = fixture()
+        let order = SidebarTree.reordered(workspaces.map(\.id), move: "w1",
+                                          adjacentTo: "w0", placeBefore: true)
+        #expect(SidebarTree.applyOrder(order, to: workspaces)?.map(\.id) == order)
     }
 
     // MARK: 상태 신호

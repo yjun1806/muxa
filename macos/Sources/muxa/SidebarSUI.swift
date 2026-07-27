@@ -17,10 +17,10 @@ struct SidebarSUI: View {
     /// 우클릭/+ 메뉴가 열려 있는 행 — 강조를 유지하고, hover 모드에선 사이드바를 펼친 채로 붙든다
     /// (메뉴는 별도 창이라 마우스가 사이드바를 벗어나므로, 이게 없으면 메뉴만 남고 사이드바가 접힌다).
     @State private var menuOpenId: String?
-    /// 드래그 중인 워크스페이스 id — 재정렬 소스(자기 위 드롭 방지·드롭 시 대상 지정에 쓴다).
-    @State private var draggingWorkspaceId: String?
-    /// 지금 삽입선을 그릴 자리(대상 행 + 위/아래). 확장·compact가 공유한다.
-    @State private var workspaceDropMark: WorkspaceDropMark?
+    /// 진행 중인 그립 드래그(끌리는 id·이동량·가리키는 자리). 없으면 평상시 렌더다.
+    @State private var workspaceDrag: WorkspaceDrag?
+    /// 워크스페이스 행들의 현재 프레임(트리 좌표계) — 드래그 시작 때 얼려서 판정에 쓴다.
+    @State private var workspaceRowFrames: [String: CGRect] = [:]
 
     private var effectiveMode: SidebarMode {
         (state.sidebarMode == .hover && (peeking || menuOpenId != nil)) ? .expanded : state.sidebarMode
@@ -88,13 +88,16 @@ struct SidebarSUI: View {
         VStack(alignment: .leading, spacing: Space.groupGap) {
             SidebarQueueCard(state: state) // 주의가 없으면 아무것도 그리지 않는다
             // 스크래치(~)는 사이드바에 없다 — 독립 창(상단바 우측 버튼·⌘⌥T)에서만 산다(workspaces 밖).
-            ForEach(Array(state.workspaces.enumerated()), id: \.element.id) { index, ws in
+            ForEach(previewWorkspaces) { ws in
                 VStack(alignment: .leading, spacing: Space.tight) {
-                    SidebarWorkspaceRow(state: state, workspace: ws, index: index,
+                    SidebarWorkspaceRow(state: state, workspace: ws, index: shortcutIndex(of: ws.id),
                                         hoveredId: $hoveredId, menuOpenId: $menuOpenId)
-                        .workspaceReorderRow(id: ws.id, state: state, isHovered: hoveredId == ws.id,
-                                             draggingId: $draggingWorkspaceId, mark: $workspaceDropMark)
-                    if state.isExpanded(ws.id) {
+                        .workspaceRowFrame(id: ws.id)
+                        .workspaceReorderGrip(id: ws.id, state: state, hoveredId: $hoveredId,
+                                              drag: $workspaceDrag, rowFrames: workspaceRowFrames)
+                    // 끌리는 그룹은 자식 레인을 접는다 — 열린 빈칸의 높이가 떠 있는 복사본(행 하나)과
+                    // 맞아야 하기 때문(펼친 워크스페이스는 레인만큼 훨씬 높다).
+                    if state.isExpanded(ws.id), workspaceDrag?.id != ws.id {
                         // **프로젝트 레인**(D안) — 자식 묶음이 옅은 면 위에 앉아 소속을 그린다.
                         // 세로 가이드선·들여쓰기를 대체한다: 선이 아니라 형태가 "한 워크스페이스"를 말하고,
                         // 들여쓰기가 사라져 좁은 사이드바에서 긴 워크트리 이름에 가로 공간을 벌어준다.
@@ -110,10 +113,42 @@ struct SidebarSUI: View {
                         .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
                     }
                 }
-                // 삽입선은 그룹(행+레인) 기준 — 펼침 시 "뒤로" 선이 자식 레인 아래로 간다.
-                .workspaceDropLine(id: ws.id, mark: workspaceDropMark)
+                // 끌려 나간 그룹은 제자리에 흐린 빈칸으로 남는다 — 그 빈칸이 곧 착지 지점이다.
+                .opacity(workspaceDrag?.id == ws.id ? 0.15 : 1)
             }
             Spacer()
+        }
+        .coordinateSpace(name: SidebarTreeSpace.name)
+        // **드래그 중엔 받지 않는다.** 이 값은 드래그 시작 순간에만 쓰이는데(그때 얼려 둔다),
+        // 드래그 중엔 행들이 스프링으로 미끄러져 프레임이 애니메이션 프레임마다 바뀐다 —
+        // 그대로 받으면 쓸모없는 갱신이 사이드바 전체를 계속 무효화한다.
+        .onWorkspaceRowFrames { if workspaceDrag == nil { workspaceRowFrames = $0 } }
+        // 자리를 여는 밀림만 애니메이션한다 — 떠 있는 복사본은 커서를 즉시 따라야 하므로
+        // 값을 `target`(삽입 자리)으로 좁힌다. deltaY까지 걸면 복사본이 커서 뒤로 끌린다.
+        .animation(.spring(response: 0.28, dampingFraction: 0.82), value: workspaceDrag?.target)
+        .overlay(alignment: .topLeading) { dragPreview }
+    }
+
+    /// 지금 그릴 순서 — 드래그 중이면 **놓았을 때가 될 순서**를 미리 보여 준다(자리가 열린다).
+    /// 순서 규칙은 실제 이동과 같은 순수 함수를 쓴다(`moveWorkspace`와 어긋나면 놓는 순간 튄다).
+    private var previewWorkspaces: [Workspace] {
+        guard let drag = workspaceDrag, let target = drag.target else { return state.workspaces }
+        let order = SidebarTree.reordered(state.workspaces.map(\.id), move: drag.id,
+                                          adjacentTo: target.targetId, placeBefore: target.before)
+        return SidebarTree.applyOrder(order, to: state.workspaces) ?? state.workspaces
+    }
+
+    /// ⌘n 힌트용 순번은 **확정된 순서** 기준 — 드래그 중 미리보기 자리를 따라가면 실제로 안 먹는
+    /// 단축키를 알려주게 된다.
+    private func shortcutIndex(of id: String) -> Int {
+        state.workspaces.firstIndex { $0.id == id } ?? 0
+    }
+
+    /// 커서를 따라다니는 행 복사본. 트리 좌표계 원점 기준이라 트리의 overlay에 얹는다.
+    @ViewBuilder private var dragPreview: some View {
+        if let drag = workspaceDrag,
+           let ws = state.workspaces.first(where: { $0.id == drag.id }) {
+            WorkspaceDragPreview(state: state, drag: drag, workspace: ws, index: shortcutIndex(of: ws.id))
         }
     }
 
