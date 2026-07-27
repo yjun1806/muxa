@@ -49,8 +49,11 @@ enum IdePortStore {
     }
 
     /// 실패는 무시한다 — 포트 기억은 편의 기능이라, 못 써도 랜덤 포트로 지금까지처럼 동작한다.
+    /// 0600으로 쓴다 — 비밀은 없지만(포트는 `lsof`, 세션 이름은 `ps`로 보인다) 같은 성격의 이웃
+    /// 파일(`IdeLockfile`)과 규칙을 맞춘다.
     static func save(_ map: [String: UInt16]) {
         guard let data = try? JSONEncoder().encode(map.mapValues { Int($0) }) else { return }
         try? data.write(to: URL(fileURLWithPath: path))
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
     }
 }

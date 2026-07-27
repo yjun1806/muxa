@@ -55,18 +55,22 @@ final class IdeServer {
     /// tmux 페인은 앱보다 오래 살아 env의 `CLAUDE_CODE_SSE_PORT`가 그대로 남으므로, 같은 번호로
     /// 돌아와야 기존 탭의 claude가 다시 붙는다(경위는 `IdePortStore`). 남이 선점했으면 랜덤으로
     /// 물러선다 — 그 탭만 예전처럼 고아가 될 뿐 다른 탭은 멀쩡하다.
+    ///
+    /// 이 함수는 터미널 생성(메인) 중에 불리므로 **막는 시간의 상한이 곧 UI 지연**이다. 그래서 실패할
+    /// 수 있는 선호 포트 시도는 짧게(0.25초) 끊고, 확실히 뜨는 랜덤 시도에만 넉넉히(0.5초) 준다 —
+    /// 두 번 다 최대로 기다려도 0.75초를 안 넘는다.
     func start(workspaceFolders: [String], preferredPort: UInt16? = nil) {
         lock.lock(); context.workspaceFolders = workspaceFolders; lock.unlock()
         if let preferredPort, let endpoint = NWEndpoint.Port(rawValue: preferredPort),
-           bind(on: endpoint, workspaceFolders: workspaceFolders) {
+           bind(on: endpoint, workspaceFolders: workspaceFolders, timeout: 0.25) {
             return
         }
-        _ = bind(on: .any, workspaceFolders: workspaceFolders)
+        _ = bind(on: .any, workspaceFolders: workspaceFolders, timeout: 0.5)
     }
 
     /// 한 번의 바인딩 시도 — ready까지 동기 대기하고 성공 여부를 돌려준다. 실패하면 리스너를
     /// 확실히 걷어낸다(다음 시도가 죽은 리스너를 물고 있지 않게).
-    private func bind(on endpoint: NWEndpoint.Port, workspaceFolders: [String]) -> Bool {
+    private func bind(on endpoint: NWEndpoint.Port, workspaceFolders: [String], timeout: TimeInterval) -> Bool {
         let folders = workspaceFolders // 락파일용 지역 캡처 — 네트워크 큐 핸들러가 self.context를 안 건드리게(레이스 회피)
         let params = NWParameters.tcp
         params.requiredInterfaceType = .loopback // 127.0.0.1 only
@@ -93,8 +97,12 @@ final class IdeServer {
         }
         listener.newConnectionHandler = { [weak self] conn in self?.accept(conn) }
         listener.start(queue: queue)
-        _ = sem.wait(timeout: .now() + 0.5) // 포트 확정까지 최대 0.5초(터미널 생성 전 보장 — 보통 수 ms)
+        _ = sem.wait(timeout: .now() + timeout) // 포트 확정까지 대기(터미널 생성 전 보장 — 보통 수 ms)
         guard port != nil else { // 선점됐거나 시간 안에 못 떴다 — 흔적을 지우고 호출부가 물러서게 한다
+            // 핸들러를 먼저 끊는다: 클로저가 listener를 강하게 잡고 listener가 그 클로저를 소유해
+            // 순환이 생긴다. 폴백으로 버려지는 리스너가 그 순환에 남지 않게 여기서 확실히 푼다.
+            listener.stateUpdateHandler = nil
+            listener.newConnectionHandler = nil
             listener.cancel()
             self.listener = nil
             return false
