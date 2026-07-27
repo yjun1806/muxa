@@ -6,6 +6,13 @@ All notable changes to muxa are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-27
+
+### Fixed
+- **Claude IDE connection survives a muxa restart** — after restarting (including an auto-update), tabs that were already open lost their IDE connection for good: `claude` couldn't see muxa even after `/ide`, and only a brand-new terminal tab worked. muxa plants the IDE port in the shell's environment, but the shell lives in a tmux pane that outlives the app, so a fresh random port on every launch left that value pointing at nothing — and the CLI only skips its ancestry check when the port matches, which a tmux-hosted pane can never satisfy otherwise. muxa now remembers each session's port and reclaims it on the next launch (falling back to a random one if it's taken).
+- Each shell now gets exactly one IDE server. Reclaiming a backgrounded session used to spin up a second server for the same shell, so `claude` stayed on the old port while selections were routed to the new one.
+
+
 ## [0.5.0] - 2026-07-27
 
 ### Added
@@ -63,7 +70,7 @@ First tagged release — a macOS agent terminal with a built-in document viewer 
 ### Notes
 - Status and notifications are tuned to Claude Code. macOS 14+. Build from source — no prebuilt binary; install with the one-line script or `make`.
 
-[Unreleased]: https://github.com/yjun1806/muxa/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/yjun1806/muxa/compare/v0.5.1...HEAD
 [0.3.0]: https://github.com/yjun1806/muxa/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/yjun1806/muxa/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/yjun1806/muxa/releases/tag/v0.1.0
