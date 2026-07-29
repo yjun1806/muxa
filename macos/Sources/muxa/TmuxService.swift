@@ -110,6 +110,21 @@ enum TmuxService {
     /// `/usr/bin/env tmux`가 아니라 **해석해둔 절대경로로 직접 실행한다.** Finder·Dock에서 연 앱은
     /// launchd의 빈약한 PATH(`/usr/bin:/bin:/usr/sbin:/sbin`)를 받아 env가 tmux를 못 찾는다(`executable` 주석).
     static func run(_ args: [String]) async -> Output {
+        await run(socket: socket, args)
+    }
+
+    /// 관측이 한 소켓에 매달릴 수 있는 **상한**. 세션 관리자는 이 머신의 muxa 소켓을 전부 훑는데
+    /// (실측 17개) 그중엔 서버가 죽었거나 응답하지 않는 것이 섞인다. 상한이 없으면 그런 소켓
+    /// 하나가 창 전체를 붙잡는다. 짧게 끊고 그 소켓만 비운다 — 목록이 늦게 뜨는 것보다
+    /// 한 줄이 비는 편이 낫다(다음 폴링이 다시 시도한다).
+    static let observeTimeout: TimeInterval = 3
+
+    /// **소켓을 지정해** tmux 명령을 실행한다. 기본 소켓용 `run(_:)`이 이걸로 위임한다.
+    ///
+    /// 세션 관리자는 자기 소켓 밖도 읽어야 해서(`TmuxSocketScanner`) 소켓이 인자가 된다.
+    /// - Parameter timeout: 넘기면 그 시간 안에 못 끝낸 프로세스를 죽이고 실패(-1)로 돌려준다.
+    ///   nil이면 기존 동작 그대로 기다린다(기동·종료 경로는 끊기면 안 된다).
+    static func run(socket: String, _ args: [String], timeout: TimeInterval? = nil) async -> Output {
         guard let executable else { return Output(stdout: "", exitCode: -1) }
         return await withCheckedContinuation { cont in
             DispatchQueue.global(qos: .userInitiated).async {
@@ -121,13 +136,35 @@ enum TmuxService {
                 proc.standardError = FileHandle.nullDevice
                 do {
                     try proc.run()
+                } catch {
+                    cont.resume(returning: Output(stdout: "", exitCode: -1))
+                    return
+                }
+                guard let timeout else {
                     let data = pipe.fileHandleForReading.readDataToEndOfFile()
                     proc.waitUntilExit()
                     cont.resume(returning: Output(stdout: String(decoding: data, as: UTF8.self),
                                                   exitCode: proc.terminationStatus))
-                } catch {
-                    cont.resume(returning: Output(stdout: "", exitCode: -1))
+                    return
                 }
+                // **읽기를 다른 스레드로 옮긴다.** `readDataToEndOfFile`은 EOF까지 블록하므로
+                // 이 스레드에서 부르면 시간을 잴 수가 없다 — 늘어지는 소켓에 그대로 갇힌다.
+                var data = Data()
+                let group = DispatchGroup()
+                group.enter()
+                DispatchQueue.global(qos: .userInitiated).async {
+                    data = pipe.fileHandleForReading.readDataToEndOfFile()
+                    group.leave()
+                }
+                if group.wait(timeout: .now() + timeout) == .timedOut {
+                    proc.terminate()  // 파이프가 닫히며 읽기 스레드도 EOF로 풀린다
+                    group.wait()      // 회수를 기다린다 — 안 하면 죽은 스레드가 data에 쓴다
+                    cont.resume(returning: Output(stdout: "", exitCode: -1))
+                    return
+                }
+                proc.waitUntilExit()
+                cont.resume(returning: Output(stdout: String(decoding: data, as: UTF8.self),
+                                              exitCode: proc.terminationStatus))
             }
         }
     }
