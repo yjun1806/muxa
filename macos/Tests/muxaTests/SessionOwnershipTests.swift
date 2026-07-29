@@ -62,10 +62,24 @@ struct SessionOwnershipTests {
         (5001, 5000, "tmux"),
     ]
 
-    /// 붙은 클라이언트가 없으면 **완전 분리** — 이 창이 찾아야 할 상태다.
-    @Test func noClientsMeansDetached() {
+    /// 클라이언트가 없고 **붙을 탭도 없으면** 완전 분리 — 이 창이 찾아야 할 상태다.
+    @Test func noClientsAndNoTabMeansDetached() {
         #expect(SessionOwnership.attachment(clientPids: [], snapshot: snapshot(chain), ownAppPid: 34125)
                 == .detached)
+    }
+
+    /// **탭은 있는데 지금 안 붙은 것은 분리가 아니다.**
+    /// 앱을 막 켰거나 사용자가 detach한 상태로, 그 탭으로 가면 다시 붙는다 — 잃어버린 세션이 아니다.
+    /// 둘을 뭉개면 정상 상태가 "숨은 터미널" 목록을 채워 진짜 찾아야 할 것이 묻힌다.
+    @Test func tabWithoutClientIsIdleNotDetached() {
+        #expect(SessionOwnership.attachment(clientPids: [], snapshot: snapshot(chain),
+                                            ownAppPid: 34125, hasOwnTab: true) == .idleTab)
+    }
+
+    /// 탭이 있고 실제로 붙어 있으면 그냥 "이 앱"이다 — 미연결이 아니다.
+    @Test func attachedTabBeatsIdle() {
+        #expect(SessionOwnership.attachment(clientPids: [34168], snapshot: snapshot(chain),
+                                            ownAppPid: 34125, hasOwnTab: true) == .thisApp)
     }
 
     /// 클라이언트의 조상이 나 자신이면 **이 앱의 탭**이다.

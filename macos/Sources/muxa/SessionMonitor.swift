@@ -23,6 +23,13 @@ final class SessionMonitor {
     /// (`TmuxInventory.markOrphans`).
     var knownProjects: [String: String] = [:]
 
+    /// 이 앱의 **탭이 참조하는 세션명 전부** — 붙어 있지 않아도 탭은 살아 있다.
+    /// "지금 안 붙음"(되찾을 수 있다)과 "붙을 탭이 없음"(잃어버렸다)을 가르는 유일한 근거다.
+    ///
+    /// **폴링마다 다시 묻는다.** 창이 열려 있는 동안에도 탭은 열리고 닫히므로, 한 번 받아 두면
+    /// 닫은 탭의 세션이 계속 "미연결"로 남는다 — 정작 분리된 것을 못 찾게 된다.
+    var ownTabSessions: @MainActor () -> Set<String> = { [] }
+
     /// 폴링 주기. 무게가 눈에 띄게 변하는 데 필요한 지연이지 실시간성이 필요한 값이 아니다
     /// (`ServiceMonitor.pollInterval`과 같은 판단·같은 값).
     static let pollInterval: Duration = .seconds(2)
@@ -136,11 +143,13 @@ final class SessionMonitor {
 
         let snapshot = takeSnapshot()
         let ownAppPid = getpid()
+        let tabSessions = ownTabSessions()
         var newWeights: [String: SessionWeight] = [:]
         rows = collected.map { row in
             var row = row
             row.attachment = SessionOwnership.attachment(clientPids: clientsBySession[row.name] ?? [],
-                                                         snapshot: snapshot, ownAppPid: ownAppPid)
+                                                         snapshot: snapshot, ownAppPid: ownAppPid,
+                                                         hasOwnTab: tabSessions.contains(row.name))
             newWeights[row.id] = ProcessSampler.weight(of: row.panePid,
                                                        current: snapshot, previous: previousSnapshot)
             return row

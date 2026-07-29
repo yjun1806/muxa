@@ -206,11 +206,12 @@ struct SessionManagerView: View {
     ///  - 이 앱의 탭이면 그 탭으로(알림 인박스 클릭과 같은 동선).
     ///  - 다른 muxa 인스턴스면 **그 앱을 앞으로** 가져온다. 어느 탭인지는 그 앱의 상태라 우리가 모른다 —
     ///    거기까지가 우리가 할 수 있는 전부다.
-    ///  - 붙은 곳이 없으면(분리됨·외부) 갈 곳이 없다. 대신 아래 미리보기가 이미 그 세션의 마지막
+    ///  - **미연결이어도 이 앱의 탭이다** — 지금 안 붙어 있을 뿐이라 그 탭으로 보낸다.
+    ///  - 붙을 탭이 없으면(분리됨·외부) 갈 곳이 없다. 대신 아래 미리보기가 이미 그 세션의 마지막
     ///    화면을 보여주고 있으므로, 더블클릭이 아무 일도 안 하는 것처럼 보이지는 않는다.
     private func reveal(_ item: SessionListItem) {
         switch item.row.attachment {
-        case .thisApp:
+        case .thisApp, .idleTab:
             onReveal(item.row.name)
         case .otherApp(_, let pid):
             NSRunningApplication(processIdentifier: pid)?.activate()
@@ -299,6 +300,8 @@ struct SessionManagerView: View {
         switch item.row.attachment {
         case .otherApp: return "play.circle"
         case .external: return "terminal"
+        // 탭은 있는데 지금 안 붙었다 — 되찾을 자리가 있으므로 경고가 아니다.
+        case .idleTab: return "pause.circle"
         // 내 탭, 그리고 백그라운드로 도는 스크립트·서비스.
         case .thisApp, .detached: return "play.circle.fill"
         }
@@ -310,7 +313,7 @@ struct SessionManagerView: View {
         if item.isHidden { return .pWaiting }
         switch item.row.attachment {
         case .thisApp, .detached: return .pServiceRunning
-        case .otherApp, .external: return .pDone
+        case .otherApp, .external, .idleTab: return .pDone
         }
     }
 

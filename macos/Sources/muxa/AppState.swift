@@ -478,6 +478,13 @@ final class AppState {
     /// early-return으로 하면 정작 주의를 요구한 그 탭이 선택되지 않는다. 창은 "좌표를 어디에 반영할지"만 가른다.
     /// `openGitPanel` — 명시적 "검토" 동선(시스템 알림·알림 인박스 클릭)만 true. 사이드바 내비게이션은
     /// false로 불러 **이동만 하고 git 패널을 강제로 열지 않는다**(배지가 잦으면 이동마다 git이 열려 성가시다).
+    /// 이 앱의 탭이 참조하는 tmux 세션명 전부 — **지금 붙어 있지 않아도 탭은 살아 있다.**
+    /// 세션 관리자(YJ-6)가 "미연결"(그 탭으로 가면 다시 붙는다)과 "분리됨"(붙을 탭이 없다)을
+    /// 가르는 근거다. 열린 프로젝트만이 아니라 모든 스토어를 훑는다.
+    var tabSessionNames: Set<String> {
+        stores.values.reduce(into: Set<String>()) { $0.formUnion($1.liveTmuxSessionNames) }
+    }
+
     /// tmux 세션명으로 그 탭을 **완전히 닫는다**(세션 kill + 탭 닫기) — 세션 관리자(YJ-6)의 종료.
     /// 이 앱의 탭이 아니면 false — 호출부가 tmux 세션만 직접 죽인다.
     @discardableResult

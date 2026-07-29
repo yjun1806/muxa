@@ -36,14 +36,19 @@ final class SessionManagerWindow: NSObject, NSWindowDelegate {
             for project in workspace.projects { acc[project.id] = workspace.name }
         }
         shared.show(knownProjects: projects,
+                    tabSessions: { state.tabSessionNames },
                     routing: Routing(reveal: { state.revealSession(named: $0) },
                                      closeTab: { state.closeSession(named: $0) }))
     }
 
     /// 창을 띄우고 폴링을 시작한다. 이미 떠 있으면 앞으로 가져온다.
     /// - Parameter knownProjects: 고아 표시와 그룹 이름의 입력(projectId → 워크스페이스 이름).
-    func show(knownProjects: [String: String], routing: Routing) {
+    /// - Parameter tabSessions: 이 앱의 탭이 참조하는 세션명을 **그때그때 묻는** 클로저 —
+    ///   "미연결"과 "분리됨"을 가른다. 창이 열려 있는 동안에도 탭은 열리고 닫힌다.
+    func show(knownProjects: [String: String], tabSessions: @escaping @MainActor () -> Set<String>,
+              routing: Routing) {
         monitor.knownProjects = knownProjects
+        monitor.ownTabSessions = tabSessions
         self.routing = routing
         let window = window ?? makeWindow()
         self.window = window

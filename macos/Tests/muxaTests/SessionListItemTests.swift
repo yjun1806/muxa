@@ -116,13 +116,21 @@ struct SessionListItemTests {
         #expect(item(kind: .script, dead: true, attachment: .detached).statusText == "종료됨")
     }
 
-    /// **숨은 것 = 탭 없이 살아 있는 터미널.** 이 창의 출발점이 정확히 이 집합이다.
+    /// **숨은 것 = 붙을 탭조차 없이 살아 있는 터미널.** 이 창의 출발점이 정확히 이 집합이다.
     @Test func hiddenIsUnattachedTerminalOnly() {
         #expect(item(attachment: .detached).isHidden)
         #expect(!item(attachment: .thisApp).isHidden)
         #expect(!item(dead: true, attachment: .detached).isHidden) // 되찾을 것이 없다
         #expect(SessionFilter.hidden.matches(item(attachment: .detached)))
         #expect(!SessionFilter.hidden.matches(item(attachment: .external)))
+    }
+
+    /// **미연결은 숨은 것이 아니다** — 탭이 있으니 그리로 가면 다시 붙는다.
+    /// 앱을 막 켰을 때가 그렇고, 그걸 "숨은 터미널"에 넣으면 정상 상태가 목록을 채운다.
+    @Test func idleTabIsNotHidden() {
+        #expect(!item(attachment: .idleTab).isHidden)
+        #expect(!SessionFilter.hidden.matches(item(attachment: .idleTab)))
+        #expect(item(attachment: .idleTab).statusText == "미연결")
     }
 
     /// **백그라운드로 도는 스크립트·서비스는 숨은 것이 아니다.**
