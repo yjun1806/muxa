@@ -6,6 +6,19 @@ All notable changes to muxa are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-07-29
+
+### Fixed
+- **"분리됨" no longer swallows sessions that still have a tab** — the session manager decided
+  attachment from tmux clients alone, so a session whose tab exists but isn't currently attached
+  (right after launching the app, or after you detach) looked identical to one whose tab is gone.
+  Only the second is lost; the first comes back the moment you go to that tab. They're now separate
+  states — **미연결** (tab exists, not attached) and **분리됨** (no tab to return to) — and the
+  "숨은 터미널" filter lists only the latter, so normal startup state no longer floods the list you
+  opened to find abandoned sessions. The tab set is re-read on every poll, since tabs open and close
+  while the window is up.
+
+
 ## [0.6.0] - 2026-07-29
 
 ### Added
@@ -108,7 +121,8 @@ First tagged release — a macOS agent terminal with a built-in document viewer 
 ### Notes
 - Status and notifications are tuned to Claude Code. macOS 14+. Build from source — no prebuilt binary; install with the one-line script or `make`.
 
-[Unreleased]: https://github.com/yjun1806/muxa/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/yjun1806/muxa/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/yjun1806/muxa/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/yjun1806/muxa/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/yjun1806/muxa/compare/v0.5.1...v0.5.2
 [0.3.0]: https://github.com/yjun1806/muxa/compare/v0.2.0...v0.3.0
