@@ -396,6 +396,24 @@ enum TmuxService {
         _ = await run(["kill-session", "-t", "=\(session)"]) // 없는 세션이면 exit 1 — 멱등하므로 무시한다
     }
 
+    /// **소켓을 지정해** 세션을 죽인다 — 세션 관리자(YJ-6)가 자기 소켓 밖도 다루기 때문.
+    ///
+    /// 자동 GC와 달리 여기서는 판정을 하지 않는다. **사람이 표를 보고 고른 것**을 죽일 뿐이고,
+    /// 무엇을 죽이는지(안에 뭐가 도는지·다른 인스턴스 것인지)는 `SessionKillPlan`이 미리 묻는다.
+    /// - Returns: 실제로 죽였으면 true. 없는 세션이면 false(멱등).
+    @discardableResult
+    static func kill(socket: String, session: String) async -> Bool {
+        await run(socket: socket, ["kill-session", "-t", "=\(session)"], timeout: observeTimeout).exitCode == 0
+    }
+
+    /// **소켓을 지정해** 세션의 마지막 화면을 읽는다 — 세션 관리자의 미리보기.
+    /// 타겟 규칙(`=<세션>:`)과 `-J`(하드랩 잇기)는 `capture(session:lines:)`와 같다.
+    static func capture(socket: String, session: String, lines: Int) async -> String {
+        await run(socket: socket,
+                  ["capture-pane", "-p", "-J", "-t", "=\(session)", "-S", "-\(lines)"],
+                  timeout: observeTimeout).stdout
+    }
+
     static func kill(projectId: String, serviceId: String) async {
         guard let session = ServiceSession.name(projectId: projectId, serviceId: serviceId) else { return }
         await kill(session: session)

@@ -327,6 +327,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         windowMenu.addItem(.separator())
         windowMenu.addItem(withTitle: "모두 앞으로 가져오기",
                            action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
+        windowMenu.addItem(.separator())
+        // 세션 관리자 — muxa의 터미널·서비스는 tmux 세션에 사는데, 앱이 아는 것만 UI에 뜬다.
+        // 등록이 사라진 뒤에도 살아남은 세션은 여기서만 보이고 여기서만 지울 수 있다(YJ-6).
+        // `NSApp.windowsMenu` 대입 **전에** 넣는다 — 시스템이 창 목록을 뒤에 자동으로 채운다.
+        let sessionsItem = NSMenuItem(title: "세션 관리자", action: #selector(openSessionManager),
+                                      keyEquivalent: "")
+        sessionsItem.target = self
+        windowMenu.addItem(sessionsItem)
         windowItem.submenu = windowMenu
         NSApp.windowsMenu = windowMenu
 
@@ -342,6 +350,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc private func openCommandPalette() {
         state?.toggleQuickSwitch()
+    }
+
+    /// 세션 관리자를 연다. **아는 프로젝트 id를 함께 넘긴다** — 고아 표시의 유일한 입력이고,
+    /// 넘기지 않으면(빈 집합) 아무것도 고아로 표시되지 않는다(`TmuxInventory.markOrphans`).
+    /// 저장된 `state.v4.json`이 아니라 지금 메모리의 워크스페이스를 쓴다 — 파일은 종료 시점 스냅샷이다.
+    @objc private func openSessionManager() {
+        SessionManagerWindow.shared.show(
+            knownProjectIds: state.map { collectKnownProjectIds(in: $0.workspaces) } ?? [])
     }
 
     /// 설정 파일을 연다 — 없으면 주석 달린 기본본을 1회 만들고(빈 파일이면 뭘 쓸 수 있는지 알 수 없다) 연다.
