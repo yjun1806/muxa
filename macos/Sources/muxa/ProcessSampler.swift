@@ -119,25 +119,14 @@ enum ProcessSampler {
 
     /// 지금 이 머신의 프로세스 트리 한 장.
     ///
-    /// **`proc_listallpids`의 반환값은 pid 개수다 — 바이트 수가 아니다.** 헤더 주석은 "number of
-    /// bytes"라고 하지만 실측(macOS 14)에서는 개수를 준다. 문서를 믿고 `sizeof(pid_t)`로 나누면
-    /// 프로세스의 **1/4만** 보게 되고, 그러면 세션 대부분이 "프로세스 0개·0MB"로 뜬다 —
-    /// 실측에서 1071개 중 268개만 잡혔다. 사람이 그 표를 보고 "비었네" 하며 죽이는 길이다.
-    ///
-    /// 그래도 반환값 해석에 기대지 않도록 **용량으로 한 번 더 자른다**(어느 해석이든 버퍼를 안 넘는다).
+    /// pid 열거는 `AgentProcessDetector.allPids`가 소유한다 — `proc_listallpids`의 반환값 계약이
+    /// 헤더 주석과 다르고(개수 vs 바이트) 그 함정을 두 곳에 적으면 한쪽만 고쳐진다.
+    /// 잘린 목록의 증상은 여기서 "세션 대부분이 프로세스 0개·0MB"로 나타난다 — 사람이 그 표를 보고
+    /// "비었네" 하며 죽이는 길이다.
     static func snapshot() -> ProcessSnapshot {
         let uptime = ProcessInfo.processInfo.systemUptime
-        // 필요한 만큼 먼저 묻는다 — 고정 버퍼는 프로세스가 많은 머신에서 조용히 잘린다.
-        // 여유분은 묻는 사이에 새로 뜬 프로세스 몫이다.
-        let needed = proc_listallpids(nil, 0)
-        guard needed > 0 else { return ProcessSnapshot(samples: [:], uptime: uptime) }
-        let capacity = Int(needed) + 128
-        var buffer = [pid_t](repeating: 0, count: capacity)
-        let returned = proc_listallpids(&buffer, Int32(capacity * MemoryLayout<pid_t>.size))
-        guard returned > 0 else { return ProcessSnapshot(samples: [:], uptime: uptime) }
-
         var samples: [pid_t: ProcessSample] = [:]
-        for pid in buffer.prefix(min(Int(returned), capacity)) where pid > 0 {
+        for pid in AgentProcessDetector.allPids() {
             guard let info = bsdInfo(pid) else { continue }
             let usage = rusage(pid)
             samples[pid] = ProcessSample(

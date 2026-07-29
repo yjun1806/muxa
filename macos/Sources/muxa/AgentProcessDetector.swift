@@ -34,14 +34,9 @@ enum AgentProcessDetector {
     /// TTY의 포그라운드 그룹만 보면 부족하다 — 셸 래퍼가 자체 pty를 만들어 실제 셸을 그 안에서
     /// 돌리면 진짜 작업이 그 아래 숨는다(실측). 전 프로세스 목록을 한 번 읽어 트리를 세운다.
     static func descendantNames(of root: pid_t, maxDepth: Int = 8) -> [String] {
-        var buffer = [pid_t](repeating: 0, count: 4096)
-        let bytes = proc_listallpids(&buffer, Int32(buffer.count * MemoryLayout<pid_t>.size))
-        guard bytes > 0 else { return [] }
-        let count = Int(bytes) / MemoryLayout<pid_t>.size
-
         var childrenOf: [pid_t: [pid_t]] = [:]
         var nameOf: [pid_t: String] = [:]
-        for pid in buffer.prefix(count) where pid > 0 {
+        for pid in allPids() {
             guard let info = bsdInfo(pid) else { continue }
             // **argv[0]을 먼저 본다.** comm은 실행 바이너리 이름이라, node 스크립트인 `claude`가
             // `node`로 잡힌다 — 목록에 "node"가 뜨면 뭐가 도는지 알 수 없다. 못 읽으면 comm으로 폴백.
@@ -62,6 +57,26 @@ enum AgentProcessDetector {
             depth += 1
         }
         return names
+    }
+
+    /// 이 머신의 **모든** pid.
+    ///
+    /// **`proc_listallpids`의 반환값은 pid 개수다 — 바이트 수가 아니다.** 헤더 주석은 "number of
+    /// bytes"라고 하지만 실측(macOS 14)에서는 개수를 준다. 문서를 믿고 `sizeof(pid_t)`로 나누면
+    /// **프로세스의 1/4만** 보게 된다(실측: 1071개 중 268개). 그러면 `descendantNames`가 pane 안에서
+    /// 도는 작업을 놓치고, 그 결과를 쓰는 `TerminalSession.shouldDetach`가 "셸뿐"이라 판정해
+    /// **30분 돌던 빌드가 있는 탭을 ⌘W에 그냥 죽인다** — 이 함수가 막으려던 바로 그 사고다.
+    ///
+    /// 고정 버퍼도 쓰지 않는다. 프로세스가 많은 머신에서 조용히 잘리고, 잘린 결과는 위와 같은
+    /// 증상으로 나타난다. 필요한 만큼 먼저 묻고, 반환값 해석에 기대지 않도록 용량으로 한 번 더 자른다.
+    static func allPids() -> [pid_t] {
+        let needed = proc_listallpids(nil, 0)
+        guard needed > 0 else { return [] }
+        let capacity = Int(needed) + 128 // 묻는 사이에 새로 뜬 프로세스 몫
+        var buffer = [pid_t](repeating: 0, count: capacity)
+        let returned = proc_listallpids(&buffer, Int32(capacity * MemoryLayout<pid_t>.size))
+        guard returned > 0 else { return [] }
+        return buffer.prefix(min(Int(returned), capacity)).filter { $0 > 0 }
     }
 
     /// pid가 실행 중인 **바이너리 이름**(comm). 죽었거나 접근 불가면 nil.
