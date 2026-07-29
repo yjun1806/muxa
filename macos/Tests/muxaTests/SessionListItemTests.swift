@@ -102,7 +102,7 @@ struct SessionListItemTests {
     /// "안 붙어 있음"이 곧 정보다.
     @Test func terminalStatusNamesWhoIsWatching() {
         #expect(item(attachment: .thisApp).statusText == "이 앱")
-        #expect(item(attachment: .otherApp("muxa-dev-main")).statusText == "muxa-dev-main")
+        #expect(item(attachment: .otherApp(name: "muxa-dev-main", pid: 99000)).statusText == "muxa-dev-main")
         #expect(item(attachment: .external).statusText == "외부 터미널")
         #expect(item(attachment: .detached).statusText == "분리됨")
     }

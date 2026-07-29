@@ -15,7 +15,7 @@ struct SessionKillPlanTests {
         var row = TmuxSessionRow(socket: socket, name: "muxa__P__term__T", kind: .terminal, projectId: "P",
                                  isDead: dead, isAttached: attached, createdAt: nil, path: "/x", panePid: 1)
         row.isOrphan = orphan
-        row.attachment = attached ? .otherApp("muxa") : .detached
+        row.attachment = attached ? .otherApp(name: "muxa", pid: 1) : .detached
         return SessionListItem(row: row, weight: SessionWeight(cpuPercent: 0, footprintBytes: 0,
                                                                processCount: processes, labels: labels))
     }

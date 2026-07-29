@@ -77,7 +77,7 @@ struct SessionOwnershipTests {
     /// 조상이 다른 muxa면 그 앱 이름을 말해준다 — "릴리스에서 보고 있다"를 알아야 안 죽인다.
     @Test func ancestorIsAnotherMuxaMeansOtherApp() {
         #expect(SessionOwnership.attachment(clientPids: [99002], snapshot: snapshot(chain), ownAppPid: 34125)
-                == .otherApp("muxa-dev-main"))
+                == .otherApp(name: "muxa-dev-main", pid: 99000))
     }
 
     /// muxa가 아닌 터미널에서 직접 attach한 경우 — 사용자가 손으로 붙은 것이다.

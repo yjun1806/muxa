@@ -10,8 +10,9 @@ enum SessionAttachment: Equatable {
     case detached
     /// 이 앱의 탭으로 보이고 있다.
     case thisApp
-    /// 다른 muxa 인스턴스가 보고 있다(앱 프로세스 이름).
-    case otherApp(String)
+    /// 다른 muxa 인스턴스가 보고 있다. **pid를 함께 들고 다닌다** — 그 앱을 앞으로 가져오는 데 쓴다.
+    /// 조상 추적이 어차피 찾아낸 값이라 버릴 이유가 없다.
+    case otherApp(name: String, pid: pid_t)
     /// muxa가 아닌 터미널에서 직접 붙었다.
     case external
 
@@ -19,7 +20,7 @@ enum SessionAttachment: Equatable {
         switch self {
         case .detached: return "분리됨"
         case .thisApp: return "이 앱"
-        case .otherApp(let name): return name
+        case .otherApp(let name, _): return name
         case .external: return "외부 터미널"
         }
     }
@@ -100,7 +101,7 @@ enum SessionOwnership {
         for pid in clientPids {
             switch owner(of: pid, in: snapshot, ownAppPid: ownAppPid) {
             case .thisApp: return .thisApp // 더 볼 것 없다
-            case .otherApp(let name): best = .otherApp(name)
+            case .otherApp(let name, let appPid): best = .otherApp(name: name, pid: appPid)
             case .external, .detached: continue
             }
         }
@@ -117,7 +118,7 @@ enum SessionOwnership {
         while pid > 1, hops < maxHops {
             guard let sample = snapshot.samples[pid] else { break }
             if sample.pid == ownAppPid { return .thisApp }
-            if isMuxaApp(sample.name) { return .otherApp(sample.name) }
+            if isMuxaApp(sample.name) { return .otherApp(name: sample.name, pid: sample.pid) }
             if sample.ppid == sample.pid { break } // 자기참조 방어
             pid = sample.ppid
             hops += 1

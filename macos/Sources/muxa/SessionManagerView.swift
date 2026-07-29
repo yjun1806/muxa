@@ -164,7 +164,7 @@ struct SessionManagerView: View {
         // 여기서 앞으로 끌어올 방법은 없다(그 앱이 자기 창을 갖고 있다).
         .contextMenu(forSelectionType: SessionListItem.ID.self) { _ in } primaryAction: { ids in
             guard let id = ids.first, let item = items.first(where: { $0.id == id }) else { return }
-            onReveal(item.row.name)
+            reveal(item)
         }
     }
 
@@ -187,6 +187,25 @@ struct SessionManagerView: View {
             Text(detail).font(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: 더블클릭 — 그 세션이 있는 곳으로
+
+    /// **어디로 갈 수 있는지는 누가 보고 있느냐에 달렸다.**
+    ///  - 이 앱의 탭이면 그 탭으로(알림 인박스 클릭과 같은 동선).
+    ///  - 다른 muxa 인스턴스면 **그 앱을 앞으로** 가져온다. 어느 탭인지는 그 앱의 상태라 우리가 모른다 —
+    ///    거기까지가 우리가 할 수 있는 전부다.
+    ///  - 붙은 곳이 없으면(분리됨·외부) 갈 곳이 없다. 대신 아래 미리보기가 이미 그 세션의 마지막
+    ///    화면을 보여주고 있으므로, 더블클릭이 아무 일도 안 하는 것처럼 보이지는 않는다.
+    private func reveal(_ item: SessionListItem) {
+        switch item.row.attachment {
+        case .thisApp:
+            onReveal(item.row.name)
+        case .otherApp(_, let pid):
+            NSRunningApplication(processIdentifier: pid)?.activate()
+        case .external, .detached:
+            break
+        }
     }
 
     // MARK: 종료 — 이 창에서 유일하게 파괴적인 동작
