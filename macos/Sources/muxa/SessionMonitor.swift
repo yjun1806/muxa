@@ -41,21 +41,15 @@ final class SessionMonitor {
     // MARK: 경계 주입 — 기본값이 실제 tmux·커널, 테스트는 클로저를 갈아 끼운다
 
     private let listSockets: @MainActor () -> [String]
-    private let readPanes: @MainActor (String) async -> String?
-    private let readClients: @MainActor (String) async -> String
+    private let observeSocket: @MainActor (String) async -> String
     private let takeSnapshot: @MainActor () -> ProcessSnapshot
     private let readProjectIds: @MainActor (String) -> Set<String>?
 
     init(sockets: @escaping @MainActor () -> [String] = { TmuxSocketScanner.scan() },
-         panes: @escaping @MainActor (String) async -> String? = { socket in
-             let out = await TmuxService.run(socket: socket,
-                                             ["list-panes", "-a", "-F", TmuxInventory.paneFormat],
-                                             timeout: TmuxService.observeTimeout)
-             return out.exitCode == 0 ? out.stdout : nil
-         },
-         clients: @escaping @MainActor (String) async -> String = { socket in
-             await TmuxService.run(socket: socket,
-                                   ["list-clients", "-F", "#{client_session}|#{client_pid}"],
+         observe: @escaping @MainActor (String) async -> String = { socket in
+             // 서버가 없는 소켓은 exit≠0에 빈 출력이다 — 코드를 보지 않고 출력만 파싱하면
+             // 실패·성공을 따로 다룰 필요가 없다(빈 출력 = 빈 결과).
+             await TmuxService.run(socket: socket, TmuxInventory.observeArgs,
                                    timeout: TmuxService.observeTimeout).stdout
          },
          snapshot: @escaping @MainActor () -> ProcessSnapshot = { ProcessSampler.snapshot() },
@@ -63,8 +57,7 @@ final class SessionMonitor {
              SessionOwnership.projectIds(inSupportFolder: folder)
          }) {
         listSockets = sockets
-        readPanes = panes
-        readClients = clients
+        observeSocket = observe
         takeSnapshot = snapshot
         readProjectIds = projectIds
     }
@@ -111,18 +104,34 @@ final class SessionMonitor {
     func refresh() async {
         let generation = self.generation
 
-        var collected: [TmuxSessionRow] = []
-        var clientsBySession: [String: [pid_t]] = [:]
-        for socket in listSockets() {
-            // **응답 없는 소켓은 건너뛰고 나머지는 보여준다.** 실측에서 16개 중 10개가 서버 없는
-            // 소켓 파일이었다 — 하나의 실패로 목록을 비우면 창이 통째로 쓸모없어진다.
-            guard let stdout = await readPanes(socket) else { continue }
-            // 고아 판정은 **소켓별로** 한다(위 knownProjectIds(for:) 주석).
-            collected += TmuxInventory.markOrphans(TmuxInventory.parse(stdout, socket: socket),
-                                                   knownProjectIds: knownProjectIds(for: socket))
-            clientsBySession.merge(SessionOwnership.parseClients(await readClients(socket))) { $1 }
+        let sockets = listSockets()
+        // **소켓을 동시에 훑는다.** 순차로 돌면 wall-clock이 소켓 수에 비례해 폴링 주기를 잡아먹는다
+        // (실측: 16소켓 순차 1390ms / 주기 2000ms). tmux 실행은 백그라운드 큐에서 도므로
+        // await 지점마다 MainActor가 풀려 실제로 겹쳐 돈다. 이제 가장 느린 소켓 하나가 상한이다.
+        //
+        // **응답 없는 소켓도 그대로 둔다** — 빈 출력이 빈 결과가 되므로 따로 거를 필요가 없다.
+        // 실측에서 16개 중 10개가 서버 없는 소켓 파일이었고, 하나의 실패로 목록을 비우면 안 된다.
+        let outputs = await withTaskGroup(of: (String, String).self) { group in
+            for socket in sockets {
+                group.addTask { @MainActor in (socket, await self.observeSocket(socket)) }
+            }
+            var acc: [(socket: String, output: String)] = []
+            for await item in group { acc.append(item) }
+            return acc
         }
         guard generation == self.generation else { return } // 그 사이 stop이 왔다 — 쓰지 않는다
+
+        var collected: [TmuxSessionRow] = []
+        var clientsBySession: [String: [pid_t]] = [:]
+        // 소켓 순서를 되돌린다 — TaskGroup의 완료 순서는 비결정적이라 그대로 두면 표의 행이 흔들린다.
+        for socket in sockets {
+            guard let output = outputs.first(where: { $0.socket == socket })?.output else { continue }
+            let parts = TmuxInventory.split(output)
+            // 고아 판정은 **소켓별로** 한다(위 knownProjectIds(for:) 주석).
+            collected += TmuxInventory.markOrphans(TmuxInventory.parse(parts.panes, socket: socket),
+                                                   knownProjectIds: knownProjectIds(for: socket))
+            clientsBySession.merge(SessionOwnership.parseClients(parts.clients)) { $1 }
+        }
 
         let snapshot = takeSnapshot()
         let ownAppPid = getpid()

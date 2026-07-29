@@ -29,6 +29,16 @@ struct SessionOwnershipTests {
         #expect(SessionOwnership.supportFolder(for: "default") == nil)
     }
 
+    /// **소켓 이름은 디렉터리 목록에서 온다 — 신뢰 경계 밖이다.**
+    /// 그대로 경로에 붙이면 `..`가 섞인 이름이 지원 폴더 밖의 파일을 읽게 한다.
+    @Test func rejectsPathTraversalInSocketName() {
+        #expect(SessionOwnership.supportFolder(for: "muxa-services-../../../etc") == nil)
+        #expect(SessionOwnership.supportFolder(for: "muxa-services-a/b") == nil)
+        #expect(SessionOwnership.supportFolder(for: "muxa-services-..") == nil)
+        // 정상 이름은 그대로 통과해야 한다(과잉 차단 방지).
+        #expect(SessionOwnership.supportFolder(for: "muxa-services-muxa-2b410b") == "muxa-dev-muxa-2b410b")
+    }
+
     // MARK: 연결 상태 — 어느 GUI가 보고 있나
 
     /// pid → (ppid, 이름) 표본으로 트리를 짓는다.

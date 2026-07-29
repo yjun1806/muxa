@@ -36,12 +36,11 @@ enum AgentProcessDetector {
     static func descendantNames(of root: pid_t, maxDepth: Int = 8) -> [String] {
         var childrenOf: [pid_t: [pid_t]] = [:]
         var nameOf: [pid_t: String] = [:]
-        for pid in allPids() {
-            guard let info = bsdInfo(pid) else { continue }
+        for proc in allProcesses() {
             // **argv[0]을 먼저 본다.** comm은 실행 바이너리 이름이라, node 스크립트인 `claude`가
             // `node`로 잡힌다 — 목록에 "node"가 뜨면 뭐가 도는지 알 수 없다. 못 읽으면 comm으로 폴백.
-            nameOf[pid] = argv0(pid) ?? comm(info)
-            childrenOf[pid_t(bitPattern: info.pbi_ppid), default: []].append(pid)
+            nameOf[proc.pid] = argv0(proc.pid) ?? proc.comm
+            childrenOf[proc.ppid, default: []].append(proc.pid)
         }
 
         var names: [String] = []
@@ -59,24 +58,33 @@ enum AgentProcessDetector {
         return names
     }
 
-    /// 이 머신의 **모든** pid.
+    /// 이 머신의 **모든** 프로세스(pid·ppid·이름) — `ps`와 같은 방법(`sysctl KERN_PROC_ALL`).
     ///
-    /// **`proc_listallpids`의 반환값은 pid 개수다 — 바이트 수가 아니다.** 헤더 주석은 "number of
-    /// bytes"라고 하지만 실측(macOS 14)에서는 개수를 준다. 문서를 믿고 `sizeof(pid_t)`로 나누면
-    /// **프로세스의 1/4만** 보게 된다(실측: 1071개 중 268개). 그러면 `descendantNames`가 pane 안에서
-    /// 도는 작업을 놓치고, 그 결과를 쓰는 `TerminalSession.shouldDetach`가 "셸뿐"이라 판정해
-    /// **30분 돌던 빌드가 있는 탭을 ⌘W에 그냥 죽인다** — 이 함수가 막으려던 바로 그 사고다.
+    /// **`proc_listallpids` + `proc_pidinfo` 조합을 쓰지 않는다.** 둘 다 조용히 트리를 자른다:
     ///
-    /// 고정 버퍼도 쓰지 않는다. 프로세스가 많은 머신에서 조용히 잘리고, 잘린 결과는 위와 같은
-    /// 증상으로 나타난다. 필요한 만큼 먼저 묻고, 반환값 해석에 기대지 않도록 용량으로 한 번 더 자른다.
-    static func allPids() -> [pid_t] {
-        let needed = proc_listallpids(nil, 0)
-        guard needed > 0 else { return [] }
-        let capacity = Int(needed) + 128 // 묻는 사이에 새로 뜬 프로세스 몫
-        var buffer = [pid_t](repeating: 0, count: capacity)
-        let returned = proc_listallpids(&buffer, Int32(capacity * MemoryLayout<pid_t>.size))
-        guard returned > 0 else { return [] }
-        return buffer.prefix(min(Int(returned), capacity)).filter { $0 > 0 }
+    ///  1. `proc_listallpids`의 반환값은 **pid 개수**다(헤더 주석은 "number of bytes"라고 한다).
+    ///     문서를 믿고 나누면 프로세스의 1/4만 본다 — 실측에서 1071개 중 268개였다.
+    ///  2. `proc_pidinfo(PROC_PIDTBSDINFO)`는 **root 소유 프로세스에서 실패한다.** `/usr/bin/login`이
+    ///     그렇고, muxa 탭의 조상 체인(`tmux → sh → login → muxa`)이 정확히 거기서 끊긴다.
+    ///
+    /// 증상은 같다: 트리가 잘려 **pane 안에서 도는 작업을 못 본다.** 그러면
+    /// `TerminalSession.shouldDetach`가 "셸뿐"이라 판정해 30분 돌던 빌드가 있는 탭을 ⌘W에 죽인다 —
+    /// 이 파일이 막으려던 바로 그 사고다. sysctl은 한 번의 호출로 전부 준다(실측 7.2ms, 1103개).
+    static func allProcesses() -> [(pid: pid_t, ppid: pid_t, comm: String)] {
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
+        var size = 0
+        guard sysctl(&mib, 4, nil, &size, nil, 0) == 0, size > 0 else { return [] }
+        let stride = MemoryLayout<kinfo_proc>.stride
+        // 묻는 사이에 새로 뜬 프로세스 몫으로 여유를 둔다(부족하면 sysctl이 ENOMEM으로 실패한다).
+        var buffer = [kinfo_proc](repeating: kinfo_proc(), count: size / stride + 32)
+        size = buffer.count * stride
+        guard sysctl(&mib, 4, &buffer, &size, nil, 0) == 0 else { return [] }
+        return buffer.prefix(size / stride).map { proc in
+            let comm = withUnsafeBytes(of: proc.kp_proc.p_comm) {
+                String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self)
+            }
+            return (proc.kp_proc.p_pid, proc.kp_eproc.e_ppid, comm)
+        }
     }
 
     /// pid가 실행 중인 **바이너리 이름**(comm). 죽었거나 접근 불가면 nil.

@@ -114,6 +114,34 @@ struct TmuxInventoryTests {
         #expect(TmuxInventory.markOrphans(rows, knownProjectIds: ["아무거나"]).first?.isOrphan == false)
     }
 
+    /// 세션과 클라이언트를 **한 프로세스로** 읽은 출력을 두 갈래로 가른다.
+    /// 합친 이유는 비용이다 — spawn 하나가 ~43ms라 16소켓 × 2회면 폴링 주기의 70%를 먹었다.
+    @Test func splitsCombinedOutput() {
+        let raw = """
+        P|\(term)|100|0|0|0|500|/a
+        C|\(term)|4242
+        P|\(script)|200|0|0|1|0|
+        C|\(term)|4243
+        """
+        let parts = TmuxInventory.split(raw)
+        #expect(TmuxInventory.parse(parts.panes, socket: "s").count == 2)
+        #expect(SessionOwnership.parseClients(parts.clients)[term] == [4242, 4243])
+    }
+
+    /// 접두사 없는 줄은 버린다 — tmux가 경고를 섞어 내보내도 파싱이 어긋나지 않는다.
+    @Test func splitDropsUnmarkedLines() {
+        let parts = TmuxInventory.split("경고: 뭔가\nP|\(term)|100|0|0|0|500|/a")
+        #expect(parts.clients.isEmpty)
+        #expect(TmuxInventory.parse(parts.panes, socket: "s").count == 1)
+    }
+
+    /// 서버가 없는 소켓은 빈 출력을 준다 — 빈 결과가 되어야지 터지면 안 된다(실측 16개 중 10개).
+    @Test func splitHandlesEmptyOutput() {
+        let parts = TmuxInventory.split("")
+        #expect(parts.panes.isEmpty && parts.clients.isEmpty)
+        #expect(TmuxInventory.parse(parts.panes, socket: "s").isEmpty)
+    }
+
     /// 같은 이름의 세션이 **소켓마다 따로 존재**할 수 있다(dev 빌드가 같은 프로젝트를 열면 그렇다).
     /// id가 이름만이면 표에서 둘이 하나로 합쳐져 엉뚱한 쪽을 죽인다.
     @Test func identityIncludesSocket() {

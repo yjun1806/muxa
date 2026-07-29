@@ -24,9 +24,9 @@ enum SessionKillPlan {
         var reasons: [String] = []
 
         // 1) 안에서 뭔가 돌고 있다 — 가장 중요한 사유. 이름을 대준다.
-        let working = items.filter { !$0.weight.labels.isEmpty }
-        if let names = working.flatMap(\.weight.labels).uniqued().prefix(4).nilIfEmpty {
-            reasons.append("안에서 \(names.joined(separator: ", "))이(가) 돌고 있습니다.")
+        let running = items.flatMap(\.weight.labels).uniqued().prefix(4)
+        if !running.isEmpty {
+            reasons.append("안에서 \(running.joined(separator: ", "))이(가) 돌고 있습니다.")
         }
 
         // 2) 다른 소켓 — 다른 muxa 인스턴스가 쓰는 중일 수 있다. D19가 지키려던 선이다.
@@ -65,8 +65,4 @@ private extension Array where Element: Hashable {
         var seen = Set<Element>()
         return filter { seen.insert($0).inserted }
     }
-}
-
-private extension ArraySlice where Element == String {
-    var nilIfEmpty: [String]? { isEmpty ? nil : Array(self) }
 }

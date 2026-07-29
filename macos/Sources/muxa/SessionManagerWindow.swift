@@ -20,6 +20,14 @@ final class SessionManagerWindow: NSObject, NSWindowDelegate {
     /// 창은 `AppState`를 모른다(일부러) — 여는 쪽이 라우팅을 꽂아 준다.
     private var onReveal: ((String) -> Void)?
 
+    /// 세션 관리자를 연다 — **`AppState`를 아는 유일한 자리.**
+    /// 창 자체는 워크스페이스도 탭도 모른다(일부러). 진입점이 둘(레일 버튼·창 메뉴)이라
+    /// 배선을 여기 모으지 않으면 같은 세 줄이 두 곳에서 갈린다.
+    static func open(for state: AppState) {
+        shared.show(knownProjectIds: collectKnownProjectIds(in: state.workspaces),
+                    onReveal: { state.revealSession(named: $0) })
+    }
+
     /// 창을 띄우고 폴링을 시작한다. 이미 떠 있으면 앞으로 가져온다.
     /// - Parameter knownProjectIds: 고아 표시의 입력(`AppState`가 아는 프로젝트 전부).
     /// - Parameter onReveal: 더블클릭한 세션의 탭으로 보내는 라우팅.

@@ -18,8 +18,10 @@ struct SessionMonitorTests {
         }, uptime: uptime)
     }
 
-    /// 실제 tmux·지원 폴더에 닿지 않게 **네 경계를 모두 주입한다** — 기본값을 쓰면 테스트가
+    /// 실제 tmux·지원 폴더에 닿지 않게 **경계를 모두 주입한다** — 기본값을 쓰면 테스트가
     /// 이 머신의 세션과 파일을 읽어 결과가 환경에 따라 흔들린다.
+    ///
+    /// `panes`·`clients`를 따로 받아 합친 출력으로 조립한다(실제 tmux가 한 번에 내놓는 꼴).
     private func monitor(sockets: [String],
                          panes: @escaping (String) -> String?,
                          clients: @escaping (String) -> String = { _ in "" },
@@ -28,8 +30,13 @@ struct SessionMonitorTests {
         var remaining = snapshots
         return SessionMonitor(
             sockets: { sockets },
-            panes: { panes($0) },
-            clients: { clients($0) },
+            observe: { socket in
+                let paneLines = (panes(socket) ?? "").split(separator: "\n")
+                    .map { TmuxInventory.paneMarker + $0 }
+                let clientLines = clients(socket).split(separator: "\n")
+                    .map { TmuxInventory.clientMarker + $0 }
+                return (paneLines + clientLines).joined(separator: "\n")
+            },
             snapshot: { remaining.isEmpty ? ProcessSnapshot(samples: [:], uptime: 0) : remaining.removeFirst() },
             projectIds: { projectIds($0) }
         )
@@ -138,15 +145,25 @@ struct SessionMonitorTests {
         var monitorRef: SessionMonitor?
         let monitor = SessionMonitor(
             sockets: { ["s"] },
-            panes: { [termA] _ in
+            observe: { [termA] _ in
                 monitorRef?.stop() // 읽는 사이에 창이 닫혔다
-                return "\(termA)|100|0|0|0|500|/a"
+                return TmuxInventory.paneMarker + "\(termA)|100|0|0|0|500|/a"
             },
             snapshot: { ProcessSnapshot(samples: [:], uptime: 0) }
         )
         monitorRef = monitor
         await monitor.refresh()
         #expect(monitor.rows.isEmpty)
+    }
+
+    /// **소켓 순서가 결과 순서다.** 동시에 훑으면 완료 순서가 비결정적이라, 정렬하지 않으면
+    /// 폴링(2초)마다 표의 행이 뒤바뀌어 클릭이 빗나간다.
+    @Test func preservesSocketOrderDespiteConcurrency() async {
+        let monitor = monitor(sockets: ["muxa-services", "muxa-services-dev-1"]) { socket in
+            socket == "muxa-services" ? "\(termA)|100|0|0|0|500|/a" : "\(termB)|100|0|0|0|600|/b"
+        }
+        await monitor.refresh()
+        #expect(monitor.rows.map(\.socket) == ["muxa-services", "muxa-services-dev-1"])
     }
 
     /// 창을 닫으면 목록을 비운다 — 다시 열 때 낡은 목록이 잠깐 보이면 그걸 근거로 죽인다.

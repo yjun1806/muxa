@@ -45,6 +45,30 @@ enum TmuxInventory {
     static let paneFormat =
         "#{session_name}|#{session_created}|#{session_attached}|#{pane_index}|#{pane_dead}|#{pane_pid}|#{pane_current_path}"
 
+    /// 세션과 클라이언트를 **한 번의 프로세스로** 읽는 tmux 인자.
+    ///
+    /// **프로세스 spawn이 폴링 비용의 거의 전부다** — 실측에서 소켓 하나당 ~43ms고, 16개 소켓에
+    /// 두 명령을 따로 부르니 32회 spawn = 1390ms였다(폴링 주기 2000ms의 70%). tmux는 `;`로 명령을
+    /// 이으므로 한 프로세스가 둘 다 처리한다. 출력이 이어 붙으니 줄 접두사로 가른다(`split`).
+    static let observeArgs: [String] = [
+        "list-panes", "-a", "-F", paneMarker + paneFormat,
+        ";", "list-clients", "-F", clientMarker + "#{client_session}|#{client_pid}",
+    ]
+
+    static let paneMarker = "P|"
+    static let clientMarker = "C|"
+
+    /// 합친 출력을 두 갈래로 가른다(순수). 접두사가 없는 줄은 버린다(tmux 경고 등).
+    static func split(_ raw: String) -> (panes: String, clients: String) {
+        var panes: [Substring] = []
+        var clients: [Substring] = []
+        for line in raw.split(separator: "\n", omittingEmptySubsequences: true) {
+            if line.hasPrefix(paneMarker) { panes.append(line.dropFirst(paneMarker.count)) }
+            else if line.hasPrefix(clientMarker) { clients.append(line.dropFirst(clientMarker.count)) }
+        }
+        return (panes.joined(separator: "\n"), clients.joined(separator: "\n"))
+    }
+
     /// 고정 필드 수(경로 앞까지). 이보다 적은 줄은 버린다.
     private static let fixedFieldCount = 6
 

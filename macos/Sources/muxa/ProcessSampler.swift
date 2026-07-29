@@ -121,7 +121,9 @@ enum ProcessSampler {
     static func snapshot() -> ProcessSnapshot {
         let uptime = ProcessInfo.processInfo.systemUptime
         var samples: [pid_t: ProcessSample] = [:]
-        for proc in allProcesses() {
+        // 프로세스 열거는 `AgentProcessDetector`가 소유한다 — `proc_listallpids`/`proc_pidinfo`의
+        // 두 함정(반환값 단위, root 프로세스 실패)을 두 곳에 적으면 한쪽만 고쳐진다.
+        for proc in AgentProcessDetector.allProcesses() {
             // 무게는 남의 프로세스에서 실패할 수 있다(권한). 그래도 **트리에는 남긴다** —
             // 무게 0인 노드가 빠지면 그 위 조상까지 끊긴다.
             let usage = rusage(proc.pid)
@@ -134,29 +136,6 @@ enum ProcessSampler {
             )
         }
         return ProcessSnapshot(samples: samples, uptime: uptime)
-    }
-
-    /// 이 머신의 **모든** 프로세스(pid·ppid·이름) — `ps`와 같은 방법(`sysctl KERN_PROC_ALL`).
-    ///
-    /// **`proc_pidinfo(PROC_PIDTBSDINFO)`를 쓰면 안 된다 — root 소유 프로세스에서 실패한다.**
-    /// muxa 탭의 조상 체인은 `tmux → sh → login(root) → muxa`인데, login이 표본에서 빠지면
-    /// 거기서 끊겨 **모든 muxa 탭이 "외부 터미널"로 떨어진다**(실측으로 걸렸다).
-    /// 관측 범위도 달라진다: proc_pidinfo로는 1069개 중 885개만 보였다.
-    private static func allProcesses() -> [(pid: pid_t, ppid: pid_t, comm: String)] {
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
-        var size = 0
-        guard sysctl(&mib, 4, nil, &size, nil, 0) == 0, size > 0 else { return [] }
-        let stride = MemoryLayout<kinfo_proc>.stride
-        // 묻는 사이에 새로 뜬 프로세스 몫으로 여유를 둔다(부족하면 sysctl이 ENOMEM으로 실패한다).
-        var buffer = [kinfo_proc](repeating: kinfo_proc(), count: size / stride + 32)
-        size = buffer.count * stride
-        guard sysctl(&mib, 4, &buffer, &size, nil, 0) == 0 else { return [] }
-        return buffer.prefix(size / stride).map { proc in
-            let comm = withUnsafeBytes(of: proc.kp_proc.p_comm) {
-                String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self)
-            }
-            return (proc.kp_proc.p_pid, proc.kp_eproc.e_ppid, comm)
-        }
     }
 
     /// mach absolute time → 나노초.

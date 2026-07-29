@@ -46,7 +46,16 @@ enum SessionOwnership {
         if socket == TmuxSocketScanner.releaseSocket { return "muxa" }
         let prefix = TmuxSocketScanner.releaseSocket + "-"
         guard socket.hasPrefix(prefix) else { return nil }
-        return "muxa-dev-" + socket.dropFirst(prefix.count)
+        let folder = "muxa-dev-" + socket.dropFirst(prefix.count)
+        return isSafePathComponent(folder) ? folder : nil
+    }
+
+    /// 경로 성분으로 안전한가 — 이 값은 **디렉터리 목록에서 온 파일 이름**이라 신뢰 경계 밖이다.
+    /// `..`나 `/`가 섞이면 지원 폴더 밖의 파일을 읽게 된다. `/tmp/tmux-<uid>`가 0700이라 실제
+    /// 위험은 낮지만, 파일명을 경로에 붙이는 자리에는 검증이 있어야 한다
+    /// (`ServiceSession.isValidId`가 같은 이유로 존재한다).
+    private static func isSafePathComponent(_ name: String) -> Bool {
+        !name.isEmpty && !name.contains("/") && !name.contains("..")
     }
 
     /// 그 인스턴스가 등록한 프로젝트 id 전부. 읽을 수 없으면 nil(= 판정 불가).
