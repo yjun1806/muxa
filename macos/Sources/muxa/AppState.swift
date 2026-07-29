@@ -478,6 +478,16 @@ final class AppState {
     /// early-return으로 하면 정작 주의를 요구한 그 탭이 선택되지 않는다. 창은 "좌표를 어디에 반영할지"만 가른다.
     /// `openGitPanel` — 명시적 "검토" 동선(시스템 알림·알림 인박스 클릭)만 true. 사이드바 내비게이션은
     /// false로 불러 **이동만 하고 git 패널을 강제로 열지 않는다**(배지가 잦으면 이동마다 git이 열려 성가시다).
+    /// tmux 세션명으로 그 탭을 **완전히 닫는다**(세션 kill + 탭 닫기) — 세션 관리자(YJ-6)의 종료.
+    /// 이 앱의 탭이 아니면 false — 호출부가 tmux 세션만 직접 죽인다.
+    @discardableResult
+    func closeSession(named sessionName: String) -> Bool {
+        for (_, store) in stores {
+            if store.closeSession(named: sessionName) { return true }
+        }
+        return false
+    }
+
     /// tmux 세션명으로 그 탭을 앞으로 가져온다 — 세션 관리자(YJ-6)의 더블클릭 착지점.
     ///
     /// 세션명의 tabId로 찾지 않는다. 그건 세션이 처음 만들어질 때의 id라 복원 뒤엔 현재 탭과

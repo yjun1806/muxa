@@ -16,24 +16,31 @@ final class SessionManagerWindow: NSObject, NSWindowDelegate {
     private let monitor = SessionMonitor()
     private var window: NSWindow?
 
-    /// 세션명으로 그 탭을 앞으로 가져온다 — 표의 더블클릭이 부른다.
-    /// 창은 `AppState`를 모른다(일부러) — 여는 쪽이 라우팅을 꽂아 준다.
-    private var onReveal: ((String) -> Void)?
+    /// 창이 앱에게 요청하는 것들 — **창은 `AppState`를 모른다**(일부러). 여는 쪽이 꽂아 준다.
+    struct Routing {
+        /// 그 세션의 탭을 앞으로.
+        let reveal: (String) -> Void
+        /// 그 세션의 탭을 **완전히 닫는다**(세션 kill + 탭 닫기). 이 앱의 탭이 아니면 false —
+        /// 그때는 호출부가 tmux 세션만 직접 죽인다.
+        let closeTab: (String) -> Bool
+    }
+
+    private var routing: Routing?
 
     /// 세션 관리자를 연다 — **`AppState`를 아는 유일한 자리.**
     /// 창 자체는 워크스페이스도 탭도 모른다(일부러). 진입점이 둘(레일 버튼·창 메뉴)이라
     /// 배선을 여기 모으지 않으면 같은 세 줄이 두 곳에서 갈린다.
     static func open(for state: AppState) {
         shared.show(knownProjectIds: collectKnownProjectIds(in: state.workspaces),
-                    onReveal: { state.revealSession(named: $0) })
+                    routing: Routing(reveal: { state.revealSession(named: $0) },
+                                     closeTab: { state.closeSession(named: $0) }))
     }
 
     /// 창을 띄우고 폴링을 시작한다. 이미 떠 있으면 앞으로 가져온다.
     /// - Parameter knownProjectIds: 고아 표시의 입력(`AppState`가 아는 프로젝트 전부).
-    /// - Parameter onReveal: 더블클릭한 세션의 탭으로 보내는 라우팅.
-    func show(knownProjectIds: Set<String>, onReveal: @escaping (String) -> Void) {
+    func show(knownProjectIds: Set<String>, routing: Routing) {
         monitor.knownProjectIds = knownProjectIds
-        self.onReveal = onReveal
+        self.routing = routing
         let window = window ?? makeWindow()
         self.window = window
         monitor.start()
@@ -56,9 +63,11 @@ final class SessionManagerWindow: NSObject, NSWindowDelegate {
         // "항상 탭으로 열기"가 켜져 있으면 워크스페이스 창의 탭으로 병합돼 유틸리티 창이 아니게 된다.
         window.tabbingMode = .disallowed
         window.setFrameAutosaveName("\(AppInfo.name).sessionManager")
-        window.contentView = NSHostingView(rootView: SessionManagerView(monitor: monitor) { [weak self] name in
-            self?.onReveal?(name)
-        })
+        window.contentView = NSHostingView(rootView: SessionManagerView(
+            monitor: monitor,
+            onReveal: { [weak self] name in self?.routing?.reveal(name) },
+            onCloseTab: { [weak self] name in self?.routing?.closeTab(name) ?? false }
+        ))
         window.delegate = self
         if window.frame.origin == .zero { window.center() }
         return window

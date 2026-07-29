@@ -644,6 +644,21 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         _ = controller.closeTab(tabId)
     }
 
+    /// 세션 관리자(YJ-6)의 종료 — 이 스토어가 그 세션을 쓰고 있으면 **완전 종료**로 처리하고 true.
+    ///
+    /// tmux 세션만 죽이면 **빈 셸 탭이 남는다.** attach가 끝나도 바깥 셸이 살아 탭이 유지되기
+    /// 때문인데(`TerminalSession.startCommand`의 의도된 설계), 사용자에게는 "종료를 눌렀는데 안 꺼진"
+    /// 화면으로 보인다. 그래서 기존 "완전 종료" 경로에 그대로 맡긴다 — 세션 kill·탭 닫기·내부 맵
+    /// 정리가 거기 한 곳에 있어 상태가 어긋나지 않는다.
+    ///
+    /// 확인은 세션 관리자가 이미 받았으므로(`SessionKillPlan.warning`) 닫기 배너는 건너뛴다.
+    @discardableResult
+    func closeSession(named sessionName: String) -> Bool {
+        guard let tab = tab(forSession: sessionName) else { return false }
+        confirmCloseKilling(tab)
+        return true
+    }
+
     /// 확인 배너 "취소" — 배너만 걷고 탭은 그대로 둔다(닫기 자체를 무른다).
     func cancelClose(_ tabId: TabID) {
         closeConfirmations[tabId] = nil

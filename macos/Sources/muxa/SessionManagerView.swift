@@ -9,6 +9,8 @@ struct SessionManagerView: View {
     let monitor: SessionMonitor
     /// 더블클릭한 세션의 탭으로 보낸다(알림 인박스의 클릭과 같은 동선).
     let onReveal: (String) -> Void
+    /// 이 앱의 탭이면 세션과 탭을 함께 닫는다. 아니면 false — 호출부가 tmux만 죽인다.
+    let onCloseTab: (String) -> Bool
 
     @State private var filter: SessionFilter = .all
     @State private var search = ""
@@ -221,6 +223,10 @@ struct SessionManagerView: View {
            !confirm(warning) { return }
         Task {
             for target in targets {
+                // **이 앱의 탭이면 탭까지 닫는다.** tmux 세션만 죽이면 attach가 끝난 뒤 바깥 셸이
+                // 남아 탭이 그대로 보인다 — 사용자에게는 "종료를 눌렀는데 안 꺼진" 화면이다.
+                // muxa의 기존 '완전 종료' 경로가 세션 kill·탭 닫기·내부 맵 정리를 한꺼번에 한다.
+                if onCloseTab(target.row.name) { continue }
                 await TmuxService.kill(socket: target.row.socket, session: target.row.name)
             }
             selection.subtract(targets.map(\.id))
