@@ -35,7 +35,10 @@ struct ActivityRail: View {
             // 등록이 사라진 뒤에도 살아남은 세션은 여기서만 보이고 여기서만 지울 수 있다(YJ-6).
             // 스크래치와 같은 구역인 이유도 같다: 우측 슬롯이 아니라 별도 창이다.
             RailButton(icon: "rectangle.stack", help: "세션 관리자", active: false) {
-                SessionManagerWindow.shared.show(knownProjectIds: collectKnownProjectIds(in: state.workspaces))
+                SessionManagerWindow.shared.show(
+                    knownProjectIds: collectKnownProjectIds(in: state.workspaces),
+                    onReveal: { state.revealSession(named: $0) }
+                )
             }
 
             Spacer(minLength: 0)

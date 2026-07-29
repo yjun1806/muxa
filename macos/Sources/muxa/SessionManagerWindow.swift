@@ -16,10 +16,16 @@ final class SessionManagerWindow: NSObject, NSWindowDelegate {
     private let monitor = SessionMonitor()
     private var window: NSWindow?
 
+    /// 세션명으로 그 탭을 앞으로 가져온다 — 표의 더블클릭이 부른다.
+    /// 창은 `AppState`를 모른다(일부러) — 여는 쪽이 라우팅을 꽂아 준다.
+    private var onReveal: ((String) -> Void)?
+
     /// 창을 띄우고 폴링을 시작한다. 이미 떠 있으면 앞으로 가져온다.
     /// - Parameter knownProjectIds: 고아 표시의 입력(`AppState`가 아는 프로젝트 전부).
-    func show(knownProjectIds: Set<String>) {
+    /// - Parameter onReveal: 더블클릭한 세션의 탭으로 보내는 라우팅.
+    func show(knownProjectIds: Set<String>, onReveal: @escaping (String) -> Void) {
         monitor.knownProjectIds = knownProjectIds
+        self.onReveal = onReveal
         let window = window ?? makeWindow()
         self.window = window
         monitor.start()
@@ -42,7 +48,9 @@ final class SessionManagerWindow: NSObject, NSWindowDelegate {
         // "항상 탭으로 열기"가 켜져 있으면 워크스페이스 창의 탭으로 병합돼 유틸리티 창이 아니게 된다.
         window.tabbingMode = .disallowed
         window.setFrameAutosaveName("\(AppInfo.name).sessionManager")
-        window.contentView = NSHostingView(rootView: SessionManagerView(monitor: monitor))
+        window.contentView = NSHostingView(rootView: SessionManagerView(monitor: monitor) { [weak self] name in
+            self?.onReveal?(name)
+        })
         window.delegate = self
         if window.frame.origin == .zero { window.center() }
         return window

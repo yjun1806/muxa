@@ -7,6 +7,8 @@ import SwiftUI
 /// **기본 정렬이 메모리 내림차순인 것이 이 화면의 핵심**이다 — 건드리면 안 되는 것이 맨 위로 온다.
 struct SessionManagerView: View {
     let monitor: SessionMonitor
+    /// 더블클릭한 세션의 탭으로 보낸다(알림 인박스의 클릭과 같은 동선).
+    let onReveal: (String) -> Void
 
     @State private var filter: SessionFilter = .all
     @State private var search = ""
@@ -157,6 +159,13 @@ struct SessionManagerView: View {
             .width(min: 120, ideal: 220)
         }
         .tableStyle(.inset)
+        // 더블클릭 = 그 터미널로 간다(알림 인박스의 클릭과 같은 동선).
+        // 이 앱의 탭이 아니면 라우팅이 조용히 아무것도 하지 않는다 — 다른 인스턴스의 탭을
+        // 여기서 앞으로 끌어올 방법은 없다(그 앱이 자기 창을 갖고 있다).
+        .contextMenu(forSelectionType: SessionListItem.ID.self) { _ in } primaryAction: { ids in
+            guard let id = ids.first, let item = items.first(where: { $0.id == id }) else { return }
+            onReveal(item.row.name)
+        }
     }
 
     private var summaryBar: some View {

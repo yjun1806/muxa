@@ -357,7 +357,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// 저장된 `state.v4.json`이 아니라 지금 메모리의 워크스페이스를 쓴다 — 파일은 종료 시점 스냅샷이다.
     @objc private func openSessionManager() {
         SessionManagerWindow.shared.show(
-            knownProjectIds: state.map { collectKnownProjectIds(in: $0.workspaces) } ?? [])
+            knownProjectIds: state.map { collectKnownProjectIds(in: $0.workspaces) } ?? [],
+            onReveal: { [weak self] name in self?.state?.revealSession(named: name) })
     }
 
     /// 설정 파일을 연다 — 없으면 주석 달린 기본본을 1회 만들고(빈 파일이면 뭘 쓸 수 있는지 알 수 없다) 연다.

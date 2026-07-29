@@ -131,6 +131,15 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 명시적으로 죽여 유령화를 막는다(닫힌 프로젝트는 GC의 "모르는 프로젝트" 가드에 걸려 영영 정리 불가).
     var liveTmuxSessionNames: Set<String> { Set(tmuxSessions.values) }
 
+    /// tmux 세션명으로 **이 스토어의 탭**을 찾는다. 없으면 nil(다른 스토어·다른 인스턴스 것이다).
+    ///
+    /// 세션 관리자(YJ-6)의 더블클릭이 쓴다. 세션명에 박힌 tabId로 찾으면 안 된다 — 그건 세션이
+    /// 처음 만들어질 때의 id라 복원 뒤엔 현재 탭과 다르다(§resolveTab). 이 매핑은 현재 탭 기준이라
+    /// 역방향으로 물으면 정확하다.
+    func tab(forSession sessionName: String) -> TabID? {
+        tmuxSessions.first { $0.value == sessionName }?.key
+    }
+
     /// 훅이 보낸 tabId를 **이 스토어의 살아있는 탭**으로 되짚는다. 아니면 nil(다른 스토어가 가져간다).
     ///
     /// tmux 세션 안 셸의 `MUXA_TAB_ID`는 그 세션이 처음 만들어질 때의 id다. 복원하면 tabId가 새로
