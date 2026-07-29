@@ -18,14 +18,20 @@ struct SessionMonitorTests {
         }, uptime: uptime)
     }
 
+    /// 실제 tmux·지원 폴더에 닿지 않게 **네 경계를 모두 주입한다** — 기본값을 쓰면 테스트가
+    /// 이 머신의 세션과 파일을 읽어 결과가 환경에 따라 흔들린다.
     private func monitor(sockets: [String],
                          panes: @escaping (String) -> String?,
+                         clients: @escaping (String) -> String = { _ in "" },
+                         projectIds: @escaping (String) -> Set<String>? = { _ in nil },
                          snapshots: [ProcessSnapshot] = []) -> SessionMonitor {
         var remaining = snapshots
         return SessionMonitor(
             sockets: { sockets },
             panes: { panes($0) },
-            snapshot: { remaining.isEmpty ? ProcessSnapshot(samples: [:], uptime: 0) : remaining.removeFirst() }
+            clients: { clients($0) },
+            snapshot: { remaining.isEmpty ? ProcessSnapshot(samples: [:], uptime: 0) : remaining.removeFirst() },
+            projectIds: { projectIds($0) }
         )
     }
 
@@ -51,13 +57,44 @@ struct SessionMonitorTests {
         #expect(monitor.rows.first?.socket == "muxa-services")
     }
 
-    /// 고아 표시는 모니터가 들고 있는 `knownProjectIds`로 매긴다.
-    @Test func marksOrphansFromKnownProjects() async {
-        let monitor = monitor(sockets: ["s"]) { _ in "\(termA)|100|0|0|0|500|/a\n\(termB)|100|0|0|0|600|/b" }
-        monitor.knownProjectIds = ["P1"]
+    /// **고아 판정은 소켓마다 그 인스턴스의 등록으로 한다.**
+    /// 내 등록으로 남의 소켓을 재면 전부 미등록이 되어 표가 온통 고아로 물든다
+    /// (실측에서 41개 중 40개가 그렇게 잘못 표시됐다).
+    @Test func judgesOrphansPerSocket() async {
+        let monitor = monitor(
+            sockets: ["muxa-services-dev-1", "muxa-services-dev-2"],
+            panes: { socket in
+                socket == "muxa-services-dev-1" ? "\(termA)|100|0|0|0|500|/a" : "\(termB)|100|0|0|0|600|/b"
+            },
+            // dev-1의 주인은 P1을 등록했고, dev-2의 주인은 다른 것을 등록했다.
+            projectIds: { folder in folder == "muxa-dev-dev-1" ? ["P1"] : ["딴것"] }
+        )
         await monitor.refresh()
         #expect(monitor.rows.first { $0.name == termA }?.isOrphan == false)
         #expect(monitor.rows.first { $0.name == termB }?.isOrphan == true)
+    }
+
+    /// 짝이 되는 지원 폴더를 못 읽으면(출처 미상 소켓) 아무것도 고아라 하지 않는다 —
+    /// 지어낸 기준으로 "지워도 된다"고 말하는 것이 최악이다.
+    @Test func unknownSocketMarksNothing() async {
+        let monitor = monitor(sockets: ["muxa_test_1"], panes: { _ in "\(termA)|100|0|0|0|500|/a" })
+        await monitor.refresh()
+        #expect(monitor.rows.first?.isOrphan == false)
+    }
+
+    /// 클라이언트가 없으면 **분리됨** — 어느 화면에도 없이 살아 있는 세션이 이 창의 표적이다.
+    @Test func sessionWithNoClientIsDetached() async {
+        let monitor = monitor(sockets: ["s"], panes: { _ in "\(termA)|100|0|0|0|500|/a" })
+        await monitor.refresh()
+        #expect(monitor.rows.first?.attachment == .detached)
+    }
+
+    /// 클라이언트가 붙어 있으면 분리가 아니다(조상을 못 찾아도 최소 외부로 본다).
+    @Test func sessionWithClientIsNotDetached() async {
+        let monitor = monitor(sockets: ["s"], panes: { _ in "\(termA)|100|0|0|0|500|/a" },
+                              clients: { _ in "\(self.termA)|4242" })
+        await monitor.refresh()
+        #expect(monitor.rows.first?.attachment != .detached)
     }
 
     /// 무게는 행 id로 색인된다 — 소켓이 다르면 같은 세션명도 다른 행이다.

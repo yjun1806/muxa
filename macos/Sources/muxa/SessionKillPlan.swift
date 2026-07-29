@@ -44,12 +44,18 @@ enum SessionKillPlan {
                        detail: reasons.joined(separator: "\n") + "\n\n되돌릴 수 없습니다.")
     }
 
-    /// 확인 없이 쓸어도 되는 것 — **죽었고 안에 아무것도 없는** pane.
+    /// 확인 없이 쓸어도 되는 것 — **죽었고, 안에 아무것도 없고, 등록도 없는** pane.
     ///
-    /// 죽은 pane이라도 자식이 살아남는 경우가 있어(고아 프로세스) 프로세스 수까지 본다.
+    /// 세 조건이 모두 필요하다:
+    ///  1. 죽었다 — 도는 걸 확인 없이 지우지 않는다
+    ///  2. 프로세스 0개 — 죽은 pane이라도 자식이 살아남는 경우가 있다(고아 프로세스)
+    ///  3. **등록이 없다** — muxa는 종료된 스크립트의 pane을 **일부러 남긴다.** 그게 exit code와
+    ///     마지막 로그를 읽는 유일한 경로다(`ScriptSession.orphans`: *"등록된 스크립트의 세션은
+    ///     종료됐어도 보존된다"*). 등록된 것까지 쓸면 사람이 "왜 실패했는지"를 영영 못 본다.
+    ///
     /// 일괄 정리는 확인 없이 도는 동작이라 판정을 좁게 잡는다.
     static func sweepable(_ items: [SessionListItem]) -> [SessionListItem] {
-        items.filter { $0.row.isDead && $0.weight.processCount == 0 }
+        items.filter { $0.row.isDead && $0.weight.processCount == 0 && $0.row.isOrphan }
     }
 }
 

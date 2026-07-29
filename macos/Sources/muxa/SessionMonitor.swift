@@ -42,7 +42,9 @@ final class SessionMonitor {
 
     private let listSockets: @MainActor () -> [String]
     private let readPanes: @MainActor (String) async -> String?
+    private let readClients: @MainActor (String) async -> String
     private let takeSnapshot: @MainActor () -> ProcessSnapshot
+    private let readProjectIds: @MainActor (String) -> Set<String>?
 
     init(sockets: @escaping @MainActor () -> [String] = { TmuxSocketScanner.scan() },
          panes: @escaping @MainActor (String) async -> String? = { socket in
@@ -51,10 +53,31 @@ final class SessionMonitor {
                                              timeout: TmuxService.observeTimeout)
              return out.exitCode == 0 ? out.stdout : nil
          },
-         snapshot: @escaping @MainActor () -> ProcessSnapshot = { ProcessSampler.snapshot() }) {
+         clients: @escaping @MainActor (String) async -> String = { socket in
+             await TmuxService.run(socket: socket,
+                                   ["list-clients", "-F", "#{client_session}|#{client_pid}"],
+                                   timeout: TmuxService.observeTimeout).stdout
+         },
+         snapshot: @escaping @MainActor () -> ProcessSnapshot = { ProcessSampler.snapshot() },
+         projectIds: @escaping @MainActor (String) -> Set<String>? = { folder in
+             SessionOwnership.projectIds(inSupportFolder: folder)
+         }) {
         listSockets = sockets
         readPanes = panes
+        readClients = clients
         takeSnapshot = snapshot
+        readProjectIds = projectIds
+    }
+
+    /// 이 소켓의 세션을 판정할 **등록 목록**. 못 구하면 nil = 판정하지 않는다.
+    ///
+    /// **소켓마다 주인이 다르다.** 내 인스턴스의 등록으로 남의 소켓 세션을 재면 전부 미등록이 되고,
+    /// 표가 온통 "고아"로 물든다(실측에서 41개 중 40개가 그렇게 잘못 표시됐다). 내 소켓은 메모리
+    /// 상태를 쓰고 — 파일은 종료 시점 스냅샷이라 낡았다 — 남의 소켓은 그 인스턴스의 지원 폴더를 읽는다.
+    private func knownProjectIds(for socket: String) -> Set<String> {
+        if socket == TmuxService.socket { return knownProjectIds }
+        guard let folder = SessionOwnership.supportFolder(for: socket) else { return [] }
+        return readProjectIds(folder) ?? []
     }
 
     // MARK: 생명주기 — 창이 보일 때만 돈다
@@ -89,21 +112,30 @@ final class SessionMonitor {
         let generation = self.generation
 
         var collected: [TmuxSessionRow] = []
+        var clientsBySession: [String: [pid_t]] = [:]
         for socket in listSockets() {
             // **응답 없는 소켓은 건너뛰고 나머지는 보여준다.** 실측에서 16개 중 10개가 서버 없는
             // 소켓 파일이었다 — 하나의 실패로 목록을 비우면 창이 통째로 쓸모없어진다.
             guard let stdout = await readPanes(socket) else { continue }
-            collected += TmuxInventory.parse(stdout, socket: socket)
+            // 고아 판정은 **소켓별로** 한다(위 knownProjectIds(for:) 주석).
+            collected += TmuxInventory.markOrphans(TmuxInventory.parse(stdout, socket: socket),
+                                                   knownProjectIds: knownProjectIds(for: socket))
+            clientsBySession.merge(SessionOwnership.parseClients(await readClients(socket))) { $1 }
         }
         guard generation == self.generation else { return } // 그 사이 stop이 왔다 — 쓰지 않는다
 
         let snapshot = takeSnapshot()
-        let marked = TmuxInventory.markOrphans(collected, knownProjectIds: knownProjectIds)
-        weights = marked.reduce(into: [:]) { acc, row in
-            acc[row.id] = ProcessSampler.weight(of: row.panePid,
-                                                current: snapshot, previous: previousSnapshot)
+        let ownAppPid = getpid()
+        var newWeights: [String: SessionWeight] = [:]
+        rows = collected.map { row in
+            var row = row
+            row.attachment = SessionOwnership.attachment(clientPids: clientsBySession[row.name] ?? [],
+                                                         snapshot: snapshot, ownAppPid: ownAppPid)
+            newWeights[row.id] = ProcessSampler.weight(of: row.panePid,
+                                                       current: snapshot, previous: previousSnapshot)
+            return row
         }
-        rows = marked
+        weights = newWeights
         previousSnapshot = snapshot
         hasLoaded = true
     }

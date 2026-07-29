@@ -7,11 +7,14 @@ import Testing
 /// 세션명은 UUID 두 개라 사람이 못 읽는다. 표가 무엇을 "이름"으로 삼느냐가 이 창의 쓸모를 정한다.
 struct SessionListItemTests {
     private func item(name: String = "muxa__P1__term__T1", path: String = "/Users/yj/Documents/muxa",
-                      kind: TmuxSessionRow.Kind = .terminal, dead: Bool = false, attached: Bool = false,
+                      kind: TmuxSessionRow.Kind = .terminal, dead: Bool = false,
+                      attachment: SessionAttachment = .detached,
                       orphan: Bool = false, weight: SessionWeight = .zero) -> SessionListItem {
         var row = TmuxSessionRow(socket: "muxa-services", name: name, kind: kind, projectId: "P1",
-                                 isDead: dead, isAttached: attached, createdAt: nil, path: path, panePid: 1)
+                                 isDead: dead, isAttached: attachment != .detached,
+                                 createdAt: nil, path: path, panePid: 1)
         row.isOrphan = orphan
+        row.attachment = attachment
         return SessionListItem(row: row, weight: weight)
     }
 
@@ -89,10 +92,28 @@ struct SessionListItemTests {
         #expect(item(weight: busy).cpuText == "12.3")
     }
 
-    /// 상태 문구는 죽음 > attached > 그냥 살아있음 순으로 정한다 — 죽었는데 attached인 경우가 있다.
+    /// 죽음이 먼저다 — 죽은 pane에 클라이언트가 붙어 있는 경우가 있어, 연결을 앞세우면
+    /// 종료된 세션이 "이 앱"으로 보인다.
     @Test func statusPrefersDeath() {
-        #expect(item(dead: true, attached: true).statusText == "종료됨")
-        #expect(item(dead: false, attached: true).statusText == "연결됨")
-        #expect(item(dead: false, attached: false).statusText == "실행 중")
+        #expect(item(dead: true, attachment: .thisApp).statusText == "종료됨")
+    }
+
+    /// 살아 있으면 **누가 보고 있는지**를 말한다 — tmux의 0/1로는 내 탭·남의 인스턴스·완전 분리가
+    /// 한 칸에 뭉개져, 정작 찾아야 할 "어느 화면에도 없는 세션"이 안 보인다.
+    @Test func statusNamesWhoIsWatching() {
+        #expect(item(attachment: .thisApp).statusText == "이 앱")
+        #expect(item(attachment: .otherApp("muxa-dev-main")).statusText == "muxa-dev-main")
+        #expect(item(attachment: .external).statusText == "외부 터미널")
+        #expect(item(attachment: .detached).statusText == "분리됨")
+    }
+
+    /// **숨은 것 = 살아 있는데 아무도 안 보고 있는 것.** 이 창의 출발점이 정확히 이 집합이다.
+    /// 죽은 pane은 여기 들지 않는다 — 그건 되찾을 것이 없다.
+    @Test func hiddenMeansAliveButUnwatched() {
+        #expect(item(attachment: .detached).isHidden)
+        #expect(!item(attachment: .thisApp).isHidden)
+        #expect(!item(dead: true, attachment: .detached).isHidden)
+        #expect(SessionFilter.hidden.matches(item(attachment: .detached)))
+        #expect(!SessionFilter.hidden.matches(item(attachment: .external)))
     }
 }

@@ -31,6 +31,12 @@ struct ActivityRail: View {
             RailButton(icon: "terminal", help: "스크래치 터미널 (⌘⌥T)", active: false) {
                 state.openScratchWindow()
             }
+            // 세션 관리자 — muxa의 터미널·서비스는 tmux 세션에 살지만 **앱이 아는 것만** UI에 뜬다.
+            // 등록이 사라진 뒤에도 살아남은 세션은 여기서만 보이고 여기서만 지울 수 있다(YJ-6).
+            // 스크래치와 같은 구역인 이유도 같다: 우측 슬롯이 아니라 별도 창이다.
+            RailButton(icon: "rectangle.stack", help: "세션 관리자", active: false) {
+                SessionManagerWindow.shared.show(knownProjectIds: collectKnownProjectIds(in: state.workspaces))
+            }
 
             Spacer(minLength: 0)
 

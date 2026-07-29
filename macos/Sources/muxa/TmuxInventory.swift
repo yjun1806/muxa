@@ -15,6 +15,8 @@ struct TmuxSessionRow: Identifiable, Equatable {
     /// muxa 규약 세션이면 소속 프로젝트 id. `foreign`이면 nil.
     let projectId: String?
     let isDead: Bool
+    /// tmux가 보고하는 원시 연결 여부. **표시는 `attachment`를 쓴다** — 이 값은 "누가" 보고 있는지
+    /// 말해주지 않아 내 탭과 남의 인스턴스와 완전 분리가 한 칸에 뭉개진다.
     let isAttached: Bool
     let createdAt: Date?
     let path: String
@@ -22,6 +24,9 @@ struct TmuxSessionRow: Identifiable, Equatable {
     let panePid: pid_t?
     /// 등록된 프로젝트에 속하지 않는다 — **추정이다**(`TmuxInventory.markOrphans` 주석).
     var isOrphan: Bool = false
+    /// 지금 **누가 보고 있나** — 이 앱 / 다른 인스턴스 / 외부 터미널 / 아무도(분리됨).
+    /// 수집 시 `SessionOwnership.attachment`가 채운다.
+    var attachment: SessionAttachment = .detached
 
     /// 세션이 어느 네임스페이스에 사는가. 규약의 SSOT는 `TerminalSession`·`ScriptSession`·
     /// `ServiceSession`이고 여기서는 그 결과를 담기만 한다.

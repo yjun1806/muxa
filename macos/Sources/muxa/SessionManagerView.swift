@@ -228,15 +228,26 @@ struct SessionManagerView: View {
             .sorted(using: sortOrder)
     }
 
-    /// 상태 글리프 — 서비스 축의 어휘를 그대로 쓴다(`ServiceStatusStyle`). 색만으로 구분하지 않는다.
+    /// 상태 글리프 — 서비스 축의 어휘를 따른다(`ServiceStatusStyle`). **색만으로 구분하지 않는다.**
+    /// 분리됨은 모양부터 다르다 — 이 창이 찾아야 할 것이라 훑을 때 먼저 걸려야 한다.
     private func glyph(_ item: SessionListItem) -> String {
         if item.row.isDead { return "stop.circle" }
-        return item.row.isAttached ? "play.circle.fill" : "circle.fill"
+        switch item.row.attachment {
+        case .thisApp: return "play.circle.fill"
+        case .otherApp: return "play.circle"
+        case .external: return "terminal"
+        case .detached: return "eye.slash.circle.fill"
+        }
     }
 
     private func glyphColor(_ item: SessionListItem) -> Color {
         if item.row.isDead { return .pMuted }
-        return item.row.isAttached ? .pServiceRunning : .pDone
+        switch item.row.attachment {
+        case .thisApp: return .pServiceRunning
+        case .otherApp, .external: return .pDone
+        // 어느 화면에도 없이 살아 있다 — 주의를 끌어야 한다(경고는 아니다, 정상일 수도 있다).
+        case .detached: return .pWaiting
+        }
     }
 
     /// **비어 있는 세션은 흐리게 쓴다.** 표를 훑을 때 "지워도 되는 것"이 먼저 눈에서 빠져야 한다.

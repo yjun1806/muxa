@@ -10,9 +10,12 @@ struct SessionKillPlanTests {
     private let mine = "muxa-services"
 
     private func item(socket: String = "muxa-services", dead: Bool = false, attached: Bool = false,
-                      processes: Int = 2, labels: [String] = []) -> SessionListItem {
-        let row = TmuxSessionRow(socket: socket, name: "muxa__P__term__T", kind: .terminal, projectId: "P",
+                      processes: Int = 2, labels: [String] = [],
+                      orphan: Bool = false) -> SessionListItem {
+        var row = TmuxSessionRow(socket: socket, name: "muxa__P__term__T", kind: .terminal, projectId: "P",
                                  isDead: dead, isAttached: attached, createdAt: nil, path: "/x", panePid: 1)
+        row.isOrphan = orphan
+        row.attachment = attached ? .otherApp("muxa") : .detached
         return SessionListItem(row: row, weight: SessionWeight(cpuPercent: 0, footprintBytes: 0,
                                                                processCount: processes, labels: labels))
     }
@@ -67,19 +70,28 @@ struct SessionKillPlanTests {
         #expect(SessionKillPlan.warning(for: [], ownSocket: mine) == nil)
     }
 
-    /// 죽은 pane만 골라내는 일괄 정리 — 안에 아무것도 없는 것만 대상이다.
-    @Test func sweepSelectsDeadOnly() {
-        let items = [item(dead: true, processes: 0), item(), item(dead: true, processes: 0)]
+    /// 죽고·비었고·등록 없는 것만 골라낸다.
+    @Test func sweepSelectsDeadOrphansOnly() {
+        let items = [item(dead: true, processes: 0, orphan: true),
+                     item(),
+                     item(dead: true, processes: 0, orphan: true)]
         let swept = SessionKillPlan.sweepable(items)
         let allDead = swept.allSatisfy { $0.row.isDead } // rethrows라 매크로 밖에서 계산한다
         #expect(swept.count == 2)
         #expect(allDead)
     }
 
-    /// **죽은 pane이라도 안에 프로세스가 남아 있으면 일괄 정리에서 뺀다.**
+    /// **죽은 pane이라도 안에 프로세스가 남아 있으면 뺀다.**
     /// tmux는 pane을 죽은 것으로 표시해도 자식이 살아남는 경우가 있다(고아 프로세스).
-    /// 일괄 정리는 확인 없이 도는 동작이라 여기서 좁게 잡는다.
     @Test func sweepSkipsDeadWithLiveProcesses() {
-        #expect(SessionKillPlan.sweepable([item(dead: true, processes: 3)]).isEmpty)
+        #expect(SessionKillPlan.sweepable([item(dead: true, processes: 3, orphan: true)]).isEmpty)
+    }
+
+    /// **등록이 살아 있는 스크립트의 종료 pane은 쓸지 않는다.**
+    /// muxa는 그 pane을 일부러 남긴다 — exit code와 마지막 로그를 읽는 유일한 경로다
+    /// (`ScriptSession.orphans`가 같은 이유로 같은 것을 보존한다). 쓸어버리면 "왜 실패했는지"를
+    /// 영영 못 본다.
+    @Test func sweepKeepsRegisteredScriptLogs() {
+        #expect(SessionKillPlan.sweepable([item(dead: true, processes: 0, orphan: false)]).isEmpty)
     }
 }

@@ -27,12 +27,17 @@ struct SessionListItem: Identifiable, Equatable {
         }
     }
 
-    /// 죽음이 먼저다 — 죽은 pane에 클라이언트가 붙어 있는 경우가 있어서, attached를 앞세우면
-    /// 종료된 세션이 "연결됨"으로 보인다.
+    /// 죽음이 먼저다 — 죽은 pane에 클라이언트가 붙어 있는 경우가 있어서, 연결을 앞세우면
+    /// 종료된 세션이 "이 앱"으로 보인다.
+    ///
+    /// 살아 있으면 **누가 보고 있는지**를 말한다. tmux의 0/1로는 내 탭·남의 인스턴스·완전 분리가
+    /// 한 칸에 뭉개져, 정작 찾아야 할 "어느 화면에도 없는 세션"이 안 보인다.
     var statusText: String {
-        if row.isDead { return "종료됨" }
-        return row.isAttached ? "연결됨" : "실행 중"
+        row.isDead ? "종료됨" : row.attachment.text
     }
+
+    /// 어느 화면에도 없이 살아 있다 — 이 창이 찾아야 할 것.
+    var isHidden: Bool { !row.isDead && row.attachment == .detached }
 
     var socketText: String { TmuxSocketScanner.label(for: row.socket) }
 
@@ -67,7 +72,7 @@ struct SessionListItem: Identifiable, Equatable {
 
 /// 표 상단의 세그먼트 — 무엇을 볼 것인가.
 enum SessionFilter: String, CaseIterable, Identifiable {
-    case all, terminal, task, orphan
+    case all, terminal, task, hidden, orphan
 
     var id: String { rawValue }
 
@@ -76,6 +81,7 @@ enum SessionFilter: String, CaseIterable, Identifiable {
         case .all: return "전체"
         case .terminal: return "터미널"
         case .task: return "스크립트·서비스"
+        case .hidden: return "숨은 것"
         case .orphan: return "고아"
         }
     }
@@ -87,6 +93,8 @@ enum SessionFilter: String, CaseIterable, Identifiable {
         case .all: return true
         case .terminal: return item.row.kind == .terminal
         case .task: return item.row.kind == .script || item.row.kind == .service
+        // 어느 화면에도 없이 살아 있는 것 — "뒤에 숨은 tmux"가 정확히 이것이다(YJ-6의 출발점).
+        case .hidden: return item.isHidden
         case .orphan: return item.row.isOrphan
         }
     }
