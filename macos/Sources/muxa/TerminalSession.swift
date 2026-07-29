@@ -184,12 +184,22 @@ enum TerminalSession {
     ///  - **버전 이름** — claude는 자기 자신을 버전 바이너리로 exec해서 트리에 `2.1.207` 같은
     ///    프로세스가 생긴다. 그걸 집으면 목록에 "2.1.207"이 떠서 **뭐가 도는지 알 수 없다**.
     static func workLabel(foreground: [String]) -> String? {
-        for raw in foreground {
+        workLabels(foreground: foreground, limit: 1).first
+    }
+
+    /// 같은 규칙으로 **여럿** — 세션 관리자가 "안에 도는 것"을 한 줄로 요약할 때 쓴다.
+    /// 중복은 접는다: 한 세션 안에 같은 이름의 프로세스가 여럿인 게 흔해서(node 3개, mcp 4개)
+    /// 그대로 두면 요약이 같은 단어의 반복으로 차버린다.
+    static func workLabels(foreground: [String], limit: Int) -> [String] {
+        var seen = Set<String>()
+        var labels: [String] = []
+        for raw in foreground where labels.count < limit {
             let name = normalized(raw)
-            guard !name.isEmpty, !shellNames.contains(name), !isVersionLike(name) else { continue }
-            return name
+            guard !name.isEmpty, !shellNames.contains(name), !isVersionLike(name),
+                  seen.insert(name).inserted else { continue }
+            labels.append(name)
         }
-        return nil
+        return labels
     }
 
     /// `2.1.207`처럼 숫자와 점뿐인 이름 — 프로그램 이름이 아니라 버전이다.
