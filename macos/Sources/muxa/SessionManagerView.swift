@@ -229,24 +229,28 @@ struct SessionManagerView: View {
     }
 
     /// 상태 글리프 — 서비스 축의 어휘를 따른다(`ServiceStatusStyle`). **색만으로 구분하지 않는다.**
-    /// 분리됨은 모양부터 다르다 — 이 창이 찾아야 할 것이라 훑을 때 먼저 걸려야 한다.
+    ///
+    /// 숨은 터미널만 모양이 다르다 — 이 창이 찾아야 할 것이라 훑을 때 먼저 걸려야 한다.
+    /// **스크립트·서비스의 분리는 여기 들지 않는다**: 백그라운드가 그들의 정상이라, 눈길을 끌면
+    /// 멀쩡히 도는 dev 서버가 문제처럼 보인다(`SessionListItem.isHidden`).
     private func glyph(_ item: SessionListItem) -> String {
         if item.row.isDead { return "stop.circle" }
+        if item.isHidden { return "eye.slash.circle.fill" }
         switch item.row.attachment {
-        case .thisApp: return "play.circle.fill"
         case .otherApp: return "play.circle"
         case .external: return "terminal"
-        case .detached: return "eye.slash.circle.fill"
+        // 내 탭, 그리고 백그라운드로 도는 스크립트·서비스.
+        case .thisApp, .detached: return "play.circle.fill"
         }
     }
 
     private func glyphColor(_ item: SessionListItem) -> Color {
         if item.row.isDead { return .pMuted }
+        // 주의를 끈다(경고는 아니다 — 일부러 남긴 세션일 수도 있다).
+        if item.isHidden { return .pWaiting }
         switch item.row.attachment {
-        case .thisApp: return .pServiceRunning
+        case .thisApp, .detached: return .pServiceRunning
         case .otherApp, .external: return .pDone
-        // 어느 화면에도 없이 살아 있다 — 주의를 끌어야 한다(경고는 아니다, 정상일 수도 있다).
-        case .detached: return .pWaiting
         }
     }
 

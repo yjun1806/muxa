@@ -27,17 +27,31 @@ struct SessionListItem: Identifiable, Equatable {
         }
     }
 
-    /// 죽음이 먼저다 — 죽은 pane에 클라이언트가 붙어 있는 경우가 있어서, 연결을 앞세우면
-    /// 종료된 세션이 "이 앱"으로 보인다.
+    /// **정상이 무엇인지가 종류마다 다르다** — 그래서 상태 어휘도 갈린다.
     ///
-    /// 살아 있으면 **누가 보고 있는지**를 말한다. tmux의 0/1로는 내 탭·남의 인스턴스·완전 분리가
-    /// 한 칸에 뭉개져, 정작 찾아야 할 "어느 화면에도 없는 세션"이 안 보인다.
+    /// | | 터미널 | 스크립트·서비스 |
+    /// |---|---|---|
+    /// | 정상 | 탭에 붙어 있음 | 백그라운드 실행 · 종료 후 로그 보존 |
+    /// | 이상 | 탭 없이 살아 있음(분리됨) | 등록 없이 돎(고아) |
+    ///
+    /// 스크립트·서비스는 `new-session -d`로 띄운다 — **붙어 있지 않은 게 기본**이고 attach는 도크에서
+    /// 로그를 볼 때만 잠깐 생긴다(실측: 스크립트 12개 중 연결된 것 0개). 그런 세션에 "분리됨"이라고
+    /// 쓰면 멀쩡히 도는 dev 서버가 문제처럼 보인다. 그쪽의 상태는 **프로세스가 사는가**다.
     var statusText: String {
-        row.isDead ? "종료됨" : row.attachment.text
+        if row.isDead { return "종료됨" }
+        switch row.kind {
+        case .script, .service: return "실행 중"
+        case .terminal, .foreign: return row.attachment.text
+        }
     }
 
-    /// 어느 화면에도 없이 살아 있다 — 이 창이 찾아야 할 것.
-    var isHidden: Bool { !row.isDead && row.attachment == .detached }
+    /// **탭 없이 살아 있는 터미널** — 이 창의 표적.
+    ///
+    /// 스크립트·서비스는 제외한다: 화면에 없는 것이 그들의 정상이라 여기 넣으면 목록이 정상으로 차고,
+    /// 그러면 진짜 찾아야 할 것이 묻힌다. 그쪽의 이상("등록 없이 돎")은 고아 탭이 잡는다.
+    var isHidden: Bool {
+        row.kind == .terminal && !row.isDead && row.attachment == .detached
+    }
 
     var socketText: String { TmuxSocketScanner.label(for: row.socket) }
 
@@ -81,7 +95,7 @@ enum SessionFilter: String, CaseIterable, Identifiable {
         case .all: return "전체"
         case .terminal: return "터미널"
         case .task: return "스크립트·서비스"
-        case .hidden: return "숨은 것"
+        case .hidden: return "숨은 터미널"
         case .orphan: return "고아"
         }
     }
@@ -93,7 +107,7 @@ enum SessionFilter: String, CaseIterable, Identifiable {
         case .all: return true
         case .terminal: return item.row.kind == .terminal
         case .task: return item.row.kind == .script || item.row.kind == .service
-        // 어느 화면에도 없이 살아 있는 것 — "뒤에 숨은 tmux"가 정확히 이것이다(YJ-6의 출발점).
+        // 탭 없이 살아 있는 터미널 — "뒤에 숨은 tmux"가 정확히 이것이다(YJ-6의 출발점).
         case .hidden: return item.isHidden
         case .orphan: return item.row.isOrphan
         }

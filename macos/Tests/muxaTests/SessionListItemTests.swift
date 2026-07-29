@@ -98,22 +98,38 @@ struct SessionListItemTests {
         #expect(item(dead: true, attachment: .thisApp).statusText == "종료됨")
     }
 
-    /// 살아 있으면 **누가 보고 있는지**를 말한다 — tmux의 0/1로는 내 탭·남의 인스턴스·완전 분리가
-    /// 한 칸에 뭉개져, 정작 찾아야 할 "어느 화면에도 없는 세션"이 안 보인다.
-    @Test func statusNamesWhoIsWatching() {
+    /// **터미널**은 살아 있으면 누가 보고 있는지를 말한다 — 탭에 붙어 있는 게 그쪽의 정상이라
+    /// "안 붙어 있음"이 곧 정보다.
+    @Test func terminalStatusNamesWhoIsWatching() {
         #expect(item(attachment: .thisApp).statusText == "이 앱")
         #expect(item(attachment: .otherApp("muxa-dev-main")).statusText == "muxa-dev-main")
         #expect(item(attachment: .external).statusText == "외부 터미널")
         #expect(item(attachment: .detached).statusText == "분리됨")
     }
 
-    /// **숨은 것 = 살아 있는데 아무도 안 보고 있는 것.** 이 창의 출발점이 정확히 이 집합이다.
-    /// 죽은 pane은 여기 들지 않는다 — 그건 되찾을 것이 없다.
-    @Test func hiddenMeansAliveButUnwatched() {
+    /// **스크립트·서비스는 attach가 상태가 아니다.** `new-session -d`로 띄우므로 붙어 있지 않은 게
+    /// 기본이고(실측: 스크립트 12개 중 연결된 것 0개), 거기에 "분리됨"이라 쓰면 멀쩡히 도는
+    /// dev 서버가 문제처럼 보인다. 그쪽의 상태는 프로세스가 사는가다.
+    @Test func backgroundKindsReportRunning() {
+        #expect(item(kind: .script, attachment: .detached).statusText == "실행 중")
+        #expect(item(kind: .service, attachment: .detached).statusText == "실행 중")
+        #expect(item(kind: .script, dead: true, attachment: .detached).statusText == "종료됨")
+    }
+
+    /// **숨은 것 = 탭 없이 살아 있는 터미널.** 이 창의 출발점이 정확히 이 집합이다.
+    @Test func hiddenIsUnattachedTerminalOnly() {
         #expect(item(attachment: .detached).isHidden)
         #expect(!item(attachment: .thisApp).isHidden)
-        #expect(!item(dead: true, attachment: .detached).isHidden)
+        #expect(!item(dead: true, attachment: .detached).isHidden) // 되찾을 것이 없다
         #expect(SessionFilter.hidden.matches(item(attachment: .detached)))
         #expect(!SessionFilter.hidden.matches(item(attachment: .external)))
+    }
+
+    /// **백그라운드로 도는 스크립트·서비스는 숨은 것이 아니다.**
+    /// 화면에 없는 게 그들의 정상이라 여기 넣으면 목록이 정상으로 차고, 진짜 찾아야 할 것이 묻힌다.
+    /// 그쪽의 이상("등록 없이 돎")은 고아 탭이 잡는다.
+    @Test func backgroundKindsAreNotHidden() {
+        #expect(!item(kind: .script, attachment: .detached).isHidden)
+        #expect(!item(kind: .service, attachment: .detached).isHidden)
     }
 }
