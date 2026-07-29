@@ -106,7 +106,7 @@ struct SessionManagerView: View {
     }
 
     private var table: some View {
-        Table(items, selection: $selection, sortOrder: $sortOrder) {
+        Table(of: SessionListItem.self, selection: $selection, sortOrder: $sortOrder) {
             TableColumn("이름", value: \.title) { item in
                 HStack(spacing: 6) {
                     Image(systemName: glyph(item))
@@ -152,18 +152,22 @@ struct SessionManagerView: View {
             }
             .width(min: 120, ideal: 200)
 
-            // 워크스페이스 — **이 열로 정렬하면 표가 작업 묶음별로 모인다.** 세션이 40개를 넘으면
-            // 폴더명만으로는 어느 묶음의 것인지 한눈에 안 들어온다.
-            TableColumn("워크스페이스", value: \.groupText) { item in
-                Text(item.groupText)
-                    .foregroundStyle(item.row.workspace.isEmpty ? Color.pMuted : Color.pFg.opacity(0.8))
-            }
-            .width(min: 90, ideal: 120)
+            TableColumn("소켓", value: \.socketText) { Text($0.socketText).foregroundStyle(.secondary) }
+                .width(min: 80, ideal: 110)
 
             TableColumn("경로", value: \.row.path) { item in
                 Text(item.row.path).lineLimit(1).truncationMode(.head).foregroundStyle(.tertiary)
             }
             .width(min: 120, ideal: 220)
+        } rows: {
+            // **워크스페이스별 섹션.** 세션이 40개를 넘으면 어느 작업 묶음의 것인지가 폴더명만으로는
+            // 안 들어온다. 그룹 순서는 정렬을 따른다 — 메모리 내림차순이면 가장 무거운 세션이 있는
+            // 묶음이 위로 온다.
+            ForEach(groups) { group in
+                Section(group.title) {
+                    ForEach(group.items) { TableRow($0) }
+                }
+            }
         }
         .tableStyle(.inset)
         // 더블클릭 = 그 터미널로 간다(알림 인박스의 클릭과 같은 동선).
@@ -254,6 +258,22 @@ struct SessionManagerView: View {
     }
 
     // MARK: 파생
+
+    /// 워크스페이스별 묶음 — 표의 섹션이 된다.
+    ///
+    /// **정렬된 순서 그대로 훑어 첫 등장 순으로 묶는다.** 그래서 그룹 순서도 정렬을 따른다:
+    /// 메모리 내림차순이면 가장 무거운 세션이 있는 묶음이 맨 위다. 그룹을 따로 정렬하면
+    /// 사용자가 고른 정렬과 어긋나 "왜 이 순서지"가 된다.
+    private var groups: [SessionGroup] {
+        var order: [String] = []
+        var byGroup: [String: [SessionListItem]] = [:]
+        for item in items {
+            let key = item.groupText
+            if byGroup[key] == nil { order.append(key) }
+            byGroup[key, default: []].append(item)
+        }
+        return order.map { SessionGroup(title: $0, items: byGroup[$0] ?? []) }
+    }
 
     private var selectedItem: SessionListItem? {
         guard selection.count == 1, let id = selection.first else { return nil }

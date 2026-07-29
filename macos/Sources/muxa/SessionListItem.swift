@@ -88,6 +88,13 @@ struct SessionListItem: Identifiable, Equatable {
     }()
 }
 
+/// 표의 한 섹션 — 워크스페이스 하나(또는 등록을 못 찾은 것들의 묶음).
+struct SessionGroup: Identifiable {
+    var id: String { title }
+    let title: String
+    let items: [SessionListItem]
+}
+
 /// 표 상단의 세그먼트 — 무엇을 볼 것인가.
 enum SessionFilter: String, CaseIterable, Identifiable {
     case all, terminal, task, hidden, orphan
