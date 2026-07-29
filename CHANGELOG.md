@@ -6,6 +6,34 @@ All notable changes to muxa are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-29
+
+### Added
+- **Session manager** — a new window (right rail, or 창 ▸ 세션 관리자) listing every muxa tmux session
+  on the machine, not just the ones this app knows about. muxa's terminals and services live in tmux
+  sessions that outlive the app, and until now nothing showed you the ones left behind — on this
+  machine that was 41 sessions across 5 sockets while the app itself could see one socket. Rows are
+  grouped by workspace and sorted by memory, so what you must *not* touch surfaces first. Each row
+  shows what is running inside it (`claude`, `esbuild`, …), its memory and CPU, and **who is currently
+  looking at it**: this app, another muxa instance, an external terminal, or nobody. That last one is
+  the point — a terminal still alive with no tab attached is what you came here to find. Select a row
+  to see its last screen, double-click to jump to that tab (or bring the owning app forward), ⓧ to
+  kill it. The confirmation names what is running inside, because weight predicts "is this safe to
+  kill" far better than registration does: the heaviest session here was unregistered but had a
+  headless Chrome and esbuild inside it.
+
+### Fixed
+- **Closing a tab no longer kills work you couldn't see** — the process scan behind *"is anything
+  running in this pane?"* was reading a quarter of the machine's processes (it divided a count that
+  was already a count) and then stopping at the first root-owned process in the chain — `login`, which
+  sits between every tab and the app. Both made the tree look empty, so `⌘W` on a tab with a
+  30-minute build running would close it without asking. It now enumerates the same way `ps` does.
+- **Service logs and ports come back** — `capture-pane` was called with a target tmux rejects
+  (`=<session>` without the trailing `:`), and since stderr is discarded the failure was
+  indistinguishable from an empty log. That path feeds the service log view and the port on service
+  chips, so `:3000` had stopped appearing.
+
+
 ## [0.5.2] - 2026-07-27
 
 ### Fixed
@@ -80,7 +108,8 @@ First tagged release — a macOS agent terminal with a built-in document viewer 
 ### Notes
 - Status and notifications are tuned to Claude Code. macOS 14+. Build from source — no prebuilt binary; install with the one-line script or `make`.
 
-[Unreleased]: https://github.com/yjun1806/muxa/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/yjun1806/muxa/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/yjun1806/muxa/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/yjun1806/muxa/compare/v0.5.1...v0.5.2
 [0.3.0]: https://github.com/yjun1806/muxa/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/yjun1806/muxa/compare/v0.1.0...v0.2.0
