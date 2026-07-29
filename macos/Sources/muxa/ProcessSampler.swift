@@ -156,15 +156,22 @@ enum ProcessSampler {
         return info.denom == 0 ? mach_timebase_info_data_t(numer: 1, denom: 1) : info
     }()
 
-    /// 표에 쓸 이름. comm이 **인터프리터**일 때만 argv[0]을 다시 묻는다.
+    /// 표에 쓸 이름. 커널 이름이 **정체를 가릴 때만** argv[0]을 다시 묻는다.
     ///
-    /// `claude`는 node 스크립트라 comm이 `node`로 잡히고, 그러면 라벨이 "node"뿐이라 뭐가 도는지
-    /// 알 수 없다(`AgentProcessDetector.argv0`가 같은 함정에서 배운 것). 그렇다고 전부에 argv0를
-    /// 부르면 sysctl 2회 + 수십 KB 할당이 붙는다 — 실측(프로세스 273개)에서 comm만 0.1ms인데
-    /// argv0 전체는 6.2ms로 60배다. 폴링에 상시로 얹기엔 비싸서 **필요할 때만 지불한다.**
+    /// 두 경우가 그렇다:
+    ///  - **인터프리터** — node 스크립트는 comm이 `node`라 라벨이 "node"뿐이면 뭐가 도는지 모른다.
+    ///  - **버전처럼 생긴 이름** — claude는 `~/.local/share/claude/versions/2.1.220`을 exec해서
+    ///    커널 이름이 `2.1.220`이 된다(실측). 그대로 두면 `TerminalSession.workLabels`의 버전 필터가
+    ///    걸러내 **"안에 claude가 돈다"는 가장 중요한 정보가 통째로 사라진다.**
+    ///
+    /// 전부에 argv0를 부르지는 않는다 — sysctl 2회 + 수십 KB 할당이라 실측(프로세스 273개)에서
+    /// comm만 0.1ms인데 argv0 전체는 6.2ms로 60배다. 필요할 때만 지불한다.
+    ///
+    /// argv[0]은 경로일 수 있어(`/Users/yj/.local/bin/claude`) 마지막 성분만 쓴다.
     private static func displayName(_ pid: pid_t, _ comm: String) -> String {
-        guard interpreters.contains(comm) else { return comm }
-        return AgentProcessDetector.argv0(pid) ?? comm
+        guard interpreters.contains(comm) || TerminalSession.isVersionLike(comm) else { return comm }
+        guard let argv0 = AgentProcessDetector.argv0(pid), !argv0.isEmpty else { return comm }
+        return (argv0 as NSString).lastPathComponent
     }
 
     /// 스크립트를 대신 실행해 자기 이름을 가리는 런타임들.

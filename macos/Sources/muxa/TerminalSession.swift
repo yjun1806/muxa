@@ -203,7 +203,11 @@ enum TerminalSession {
     }
 
     /// `2.1.207`처럼 숫자와 점뿐인 이름 — 프로그램 이름이 아니라 버전이다.
-    private static func isVersionLike(_ name: String) -> Bool {
+    ///
+    /// `ProcessSampler.displayName`도 이 판정을 쓴다: 그런 이름이 보이면 **argv[0]을 다시 물어야**
+    /// 한다는 신호다(claude는 `~/.local/share/claude/versions/2.1.220`을 exec해 커널 이름이 버전이
+    /// 되지만 argv[0]은 `…/bin/claude`다). 규약이 두 곳에 살면 한쪽만 고쳐진다.
+    static func isVersionLike(_ name: String) -> Bool {
         name.contains(".") && name.allSatisfy { $0.isNumber || $0 == "." }
     }
 
