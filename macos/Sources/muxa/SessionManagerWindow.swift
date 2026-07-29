@@ -31,15 +31,19 @@ final class SessionManagerWindow: NSObject, NSWindowDelegate {
     /// 창 자체는 워크스페이스도 탭도 모른다(일부러). 진입점이 둘(레일 버튼·창 메뉴)이라
     /// 배선을 여기 모으지 않으면 같은 세 줄이 두 곳에서 갈린다.
     static func open(for state: AppState) {
-        shared.show(knownProjectIds: collectKnownProjectIds(in: state.workspaces),
+        // projectId → 워크스페이스 이름. 파일이 아니라 **메모리 상태**를 쓴다(파일은 종료 시점이라 낡았다).
+        let projects = state.workspaces.reduce(into: [String: String]()) { acc, workspace in
+            for project in workspace.projects { acc[project.id] = workspace.name }
+        }
+        shared.show(knownProjects: projects,
                     routing: Routing(reveal: { state.revealSession(named: $0) },
                                      closeTab: { state.closeSession(named: $0) }))
     }
 
     /// 창을 띄우고 폴링을 시작한다. 이미 떠 있으면 앞으로 가져온다.
-    /// - Parameter knownProjectIds: 고아 표시의 입력(`AppState`가 아는 프로젝트 전부).
-    func show(knownProjectIds: Set<String>, routing: Routing) {
-        monitor.knownProjectIds = knownProjectIds
+    /// - Parameter knownProjects: 고아 표시와 그룹 이름의 입력(projectId → 워크스페이스 이름).
+    func show(knownProjects: [String: String], routing: Routing) {
+        monitor.knownProjects = knownProjects
         self.routing = routing
         let window = window ?? makeWindow()
         self.window = window

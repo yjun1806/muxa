@@ -382,12 +382,23 @@ enum TmuxService {
         return await capture(session: session, lines: lines)
     }
 
-    /// 세션명 → pane 0의 로그 꼬리(공통 꼴) — 스크립트 로그 뷰가 세션명으로 직접 읽는다.
+    /// 세션명 → 활성 pane의 로그 꼬리(공통 꼴) — 스크립트 로그 뷰가 세션명으로 직접 읽는다.
     static func capture(session: String, lines: Int = 100) async -> String {
-        // 타겟은 **세션의 활성 pane**(`=세션`)이다 — 배경 세션은 pane 하나(서비스 명령)뿐이라 그게 서비스 pane이다.
-        // `:.0`으로 pane 0을 하드코딩하면 `~/.tmux.conf`의 `pane-base-index 1`에서 pane이 1이라 빈 결과가 난다
-        // (parsePanes가 최소 인덱스 pane을 쓰는 것과 같은 이유). `-J`: 좁은 폭 하드랩을 논리 줄로 잇는다(gz+ip 방지).
-        await run(["capture-pane", "-p", "-J", "-t", "=\(session)", "-S", "-\(lines)"]).stdout
+        await run(captureArgs(session: session, lines: lines)).stdout
+    }
+
+    /// `capture-pane` 인자(공통) — **타겟 뒤의 `:`이 없으면 통째로 실패한다.**
+    ///
+    /// `capture-pane`은 pane 타겟을 받는데 `=<세션>`만 주면 그걸 pane 이름으로 해석하려다
+    /// `can't find pane`으로 끝난다(실측). 뒤의 `:`이 "그 세션의 현재 window"를 뜻해 정확 매치(`=`)와
+    /// pane 타겟을 동시에 만족시킨다. 실패가 **빈 문자열로 보이므로**(stderr는 버린다) 로그가 안 뜨는
+    /// 것과 구분되지 않는다 — 조용히 깨지는 자리라 한 곳에 모아 둔다.
+    ///
+    /// `:.0`으로 pane 0을 하드코딩하지는 않는다. `~/.tmux.conf`의 `pane-base-index 1`이면 첫 pane이
+    /// 1이라 빈 결과가 난다(`ServiceSession.parsePanes`가 최소 인덱스를 쓰는 것과 같은 이유).
+    /// `-J`: 좁은 폭에서 하드랩된 줄을 논리 줄로 잇는다.
+    private static func captureArgs(session: String, lines: Int) -> [String] {
+        ["capture-pane", "-p", "-J", "-t", "=\(session):", "-S", "-\(lines)"]
     }
 
     // MARK: 종료·정리
@@ -407,10 +418,8 @@ enum TmuxService {
     }
 
     /// **소켓을 지정해** 세션의 마지막 화면을 읽는다 — 세션 관리자의 미리보기.
-    /// 타겟 규칙(`=<세션>:`)과 `-J`(하드랩 잇기)는 `capture(session:lines:)`와 같다.
     static func capture(socket: String, session: String, lines: Int) async -> String {
-        await run(socket: socket,
-                  ["capture-pane", "-p", "-J", "-t", "=\(session)", "-S", "-\(lines)"],
+        await run(socket: socket, captureArgs(session: session, lines: lines),
                   timeout: observeTimeout).stdout
     }
 

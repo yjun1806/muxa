@@ -86,32 +86,36 @@ struct TmuxInventoryTests {
         #expect(row.path.isEmpty)
     }
 
-    /// 등록된 프로젝트의 세션은 고아가 아니다.
+    /// 등록된 프로젝트의 세션은 고아가 아니고, **워크스페이스 이름을 함께 얻는다**(표의 그룹 열).
     @Test func knownProjectIsNotOrphan() {
         let rows = TmuxInventory.parse("\(term)|100|0|0|0|1|/x", socket: "s")
-        let marked = TmuxInventory.markOrphans(rows, knownProjectIds: ["93903E7D-BFBA-489E-AB2E-FA1F680C43C4"])
+        let marked = TmuxInventory.markOrphans(
+            rows, projectWorkspaces: ["93903E7D-BFBA-489E-AB2E-FA1F680C43C4": "웹"])
         #expect(marked.first?.isOrphan == false)
+        #expect(marked.first?.workspace == "웹")
     }
 
-    /// 등록에 없는 프로젝트의 세션 = 고아(추정). 실측에서 29/29가 여기 걸렸다.
+    /// 등록에 없는 프로젝트의 세션 = 고아(추정). 워크스페이스도 알 수 없으니 빈 문자열이다.
     @Test func unknownProjectIsOrphan() {
         let rows = TmuxInventory.parse("\(term)|100|0|0|0|1|/x", socket: "s")
-        #expect(TmuxInventory.markOrphans(rows, knownProjectIds: ["다른-id"]).first?.isOrphan == true)
+        let marked = TmuxInventory.markOrphans(rows, projectWorkspaces: ["다른-id": "x"])
+        #expect(marked.first?.isOrphan == true)
+        #expect(marked.first?.workspace == "")
     }
 
     /// **아는 프로젝트가 하나도 없으면 아무것도 고아라 하지 않는다.**
-    /// 빈 집합은 "고아뿐"이 아니라 "아직 모른다"는 뜻이다(앱 기동 직후·state 로드 실패).
+    /// 빈 값은 "고아뿐"이 아니라 "아직 모른다"는 뜻이다(앱 기동 직후·state 로드 실패).
     /// 이걸 고아로 칠하면 표 전체가 빨개져 사람이 그걸 근거로 멀쩡한 세션을 죽인다.
     /// GC(`ServiceSession.orphans`)가 같은 상황에서 아무것도 안 지우는 것과 같은 보수성이다.
     @Test func emptyKnownSetMarksNothing() {
         let rows = TmuxInventory.parse("\(term)|100|0|0|0|1|/x", socket: "s")
-        #expect(TmuxInventory.markOrphans(rows, knownProjectIds: []).first?.isOrphan == false)
+        #expect(TmuxInventory.markOrphans(rows, projectWorkspaces: [:]).first?.isOrphan == false)
     }
 
     /// 남의 세션은 고아 판정 대상이 아니다 — 우리 규약 밖이라 등록 여부를 물을 근거가 없다.
     @Test func foreignSessionIsNeverOrphan() {
         let rows = TmuxInventory.parse("scratch|100|0|0|0|1|/x", socket: "s")
-        #expect(TmuxInventory.markOrphans(rows, knownProjectIds: ["아무거나"]).first?.isOrphan == false)
+        #expect(TmuxInventory.markOrphans(rows, projectWorkspaces: ["아무거나": "x"]).first?.isOrphan == false)
     }
 
     /// 세션과 클라이언트를 **한 프로세스로** 읽은 출력을 두 갈래로 가른다.

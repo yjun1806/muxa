@@ -18,9 +18,10 @@ final class SessionMonitor {
     /// 한 번이라도 훑었는가 — "세션 없음"과 "아직 안 읽음"을 화면에서 갈라야 한다.
     private(set) var hasLoaded = false
 
-    /// 아는 프로젝트 id. 고아 표시의 입력으로, 창을 열 때 `AppState`가 채운다.
-    /// 비어 있으면 아무것도 고아로 표시되지 않는다(`TmuxInventory.markOrphans`).
-    var knownProjectIds: Set<String> = []
+    /// 이 앱이 아는 **projectId → 워크스페이스 이름**. 고아 표시와 그룹 이름의 입력으로,
+    /// 창을 열 때 `AppState`가 채운다. 비어 있으면 아무것도 고아로 표시되지 않는다
+    /// (`TmuxInventory.markOrphans`).
+    var knownProjects: [String: String] = [:]
 
     /// 폴링 주기. 무게가 눈에 띄게 변하는 데 필요한 지연이지 실시간성이 필요한 값이 아니다
     /// (`ServiceMonitor.pollInterval`과 같은 판단·같은 값).
@@ -43,7 +44,7 @@ final class SessionMonitor {
     private let listSockets: @MainActor () -> [String]
     private let observeSocket: @MainActor (String) async -> String
     private let takeSnapshot: @MainActor () -> ProcessSnapshot
-    private let readProjectIds: @MainActor (String) -> Set<String>?
+    private let readProjects: @MainActor (String) -> [String: String]?
 
     init(sockets: @escaping @MainActor () -> [String] = { TmuxSocketScanner.scan() },
          observe: @escaping @MainActor (String) async -> String = { socket in
@@ -53,24 +54,24 @@ final class SessionMonitor {
                                    timeout: TmuxService.observeTimeout).stdout
          },
          snapshot: @escaping @MainActor () -> ProcessSnapshot = { ProcessSampler.snapshot() },
-         projectIds: @escaping @MainActor (String) -> Set<String>? = { folder in
-             SessionOwnership.projectIds(inSupportFolder: folder)
+         projects: @escaping @MainActor (String) -> [String: String]? = { folder in
+             SessionOwnership.projectWorkspaces(inSupportFolder: folder)
          }) {
         listSockets = sockets
         observeSocket = observe
         takeSnapshot = snapshot
-        readProjectIds = projectIds
+        readProjects = projects
     }
 
-    /// 이 소켓의 세션을 판정할 **등록 목록**. 못 구하면 nil = 판정하지 않는다.
+    /// 이 소켓의 세션을 판정할 **등록 목록**(projectId → 워크스페이스). 못 구하면 빈 값 = 판정하지 않는다.
     ///
     /// **소켓마다 주인이 다르다.** 내 인스턴스의 등록으로 남의 소켓 세션을 재면 전부 미등록이 되고,
     /// 표가 온통 "고아"로 물든다(실측에서 41개 중 40개가 그렇게 잘못 표시됐다). 내 소켓은 메모리
     /// 상태를 쓰고 — 파일은 종료 시점 스냅샷이라 낡았다 — 남의 소켓은 그 인스턴스의 지원 폴더를 읽는다.
-    private func knownProjectIds(for socket: String) -> Set<String> {
-        if socket == TmuxService.socket { return knownProjectIds }
-        guard let folder = SessionOwnership.supportFolder(for: socket) else { return [] }
-        return readProjectIds(folder) ?? []
+    private func projects(for socket: String) -> [String: String] {
+        if socket == TmuxService.socket { return knownProjects }
+        guard let folder = SessionOwnership.supportFolder(for: socket) else { return [:] }
+        return readProjects(folder) ?? [:]
     }
 
     // MARK: 생명주기 — 창이 보일 때만 돈다
@@ -129,7 +130,7 @@ final class SessionMonitor {
             let parts = TmuxInventory.split(output)
             // 고아 판정은 **소켓별로** 한다(위 knownProjectIds(for:) 주석).
             collected += TmuxInventory.markOrphans(TmuxInventory.parse(parts.panes, socket: socket),
-                                                   knownProjectIds: knownProjectIds(for: socket))
+                                                   projectWorkspaces: projects(for: socket))
             clientsBySession.merge(SessionOwnership.parseClients(parts.clients)) { $1 }
         }
 

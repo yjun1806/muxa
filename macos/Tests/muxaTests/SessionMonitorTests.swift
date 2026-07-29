@@ -25,7 +25,7 @@ struct SessionMonitorTests {
     private func monitor(sockets: [String],
                          panes: @escaping (String) -> String?,
                          clients: @escaping (String) -> String = { _ in "" },
-                         projectIds: @escaping (String) -> Set<String>? = { _ in nil },
+                         projects: @escaping (String) -> [String: String]? = { _ in nil },
                          snapshots: [ProcessSnapshot] = []) -> SessionMonitor {
         var remaining = snapshots
         return SessionMonitor(
@@ -38,7 +38,7 @@ struct SessionMonitorTests {
                 return (paneLines + clientLines).joined(separator: "\n")
             },
             snapshot: { remaining.isEmpty ? ProcessSnapshot(samples: [:], uptime: 0) : remaining.removeFirst() },
-            projectIds: { projectIds($0) }
+            projects: { projects($0) }
         )
     }
 
@@ -73,12 +73,23 @@ struct SessionMonitorTests {
             panes: { socket in
                 socket == "muxa-services-dev-1" ? "\(termA)|100|0|0|0|500|/a" : "\(termB)|100|0|0|0|600|/b"
             },
-            // dev-1의 주인은 P1을 등록했고, dev-2의 주인은 다른 것을 등록했다.
-            projectIds: { folder in folder == "muxa-dev-dev-1" ? ["P1"] : ["딴것"] }
+            // dev-1의 주인은 P1을 "웹" 워크스페이스에 등록했고, dev-2의 주인은 다른 것을 등록했다.
+            projects: { folder in folder == "muxa-dev-dev-1" ? ["P1": "웹"] : ["딴것": "x"] }
         )
         await monitor.refresh()
         #expect(monitor.rows.first { $0.name == termA }?.isOrphan == false)
         #expect(monitor.rows.first { $0.name == termB }?.isOrphan == true)
+    }
+
+    /// **등록을 찾으면 워크스페이스 이름도 함께 온다** — 표를 그 열로 정렬하면 작업 묶음별로 모인다.
+    /// 못 찾으면 빈 문자열이고, 그건 곧 고아라는 뜻이라 표에서 소켓 이름으로 대신 보여준다.
+    @Test func carriesWorkspaceName() async {
+        let monitor = monitor(sockets: ["muxa-services-dev-1"],
+                              panes: { _ in "\(termA)|100|0|0|0|500|/a\n\(termB)|100|0|0|0|600|/b" },
+                              projects: { _ in ["P1": "웹"] })
+        await monitor.refresh()
+        #expect(monitor.rows.first { $0.name == termA }?.workspace == "웹")
+        #expect(monitor.rows.first { $0.name == termB }?.workspace == "")
     }
 
     /// 짝이 되는 지원 폴더를 못 읽으면(출처 미상 소켓) 아무것도 고아라 하지 않는다 —

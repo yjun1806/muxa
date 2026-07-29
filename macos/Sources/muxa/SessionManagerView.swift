@@ -152,8 +152,13 @@ struct SessionManagerView: View {
             }
             .width(min: 120, ideal: 200)
 
-            TableColumn("소켓", value: \.socketText) { Text($0.socketText).foregroundStyle(.secondary) }
-                .width(min: 80, ideal: 110)
+            // 워크스페이스 — **이 열로 정렬하면 표가 작업 묶음별로 모인다.** 세션이 40개를 넘으면
+            // 폴더명만으로는 어느 묶음의 것인지 한눈에 안 들어온다.
+            TableColumn("워크스페이스", value: \.groupText) { item in
+                Text(item.groupText)
+                    .foregroundStyle(item.row.workspace.isEmpty ? Color.pMuted : Color.pFg.opacity(0.8))
+            }
+            .width(min: 90, ideal: 120)
 
             TableColumn("경로", value: \.row.path) { item in
                 Text(item.row.path).lineLimit(1).truncationMode(.head).foregroundStyle(.tertiary)
@@ -259,6 +264,7 @@ struct SessionManagerView: View {
         monitor.rows
             .map { SessionListItem(row: $0, weight: monitor.weight(of: $0)) }
             .filter { filter.matches($0) && $0.matches(search: search) }
+            // 같은 값이 이어지면 표가 그 열로 묶여 보인다 — 워크스페이스 정렬이 곧 그룹핑이다.
             .sorted(using: sortOrder)
     }
 

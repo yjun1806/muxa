@@ -59,19 +59,26 @@ enum SessionOwnership {
         !name.isEmpty && !name.contains("/") && !name.contains("..")
     }
 
-    /// 그 인스턴스가 등록한 프로젝트 id 전부. 읽을 수 없으면 nil(= 판정 불가).
+    /// 그 인스턴스가 등록한 **projectId → 워크스페이스 이름**. 읽을 수 없으면 nil(= 판정 불가).
     ///
-    /// **`Project.id`다 — `Workspace.id`가 아니다.** 세션명 `muxa__<projectId>__…`의 그 값이고
+    /// 키는 **`Project.id`다 — `Workspace.id`가 아니다.** 세션명 `muxa__<projectId>__…`의 그 값이고
     /// GC(`ServiceSession.orphans`)도 같은 값을 쓴다(`collectKnownProjectIds`).
-    static func projectIds(inSupportFolder folder: String) -> Set<String>? {
+    ///
+    /// 값(워크스페이스 이름)은 표를 묶는 데 쓴다 — 세션이 41개쯤 되면 폴더명만으로는 어느 작업
+    /// 묶음의 것인지 한눈에 안 들어온다.
+    static func projectWorkspaces(inSupportFolder folder: String) -> [String: String]? {
         let path = NSHomeDirectory() + "/Library/Application Support/\(folder)/state.v4.json"
         guard let data = FileManager.default.contents(atPath: path),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let workspaces = root["workspaces"] as? [[String: Any]] else { return nil }
-        let ids = workspaces
-            .compactMap { $0["projects"] as? [[String: Any]] }
-            .flatMap { $0.compactMap { $0["id"] as? String } }
-        return Set(ids)
+        var byProject: [String: String] = [:]
+        for workspace in workspaces {
+            let name = workspace["name"] as? String ?? ""
+            for project in workspace["projects"] as? [[String: Any]] ?? [] {
+                if let id = project["id"] as? String { byProject[id] = name }
+            }
+        }
+        return byProject
     }
 
     // MARK: 연결 상태 — 어느 GUI가 보고 있나

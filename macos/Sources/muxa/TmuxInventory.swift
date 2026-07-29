@@ -27,6 +27,8 @@ struct TmuxSessionRow: Identifiable, Equatable {
     /// 지금 **누가 보고 있나** — 이 앱 / 다른 인스턴스 / 외부 터미널 / 아무도(분리됨).
     /// 수집 시 `SessionOwnership.attachment`가 채운다.
     var attachment: SessionAttachment = .detached
+    /// 이 세션이 속한 워크스페이스 이름. 등록을 못 찾으면 빈 문자열(고아이거나 남의 소켓이다).
+    var workspace: String = ""
 
     /// 세션이 어느 네임스페이스에 사는가. 규약의 SSOT는 `TerminalSession`·`ScriptSession`·
     /// `ServiceSession`이고 여기서는 그 결과를 담기만 한다.
@@ -131,13 +133,15 @@ enum TmuxInventory {
     /// "아직 모른다"는 뜻이다(기동 직후·state 로드 실패). 그걸 고아로 칠하면 표 전체가 빨개지고,
     /// 사람이 그 표시를 근거로 멀쩡한 세션을 죽인다. GC가 같은 상황에서 아무것도 안 지우는 것과
     /// 같은 보수성이다(`ServiceSession.orphans`).
-    static func markOrphans(_ rows: [TmuxSessionRow], knownProjectIds: Set<String>) -> [TmuxSessionRow] {
-        guard !knownProjectIds.isEmpty else { return rows }
+    static func markOrphans(_ rows: [TmuxSessionRow],
+                            projectWorkspaces: [String: String]) -> [TmuxSessionRow] {
+        guard !projectWorkspaces.isEmpty else { return rows }
         return rows.map { row in
             // 남의 세션은 판정 대상이 아니다 — 우리 규약 밖이라 등록 여부를 물을 근거가 없다.
             guard let projectId = row.projectId else { return row }
             var marked = row
-            marked.isOrphan = !knownProjectIds.contains(projectId)
+            marked.workspace = projectWorkspaces[projectId] ?? ""
+            marked.isOrphan = projectWorkspaces[projectId] == nil
             return marked
         }
     }

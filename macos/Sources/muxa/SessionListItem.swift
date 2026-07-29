@@ -55,6 +55,10 @@ struct SessionListItem: Identifiable, Equatable {
 
     var socketText: String { TmuxSocketScanner.label(for: row.socket) }
 
+    /// 묶음 이름 — 워크스페이스를 알면 그 이름, 모르면 소켓(다른 인스턴스 것이거나 고아라는 뜻).
+    /// **정렬 키로 쓰인다**: 이 열로 정렬하면 표가 워크스페이스별로 묶인다.
+    var groupText: String { row.workspace.isEmpty ? "— \(socketText)" : row.workspace }
+
     /// 안에 도는 것 — 셸을 걷어낸 이름들. 셸뿐이면 빈 문자열이고, 그게 "되찾을 것이 없다"는 뜻이다.
     var labelsText: String { weight.labels.joined(separator: ", ") }
 
