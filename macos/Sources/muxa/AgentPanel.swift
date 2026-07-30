@@ -231,6 +231,7 @@ struct AgentPanel: View {
                     .font(.muxa(.micro, weight: row.isUnread ? .semibold : .regular))
                     .foregroundStyle(Color.pMuted)
                     .frame(width: IconSize.statusSlot)
+                    .help("커밋됨 — 에이전트가 고친 뒤 커밋돼 git status가 조용하다")
                     .accessibilityLabel("커밋됨") // 없으면 VO가 "checkmark"로 읽는다
             }
             // 굵기·색이 **안 봤음** 전용 채널이다(선택은 채움이 말한다).

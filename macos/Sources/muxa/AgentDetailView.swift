@@ -46,6 +46,9 @@ struct AgentDetailView: View {
 
     private var set: AgentChangeSet? { setProvider(target.tabId) }
 
+    /// 폴더 아래 행의 들여쓰기 — 폴더 머리의 인셋 + 한 단.
+    private var rowIndent: CGFloat { (compact ? Space.panelInset : Space.lg) + Space.lg }
+
     var body: some View {
         Group {
             if let set, !(set.entries.isEmpty && set.references.isEmpty) {
@@ -159,11 +162,11 @@ struct AgentDetailView: View {
         .frame(height: RowHeight.row)
     }
 
+    /// 폴더 머리 — **아이콘을 쓰지 않는다.** 아래 행마다 아이콘(git 글리프·파일 종류)이 있는데
+    /// 머리에도 달면 한 층에 아이콘 어휘가 둘이 되어 위아래 관계가 안 읽힌다.
+    /// 계층은 아이콘이 아니라 **들여쓰기와 글자 색**이 그린다.
     private func folderHeader(_ label: String, count: Int, mono: Bool = true) -> some View {
         HStack(spacing: Space.sm) {
-            Image(systemName: "folder")
-                .font(.muxa(.caption)).foregroundStyle(Color.pMuted)
-                .frame(width: IconSize.statusSlot)
             Text(label)
                 .font(mono ? .muxaMono(.label, weight: .semibold) : .muxa(.label, weight: .semibold))
                 .foregroundStyle(Color.pMuted)
@@ -183,18 +186,27 @@ struct AgentDetailView: View {
         let rel = relative(row.path)
         let open = { onOpenDiff(.baselineFile(base: base ?? "HEAD", path: rel,
                                               session: target.tabId)) }
-        return HStack(spacing: Space.sm) {
+        // **`Button`으로 감싼다** — 저장소의 목록 행 패턴이다(`GitChangesSection`·`GitFileRow`·
+        // `SidebarProjectRow`). `onTapGesture`만 쓰면 안쪽 `Text`가 마우스를 받아 커서가
+        // I빔으로 뜨고 행 hover가 안 잡힌다. 버튼이 클릭을 소비해야 행 전체가 하나의 조작면이 된다.
+        return Button(action: open) {
+            HStack(spacing: Space.sm) {
             switch row.mark {
             case .git(let code):
                 GitStatusBadge(code: code, weight: row.isUnread ? .medium : .regular)
             case .committed:
+                // git이 조용한데 디스크는 바뀌었다 = 커밋됐다. **글리프만으론 무슨 상태인지 모른다** —
+                // 넓은 화면엔 자리가 있으니 말로 한다(좁은 패널은 ✓ + 툴팁).
                 Image(systemName: "checkmark")
                     .font(.muxa(.micro)).foregroundStyle(Color.pMuted)
                     .frame(width: IconSize.statusSlot)
-                    .accessibilityLabel("커밋됨")
+                    .accessibilityHidden(true)
             }
             // 파일명은 **항상 `pFg`** — 다 봤다고 목록이 회색으로 죽지 않게(안 봤음은 굵기가 말한다).
             GitFileLabel(path: rel, weight: row.isUnread ? .medium : .regular, tone: Color.pFg)
+            if case .committed = row.mark {
+                Text("커밋됨").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
+            }
             Spacer(minLength: Space.md)
             // **여러 번 고친 파일 = 헤맨 자리.** 1회면 침묵한다(대부분의 행에 안 뜬다).
             if row.touchCount >= 2 {
@@ -210,22 +222,25 @@ struct AgentDetailView: View {
                     .lineLimit(1).truncationMode(.tail)
                     .frame(maxWidth: 220, alignment: .leading)
             }
+            }
+            .padding(.leading, rowIndent)   // 폴더 아래 한 단 들여쓴다 — 계층은 여기서 생긴다
+            .padding(.trailing, compact ? Space.sm : Space.lg)
+            .frame(maxWidth: .infinity)
+            .frame(height: RowHeight.row)
+            .contentShape(Rectangle())   // 글자 없는 자리도 버튼 면이 된다
         }
-        .padding(.horizontal, compact ? Space.sm : Space.lg)
-        .frame(maxWidth: .infinity)
-        .frame(height: RowHeight.row)
-        .contentShape(Rectangle())
+        .buttonStyle(.plain)
         // 지금 오른쪽에 열려 있는 파일 = 선택 채움(마스터-디테일의 기본 문법).
         .modifier(ListRowFill(selected: rel == selectedPath))
         .padding(.horizontal, Space.xs)
-        .onTapGesture(perform: open)
-        .accessibilityRow(label: changeLabel(row, rel: rel), activate: open)
+        .accessibilityRow(label: changeLabel(row, rel: rel))
     }
 
     private func refRow(title: String, context: String?, mono: Bool = false,
                         @ViewBuilder icon: () -> AnyView,
                         action: @escaping () -> Void) -> some View {
-        HStack(spacing: Space.sm) {
+        Button(action: action) {
+            HStack(spacing: Space.sm) {
             icon().frame(width: IconSize.inlineMark)
             Text(title)
                 .font(mono ? .muxaMono(.label) : .muxa(.body))
@@ -238,15 +253,17 @@ struct AgentDetailView: View {
                     .lineLimit(1).truncationMode(.tail)
             }
             Spacer(minLength: 0)
+            }
+            .padding(.leading, rowIndent)
+            .padding(.trailing, compact ? Space.sm : Space.lg)
+            .frame(maxWidth: .infinity)
+            .frame(height: RowHeight.row)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, compact ? Space.sm : Space.lg)
-        .frame(maxWidth: .infinity)
-        .frame(height: RowHeight.row)
-        .contentShape(Rectangle())
+        .buttonStyle(.plain)
         .modifier(ListRowFill())
         .padding(.horizontal, Space.xs)
-        .onTapGesture(perform: action)
-        .accessibilityRow(label: title + (context.map { ", \($0)" } ?? ""), activate: action)
+        .accessibilityRow(label: title + (context.map { ", \($0)" } ?? ""))
     }
 
     /// VO가 읽을 이름 — 굵기·색은 스크린리더에 존재하지 않으므로 **말로** 한다.

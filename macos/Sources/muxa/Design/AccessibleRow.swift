@@ -39,9 +39,12 @@ private struct AccessibleRow: ViewModifier {
                 // `ListRowFill`과 겹쳐도 무해하다(`set`은 스택을 안 쌓는다, `Cursor.swift`).
                 .clickCursor()
         } else {
+            // `activate`가 없다 = 이미 `Button`이다. 그래도 **커서는 필요하다** —
+            // SwiftUI 버튼은 macOS에서 커서를 안 바꾼다(`Cursor.swift`).
             content
                 .accessibilityLabel(label)
                 .accessibilityAddTraits(selected ? [.isSelected] : [])
+                .clickCursor()
         }
     }
 }
