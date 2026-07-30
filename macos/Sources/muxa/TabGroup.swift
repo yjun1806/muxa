@@ -1,3 +1,4 @@
+import Bonsplit
 import Foundation
 import Observation
 
@@ -14,7 +15,8 @@ enum TabGroupKind: Equatable {
     /// **에이전트**(YJ-7) — 그 세션이 만진 파일의 기준선 diff와 참고 목록을 함께 담는다.
     /// `.diffs`와 갈라 두는 이유: 비교 기준이 다르다(탭 기준선 ↔ HEAD). 한 그룹에 섞으면
     /// 같은 파일의 서브탭 두 개가 라벨이 똑같은데 내용이 다른 상태가 된다.
-    case agent
+    /// 세션 하나. **세션마다 그룹이 따로 뜬다** — 한 그룹에 몰면 어느 세션의 변경인지 사라진다.
+    case agent(TabID)
     case browser // 인앱 웹 브라우저
 
     var title: String {
@@ -24,7 +26,7 @@ enum TabGroupKind: Equatable {
         case .code: return "코드"
         case .media: return "미디어"
         case .diffs: return "변경"
-        case .agent: return "에이전트"
+        case .agent: return "에이전트"  // 실제 탭 라벨은 세션 제목으로 덮는다(openInGroup)
         case .browser: return "웹"
         }
     }
@@ -65,6 +67,8 @@ enum TabGroupKind: Equatable {
         }
     }
 
+    /// 복원 — **에이전트 그룹은 되살리지 않는다.** 담긴 항목(기준선 diff·상세)이 전부
+    /// 세션 종속이라 복원 대상이 아니고, 껍데기만 되살리면 빈 그룹이 남는다.
     init?(raw: String) {
         switch raw {
         case "documents": self = .documents
@@ -72,9 +76,6 @@ enum TabGroupKind: Equatable {
         case "code": self = .code
         case "media": self = .media
         case "diffs": self = .diffs
-        case "agent": self = .agent
-        // 예전 저장분 — 참고는 에이전트 그룹으로 병합됐다.
-        case "references": self = .agent
         case "browser": self = .browser
         default: return nil
         }
@@ -136,10 +137,10 @@ enum GroupItemContent: Identifiable {
             case .code: return .code
             case .image, .video: return .media
             }
-        case .diff(.baselineFile): return .agent
+        case .diff(.baselineFile(_, _, let session)): return .agent(session)
         case .diff: return .diffs
         case .web: return .browser
-        case .references: return .agent
+        case .references(let t): return .agent(t.tabId)
         }
     }
 
@@ -149,7 +150,7 @@ enum GroupItemContent: Identifiable {
         switch self {
         case .file(let target): return target.path
         case .diff(.file(let change)): return dir.isEmpty ? nil : (dir as NSString).appendingPathComponent(change.path)
-        case .diff(.baselineFile(_, let path)): return dir.isEmpty ? nil : (dir as NSString).appendingPathComponent(path)
+        case .diff(.baselineFile(_, let path, _)): return dir.isEmpty ? nil : (dir as NSString).appendingPathComponent(path)
         case .diff, .web, .references: return nil
         }
     }

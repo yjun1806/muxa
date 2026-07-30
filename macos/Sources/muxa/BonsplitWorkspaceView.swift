@@ -67,9 +67,9 @@ struct BonsplitWorkspaceView: View {
                 }
             }
         case .group:
-            if let state = store.group(for: tabId) {
+            if let groupState = store.group(for: tabId) {
                 TabGroupView(
-                    group: state, dir: store.workingDir ?? "",
+                    group: groupState, dir: store.workingDir ?? "",
                     onFocus: { store.controller.focusPane(paneId) },
                     onCloseItem: { store.closeGroupItem(tabId, itemId: $0) },
                     onCloseOtherItems: { store.closeOtherGroupItems(tabId, keeping: $0) },
@@ -93,7 +93,11 @@ struct BonsplitWorkspaceView: View {
                     isActiveGroup: store.controller.focusedPaneId?.id == paneId.id
                         && store.controller.selectedTabId(inPane: paneId) == tabId,
                     agentDetail: { store.agentChangeSnapshot(for: $0) },
-                    onOpenDiff: { _ = store.openDiff($0) }
+                    onOpenDiff: { _ = store.openDiff($0) },
+                    detailWidth: state.agentDetailWidth,
+                    detailCollapsed: state.agentDetailCollapsed,
+                    onCommitDetailWidth: { state.setAgentDetailWidth($0) },
+                    onToggleDetailCollapsed: { state.toggleAgentDetailCollapsed() }
                 )
             }
         }

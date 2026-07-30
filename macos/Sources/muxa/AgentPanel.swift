@@ -356,7 +356,7 @@ struct AgentPanel: View {
 
     private func open(_ rel: String, base: String?, tabId: TabID, root: String?) {
         // 기준선이 없으면(아직 못 읽었다) HEAD로 떨어진다 — 열리지 않는 행을 만들지 않는다.
-        onOpenDiff(.baselineFile(base: base ?? "HEAD", path: rel))
+        onOpenDiff(.baselineFile(base: base ?? "HEAD", path: rel, session: tabId))
         // "봤음"은 **그 그룹의 탭**에 찍는다 — 포커스 탭에 찍으면 남의 기록을 건드린다.
         guard let base = root ?? dir else { return }
         store.markAgentChangeSeen(tabId: tabId,

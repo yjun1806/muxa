@@ -31,6 +31,10 @@ struct AgentDetailView: View {
     var selectedPath: String?
     /// 사이드바 모드(diff와 나란히) — 폭이 좁아 **지시·영역 여백**을 접는다.
     var compact: Bool = false
+    /// 사이드바 모드에서만 접기·펼치기 컨트롤이 뜬다(풀너비에선 접을 것도 펼칠 것도 없다).
+    var canCollapse: Bool = false
+    var onExpand: (() -> Void)?
+    var onCollapse: (() -> Void)?
     var onOpenFile: (String) -> Void
     var onOpenURL: (URL) -> Void
     /// 변경 행 클릭 = diff. 패널과 **같은 대상**(`.baselineFile`)을 연다.
@@ -77,6 +81,15 @@ struct AgentDetailView: View {
                 Text("기준선 \(String(base.prefix(7)))")
                     .font(.muxaMono(.caption)).foregroundStyle(Color.pMuted)
             }
+            if canCollapse {
+                if let onExpand {
+                    IconButton(icon: "arrow.up.left.and.arrow.down.right",
+                               help: "상세를 화면 전체로") { onExpand() }
+                }
+                if let onCollapse {
+                    IconButton(icon: "sidebar.left", help: "상세 접기") { onCollapse() }
+                }
+            }
         }
         .panelBar(height: RowHeight.panelHeader)
     }
@@ -92,7 +105,7 @@ struct AgentDetailView: View {
         let refFolders = AgentChangeDisplay.referenceFolders(from: set, root: root)
         let webs = AgentChangeDisplay.references(from: set, kind: .web)
 
-        VStack(alignment: .leading, spacing: Space.groupGap) {
+        VStack(alignment: .leading, spacing: 0) {
             if !folders.isEmpty {
                 region("변경", count: group.rows.count, unread: group.unreadCount)
                 ForEach(folders) { folder in
@@ -103,6 +116,10 @@ struct AgentDetailView: View {
                 }
             }
             if !refFolders.isEmpty || !webs.isEmpty {
+                // 두 영역은 성격이 달라(산출 ↔ 참고) 여백만으로는 안 갈린다 — 선을 긋는다.
+                if !folders.isEmpty {
+                    HDivider().padding(.vertical, Space.sm)
+                }
                 region("참고", count: set.references.count, unread: 0)
                 ForEach(refFolders) { folder in
                     folderHeader(folder.label, count: folder.files.count)
@@ -123,7 +140,7 @@ struct AgentDetailView: View {
                 }
             }
         }
-        .padding(.vertical, Space.lg)
+        .padding(.vertical, Space.sm)
     }
 
     /// 영역 머리 — 이 화면의 두 덩어리를 가른다. 패널의 섹션보다 한 단 크다(정독하는 화면).
@@ -139,7 +156,7 @@ struct AgentDetailView: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, compact ? Space.panelInset : Space.lg)
-        .frame(height: RowHeight.toolbar)
+        .frame(height: RowHeight.row)
     }
 
     private func folderHeader(_ label: String, count: Int, mono: Bool = true) -> some View {
@@ -156,7 +173,7 @@ struct AgentDetailView: View {
         }
         .padding(.horizontal, compact ? Space.panelInset : Space.lg)
         .frame(height: RowHeight.tight)
-        .padding(.top, Space.sm)
+        .padding(.top, Space.tight)
     }
 
     // MARK: 행
@@ -164,7 +181,8 @@ struct AgentDetailView: View {
     /// 변경 한 줄 — 패널과 같은 어휘에 **횟수·지시** 두 열을 더한다.
     private func changeRow(_ row: AgentChangeRow, base: String?) -> some View {
         let rel = relative(row.path)
-        let open = { onOpenDiff(.baselineFile(base: base ?? "HEAD", path: rel)) }
+        let open = { onOpenDiff(.baselineFile(base: base ?? "HEAD", path: rel,
+                                              session: target.tabId)) }
         return HStack(spacing: Space.sm) {
             switch row.mark {
             case .git(let code):

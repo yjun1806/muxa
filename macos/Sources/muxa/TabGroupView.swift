@@ -38,6 +38,11 @@ struct TabGroupView: View {
     var agentDetail: (TabID) -> AgentChangeSet? = { _ in nil }
     /// 상세에서 변경 행을 눌렀을 때 — 패널과 같은 diff 대상을 연다.
     var onOpenDiff: (GitDiffTarget) -> Void = { _ in }
+    /// 상세 사이드바 폭·접힘 — 상태는 상위(AppState)가 소유하고 여기는 값·위임만 받는다.
+    var detailWidth: CGFloat = 320
+    var detailCollapsed: Bool = false
+    var onCommitDetailWidth: (CGFloat) -> Void = { _ in }
+    var onToggleDetailCollapsed: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 0) {
@@ -111,9 +116,6 @@ struct TabGroupView: View {
     }
 
     /// 서브탭 뷰어들 — 전부 살려두고 선택된 것만 표시(전환 시 상태·스크롤 유지).
-    /// 상세 사이드바 폭 — 도구 패널(기본 340)보다 좁다. 탭 안이라 diff에 자리를 더 줘야 한다.
-    private static let detailSidebarWidth: CGFloat = 320
-
     /// 이 그룹의 상세 항목(에이전트 그룹에만 있다).
     private var detailItem: AgentDetailTarget? {
         for item in group.items { if case .references(let t) = item { return t } }
@@ -122,7 +124,7 @@ struct TabGroupView: View {
 
     /// 지금 열려 있는 기준선 diff의 경로 — 사이드바가 그 행을 선택 표시한다.
     private var openDiffPath: String? {
-        if case .diff(.baselineFile(_, let path)) = group.selected { return path }
+        if case .diff(.baselineFile(_, let path, _)) = group.selected { return path }
         return nil
     }
 
@@ -134,16 +136,23 @@ struct TabGroupView: View {
     private var content: some View {
         HStack(spacing: 0) {
             if let detail = detailItem {
-                let full = group.selectedId == GroupItemContent.references(detail).id
-                AgentDetailView(target: detail, setProvider: agentDetail,
-                                root: dir.isEmpty ? nil : dir,
-                                selectedPath: openDiffPath,
-                                compact: !full,
-                                onOpenFile: onOpenFile, onOpenURL: onOpenURL,
-                                onOpenDiff: onOpenDiff)
-                    .frame(width: full ? nil : Self.detailSidebarWidth)
-                    .frame(maxWidth: full ? .infinity : nil, maxHeight: .infinity)
-                if !full { Rectangle().fill(Color.pBorder).frame(width: 1) }
+                let full = isDetailSelected
+                if full || !detailCollapsed {
+                    AgentDetailView(target: detail, setProvider: agentDetail,
+                                    root: dir.isEmpty ? nil : dir,
+                                    selectedPath: openDiffPath,
+                                    compact: !full,
+                                    canCollapse: !full,
+                                    onExpand: full ? nil : { group.selectedId = GroupItemContent.references(detail).id },
+                                    onCollapse: full ? nil : onToggleDetailCollapsed,
+                                    onOpenFile: onOpenFile, onOpenURL: onOpenURL,
+                                    onOpenDiff: onOpenDiff)
+                        .frame(width: full ? nil : liveDetailWidth)
+                        .frame(maxWidth: full ? .infinity : nil, maxHeight: .infinity)
+                    if !full { sidebarHandle }
+                } else {
+                    collapsedRail
+                }
             }
             if detailItem == nil || openDiffPath != nil || !isDetailSelected {
                 ZStack {
@@ -159,6 +168,47 @@ struct TabGroupView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// 드래그 중 실시간 폭(비영속) — 매 프레임 상위 관측 상태를 건드리면 무거운 하위 트리가
+    /// 통째로 재평가된다(`ResizablePanel`이 같은 이유로 같은 구조를 쓴다).
+    @State private var liveWidth: CGFloat?
+    @State private var dragAccum: CGFloat?
+    private var liveDetailWidth: CGFloat { liveWidth ?? detailWidth }
+
+    /// 사이드바 **오른쪽** 경계 핸들. `ResizablePanel`은 우측 패널용이라 경계가 왼쪽에 있어
+    /// 좌측 사이드바에는 방향이 안 맞는다 — 여기선 미러로 직접 그린다.
+    private var sidebarHandle: some View {
+        Rectangle().fill(Color.pBorder).frame(width: 1)
+            .overlay {
+                Color.clear.frame(width: 11).contentShape(Rectangle())
+                    .onHover { NSCursor.resizeLeftRight.set(); if !$0 { NSCursor.arrow.set() } }
+                    .gesture(
+                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                            .onChanged { g in
+                                liveWidth = min(max((liveWidth ?? detailWidth) + g.translation.width
+                                                    - (dragAccum ?? 0), 200), 560)
+                                dragAccum = g.translation.width
+                            }
+                            .onEnded { _ in
+                                dragAccum = nil
+                                if let w = liveWidth { onCommitDetailWidth(w) }
+                                liveWidth = nil
+                            })
+            }
+    }
+
+    /// 완전히 접었을 때 남는 슬림 레일 — 되돌릴 길이 없으면 접기는 함정이 된다.
+    private var collapsedRail: some View {
+        VStack(spacing: 0) {
+            IconButton(icon: "sidebar.left", help: "상세 펼치기") { onToggleDetailCollapsed() }
+                .padding(.top, Space.sm)
+            Spacer(minLength: 0)
+        }
+        .frame(width: RowHeight.toolbar)
+        .frame(maxHeight: .infinity)
+        .background(Color.pPanel)
+        .overlay(alignment: .trailing) { Rectangle().fill(Color.pBorder).frame(width: 1) }
     }
 
     private var isDetailSelected: Bool {

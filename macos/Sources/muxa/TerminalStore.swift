@@ -2172,7 +2172,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             return tabId
         }
         // 2) 없으면 포커스 패인에 새 그룹 탭 생성.
-        guard let tabId = controller.createTab(title: kind.title, icon: kind.icon,
+        guard let tabId = controller.createTab(title: groupTabTitle(kind), icon: kind.icon,
                                             iconImageData: kind.iconImageData, inPane: pane) else { return nil }
         tabContent[tabId] = .group(kind)
         groups[tabId] = TabGroupState(first: item)
@@ -2180,6 +2180,13 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         controller.selectTab(tabId)
         syncHasTabs() // 빈 상태에서 문서/diff를 열어도 메인 영역 복귀(관측 갱신)
         return tabId
+    }
+
+    /// 그룹 탭 라벨. **에이전트 그룹은 세션마다 따로 뜨므로** 전부 "에이전트"면 탭바에서 구분이 안 된다 —
+    /// 그 세션의 제목(얼린 첫 프롬프트)을 쓰고, 없으면 탭 이름으로 떨어진다.
+    private func groupTabTitle(_ kind: TabGroupKind) -> String {
+        guard case .agent(let session) = kind else { return kind.title }
+        return agentChanges[session]?.originPrompt ?? tabTitle(session)
     }
 
     /// 패인 안에서 주어진 종류의 그룹 탭을 찾는다(종류별 최대 1개).

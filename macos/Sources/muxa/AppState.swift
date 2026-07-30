@@ -120,6 +120,11 @@ final class AppState {
     /// **인스펙터 폭** — 어느 탭이든 공유(통일). 좌측 경계 드래그로 리사이즈·영속(`explorerWidth` 필드 재사용).
     /// 드래그 중엔 ResizablePanel 로컬 상태로만 움직이고, 손 뗀 순간에만 여기로 커밋해 저장한다.
     private(set) var explorerWidth: CGFloat = 340
+    /// 세션 상세 사이드바 폭(YJ-7) — 탭 안 마스터-디테일의 좌측. 도구 패널보다 좁다(diff에 자리를 준다).
+    /// 뷰 로컬로 두면 탭을 오갈 때마다 리셋되므로 여기가 소유한다.
+    private(set) var agentDetailWidth: CGFloat = 320
+    /// 상세 사이드바를 완전히 접었나 — diff가 화면을 다 쓴다.
+    private(set) var agentDetailCollapsed = false
     /// 서비스 서랍 폭 — 탐색기·Git과 같은 좌측 경계 드래그 리사이즈·영속. 좌(목록)+우(터미널)를 나란히
     /// 담으므로 로그가 읽히려면 하한이 넓다.
     private(set) var serviceDockWidth: CGFloat = AppState.defaultServiceDockWidth
@@ -828,6 +833,18 @@ final class AppState {
 
     func isAgentListExpanded(_ projectId: String) -> Bool {
         !collapsedAgentLists.contains(projectId)
+    }
+
+    /// 상세 사이드바 폭 커밋 — 드래그가 끝난 순간에만 부른다(드래그 중엔 뷰 로컬로 움직인다).
+    func setAgentDetailWidth(_ w: CGFloat) {
+        agentDetailWidth = min(max(w, 200), 560)
+        saveDebounced()
+    }
+
+    /// 상세 사이드바 완전 접기/펼치기.
+    func toggleAgentDetailCollapsed() {
+        agentDetailCollapsed.toggle()
+        saveDebounced()
     }
 
     /// 셰브론/활성 행 재클릭 — 이 프로젝트의 에이전트 목록만 접기/펼치기.

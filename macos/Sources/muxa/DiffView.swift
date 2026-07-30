@@ -1,3 +1,4 @@
+import Bonsplit
 import SwiftUI
 
 /// diff를 열 대상 — 변경 파일·커밋·워크트리 전체. .sheet(item:)용 Identifiable.
@@ -14,7 +15,8 @@ enum GitDiffTarget: Identifiable {
     /// **탭 기준선 ↔ 워킹트리의 파일 하나** — 에이전트 패널이 여는 유일한 대상(YJ-7).
     /// `.file`(HEAD 대비)과 갈라 두는 이유: 세션 중에 커밋이 일어나면 그 파일은 status에서
     /// 사라져 `.file` diff가 통째로 빈다. 기준선 대비여야 "이 세션이 한 일" 전체가 보인다.
-    case baselineFile(base: String, path: String)
+    /// `session`은 **어느 에이전트 그룹으로 갈지**를 정한다 — 세션마다 그룹이 따로 뜬다.
+    case baselineFile(base: String, path: String, session: TabID)
 
     var id: String {
         switch self {
@@ -25,7 +27,8 @@ enum GitDiffTarget: Identifiable {
         case .all(let base): return "all:\(base ?? "HEAD")"
         // 기준선은 넣지 않는다 — 같은 파일을 두 번 열면 탭이 갈리는 게 아니라 같아야 하고,
         // 기준선은 강등으로 바뀔 수 있다(id가 흔들리면 서브탭이 유령처럼 늘어난다).
-        case .baselineFile(_, let path): return "bf:\(path)"
+        // 세션까지 넣는다 — 두 세션이 같은 파일을 고치면 각 그룹에 각자의 서브탭이 서야 한다.
+        case .baselineFile(_, let path, let session): return "bf:\(session.uuid.uuidString):\(path)"
         }
     }
 
@@ -35,7 +38,7 @@ enum GitDiffTarget: Identifiable {
         case .commit(_, let subject): return subject
         case .commitFile(let hash, let path, _): return "\(path) · \(String(hash.prefix(7)))"
         case .all(let base): return base == nil ? "전체 변경" : "이번 작업 전체 변경"
-        case .baselineFile(_, let path): return path
+        case .baselineFile(_, let path, _): return path
         }
     }
 
@@ -47,7 +50,7 @@ enum GitDiffTarget: Identifiable {
         // 파일명만 — 어느 커밋인지는 제목(`title`)·툴팁이 말한다. 좁은 탭에 해시까지 넣으면 둘 다 잘린다.
         case .commitFile(_, let path, _): return basename(path)
         case .all(let base): return base == nil ? "전체 변경" : "이번 작업 전체"
-        case .baselineFile(_, let path): return basename(path)
+        case .baselineFile(_, let path, _): return basename(path)
         }
     }
 
@@ -173,7 +176,7 @@ struct DiffView: View {
         guard isNewFile else { return nil }
         let rel: String?
         switch target {
-        case .baselineFile(_, let path): rel = path
+        case .baselineFile(_, let path, _): rel = path
         case .file(let change): rel = change.opPath
         case .commit, .commitFile, .all: rel = nil
         }
@@ -309,7 +312,7 @@ struct DiffView: View {
             return FileWatcher(path: (abs as NSString).deletingLastPathComponent)
         case .all:
             return FileWatcher(path: dir) // 워크트리 전체 — 아무 파일이나 바뀌면 재로드(git 패널과 같은 패턴)
-        case .baselineFile(_, let path):
+        case .baselineFile(_, let path, _):
             // 에이전트가 또 고치면 화면이 따라가야 한다 — .file과 같은 감시.
             let abs = absolutePath(path)
             return FileWatcher(path: (abs as NSString).deletingLastPathComponent)
@@ -331,7 +334,7 @@ struct DiffView: View {
             await load()
         case .all:
             await load() // 워크트리 전체라 특정 파일 판별 없이 항상 재로드(0.3s 디바운스됨)
-        case .baselineFile(_, let path):
+        case .baselineFile(_, let path, _):
             let m = (try? FileManager.default
                 .attributesOfItem(atPath: absolutePath(path))[.modificationDate]) as? Date
             guard m != lastMTime else { return }
@@ -543,7 +546,7 @@ struct DiffView: View {
         case .all(let base):
             change = nil // 통합 diff는 개별 파일 스테이지 없음(집계 뷰)
             text = await GitService.worktreeDiff(base: base ?? "HEAD", in: dir)
-        case .baselineFile(let base, let path):
+        case .baselineFile(let base, let path, _):
             change = nil // 기준선 대비는 스테이지 축을 쓰지 않는다(패널이 리뷰 창구다)
             lastMTime = (try? FileManager.default
                 .attributesOfItem(atPath: absolutePath(path))[.modificationDate]) as? Date

@@ -41,7 +41,7 @@ struct DocDiffSource: Equatable {
             return DocDiffSource(old: .revision(rev: "\(hash)^", path: oldPath ?? path),
                                  new: .revision(rev: hash, path: path))
 
-        case .baselineFile(let base, let path):
+        case .baselineFile(let base, let path, _):
             // 기준선 ↔ 워킹트리. 옛쪽이 그 리비전에 없으면(새로 만든 파일) 셸아웃이 빈 문자열을
             // 주므로 `.revision`으로 두어도 "전부 추가"로 그려진다 — 그 화면을 걷어내는 건 T7.
             return DocDiffSource(old: .revision(rev: base, path: path), new: .worktree(path: path))
@@ -93,7 +93,7 @@ enum ChangesViewMode: String, CaseIterable, Identifiable {
         switch target {
         case .file(let change): return change.opPath
         case .commitFile(_, let path, _): return path
-        case .baselineFile(_, let path): return path
+        case .baselineFile(_, let path, _): return path
         case .commit, .all: return nil
         }
     }
