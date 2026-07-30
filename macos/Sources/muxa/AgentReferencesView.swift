@@ -34,7 +34,11 @@ struct AgentReferencesView: View {
     var body: some View {
         Group {
             if let set, !set.references.isEmpty {
-                ScrollView { list(set) }
+                VStack(spacing: 0) {
+                    header
+                    HDivider()
+                    ScrollView { list(set) }
+                }
             } else {
                 EmptyState(icon: "book",
                            title: "참고한 것이 없습니다",
@@ -44,6 +48,20 @@ struct AgentReferencesView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.pBg)
+    }
+
+    /// 어느 세션의 참고인가 — 서브탭 라벨을 "참고"로 줄인 대신 여기서 말한다.
+    private var header: some View {
+        HStack(spacing: Space.sm) {
+            ClaudeMark(size: IconSize.inlineMark)
+            Text(target.title)
+                .font(.muxa(.body, weight: .semibold)).foregroundStyle(Color.pFg)
+                .lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Space.lg)
+        .frame(height: RowHeight.header)
+        .background(Color.pPanel)
     }
 
     @ViewBuilder
@@ -111,6 +129,8 @@ struct AgentReferencesView: View {
                 .foregroundStyle(Color.pFg)
                 .lineLimit(1).truncationMode(mono ? .tail : .middle)
                 .layoutPriority(1)   // 이름이 먼저 자리를 잡고, 맥락이 남는 폭을 쓴다
+            // **무엇을 하다가 이걸 열었나.** 없으면 침묵한다 — 맥락 수집 이전에 쌓인 항목이라
+            // 지어낼 수 없다(모르면 침묵, DESIGN §7).
             if let context, !context.isEmpty {
                 Text(context)
                     .font(.muxa(.caption)).foregroundStyle(Color.pMuted)

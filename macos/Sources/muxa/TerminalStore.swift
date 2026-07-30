@@ -1920,7 +1920,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// diff를 변경 그룹 탭의 서브탭으로 연다.
     @discardableResult
     func openDiff(_ target: GitDiffTarget) -> TabID? {
-        let id = openInGroup(.diff(target)); persist(); return id
+        let id = openInGroup(.diff(target))
+        if let id { pinReferencesFirst(id) } // 새 diff가 붙어도 참고는 맨 앞에 남는다
+        persist()
+        return id
     }
 
     /// 파일을 종류별(문서/HTML/코드) 그룹 탭의 서브탭으로 연다.
@@ -1938,11 +1941,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     @discardableResult
     func openReferences(tabId: TabID, title: String) -> TabID? {
         let id = openInGroup(.references(AgentReferencesTarget(tabId: tabId, title: title)))
-        // 참고는 개별 diff와 맥락이 달라 **맨 앞**에 세운다(상시 고정이 아니라 정렬 — 0건이면 없다).
-        // `TabGroupState`는 참조 타입이라 제자리에서 고친다.
-        if let id, let g = groups[id] {
-            g.items.sort { a, b in a.pinsFirst && !b.pinsFirst }
-        }
+        if let id { pinReferencesFirst(id) }
         persist()
         return id
     }
@@ -1961,6 +1960,16 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         let tab = BrowserTab(url: url)
         tab.onNavigated = { [weak self] in self?.persist() }
         return tab
+    }
+
+    /// 참고 서브탭을 **맨 앞**에 세운다. 개별 diff와 맥락이 다르니 자리도 다르다.
+    ///
+    /// 상시 고정이 아니라 **정렬**이다 — 0건이면 아예 없다(빈 탭을 남기지 않는다).
+    /// 새 diff가 뒤에 붙어도 이 순서가 유지되도록 항목이 늘 때마다 부른다.
+    private func pinReferencesFirst(_ tabId: TabID) {
+        guard let g = groups[tabId], g.items.contains(where: { $0.pinsFirst }) else { return }
+        // `sort`는 안정 정렬이 아니라서 나머지 순서가 흔들릴 수 있다 — 갈라서 이어 붙인다.
+        g.items = g.items.filter(\.pinsFirst) + g.items.filter { !$0.pinsFirst }
     }
 
     /// 그룹 탭 상태 접근 — BonsplitWorkspaceView가 .group 탭 렌더 시 사용.

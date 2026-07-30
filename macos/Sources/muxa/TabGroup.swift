@@ -105,7 +105,9 @@ enum GroupItemContent: Identifiable {
         case .diff(let t): return t.tabTitle
         // 서브탭 라벨은 nonisolated 컨텍스트라 불변 initialURL(let)로만 잡는다(페이지 제목 실시간 반영은 안 함).
         case .web(let t): return t.initialURL.host ?? t.initialURL.absoluteString
-        case .references(let t): return t.title
+        // 서브탭 라벨은 **짧게** — 세션 제목(첫 프롬프트 전문)을 여기 쓰면 스트립을 통째로 먹는다.
+        // 어느 세션인지는 패널 안 헤더가 말한다.
+        case .references: return "참고"
         }
     }
 
