@@ -350,6 +350,15 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 탭별 transcript(JSONL) 경로 미러 — hover 팝오버가 첨부 이미지를 여기서 읽는다.
     /// 관측 대상이 아니다(열람 시점에만 읽는 값) — 훅이 올 때마다 최신으로 덮는다.
     @ObservationIgnored private var agentTranscripts: [TabID: String] = [:]
+    /// 탭별 **에이전트가 만진 파일·참고한 것**(관측 대상 — 에이전트 패널이 읽는다).
+    /// 진행 표시(`agentDetail`)가 같은 신호를 한 줄로 쓰고 버리는 것을 여기서 **누적**한다.
+    private(set) var agentChanges: [TabID: AgentChangeSet] = [:]
+    /// 기준선 HEAD 조회가 날아간 탭 — 같은 탭에 셸아웃을 겹쳐 쏘지 않는다.
+    @ObservationIgnored private var baselineInFlight: Set<TabID> = []
+    /// 디바운스 대기 중인 탭들. 파일 쓰기는 `FileWatcher`와 같은 수치로 모아 흘린다.
+    @ObservationIgnored private var pendingChangePersist: Set<TabID> = []
+    @ObservationIgnored private var changePersistTimer: Timer?
+    @ObservationIgnored private var changePersistFirstSignal: TimeInterval?
     /// 배지가 하나라도 생기면 상위(AppState)에 알린다 — 프로젝트 탭 ● 표시용.
     @ObservationIgnored var onProjectActivity: (() -> Void)?
     /// 데스크톱 알림을 띄워야 할 때 상위(AppState)에 위임한다 — 라우팅 컨텍스트(프로젝트·워크스페이스)는
@@ -674,6 +683,17 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         pendingRunCommand[tabId] = nil // 첫 실행 명령 힌트 해제(Claude 버튼)
         restoredScrollbackFile[tabId] = nil // 스크롤백 파일 힌트 해제
         ScrollbackStore.delete(for: tabId) // 이 탭의 스크롤백 파일 정리(누수 방지)
+        // 에이전트 수집 기록(YJ-7) — **지속 세션이 아닐 때만** 지운다. tmux 세션이 살아 있으면
+        // (백그라운드 keep) 그 claude는 계속 도는 중이라, 기록을 지우면 되찾았을 때 빈 목록이 된다.
+        // 그 경우는 GC의 살아있는-키·유예 판정에 맡긴다(의심되면 안 지운다).
+        if tmuxSessions[tabId] == nil { AgentChangeStore.delete(key: tabId.uuid.uuidString) }
+        pendingChangePersist.remove(tabId)
+        baselineInFlight.remove(tabId)
+        if agentChanges[tabId] != nil { // 관측 맵은 immutable 교체
+            var map = agentChanges
+            map[tabId] = nil
+            agentChanges = map
+        }
         resumeBindings[tabId] = nil // 에이전트 재개 바인딩 해제
         resumeBlocks[tabId] = nil // 재개 차단 사유도 해제
         resumeTabs.remove(tabId) // 재개 배너 표시 상태도 해제
@@ -1075,7 +1095,115 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         hookSessions[tabId] = next
 
         apply(outcome, to: tabId)
+        // 진행 표시는 이 신호를 한 줄로 쓰고 버린다 — 누적은 apply 뒤에 한다
+        // (제목으로 얼릴 프롬프트가 apply에서 갱신되므로 순서가 중요하다).
+        recordAgentChange(tabId, payload: payload)
         return true
+    }
+
+    // MARK: 에이전트가 만진 파일 — 이미 오는 신호의 누적 (YJ-7)
+
+    /// 수집 파일의 키. **지속(∞) 탭은 tmux 세션명**을 쓴다 — `reattach`가 새 `TabID`에 기존 세션명을
+    /// 물려주므로 탭 id로 잡으면 되찾는 순간 기록이 고아가 된다(`IdeSessionLedger` 리뷰 I-1과 같은 지점).
+    /// 세션명은 `TabSnapshot.tmuxSession`으로 이미 영속되므로, 이 키는 **재시작을 그냥 넘긴다**.
+    private func agentChangeKey(for tabId: TabID) -> String {
+        tmuxSessions[tabId] ?? tabId.uuid.uuidString
+    }
+
+    /// 그 탭이 만진 파일 집합(없으면 디스크에서 한 번 올려본다 — 재시작 후 첫 조회).
+    func agentChangeSet(for tabId: TabID) -> AgentChangeSet? {
+        if let set = agentChanges[tabId] { return set }
+        guard let loaded = AgentChangeStore.load(key: agentChangeKey(for: tabId)) else { return nil }
+        var map = agentChanges
+        map[tabId] = loaded
+        agentChanges = map
+        return loaded
+    }
+
+    /// 사용자가 그 파일의 diff를 열었다 — "봤음"을 찍는다.
+    func markAgentChangeSeen(tabId: TabID, path: String) {
+        guard var set = agentChanges[tabId] else { return }
+        set.markSeen(path: path, at: Date())
+        var map = agentChanges
+        map[tabId] = set
+        agentChanges = map
+        scheduleAgentChangePersist(tabId)
+    }
+
+    /// 훅 payload에서 편집 경로·참고 항목을 뽑아 누적한다. 대상이 없으면 아무 일도 없다.
+    private func recordAgentChange(_ tabId: TabID, payload: ClaudeHookPayload) {
+        let cwd = effectiveCwds[tabId]
+        let now = Date()
+        var set = agentChanges[tabId] ?? AgentChangeStore.load(key: agentChangeKey(for: tabId)) ?? AgentChangeSet()
+        let before = set
+
+        if let path = AgentChangeSet.touchedPath(toolName: payload.toolName,
+                                                 input: payload.toolInput, cwd: cwd) {
+            set.record(path: path, sessionId: payload.sessionId,
+                       prompt: agentPrompts[tabId]?.oneLine, at: now)
+        }
+        if let ref = AgentChangeSet.reference(toolName: payload.toolName,
+                                             input: payload.toolInput, cwd: cwd, at: now) {
+            set.record(reference: ref, at: now)
+        }
+        guard set != before else { return }
+
+        var map = agentChanges
+        map[tabId] = set
+        agentChanges = map
+
+        // 첫 수집 순간의 HEAD가 diff의 base다 — 한 번만 조회한다.
+        if set.baselineHead == nil, let cwd { captureAgentBaseline(tabId, cwd: cwd) }
+        scheduleAgentChangePersist(tabId)
+    }
+
+    /// 기준선 HEAD를 한 번 조회해 얼린다(셸아웃이라 비동기).
+    private func captureAgentBaseline(_ tabId: TabID, cwd: String) {
+        guard !baselineInFlight.contains(tabId) else { return }
+        baselineInFlight.insert(tabId)
+        Task { @MainActor [weak self] in
+            let head = await GitService.headHash(in: cwd)
+            guard let self else { return }
+            self.baselineInFlight.remove(tabId)
+            // 그 사이 탭이 닫혔거나 이미 채워졌으면 손대지 않는다.
+            guard var set = self.agentChanges[tabId], set.baselineHead == nil, let head else { return }
+            set.baselineHead = head
+            var map = self.agentChanges
+            map[tabId] = set
+            self.agentChanges = map
+            self.scheduleAgentChangePersist(tabId)
+        }
+    }
+
+    /// 파일 쓰기를 모아 흘린다. **`persist()`를 부르지 않는다** — 그건 디바운스가 없어서
+    /// `state.v4.json` 전체를 매번 재인코딩한다(편집 50번 = 전체 스냅샷 50회).
+    /// 수치·순수 예약 함수는 `FileWatcher`의 것을 그대로 쓴다: trailing로 정착을 기다리되
+    /// 폭주 중에도 maxWait마다 강제로 흘린다(트레일링만 두면 재예약이 무한 반복돼 한 번도 안 쓴다).
+    private func scheduleAgentChangePersist(_ tabId: TabID) {
+        pendingChangePersist.insert(tabId)
+        let now = Date().timeIntervalSinceReferenceDate
+        let first = changePersistFirstSignal ?? now
+        changePersistFirstSignal = first
+        let delay = FileWatcher.DebounceSchedule.delay(
+            now: now, firstSignal: first,
+            debounce: FileWatcher.debounce, maxWait: FileWatcher.maxWait)
+        changePersistTimer?.invalidate()
+        changePersistTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.flushAgentChanges() }
+        }
+    }
+
+    /// 대기 중인 탭의 집합을 디스크에 쓴다. 종료 직전에도 한 번 부른다(마지막 ≤maxWait분 유실 방지).
+    func flushAgentChanges() {
+        changePersistTimer?.invalidate()
+        changePersistTimer = nil
+        changePersistFirstSignal = nil
+        let tabs = pendingChangePersist
+        pendingChangePersist.removeAll()
+        for tabId in tabs {
+            guard let set = agentChanges[tabId] else { continue }
+            AgentChangeStore.write(set, key: agentChangeKey(for: tabId))
+        }
     }
 
     /// 해석 결과(순수)를 부작용으로 옮긴다 — 훅 배달과 보류 만료가 공유하는 단일 경로.
