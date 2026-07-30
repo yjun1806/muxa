@@ -243,7 +243,7 @@ final class ProjectScriptsTests: XCTestCase {
         let make = found.scripts.filter { $0.source == .makefile }
         XCTAssertTrue(make.contains { $0.name == "test" && $0.body == "make test" },
                       "Makefile의 test 타깃을 못 찾았다: \(make.map(\.name))")
-        XCTAssertNotNil(make.first { $0.name == "app" }?.note, "## 설명을 못 읽었다")
+        XCTAssertNotNil(make.first { $0.name == "dev" }?.note, "## 설명을 못 읽었다")
 
         // scripts/*.sh — 실행 가능한 셸 스크립트
         let shell = found.scripts.filter { $0.source == .shell }
