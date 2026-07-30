@@ -17,6 +17,11 @@ struct AgentChangeRow: Equatable, Identifiable {
     let isUnread: Bool
     /// 마지막 변경 시각(꼬리표 "3m"). 모르면 침묵한다.
     let mtime: Date?
+    /// 몇 번 만졌나 — **여러 번 고친 파일 = 에이전트가 헤맨 자리**라 리뷰에서 먼저 볼 곳이다.
+    /// 좁은 패널엔 자리가 없어 상세 탭에서만 쓴다.
+    let touchCount: Int
+    /// 어느 지시로 건드렸나(처음 만진 턴). 없으면 침묵한다.
+    let context: String?
 
     var id: String { path }
 }
@@ -94,7 +99,9 @@ enum AgentChangeDisplay {
             AgentChangeRow(path: entry.path,
                            mark: mark(status: status[entry.path]),
                            isUnread: isUnread(entry: entry, mtime: mtimes[entry.path]),
-                           mtime: mtimes[entry.path])
+                           mtime: mtimes[entry.path],
+                           touchCount: entry.touchCount,
+                           context: entry.context)
         }
         // 안 본 개수는 **보이는 것 전부**를 센다 — 접힌 행에 안 본 게 있는데 배지가 침묵하면 안 된다.
         let unread = visible.filter { isUnread(entry: $0, mtime: mtimes[$0.path]) }.count

@@ -31,6 +31,11 @@ struct AgentChangeEntry: Equatable, Codable {
     /// 사용자가 diff를 연 시각. nil = 안 봤음.
     /// "다시 봐야 하나"의 판정(`lastTouchedAt`·mtime과의 비교)은 표시 단계의 몫이다.
     var seenAt: Date?
+    /// **어느 지시로 이걸 건드렸나** — 처음 만진 턴의 프롬프트.
+    /// 참고 항목과 대칭이다. 20턴짜리 세션에서 "이 파일은 왜 바뀐 거지"는 목록만으론 안 풀린다.
+    /// **처음 것을 남긴다**(참고는 최근 것) — 파일이 생겨난 이유가 그 파일의 정체성이고,
+    /// 나중 손질까지 제목을 빼앗으면 "왜 이게 여기 있나"가 사라진다.
+    var context: String?
 }
 
 /// 한 탭(에이전트 세션)이 만진 파일과 참고한 것의 축적 — 순수 값.
@@ -128,6 +133,9 @@ struct AgentChangeSet: Equatable, Codable {
             existing.lastTouchedAt = now
             existing.touchCount += 1
             if let sessionId { existing.lastSessionId = sessionId }
+            // 맥락은 **덮지 않는다** — 처음 만진 이유가 그 파일이 여기 있는 이유다.
+            // 다만 처음에 프롬프트를 못 읽었으면 다음 기회에 채운다.
+            if existing.context == nil { existing.context = prompt }
             entries[path] = existing
             return
         }
@@ -137,7 +145,8 @@ struct AgentChangeSet: Equatable, Codable {
             return
         }
         entries[path] = AgentChangeEntry(path: path, firstTouchedAt: now, lastTouchedAt: now,
-                                         touchCount: 1, lastSessionId: sessionId, seenAt: nil)
+                                         touchCount: 1, lastSessionId: sessionId, seenAt: nil,
+                                         context: prompt)
     }
 
     /// 참고 기록. 같은 것을 여러 번 봐도 한 항목이고, 마지막으로 본 시각만 갱신된다.

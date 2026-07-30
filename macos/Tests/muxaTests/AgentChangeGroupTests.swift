@@ -226,6 +226,34 @@ struct AgentChangeGroupTests {
         #expect(s.originPrompt == "진짜 지시")
     }
 
+    // MARK: 변경 항목의 맥락 — 참고와 대칭이되 방향이 반대다
+
+    /// 파일이 **생겨난 이유**가 그 파일의 정체성이다 — 나중 손질이 제목을 빼앗으면
+    /// "왜 이게 여기 있나"가 사라진다. (참고는 반대로 최근 맥락을 남긴다.)
+    @Test func 변경_맥락은_처음_것을_지킨다() {
+        var s = AgentChangeSet()
+        s.record(path: "/a.swift", sessionId: nil, prompt: "로그인 버그 고쳐줘", at: t0)
+        s.record(path: "/a.swift", sessionId: nil, prompt: "들여쓰기만 정리해줘", at: t1)
+        #expect(s.entries["/a.swift"]?.context == "로그인 버그 고쳐줘")
+    }
+
+    /// 처음에 프롬프트를 못 읽었으면(훅 이전 세션) 다음 기회에 채운다.
+    @Test func 처음_맥락이_없었으면_다음_것을_받는다() {
+        var s = AgentChangeSet()
+        s.record(path: "/a.swift", sessionId: nil, prompt: nil, at: t0)
+        s.record(path: "/a.swift", sessionId: nil, prompt: "나중에 알게 된 지시", at: t1)
+        #expect(s.entries["/a.swift"]?.context == "나중에 알게 된 지시")
+    }
+
+    @Test func 행에_횟수와_맥락이_실린다() {
+        var s = AgentChangeSet()
+        s.record(path: "/a.swift", sessionId: nil, prompt: "초록 벽 걷어내줘", at: t0)
+        s.record(path: "/a.swift", sessionId: nil, prompt: nil, at: t1)
+        let row = AgentChangeDisplay.group(from: s, status: ["/a.swift": "M"], mtimes: [:]).rows.first
+        #expect(row?.touchCount == 2)
+        #expect(row?.context == "초록 벽 걷어내줘")
+    }
+
     // MARK: 맥락
 
     /// 목록만으로는 "왜 이걸 봤지"가 안 풀린다 — 그 턴의 프롬프트를 함께 남긴다.
