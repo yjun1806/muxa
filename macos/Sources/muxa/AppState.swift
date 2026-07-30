@@ -26,6 +26,12 @@ final class AppState {
     /// (새 프로젝트·구 저장분은 집합에 없음 = 펼침, 마이그레이션 불필요). 프로젝트 전환 시 자동 펼침은
     /// 여기서 제거로 구현된다(`expandAgentList`).
     private(set) var collapsedAgentLists: Set<String> = []
+    /// 에이전트 패널의 접힌 세션 그룹(YJ-7) — 기본 펼침, **접은 것만** 기억한다.
+    /// 뷰 로컬 상태로 두면 패널을 닫았다 열 때마다 전부 펼쳐진다(사이드바가 겪은 그 문제).
+    ///
+    /// **디스크엔 안 남긴다** — 키가 `TabID`라 재시작하면 새로 발급되어 죽은 키만 쌓인다.
+    /// 사이드바(`collapsedAgentLists`)는 키가 프로젝트 id라 영속이 의미 있지만 여기는 다르다.
+    private(set) var collapsedAgentGroups: Set<String> = []
 
     /// 백그라운드 활동(●)이 있는 프로젝트 id들(A). 사이드바 프로젝트 행이 관측해 상태 글리프를 그린다.
     private(set) var badgedProjects: Set<String> = []
@@ -828,6 +834,15 @@ final class AppState {
 
     func isAgentListExpanded(_ projectId: String) -> Bool {
         !collapsedAgentLists.contains(projectId)
+    }
+
+    func isAgentGroupCollapsed(_ key: String) -> Bool { collapsedAgentGroups.contains(key) }
+
+    /// 에이전트 패널의 세션 그룹 접기/펼치기.
+    func toggleAgentGroup(_ key: String) {
+        if collapsedAgentGroups.contains(key) { collapsedAgentGroups.remove(key) }
+        else { collapsedAgentGroups.insert(key) }
+        // save 없음 — 세션 안에서만 사는 값이다(위 주석).
     }
 
     /// 셰브론/활성 행 재클릭 — 이 프로젝트의 에이전트 목록만 접기/펼치기.

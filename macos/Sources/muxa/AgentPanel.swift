@@ -20,6 +20,9 @@ struct AgentPanel: View {
     var onOpenGitPanel: () -> Void
     /// 참고 목록 열기 — 패널엔 한 줄만 두고 목록은 탭으로 보낸다(읽기가 편집을 압도한다).
     var onOpenReferences: (TabID, String) -> Void
+    /// 그룹 접힘 조회·토글 — 상태는 상위(AppState)가 소유하고 여기는 위임만 한다.
+    var isCollapsed: (String) -> Bool
+    var onToggleCollapse: (String) -> Void
 
     /// 절대경로 → git 상태 문자. 30초 tick과 함께 갱신한다.
     @State private var status: [String: Character] = [:]
@@ -29,17 +32,32 @@ struct AgentPanel: View {
     /// **사용자가 직접 고친 파일도 함께 들어온다** — 그래서 "에이전트가 몰래 한 것"이라고
     /// 말하지 않는다. 이 패널의 목록이 전부가 아님을 알리는 게 이 행의 일이다.
     @State private var unknownToPanel = 0
-    @State private var collapsed: Set<String> = []
+    // 접힘은 **AppState가 소유**한다(영속) — 뷰 로컬 @State면 패널을 닫았다 열 때마다
+    // 전부 다시 펼쳐진다. 사이드바가 같은 실수를 이미 겪고 고쳤다(`SidebarProjectRow` 주석).
     @State private var tick = Date()
 
     var body: some View {
         VStack(spacing: 0) {
             header
             HDivider()
-            if groups.isEmpty {
+            // **잔차 행은 groups와 독립이다.** 예전엔 `groupList` 안에 있어서, 훅 추적 기록이 0인데
+            // 저장소는 dirty한 상태(첫 사용에서 가장 흔하다)에서 "만진 파일이 없습니다"만 뜨고
+            // 실제 변경 N건이 통째로 숨었다 — 완전성 참칭을 막는 유일한 방어가 정작 가장 필요한
+            // 순간에 죽는 경로였다.
+            if groups.isEmpty && unknownToPanel == 0 {
                 empty
             } else {
-                ScrollView { groupList }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Space.tight) {
+                        if groups.isEmpty { emptyInline }
+                        groupList
+                        if unknownToPanel > 0 {
+                            HDivider().padding(.horizontal, Space.xs).padding(.top, Space.sm)
+                            residual
+                        }
+                    }
+                    .padding(.vertical, Space.sm)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -81,16 +99,17 @@ struct AgentPanel: View {
 
     @ViewBuilder
     private var groupList: some View {
-        VStack(alignment: .leading, spacing: Space.tight) {
-            ForEach(groups, id: \.key) { item in
-                group(item)
-            }
-            if unknownToPanel > 0 {
-                HDivider().padding(.horizontal, Space.xs).padding(.top, Space.sm)
-                residual
-            }
+        ForEach(groups, id: \.key) { item in
+            group(item)
         }
-        .padding(.vertical, Space.sm)
+    }
+
+    /// 수집 기록은 없는데 잔차는 있는 상태 — "없다"가 아니라 **"이 패널이 못 봤다"**라고 말한다.
+    private var emptyInline: some View {
+        Text("이 세션에서 추적된 편집이 없습니다")
+            .font(.muxa(.label)).foregroundStyle(Color.pMuted)
+            .padding(.horizontal, Space.panelInset)
+            .frame(height: RowHeight.row, alignment: .leading)
     }
 
     // MARK: 그룹 = 세션 하나
@@ -98,7 +117,7 @@ struct AgentPanel: View {
     @ViewBuilder
     private func group(_ item: GroupItem) -> some View {
         let focused = item.tabId == store.currentTabId
-        let open = !collapsed.contains(item.key)
+        let open = !isCollapsed(item.key)
         VStack(alignment: .leading, spacing: 0) {
             groupHeader(item, focused: focused, open: open)
             if open {
@@ -153,7 +172,7 @@ struct AgentPanel: View {
         .frame(height: focused ? RowHeight.toolbar : RowHeight.row)   // 보는 세션은 머리를 한 단 키운다
         .contentShape(Rectangle())
         // 행 클릭 = 펼침/접힘 (커밋 행과 같은 제스처 — 훑기와 정독이 제스처를 공유하지 않는다).
-        .onTapGesture { toggle(item.key) }
+        .onTapGesture { onToggleCollapse(item.key) }
         .clickCursor()
     }
 
@@ -283,16 +302,20 @@ struct AgentPanel: View {
                              referenceCount: set.references.count,
                              root: store.effectiveCwds[tabId] ?? dir)
         }
+        // 보는 세션이 먼저, 그다음 **안 본 개수가 많은 순**. 예전엔 제목 알파벳순이라
+        // 헤더 배지가 "12건 안 봤다"고 광고하는 세션이 이름 탓에 아래로 밀렸다 —
+        // 배지가 말하는 긴급도를 정렬이 배신했다.
         .sorted { lhs, rhs in
             let l = lhs.tabId == store.currentTabId, r = rhs.tabId == store.currentTabId
             if l != r { return l }
+            if lhs.group.unreadCount != rhs.group.unreadCount {
+                return lhs.group.unreadCount > rhs.group.unreadCount
+            }
             return lhs.title < rhs.title
         }
     }
 
-    private func toggle(_ key: String) {
-        if collapsed.contains(key) { collapsed.remove(key) } else { collapsed.insert(key) }
-    }
+
 
     /// 저장소 루트 기준 상대경로 — 행 라벨·diff 인자가 쓴다(git은 상대경로로 말한다).
     /// 그 탭의 cwd(없으면 패널 dir) 기준 상대경로 — 라벨과 diff 인자가 함께 쓴다.
