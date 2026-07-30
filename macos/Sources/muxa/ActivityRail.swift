@@ -19,6 +19,12 @@ struct ActivityRail: View {
             RailButton(icon: MuxaSymbol.gitBranch, help: "Git", active: state.showGitPanel) {
                 state.selectInspector(.git)
             }
+            // 에이전트 패널(YJ-7) — Git 바로 다음. 아이콘은 `ClaudeMark`(정체성이라 원본색 유지,
+            // 무채 크롬의 예외는 정체성뿐 — `RepoAvatarIcon`과 같은 규칙).
+            RailButton(icon: "", help: "에이전트가 만진 파일", active: state.showAgentPanel,
+                       mark: { AnyView(ClaudeMark(size: Rail.icon)) }) {
+                state.selectInspector(.agent)
+            }
             RailButton(icon: "bell", help: "알림 인박스", active: state.showAttention,
                        badge: state.attentionBadgeCount) {
                 state.selectInspector(.attention)
@@ -69,14 +75,18 @@ private struct RailButton: View {
     let help: String
     let active: Bool
     var badge: Int = 0
+    /// 정체성 마크를 대신 그린다(있으면 `icon`은 무시) — Claude 마크처럼 **원본색을 지켜야 하는**
+    /// 글리프는 `MuxaIcon`(템플릿·틴트 적용)으로 그릴 수 없다.
+    var mark: (() -> AnyView)?
     let action: () -> Void
 
     @State private var hovered = false
 
     var body: some View {
         Button(action: action) {
-            MuxaIcon(name: icon, size: Rail.icon)
-                .foregroundStyle(iconColor)
+            Group {
+                if let mark { mark() } else { MuxaIcon(name: icon, size: Rail.icon).foregroundStyle(iconColor) }
+            }
                 .frame(width: IconSize.control, height: IconSize.control)
                 .background {
                     if active {

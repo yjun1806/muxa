@@ -83,12 +83,16 @@ struct GitFileLabel: View {
     let path: String
     /// 리네임 원본 — 있으면 "옛이름 → " 접두가 붙는다.
     var oldPath: String?
+    /// 이름의 굵기·색 — 에이전트 패널이 **"안 봤음"을 굵기로** 말한다(YJ-7).
+    /// 기본값은 기존 호출부의 모습 그대로라 Git 패널은 영향을 받지 않는다.
+    var weight: Font.Weight = .regular
+    var tone: Color = .pFg
 
     var body: some View {
         HStack(spacing: Space.sm) {
             Text(basename(path))
-                .font(.muxa(.body))
-                .foregroundStyle(Color.pFg)
+                .font(.muxa(.body, weight: weight))
+                .foregroundStyle(tone)
                 .lineLimit(1)
                 .truncationMode(.middle)
             if let parent = parentDir(path), !parent.isEmpty {

@@ -32,6 +32,8 @@ struct AgentChangeGroup: Equatable {
     let hiddenCount: Int
     /// 천장에 닿아 **애초에 기록하지 못한** 수. 접힌 것과 다른 사건이라 따로 말한다.
     let truncatedCount: Int
+    /// 이 그룹의 diff 기준 리비전(얼린 HEAD). 아직 못 읽었으면 nil — 여는 쪽이 HEAD로 떨어진다.
+    let baseline: String?
 }
 
 /// 수집 기록을 표시용으로 접는 판정 — 전부 순수 함수라 테스트로 못 박는다.
@@ -96,7 +98,8 @@ enum AgentChangeDisplay {
                                 rows: Array(shown),
                                 unreadCount: unread,
                                 hiddenCount: max(0, visible.count - shown.count),
-                                truncatedCount: set.truncatedCount)
+                                truncatedCount: set.truncatedCount,
+                                baseline: set.baselineHead)
     }
 
     /// 참고 목록 — 종류별로 갈라 최근 본 순. 탭에서 "뭘 봤나"만 답하므로 통계는 붙이지 않는다.

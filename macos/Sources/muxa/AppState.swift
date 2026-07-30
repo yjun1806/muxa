@@ -112,6 +112,8 @@ final class AppState {
     /// 상단바 토글 버튼·단축키(⌘⇧E/⌘⇧G)·알림이 이 상태를 연다.
     var showExplorer = false
     var showGitPanel = false
+    /// 에이전트 패널(YJ-7) — "어느 세션이 무엇을 만졌나". Git 패널(리포 주제)과 같은 슬롯을 쓴다.
+    var showAgentPanel = false
     /// 인스펙터 탭 — 익스플로러·Git·설정·알림이 **한 슬롯**을 공유한다(하나만 보임, 통일 폭). 서비스 서랍은 별개.
     var showSettings = false
     var showAttention = false
@@ -181,6 +183,7 @@ final class AppState {
     var inspectorTab: InspectorTab? {
         if showExplorer { return .explorer }
         if showGitPanel { return .git }
+        if showAgentPanel { return .agent }
         if showAttention { return .attention }
         return nil
     }
@@ -197,7 +200,7 @@ final class AppState {
     /// 설정 패널 토글 — **인스펙터와 같은 우측 슬롯**을 쓰므로 열면 인스펙터를 닫는다(스택 방지).
     func toggleSettings() {
         let open = !showSettings
-        showExplorer = false; showGitPanel = false; showAttention = false
+        showExplorer = false; showGitPanel = false; showAgentPanel = false; showAttention = false
         showSettings = open
         saveDebounced()
     }
@@ -205,7 +208,7 @@ final class AppState {
     /// 설정을 열고 특정 섹션으로 스크롤·강조한다("여기 설정 보여줘" 동선). 이미 열려 있어도 focus만 다시 실어
     /// 재-스크롤/플래시를 트리거한다(패널이 `settingsFocus`를 소비한다).
     func openSettings(focus: SettingsSection) {
-        showExplorer = false; showGitPanel = false; showAttention = false
+        showExplorer = false; showGitPanel = false; showAgentPanel = false; showAttention = false
         showSettings = true
         settingsFocus = focus
         saveDebounced()
@@ -215,6 +218,7 @@ final class AppState {
         showSettings = false // 인스펙터를 열면 설정 패널을 닫는다(우측 슬롯은 하나)
         showExplorer = tab == .explorer
         showGitPanel = tab == .git
+        showAgentPanel = tab == .agent
         showAttention = tab == .attention
         // 탭 전환마다 동기 디스크 I/O(save)를 피한다 — 그게 클릭이 가끔 씹히던 원인(메인스레드 히치).
         // 디바운스로 합쳐 저장한다(빠른 연속 전환은 마지막 한 번만 기록).

@@ -1028,7 +1028,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     }
 
     /// 인박스 이력에 쓸 탭 제목 — 수동 지정 > 엔진 제목 > 기본값.
-    private func tabTitle(_ tabId: TabID) -> String {
+    func tabTitle(_ tabId: TabID) -> String {
         manualTitles[tabId] ?? engineTitles[tabId] ?? Self.defaultTerminalTitle
     }
 

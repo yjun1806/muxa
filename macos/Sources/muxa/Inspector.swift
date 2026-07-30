@@ -3,7 +3,7 @@ import SwiftUI
 /// 우측 인스펙터의 탭 — 탐색기·Git·알림이 **한 슬롯**을 공유한다(하나만 보임, 통일 폭).
 /// 설정은 성격이 달라(전역·자주 안 봄) 인스펙터 탭이 아니라 **별도 패널**로 분리했다. 서비스 서랍도 별개.
 enum InspectorTab: String, CaseIterable, Identifiable {
-    case explorer, git, attention
+    case explorer, git, agent, attention
 
     var id: String { rawValue }
 
@@ -65,6 +65,16 @@ struct InspectorContent: View {
                     onSendReview: { store.injectToTerminal($0) },
                     onOpenInViewer: { _ = store.openFile($0) } // 탐색기와 같은 뷰어 경로
                 ) { store.openDiff($0) }
+            } else {
+                emptyProject
+            }
+        case .agent:
+            if let t = target {
+                let store = state.store(for: t.project, in: t.ws)
+                AgentPanel(store: store,
+                           dir: t.project.path ?? t.ws.path,
+                           onOpenDiff: { _ = store.openDiff($0) },
+                           onOpenGitPanel: { state.openInspector(.git) })
             } else {
                 emptyProject
             }
