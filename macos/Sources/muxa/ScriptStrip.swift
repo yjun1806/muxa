@@ -1,14 +1,15 @@
 import SwiftUI
 
-/// 푸터의 명령 칩 — 등록된 명령(끝이 있는 명령)의 실행 상태 요약 + 도크 진입점.
+/// 푸터의 명령 칩 — 등록된 명령(끝이 있는 명령)의 **실행 상태**. 클릭하면 서비스 도크의 명령 탭이
+/// 열린다(`ServiceStrip`과 같은 계약).
 ///
-/// **서비스 칩과 대칭**이 됐다: 클릭하면 팝오버가 아니라 **서비스 도크의 명령 탭**이 열린다
-/// (목록·실행·추가·삭제가 전부 도크에 있어 중간 팝오버가 필요 없다 — `ServiceStrip.toggleDock`과 같은 계약).
-/// 등록 0개여도 상시로 그려 첫 등록의 발견 지점이 된다(서비스 칩과 같은 철학).
+/// **평시엔 아예 그리지 않는다**(YJ-8) — 상시 진입점은 액티비티 레일이 맡고, 푸터는 **지금 벌어지는
+/// 일**만 말한다(백그라운드 칩의 "0개면 숨김"과 같은 문법). 그래서 푸터에 뭔가 보이면 곧 볼 일이 있다는 뜻이다.
 ///
-/// 네 모드(`ScriptChipMode` 순수 판정): **빈 칩**=플레이스홀더(클릭=도크 명령 탭) /
-/// **평시**=개수 칩(클릭=도크) / **실행 중**=[⟳ 이름·경과](클릭=도크 라이브 출력) /
-/// **완료 잔류**=✓ 무채·✗ 빨강(클릭=확인 + 도크 종료 로그). 잔류는 클릭·새 실행 시 내려간다(acknowledge).
+/// 네 모드(`ScriptChipMode` 순수 판정) 중 뒤 둘만 그린다: ~~빈 칩~~ / ~~평시 개수~~ /
+/// **실행 중**=[⟳ 이름·경과](클릭=도크 라이브 출력) / **완료 잔류**=✓ 무채·✗ 빨강(클릭=확인 + 도크
+/// 종료 로그). 잔류는 클릭·새 실행 시 내려간다(acknowledge) — 34pt 레일엔 exit code를 적을 자리가
+/// 없어 이 상태는 계속 푸터가 맡는다.
 struct ScriptStrip: View {
     let state: AppState
     let project: Project
@@ -30,72 +31,38 @@ struct ScriptStrip: View {
     /// 이 칩이 연 도크가 지금 떠 있나 — 배경(눌린 상태 유지)을 서비스 칩과 같은 규칙으로 말한다.
     private var isOpen: Bool { state.showServiceDock && state.dockTab == .commands }
 
-    var body: some View {
-        chip
-            .frame(height: RowHeight.tight)
-            .background(Color.footerChip(isOpen: isOpen, hovered: hovered),
-                        in: RoundedRectangle(cornerRadius: Radius.sm))
-            .onHover { hovered = $0 }
-            .animation(Motion.fast, value: hovered)
-            .tick(every: 1, into: $now)
+    /// 푸터에 나타나야 하나 — 실행 중이거나 방금 끝난 것이 있을 때만. 평시·빈 상태의 진입점은 레일이 맡는다.
+    private var visible: Bool {
+        switch mode {
+        case .empty, .idle: return false
+        case .running, .lingering: return true
+        }
     }
 
-    /// 칩 클릭 = 도크 명령 탭 토글(⌘J와 같은 여닫이 — 다시 누르면 닫힌다).
-    private func toggleDock() {
-        if isOpen { state.closeServiceDock() }
-        else { state.openServiceDock(serviceId: nil, tab: .commands) }
+    @ViewBuilder var body: some View {
+        if visible {
+            chip
+                .frame(height: RowHeight.tight)
+                .background(Color.footerChip(isOpen: isOpen, hovered: hovered),
+                            in: RoundedRectangle(cornerRadius: Radius.sm))
+                .onHover { hovered = $0 }
+                .animation(Motion.fast, value: hovered)
+                // 경과 갱신 타이머는 **보일 때만** 돈다 — 안 보이면 이 뷰가 아예 없어 tick도 없다.
+                .tick(every: 1, into: $now)
+        }
     }
 
     // MARK: 모드별 칩
 
     @ViewBuilder private var chip: some View {
         switch mode {
-        case .empty:
-            placeholder
-        case .idle(let count):
-            idleChip(count: count)
         case .running(let active):
             runningChip(active)
         case .lingering(let run):
             lingerChip(run)
+        case .empty, .idle:
+            EmptyView() // `visible`이 이미 걸렀다 — 여기 오지 않는다.
         }
-    }
-
-    /// 등록 0개 — 이름만 말하는 플레이스홀더(ServiceStrip.placeholder와 같은 문법). 클릭 = 도크 명령 탭.
-    private var placeholder: some View {
-        Button(action: toggleDock) {
-            HStack(alignment: .center, spacing: Space.xs) {
-                Image(systemName: ScriptStatusStyle.icon).font(.muxa(.micro))
-                Text("명령").font(.muxa(.label))
-            }
-            .foregroundStyle(Color.pMuted)
-            .padding(.horizontal, Space.sm)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .clickCursor()
-        .help("명령 — 빌드·테스트처럼 끝이 있는 명령. 클릭해 추가·실행")
-        .accessibilityLabel("명령")
-    }
-
-    /// 평시 — 개수만 말하는 조용한 칩. 클릭 = 도크 명령 탭.
-    private func idleChip(count: Int) -> some View {
-        Button(action: toggleDock) {
-            HStack(alignment: .center, spacing: Space.xs) {
-                Image(systemName: ScriptStatusStyle.icon)
-                    .font(.muxa(.micro))
-                    .foregroundStyle(Color.pMuted)
-                Text("\(count)")
-                    .font(.muxaMono(.label, weight: .semibold))
-                    .foregroundStyle(Color.pMuted)
-            }
-            .padding(.horizontal, Space.sm)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .clickCursor()
-        .help("명령 \(count)개 — 클릭해 목록·실행 (도크)")
-        .accessibilityLabel("명령 \(count)개")
     }
 
     /// 실행 중 — [⟳ (N ·) 최신이름 · 12s]. 클릭 = 도크 라이브 출력(revealScript). 팝오버 세그먼트는 없앴다:

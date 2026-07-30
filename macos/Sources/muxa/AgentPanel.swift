@@ -346,7 +346,10 @@ struct AgentPanel: View {
         // 헤더 배지가 "12건 안 봤다"고 광고하는 세션이 이름 탓에 아래로 밀렸다 —
         // 배지가 말하는 긴급도를 정렬이 배신했다.
         .sorted { lhs, rhs in
-            let l = lhs.tabId == store.currentTabId, r = rhs.tabId == store.currentTabId
+            // 아코디언이 여는 기준(currentAgentSession)과 **같아야 한다** — 예전엔 정렬만
+            // currentTabId라, 상세를 보는 동안 열린 그룹과 맨 위 그룹이 서로 달랐다.
+            let cur = store.currentAgentSession
+            let l = lhs.tabId == cur, r = rhs.tabId == cur
             if l != r { return l }
             if lhs.group.unreadCount != rhs.group.unreadCount {
                 return lhs.group.unreadCount > rhs.group.unreadCount
@@ -368,11 +371,8 @@ struct AgentPanel: View {
 
     private func open(_ rel: String, base: String?, tabId: TabID, root: String?) {
         // 기준선이 없으면(아직 못 읽었다) HEAD로 떨어진다 — 열리지 않는 행을 만들지 않는다.
+        // "봤음"은 스토어가 diff를 열 때 찍는다 — 여기서도 찍으면 두 곳이 같은 규칙을 갖는다.
         onOpenDiff(.baselineFile(base: base ?? "HEAD", path: rel, session: tabId))
-        // "봤음"은 **그 그룹의 탭**에 찍는다 — 포커스 탭에 찍으면 남의 기록을 건드린다.
-        guard let base = root ?? dir else { return }
-        store.markAgentChangeSeen(tabId: tabId,
-                                  path: (base as NSString).appendingPathComponent(rel))
     }
 
     // MARK: 새로 고치기

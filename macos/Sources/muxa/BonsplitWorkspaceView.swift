@@ -93,6 +93,7 @@ struct BonsplitWorkspaceView: View {
                     isActiveGroup: store.controller.focusedPaneId?.id == paneId.id
                         && store.controller.selectedTabId(inPane: paneId) == tabId,
                     agentDetail: { store.agentChangeSnapshot(for: $0) },
+                    agentRoot: { store.effectiveCwds[$0] },
                     onOpenDiff: { _ = store.openDiff($0) },
                     detailWidth: state.agentDetailWidth,
                     detailWidthRange: AppState.agentDetailWidthRange,

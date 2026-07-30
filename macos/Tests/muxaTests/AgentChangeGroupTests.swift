@@ -316,3 +316,32 @@ struct AgentChangeGroupTests {
         #expect(AgentChangeDisplay.references(from: s, kind: .web).map(\.value) == ["https://x.test/"])
     }
 }
+
+/// 그룹 탭 제목 — **탭의 폭을 제목이 정한다.** 첫 프롬프트는 한 문단일 수 있어
+/// 자르지 않으면 세션 탭 하나가 탭 바를 다 먹는다(실측).
+struct AgentTabTitleTests {
+    @Test("프롬프트가 길면 자르고 말줄임을 붙인다")
+    func 긴_프롬프트는_잘린다() {
+        let long = String(repeating: "가", count: 100)
+        let title = AgentChangeDisplay.tabTitle(origin: long, fallback: "탭")
+        #expect(title.count == AgentChangeDisplay.titleLimit + 1) // 말줄임 한 자
+        #expect(title.hasSuffix("…"))
+    }
+
+    @Test("짧은 프롬프트는 그대로 — 멀쩡한 제목에 말줄임을 붙이지 않는다")
+    func 짧은_프롬프트는_그대로() {
+        #expect(AgentChangeDisplay.tabTitle(origin: "버그 고쳐줘", fallback: "탭") == "버그 고쳐줘")
+    }
+
+    @Test("경계에서 자르지 않는다 — limit와 같은 길이는 온전한 제목이다")
+    func 경계는_자르지_않는다() {
+        let exact = String(repeating: "a", count: AgentChangeDisplay.titleLimit)
+        #expect(AgentChangeDisplay.tabTitle(origin: exact, fallback: "탭") == exact)
+    }
+
+    @Test("프롬프트가 없거나 비면 탭 이름으로 떨어진다")
+    func 프롬프트가_없으면_대체() {
+        #expect(AgentChangeDisplay.tabTitle(origin: nil, fallback: "탭") == "탭")
+        #expect(AgentChangeDisplay.tabTitle(origin: "", fallback: "탭") == "탭")
+    }
+}

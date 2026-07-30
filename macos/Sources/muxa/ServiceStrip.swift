@@ -1,7 +1,11 @@
 import SwiftUI
 
-/// 푸터의 서비스 칩 — **접혀 있을 때의 유일한 상시 신호**. 칩은 "문제가 있나 없나"만 말하고,
-/// 클릭하면 서비스 도크(`ServiceDock`)가 열려 목록·로그를 다 보여준다(⌘J와 같은 토글).
+/// 푸터의 서비스 칩 — **무언가 비정상 종료됐을 때만** 나타난다. 클릭하면 서비스 도크(`ServiceDock`)가
+/// 열려 목록·로그를 다 보여준다.
+///
+/// 예전엔 상시였다(등록 0개면 플레이스홀더). 진입점이 액티비티 레일로 갔으므로(YJ-8) 그 근거가
+/// 소멸했다 — 푸터는 **지금 벌어지는 일**만 말한다. 서비스에서 그건 "정상 실행 중"이 아니라
+/// **죽었다**다(정상 실행은 상시 상태라 남기면 아무것도 안 사라진다). 명령 칩의 "실행 중"과 대칭.
 ///
 /// **두 세그먼트로 나뉜다** — 사용량 칩과 같은 문법(하나의 알약 + 얇은 세로선):
 ///  - 앞 [**지금**] = 활성 프로젝트의 서비스. 클릭 → 그 로그(도크). 도크가 보여주는 것과 정확히 같다.
@@ -25,30 +29,37 @@ struct ServiceStrip: View {
     /// 전체가 현재보다 많을 때만 [전체] 세그먼트가 의미 있다.
     private var showsGlobal: Bool { all.count > current.count }
 
-    var body: some View {
-        HStack(spacing: 0) {
-            if !state.servicesAvailable || all.isEmpty {
-                // tmux가 없거나 등록이 없어도 **숨기지 않는다** — 숨기면 이 기능이 있는지조차 모른다.
-                placeholder
-            } else {
+    /// 푸터에 나타나야 하나 — **비정상 종료가 하나라도 있을 때만**(이 프로젝트든 창 전체든).
+    /// tmux가 없거나 등록이 0개면 죽을 것도 없어 자연히 숨는다(그 발견 지점은 이제 레일이다).
+    private var visible: Bool { deadCount(of: current.map(\.id)) > 0 || globalDead > 0 }
+
+    @ViewBuilder var body: some View {
+        if visible {
+            HStack(spacing: 0) {
                 currentSegment
                 if showsGlobal {
                     VDivider(height: 12)
                     globalSegment
                 }
             }
+            .padding(.horizontal, Space.sm)
+            .frame(height: RowHeight.tight)
+            .background(chipColor, in: RoundedRectangle(cornerRadius: Radius.sm))
+            .onHover { hovered = $0 } // hover는 배경색까지만
+            .animation(Motion.fast, value: hovered)
         }
-        .padding(.horizontal, Space.sm)
-        .frame(height: RowHeight.tight)
-        .background(chipColor, in: RoundedRectangle(cornerRadius: Radius.sm))
-        .onHover { hovered = $0 } // hover는 배경색까지만
-        .animation(Motion.fast, value: hovered)
     }
 
-    /// 칩 클릭 = 서비스 도크 토글(⌘J와 같은 동작). 목록·로그가 도크에 다 있어 중간 팝오버가 필요 없다.
+    /// 칩 클릭 = 서비스 도크 토글. **서비스 탭을 명시**한다(예전엔 탭을 유지해, 도크가 명령 탭으로
+    /// 열려 있으면 "죽었다"를 눌렀는데 죽은 서비스가 안 보였다). 진입점은 자기 탭으로 데려간다.
     private func toggleDock() {
-        if state.showServiceDock { state.closeServiceDock() } else { state.openServiceDock(serviceId: nil) }
+        if isOpen { state.closeServiceDock() }
+        else { state.openServiceDock(serviceId: nil, tab: .services) }
     }
+
+    /// 이 칩이 연 도크가 지금 떠 있나 — 명령 칩·레일과 같은 판정(`showServiceDock`만 보면 명령 탭이
+    /// 열려 있을 때도 눌린 것처럼 보인다).
+    private var isOpen: Bool { state.showServiceDock && state.dockTab == .services }
 
     // MARK: 앞 — 지금 이 프로젝트 (클릭 = 도크 열기)
 
@@ -114,24 +125,6 @@ struct ServiceStrip: View {
         .help(globalHelp)
     }
 
-    private var placeholder: some View {
-        Button {
-            toggleDock() // 다시 누르면 닫힌다(⌘J와 같은 토글).
-        } label: {
-            HStack(alignment: .center, spacing: Space.xs) {
-                Image(systemName: "square.stack.3d.up").font(.muxa(.micro))
-                Text("서비스").font(.muxa(.label))
-            }
-            .foregroundStyle(Color.pMuted.opacity(state.servicesAvailable ? 1 : 0.6))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .clickCursor()
-        .help(state.servicesAvailable
-              ? "서비스 추가 — dev 서버처럼 오래 도는 명령"
-              : "서비스 — tmux 설치가 필요합니다")
-    }
-
     // MARK: 집계
 
     private func statuses(of ids: [String]) -> [ServiceState] {
@@ -145,7 +138,7 @@ struct ServiceStrip: View {
 
     private var globalDead: Int { deadCount(of: all.map(\.service.id)) }
 
-    private var chipColor: Color { .footerChip(isOpen: state.showServiceDock, hovered: hovered) }
+    private var chipColor: Color { .footerChip(isOpen: isOpen, hovered: hovered) }
 
     private var currentHelp: String {
         if current.isEmpty { return "이 프로젝트엔 서비스가 없습니다 — 클릭해 추가" }

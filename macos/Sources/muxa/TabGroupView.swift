@@ -36,6 +36,7 @@ struct TabGroupView: View {
     var isActiveGroup: Bool = true
     /// 세션 상세(YJ-7)가 읽을 수집 집합 — 스토어를 직접 물지 않으려 클로저로 받는다.
     var agentDetail: (TabID) -> AgentChangeSet? = { _ in nil }
+    var agentRoot: (TabID) -> String? = { _ in nil }
     /// 상세에서 변경 행을 눌렀을 때 — 패널과 같은 diff 대상을 연다.
     var onOpenDiff: (GitDiffTarget) -> Void = { _ in }
     /// 상세 사이드바 폭·접힘 — 상태는 상위(AppState)가 소유하고 여기는 값·위임만 받는다.
@@ -141,7 +142,9 @@ struct TabGroupView: View {
                 let full = isDetailSelected
                 if full || !detailCollapsed {
                     AgentDetailView(target: detail, setProvider: agentDetail,
-                                    root: dir.isEmpty ? nil : dir,
+                                    // **패널과 같은 기준**이어야 한다 — 패널은 탭별 cwd로 상대경로를
+                                    // 만드는데 여기만 프로젝트 폴더면 같은 파일이 다른 경로로 열린다.
+                                    root: agentRoot(detail.tabId) ?? (dir.isEmpty ? nil : dir),
                                     selectedPath: openDiffPath,
                                     compact: !full,
                                     canCollapse: !full,

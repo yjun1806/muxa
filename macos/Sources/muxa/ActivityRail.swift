@@ -6,7 +6,8 @@ import SwiftUI
 /// (열리는 건 늘 "마지막 탭"). 레일은 패널이 닫혀 있어도 아이콘·알림 배지를 늘 보여주고 **1클릭에** 연다.
 /// 슬롯 통합(폭·상태·keep-alive)·상태 API는 그대로 두고 **진입점만** 여기로 모았다.
 ///
-/// 3구역: ① 슬롯 스위처(탐색기·Git·알림) ② 액션(스크래치 창 — 토글 아님) ③ 전역(설정, 최하단).
+/// 4구역: ① 슬롯 스위처(탐색기·Git·에이전트·알림) ①.5 도크(서비스·명령 — 공존 패널)
+/// ② 액션(스크래치 창 — 토글 아님) ③ 전역(설정, 최하단).
 struct ActivityRail: View {
     let state: AppState
 
@@ -29,6 +30,24 @@ struct ActivityRail: View {
                        badge: state.attentionBadgeCount) {
                 state.selectInspector(.attention)
                 if state.showAttention { state.attention.markAllRead() } // 여는 즉시 읽음(표준 인박스 UX)
+            }
+
+            RailDivider()
+
+            // ①.5 서비스 도크(YJ-8) — 진입점이 푸터 칩에서 여기로 왔다. 도크도 우측 도킹 패널이라
+            // 레일이 그 진입점을 맡는 게 위 슬롯들과 같은 결이다.
+            //
+            // **①에 섞지 않는 이유**: ①은 `rightSlot` 하나를 상호배타로 나눠 쓰는 묶음인데 도크는 그
+            // 슬롯과 **나란히 공존하는 별도 패널**이다 — 같은 묶음에 두면 없는 배타성을 약속한다.
+            // 아이콘은 도크 안 탭 스위처와 같은 글리프(`DockTab.icon`)라 "이 버튼이 저 탭을 연다"가
+            // 학습 없이 읽힌다(축 어휘도 보존: 끝없음=원형 / 끝있음=사각형).
+            RailButton(icon: DockTab.services.icon, help: servicesHelp, active: isDockOpen(.services)) {
+                toggleDock(.services)
+            }
+            RailButton(icon: DockTab.commands.icon,
+                       help: "명령 — 빌드·테스트처럼 끝이 있는 명령 (⌘J)",
+                       active: isDockOpen(.commands)) {
+                toggleDock(.commands)
             }
 
             RailDivider()
@@ -64,6 +83,24 @@ struct ActivityRail: View {
             // 좌측 경계 — 닫힌 rightSlot에선 콘텐츠 카드와, 열렸을 땐 패널과 레일을 가른다.
             Rectangle().fill(Color.pBorder).frame(width: RowHeight.hairline)
         }
+    }
+
+    /// 도크가 **이 탭으로** 열려 있나 — 활성 표시의 판정. 도크는 탭 하나만 보여주므로 열림만으로는
+    /// 두 버튼이 동시에 켜져 어느 탭인지 거짓말을 한다.
+    private func isDockOpen(_ tab: DockTab) -> Bool { state.showServiceDock && state.dockTab == tab }
+
+    /// 같은 버튼을 다시 누르면 닫히고, 도크가 **다른 탭**으로 열려 있으면 그 탭으로 바꾼다
+    /// (푸터 칩이 쓰던 계약 그대로 — `ScriptStrip.toggleDock`).
+    private func toggleDock(_ tab: DockTab) {
+        if isDockOpen(tab) { state.closeServiceDock() }
+        else { state.openServiceDock(serviceId: nil, tab: tab) }
+    }
+
+    /// tmux가 없으면 그 사실을 여기서 말한다 — 서비스 칩(옛 플레이스홀더)이 지던 역할이다.
+    private var servicesHelp: String {
+        state.servicesAvailable
+            ? "서비스 — dev 서버처럼 오래 도는 명령 (⌘J)"
+            : "서비스 — tmux 설치가 필요합니다"
     }
 }
 

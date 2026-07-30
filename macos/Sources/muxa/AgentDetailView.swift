@@ -190,10 +190,11 @@ struct AgentDetailView: View {
         // `SidebarProjectRow`). `onTapGesture`만 쓰면 안쪽 `Text`가 마우스를 받아 커서가
         // I빔으로 뜨고 행 hover가 안 잡힌다. 버튼이 클릭을 소비해야 행 전체가 하나의 조작면이 된다.
         return Button(action: open) {
+            VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: Space.sm) {
             switch row.mark {
             case .git(let code):
-                GitStatusBadge(code: code, weight: row.isUnread ? .medium : .regular)
+                GitStatusBadge(code: code, weight: row.isUnread ? .semibold : .regular)
             case .committed:
                 // git이 조용한데 디스크는 바뀌었다 = 커밋됐다. **글리프만으론 무슨 상태인지 모른다** —
                 // 넓은 화면엔 자리가 있으니 말로 한다(좁은 패널은 ✓ + 툴팁).
@@ -203,7 +204,7 @@ struct AgentDetailView: View {
                     .accessibilityHidden(true)
             }
             // 파일명은 **항상 `pFg`** — 다 봤다고 목록이 회색으로 죽지 않게(안 봤음은 굵기가 말한다).
-            GitFileLabel(path: rel, weight: row.isUnread ? .medium : .regular, tone: Color.pFg)
+            GitFileLabel(path: rel, weight: row.isUnread ? .semibold : .regular, tone: Color.pFg)
             if case .committed = row.mark {
                 // 상태 꼬리표는 배지다 — 평문이면 파일명의 일부처럼 읽힌다.
                 Pill(color: .pMuted) { Text("커밋됨").font(.muxa(.caption)) }
@@ -225,10 +226,12 @@ struct AgentDetailView: View {
                     .lineLimit(1).truncationMode(.tail)
             }
             }
+            .frame(height: RowHeight.row)
+            contextLine(row.context)
+            }
             .padding(.leading, rowIndent)   // 폴더 아래 한 단 들여쓴다 — 계층은 여기서 생긴다
             .padding(.trailing, compact ? Space.sm : Space.lg)
             .frame(maxWidth: .infinity)
-            .frame(height: RowHeight.row)
             .contentShape(Rectangle())   // 글자 없는 자리도 버튼 면이 된다
         }
         .buttonStyle(.plain)
@@ -242,6 +245,7 @@ struct AgentDetailView: View {
                         @ViewBuilder icon: () -> AnyView,
                         action: @escaping () -> Void) -> some View {
         Button(action: action) {
+            VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: Space.sm) {
             icon().frame(width: IconSize.inlineMark)
             Text(title)
@@ -256,16 +260,32 @@ struct AgentDetailView: View {
             }
             Spacer(minLength: 0)
             }
+            .frame(height: RowHeight.row)
+            contextLine(context)
+            }
             .padding(.leading, rowIndent)
             .padding(.trailing, compact ? Space.sm : Space.lg)
             .frame(maxWidth: .infinity)
-            .frame(height: RowHeight.row)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .modifier(ListRowFill())
         .padding(.horizontal, Space.xs)
         .accessibilityRow(label: title + (context.map { ", \($0)" } ?? ""))
+    }
+
+    /// 사이드바에서만 쓰는 둘째 줄. 넓을 땐 같은 줄에 붙지만(위 참조), 320pt에선 파일명을
+    /// 밀어낸다 — 그렇다고 감추면 이 화면의 값("어느 지시로 건드렸나")이 통째로 사라진다.
+    /// **맥락이 있는 행만** 두 줄이 된다.
+    @ViewBuilder
+    private func contextLine(_ context: String?) -> some View {
+        if compact, let context, !context.isEmpty {
+            Text(context)
+                .font(.muxa(.caption)).foregroundStyle(Color.pMuted)
+                .lineLimit(1).truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, Space.tight)
+        }
     }
 
     /// VO가 읽을 이름 — 굵기·색은 스크린리더에 존재하지 않으므로 **말로** 한다.

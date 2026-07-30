@@ -160,6 +160,17 @@ enum AgentChangeDisplay {
     }
 
     /// 폴더 경로를 사람이 읽을 꼴로. 루트 아래면 상대경로, 홈 아래면 `~/…`, 그 밖은 절대경로.
+    /// 그룹 탭에 붙일 제목. **프롬프트를 통째로 쓰지 않는다** — 첫 프롬프트는 한 문단일 수 있고
+    /// 탭 라벨은 폭을 제목이 정하므로, 자르지 않으면 탭 하나가 탭 바를 다 먹는다.
+    /// 화면에서 `lineLimit`으로 잘라도 **자리는 이미 뺏긴 뒤**라 여기서 잘라야 한다.
+    static let titleLimit = 28
+    static func tabTitle(origin: String?, fallback: String, limit: Int = titleLimit) -> String {
+        guard let origin, !origin.isEmpty else { return fallback }
+        // 문자 수로 센다 — 한글 한 자가 라틴 한 자보다 넓지만, 바이트로 세면 한글이 3배 손해다.
+        guard origin.count > limit else { return origin }
+        return String(origin.prefix(limit)).trimmingCharacters(in: .whitespaces) + "…"
+    }
+
     static func folderLabel(for path: String, root: String?) -> String {
         let dir = (path as NSString).deletingLastPathComponent
         if let root, !root.isEmpty {
