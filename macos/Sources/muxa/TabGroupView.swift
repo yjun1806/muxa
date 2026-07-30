@@ -40,6 +40,8 @@ struct TabGroupView: View {
     var onOpenDiff: (GitDiffTarget) -> Void = { _ in }
     /// 상세 사이드바 폭·접힘 — 상태는 상위(AppState)가 소유하고 여기는 값·위임만 받는다.
     var detailWidth: CGFloat = 320
+    /// 허용 폭 — 상위(AppState)가 소유한 범위를 그대로 받는다(숫자를 여기 또 쓰지 않는다).
+    var detailWidthRange: ClosedRange<CGFloat> = 200 ... 560
     var detailCollapsed: Bool = false
     var onCommitDetailWidth: (CGFloat) -> Void = { _ in }
     var onToggleDetailCollapsed: () -> Void = {}
@@ -173,7 +175,9 @@ struct TabGroupView: View {
     /// 드래그 중 실시간 폭(비영속) — 매 프레임 상위 관측 상태를 건드리면 무거운 하위 트리가
     /// 통째로 재평가된다(`ResizablePanel`이 같은 이유로 같은 구조를 쓴다).
     @State private var liveWidth: CGFloat?
-    @State private var dragAccum: CGFloat?
+    /// 드래그 시작 시점의 폭 — 이동량은 **시작점 기준 누적**이라 기준값을 고정해야 한다.
+    /// 매 프레임 직전 값에 더하면 반올림이 쌓여 어긋난다(`ResizablePanel`이 같은 이유로 같은 구조).
+    @State private var dragStart: CGFloat?
     private var liveDetailWidth: CGFloat { liveWidth ?? detailWidth }
 
     /// 사이드바 **오른쪽** 경계 핸들. `ResizablePanel`은 우측 패널용이라 경계가 왼쪽에 있어
@@ -186,12 +190,14 @@ struct TabGroupView: View {
                     .gesture(
                         DragGesture(minimumDistance: 1, coordinateSpace: .global)
                             .onChanged { g in
-                                liveWidth = min(max((liveWidth ?? detailWidth) + g.translation.width
-                                                    - (dragAccum ?? 0), 200), 560)
-                                dragAccum = g.translation.width
+                                let start = dragStart ?? detailWidth
+                                dragStart = start
+                                liveWidth = min(max(start + g.translation.width,
+                                                    detailWidthRange.lowerBound),
+                                                detailWidthRange.upperBound)
                             }
                             .onEnded { _ in
-                                dragAccum = nil
+                                dragStart = nil
                                 if let w = liveWidth { onCommitDetailWidth(w) }
                                 liveWidth = nil
                             })

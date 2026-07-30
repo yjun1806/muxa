@@ -363,6 +363,9 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     @ObservationIgnored private var pendingChangePersist: Set<TabID> = []
     @ObservationIgnored private var changePersistTimer: Timer?
     @ObservationIgnored private var changePersistFirstSignal: TimeInterval?
+    /// 세션 상세 열림 상태 — 소유는 상위(AppState), 스토어는 읽고 알리기만 한다.
+    @ObservationIgnored var openAgentDetailKeys: (() -> Set<String>)?
+    @ObservationIgnored var onAgentDetailOpenChanged: ((String, Bool) -> Void)?
     /// 배지가 하나라도 생기면 상위(AppState)에 알린다 — 프로젝트 탭 ● 표시용.
     @ObservationIgnored var onProjectActivity: (() -> Void)?
     /// 데스크톱 알림을 띄워야 할 때 상위(AppState)에 위임한다 — 라우팅 컨텍스트(프로젝트·워크스페이스)는
@@ -697,9 +700,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         resumeBindings[tabId] = nil // 에이전트 재개 바인딩 해제
         resumeBlocks[tabId] = nil // 재개 차단 사유도 해제
         resumeTabs.remove(tabId) // 재개 배너 표시 상태도 해제
-        tabContent[tabId] = nil
         // 에이전트 그룹이 닫혔다 = 그 세션의 상세를 닫은 것 — 재시작 때 되살리지 않는다.
+        // **tabContent를 지우기 전에** 봐야 한다 — 지운 뒤엔 content(for:)가 .terminal을 돌려줘 표식이 안 지워졌다.
         if case .group(.agent(let session)) = content(for: tabId) { markDetailOpen(session, false) }
+        tabContent[tabId] = nil
         groups[tabId] = nil // 그룹 탭이면 서브탭 상태도 해제
         badgedTabs.remove(tabId)
         clearAgentActivity(tabId) // 에이전트 추정 상태·추정기 해제(+ idle 타이머 재동기화)
@@ -1982,12 +1986,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         return tab
     }
 
-    /// "이 세션의 상세가 열려 있다"를 세션 파일에 적는다 — 재시작 후 되살릴 근거.
+    /// "이 세션의 상세가 열려 있다"를 상위(AppState)에 알린다 — 재시작 후 되살릴 근거.
+    /// **키는 수집 파일과 같은 안정 키**라 재시작을 넘긴다(탭 id가 아니다).
     private func markDetailOpen(_ tabId: TabID, _ open: Bool) {
-        guard var set = agentChanges[tabId], set.detailWasOpen != open else { return }
-        set.detailWasOpen = open
-        mutateAgentChanges { $0[tabId] = set }
-        scheduleAgentChangePersist(tabId)
+        onAgentDetailOpenChanged?(agentChangeKey(for: tabId), open)
     }
 
     /// 복원이 끝난 뒤 — **상세가 열려 있던 세션의 탭을 되살린다.**
@@ -1997,10 +1999,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 표식을 보고 **다시 연다** — 결과는 같고 식별자 모델을 안 건드린다.
     /// 개별 diff는 되살리지 않는다(기준선이 그새 밀렸을 수 있다 — 상세에서 한 번에 다시 연다).
     private func restoreOpenAgentDetails() {
-        for tabId in controller.allTabIds {
-            guard let set = agentChangeSnapshot(for: tabId) ?? AgentChangeStore.load(key: agentChangeKey(for: tabId)),
-                  set.detailWasOpen else { continue }
-            hydrateAgentChanges(tabId)
+        guard let wasOpen = openAgentDetailKeys?(), !wasOpen.isEmpty else { return }
+        for tabId in controller.allTabIds where wasOpen.contains(agentChangeKey(for: tabId)) {
+            // 표식이 선 세션만 디스크를 읽는다 — 예전엔 살아있는 탭 전부를 열어봤다(시작 경로).
+            let set = hydrateAgentChanges(tabId)
             _ = openReferences(tabId: tabId, title: set.originPrompt ?? tabTitle(tabId))
         }
     }

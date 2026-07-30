@@ -26,6 +26,13 @@ final class AppState {
     /// (새 프로젝트·구 저장분은 집합에 없음 = 펼침, 마이그레이션 불필요). 프로젝트 전환 시 자동 펼침은
     /// 여기서 제거로 구현된다(`expandAgentList`).
     private(set) var collapsedAgentLists: Set<String> = []
+    /// **상세 탭이 열려 있던 세션들**(YJ-7) — 키는 `AgentChangeStore`와 같은 안정 키
+    /// (지속 탭이면 tmux 세션명)라 재시작을 넘긴다. 그룹 탭은 세션을 `TabID`로 가리키는데
+    /// 그건 복원 때 재발급돼 되짚을 수 없으므로, 되살릴 근거를 여기 둔다.
+    ///
+    /// **수집 파일이 아니라 여기다** — 그 파일은 "에이전트가 만진 것"의 기록이고
+    /// 이건 화면 상태다. 섞으면 데이터와 UI의 경계가 흐려진다.
+    private(set) var openAgentDetails: Set<String> = []
 
     /// 백그라운드 활동(●)이 있는 프로젝트 id들(A). 사이드바 프로젝트 행이 관측해 상태 글리프를 그린다.
     private(set) var badgedProjects: Set<String> = []
@@ -143,9 +150,12 @@ final class AppState {
     static let defaultServiceDockWidth: CGFloat = 560
     static let serviceDockWidthRange: ClosedRange<CGFloat> = 420 ... 900
     static let serviceListWidthRange: ClosedRange<CGFloat> = 150 ... 360
+    /// 세션 상세 사이드바(YJ-7) — 탭 안 마스터-디테일의 좌측. 도구 패널보다 좁다(diff에 자리를 준다).
+    static let agentDetailWidthRange: ClosedRange<CGFloat> = 200 ... 560
     static func clampPanelWidth(_ w: CGFloat) -> CGFloat { clamp(w, to: panelWidthRange) }
     static func clampGitPanelWidth(_ w: CGFloat) -> CGFloat { clamp(w, to: gitPanelWidthRange) }
     static func clampServiceDockWidth(_ w: CGFloat) -> CGFloat { clamp(w, to: serviceDockWidthRange) }
+    static func clampAgentDetailWidth(_ w: CGFloat) -> CGFloat { clamp(w, to: agentDetailWidthRange) }
     private static func clamp(_ w: CGFloat, to range: ClosedRange<CGFloat>) -> CGFloat {
         min(max(w, range.lowerBound), range.upperBound)
     }
@@ -835,9 +845,15 @@ final class AppState {
         !collapsedAgentLists.contains(projectId)
     }
 
+    /// 세션 상세가 열렸나/닫혔나 — 스토어가 위임한다.
+    func setAgentDetailOpen(_ key: String, _ open: Bool) {
+        let changed = open ? openAgentDetails.insert(key).inserted : (openAgentDetails.remove(key) != nil)
+        if changed { saveDebounced() }
+    }
+
     /// 상세 사이드바 폭 커밋 — 드래그가 끝난 순간에만 부른다(드래그 중엔 뷰 로컬로 움직인다).
     func setAgentDetailWidth(_ w: CGFloat) {
-        agentDetailWidth = min(max(w, 200), 560)
+        agentDetailWidth = Self.clampAgentDetailWidth(w)
         saveDebounced()
     }
 
@@ -1117,6 +1133,9 @@ final class AppState {
         s.onStateChange = { [weak self] in MainActor.assumeIsolated { self?.save() } }
         // 셸이 새 워크트리로 들어갔을 수 있다(에이전트의 worktree add + cd) — 자동 승격을 판정한다(D31 보완).
         s.onPwdChange = { [weak self] in self?.autoImportWorktrees() }
+        // 세션 상세 열림 — 화면 상태라 여기가 소유하고 스토어는 위임만 한다(YJ-7).
+        s.openAgentDetailKeys = { [weak self] in self?.openAgentDetails ?? [] }
+        s.onAgentDetailOpenChanged = { [weak self] key, open in self?.setAgentDetailOpen(key, open) }
         // IDE 통합(per-CC): 터미널 env는 그 탭 서버 포트, 문서 선택은 마지막 활성 CC로만 라우팅, 종료 시 서버 정리.
         s.ideEnv = { [weak self] tabId, session in self?.ideServers.env(for: tabId, session: session) ?? [:] }
         s.onDocSelection = { [weak self] sel in self?.routeIdeSelection(sel) }
@@ -2622,6 +2641,9 @@ final class AppState {
         /// **접어 둔** 에이전트 목록의 프로젝트 id들(나중에 추가된 필드라 옵셔널 하위호환 —
         /// 기본이 펼침이라 접은 것만 저장한다. 정렬 배열 저장 이유는 expandedWorkspaces와 동일).
         var collapsedAgentLists: [String]?
+        /// 상세를 **열어 둔** 에이전트 세션 키들(나중에 추가된 필드라 옵셔널 하위호환 —
+        /// 기본이 닫힘이라 연 것만 저장한다. 정렬 배열 저장 이유는 expandedWorkspaces와 동일).
+        var openAgentDetails: [String]?
         /// 분리 창 목록(나중에 추가된 필드라 옵셔널 하위호환 — 구 저장분은 nil = 분리 창 없음).
         ///
         /// **currentVersion을 올리지 않는다**: version은 지금 디코드만 되고 `apply()`가 읽지 않으며,
@@ -2636,7 +2658,7 @@ final class AppState {
             case version, workspaces, activeId, sidebarMode, layouts
             case explorerWidth, gitPanelWidth, serviceDockWidth, showExplorer, showGitPanel
             case commandTerminalCollapsed
-            case expandedWorkspaces, collapsedAgentLists, windows
+            case expandedWorkspaces, collapsedAgentLists, openAgentDetails, windows
         }
 
         init(workspaces: [Workspace], activeId: String, sidebarMode: SidebarMode,
@@ -2645,6 +2667,7 @@ final class AppState {
              showExplorer: Bool?, showGitPanel: Bool?, commandTerminalCollapsed: Bool? = nil,
              expandedWorkspaces: [String]?,
              collapsedAgentLists: [String]? = nil,
+             openAgentDetails: [String]? = nil,
              windows: [ProjectWindow]? = nil,
              version: Int = currentVersion) {
             self.version = version
@@ -2655,6 +2678,7 @@ final class AppState {
             self.commandTerminalCollapsed = commandTerminalCollapsed
             self.expandedWorkspaces = expandedWorkspaces
             self.collapsedAgentLists = collapsedAgentLists
+            self.openAgentDetails = openAgentDetails
             self.windows = windows
         }
 
@@ -2678,6 +2702,7 @@ final class AppState {
             commandTerminalCollapsed = try c.decodeIfPresent(Bool.self, forKey: .commandTerminalCollapsed)
             expandedWorkspaces = try c.decodeIfPresent([String].self, forKey: .expandedWorkspaces)
             collapsedAgentLists = try c.decodeIfPresent([String].self, forKey: .collapsedAgentLists)
+            openAgentDetails = try c.decodeIfPresent([String].self, forKey: .openAgentDetails)
             windows = try c.decodeIfPresent([ProjectWindow].self, forKey: .windows)
         }
     }
@@ -2707,6 +2732,7 @@ final class AppState {
                                  commandTerminalCollapsed: commandTerminalCollapsed,
                                  expandedWorkspaces: expandedWorkspaces.sorted(),
                                  collapsedAgentLists: collapsedAgentLists.sorted(),
+                                 openAgentDetails: openAgentDetails.sorted(),
                                  windows: projectWindows)
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         // **저장 실패를 삼키지 않는다.** 디스크가 가득 차거나(원자적 쓰기는 임시 파일을 쓰므로 용량을
@@ -2788,6 +2814,9 @@ final class AppState {
                                                  workspaceIds: workspaces.map(\.id))
         // 접힌 에이전트 목록 — 사라진 프로젝트 id는 걸러낸다(유령 누적 방지). nil(구 저장분)=전부 펼침.
         collapsedAgentLists = Set(snapshot.collapsedAgentLists ?? []).intersection(allProjectIds)
+        // 열어 둔 에이전트 상세 — 여기선 거르지 않는다. 키가 프로젝트 id가 아니라 세션 키라
+        // 유효 목록을 이 시점에 알 수 없고, 살아있는 탭에 해당하는 키만 실제로 복원된다(TerminalStore).
+        openAgentDetails = Set(snapshot.openAgentDetails ?? [])
         if let w = snapshot.explorerWidth { explorerWidth = Self.clampPanelWidth(CGFloat(w)) }
         if let w = snapshot.serviceDockWidth { serviceDockWidth = Self.clampServiceDockWidth(CGFloat(w)) }
         if let open = snapshot.showExplorer { showExplorer = open }

@@ -218,10 +218,11 @@ struct AgentDetailView: View {
             // 이 화면의 값 — "어느 지시로 건드렸나". **사이드바 모드에선 접는다** —
             // 320pt에 넣으면 파일명을 밀어낸다(폭이 열을 정한다).
             if !compact, let context = row.context, !context.isEmpty {
+                // 고정 폭을 주지 않는다 — 파일명이 `layoutPriority`로 먼저 자리를 잡고
+                // 맥락은 **남는 폭**만 쓴다. 스케일 밖 숫자를 박을 이유가 없었다.
                 Text(context)
                     .font(.muxa(.caption)).foregroundStyle(Color.pMuted)
                     .lineLimit(1).truncationMode(.tail)
-                    .frame(maxWidth: 220, alignment: .leading)
             }
             }
             .padding(.leading, rowIndent)   // 폴더 아래 한 단 들여쓴다 — 계층은 여기서 생긴다

@@ -219,7 +219,7 @@ struct AgentChangeSetTests {
 
     /// **필드가 늘어도 예전 파일이 읽혀야 한다.** 자동 생성 Codable은 키가 없으면 기본값을
     /// 안 쓰고 던지는데, 호출부의 `try?`가 그걸 nil로 삼켜 기록이 통째로 사라진 것처럼 보인다.
-    /// 실제로 `detailWasOpen`을 추가했을 때 그렇게 터졌다.
+    /// 실제로 non-optional Bool 필드를 하나 추가했을 때 그렇게 터졌다.
     @Test func 예전_파일도_읽힌다() throws {
         // detailWasOpen·truncatedCount가 없던 시절의 저장분.
         let raw = #"{"entries":{"/a.swift":{"path":"/a.swift","firstTouchedAt":1000,"lastTouchedAt":2000,"touchCount":2}},"references":{},"originPrompt":"옛 지시"}"#
@@ -227,7 +227,6 @@ struct AgentChangeSetTests {
         #expect(set.entries.count == 1)
         #expect(set.originPrompt == "옛 지시")
         #expect(set.truncatedCount == 0)
-        #expect(set.detailWasOpen == false)
     }
 
     /// 알맹이가 아예 없는 파일도 빈 집합으로 읽힌다(터지지 않는다).

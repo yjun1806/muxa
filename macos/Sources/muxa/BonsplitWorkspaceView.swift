@@ -95,6 +95,7 @@ struct BonsplitWorkspaceView: View {
                     agentDetail: { store.agentChangeSnapshot(for: $0) },
                     onOpenDiff: { _ = store.openDiff($0) },
                     detailWidth: state.agentDetailWidth,
+                    detailWidthRange: AppState.agentDetailWidthRange,
                     detailCollapsed: state.agentDetailCollapsed,
                     onCommitDetailWidth: { state.setAgentDetailWidth($0) },
                     onToggleDetailCollapsed: { state.toggleAgentDetailCollapsed() }

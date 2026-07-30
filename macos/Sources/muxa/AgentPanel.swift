@@ -39,19 +39,22 @@ struct AgentPanel: View {
     @State private var lastSession: TabID?
 
     var body: some View {
-        VStack(spacing: 0) {
+        // **한 번만 계산한다.** 예전엔 body·groupList·openKey가 각자 불러 렌더당 네 번씩
+        // 전 세션을 정렬했다(세션 5개 × 파일 50개면 정렬 20회).
+        let items = groups
+        return VStack(spacing: 0) {
             header
             // **잔차 행은 groups와 독립이다.** 예전엔 `groupList` 안에 있어서, 훅 추적 기록이 0인데
             // 저장소는 dirty한 상태(첫 사용에서 가장 흔하다)에서 "만진 파일이 없습니다"만 뜨고
             // 실제 변경 N건이 통째로 숨었다 — 완전성 참칭을 막는 유일한 방어가 정작 가장 필요한
             // 순간에 죽는 경로였다.
-            if groups.isEmpty && unknownToPanel == 0 {
+            if items.isEmpty && unknownToPanel == 0 {
                 empty
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: Space.groupGap) {
-                        if groups.isEmpty { emptyInline }
-                        groupList
+                        if items.isEmpty { emptyInline }
+                        groupList(items)
                         if unknownToPanel > 0 {
                             HDivider().padding(.horizontal, Space.xs).padding(.top, Space.sm)
                             residual
@@ -100,9 +103,10 @@ struct AgentPanel: View {
     }
 
     @ViewBuilder
-    private var groupList: some View {
-        ForEach(groups, id: \.key) { item in
-            group(item)
+    private func groupList(_ items: [GroupItem]) -> some View {
+        let open = openKey(items)
+        ForEach(items, id: \.key) { item in
+            group(item, open: item.key == open)
         }
     }
 
@@ -117,11 +121,10 @@ struct AgentPanel: View {
     // MARK: 그룹 = 세션 하나
 
     @ViewBuilder
-    private func group(_ item: GroupItem) -> some View {
+    private func group(_ item: GroupItem, open: Bool) -> some View {
         // **아코디언 하나만** — 이 저장소가 같은 폭에서 이미 내린 결정이다
         // (`DESIGN.md:365` "폭이 180pt까지 좁아지면 여럿 펼침이 위계를 무너뜨린다").
         // 열린 것이 곧 활성이라 강조를 위한 채움·색이 따로 필요 없다.
-        let open = item.key == openKey
         VStack(alignment: .leading, spacing: 0) {
             groupHeader(item, open: open)
             if open {
@@ -314,8 +317,7 @@ struct AgentPanel: View {
     /// 그러지 않으면 상세를 여는 순간 패널이 엉뚱한(비활성) 세션으로 튄다.
     /// 문서·웹처럼 세션과 무관한 탭을 볼 땐 마지막으로 본 세션을 유지하고,
     /// 그것도 없으면 맨 위(정렬상 가장 안 본 게 많은 세션)로 떨어진다.
-    private var openKey: String? {
-        let items = groups
+    private func openKey(_ items: [GroupItem]) -> String? {
         // 상세·diff 탭을 보고 있어도 그 그룹의 세션이 활성이다(스토어가 되짚어준다).
         if let cur = store.currentAgentSession, items.contains(where: { $0.tabId == cur }) {
             return cur.uuid.uuidString
