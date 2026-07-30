@@ -44,10 +44,14 @@ struct GitDiffStat: View {
 /// 세로선에서 시작한다.
 struct GitStatusBadge: View {
     let code: Character
+    /// 글리프 무게 — 에이전트 패널이 "안 봤음"을 **리딩 슬롯까지** 굵기로 말한다(YJ-7).
+    /// 같은 슬롯·같은 폭·같은 색·같은 도형이고 무게만 다르다 — 새 채널도 색 예산도 안 쓴다.
+    /// 기본값은 기존 호출부 그대로라 Git 패널은 영향을 받지 않는다(`GitFileLabel`과 같은 방식).
+    var weight: Font.Weight = .regular
 
     var body: some View {
         Image(systemName: GitStatusStyle.glyph(code))
-            .font(.muxa(.label))
+            .font(.muxa(.label, weight: weight))
             .foregroundStyle(GitStatusStyle.color(code))
             .frame(width: IconSize.statusSlot)
             .accessibilityLabel(GitStatusStyle.label(code))
@@ -95,6 +99,7 @@ struct GitFileLabel: View {
                 .foregroundStyle(tone)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .layoutPriority(1) // 이름이 신원이다 — 좁아지면 경로부터 내준다
             if let parent = parentDir(path), !parent.isEmpty {
                 Text(parent)
                     .font(.muxa(.caption))

@@ -78,8 +78,14 @@ enum AgentChangeDisplay {
         let visible = set.entries.values
             .filter { !isSuppressed(entry: $0, status: status[$0.path], mtime: mtimes[$0.path]) }
             .sorted { lhs, rhs in
+                // **안 본 것이 먼저** — 위치는 색도 폭도 안 쓰는 가장 강한 채널이다.
+                // 굵기 차이는 11pt에서 미묘해 50행 목록을 훑을 기준선이 못 된다.
+                // 이러면 안 본 것이 연속 블록으로 머리에 모여 "위에서 몇 줄까지"로 스캔이 끝난다.
+                let lu = isUnread(entry: lhs, mtime: mtimes[lhs.path])
+                let ru = isUnread(entry: rhs, mtime: mtimes[rhs.path])
+                if lu != ru { return lu }
                 // 시각이 같으면 경로로 갈라 순서를 결정적으로 만든다(딕셔너리 순회는 불안정하다).
-                lhs.lastTouchedAt == rhs.lastTouchedAt
+                return lhs.lastTouchedAt == rhs.lastTouchedAt
                     ? lhs.path < rhs.path
                     : lhs.lastTouchedAt > rhs.lastTouchedAt
             }

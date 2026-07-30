@@ -87,6 +87,19 @@ struct AgentChangeGroupTests {
         #expect(g.rows.map(\.path) == ["/new.swift", "/mid.swift", "/old.swift"])
     }
 
+    /// 안 본 것이 머리에 **연속 블록**으로 모여야 "위에서 몇 줄까지"로 스캔이 끝난다.
+    /// 굵기 차이만으로는 50행 목록을 훑을 기준선이 안 된다.
+    @Test func 안_본_것이_최근순보다_먼저다() {
+        var s = AgentChangeSet()
+        s.record(path: "/new-seen.swift", sessionId: nil, prompt: nil, at: t2)   // 최신인데 봤음
+        s.record(path: "/old-unread.swift", sessionId: nil, prompt: nil, at: t0) // 오래됐는데 안 봄
+        s.markSeen(path: "/new-seen.swift", at: t2)
+
+        let st = ["/new-seen.swift": Character("M"), "/old-unread.swift": "M"]
+        let g = AgentChangeDisplay.group(from: s, status: st, mtimes: [:])
+        #expect(g.rows.map(\.path) == ["/old-unread.swift", "/new-seen.swift"])
+    }
+
     /// 딕셔너리 순회는 불안정하다 — 같은 시각이면 경로로 갈라 순서를 고정한다.
     @Test func 같은_시각이면_순서가_결정적이다() {
         let s = set([("/b.swift", t0), ("/a.swift", t0), ("/c.swift", t0)])

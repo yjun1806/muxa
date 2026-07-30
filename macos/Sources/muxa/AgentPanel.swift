@@ -39,7 +39,6 @@ struct AgentPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            HDivider()
             // **잔차 행은 groups와 독립이다.** 예전엔 `groupList` 안에 있어서, 훅 추적 기록이 0인데
             // 저장소는 dirty한 상태(첫 사용에서 가장 흔하다)에서 "만진 파일이 없습니다"만 뜨고
             // 실제 변경 N건이 통째로 숨었다 — 완전성 참칭을 막는 유일한 방어가 정작 가장 필요한
@@ -48,7 +47,7 @@ struct AgentPanel: View {
                 empty
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: Space.tight) {
+                    VStack(alignment: .leading, spacing: Space.groupGap) {
                         if groups.isEmpty { emptyInline }
                         groupList
                         if unknownToPanel > 0 {
@@ -85,8 +84,7 @@ struct AgentPanel: View {
             Spacer(minLength: 0)
             IconButton(icon: "arrow.clockwise", help: "새로 고치기") { Task { await refresh() } }
         }
-        .padding(.horizontal, Space.panelInset)
-        .frame(height: RowHeight.header)
+        .panelBar(height: RowHeight.panelHeader) // 아래 구분선까지 합쳐 칸 탭바와 같은 높이
     }
 
     /// 훅이 없거나 에이전트가 아무것도 안 만졌다 — 죽은 화면 대신 왜 비었는지 말한다.
@@ -147,33 +145,34 @@ struct AgentPanel: View {
     @ViewBuilder
     private func groupHeader(_ item: GroupItem, focused: Bool, open: Bool) -> some View {
         HStack(spacing: Space.sm) {
-            // 안 보고 있는 세션은 마크를 죽인다 — 채움(색)만으로 말하지 않는다(색맹 안전).
+            // 마크는 **정체성(WHO)**이라 상태로 쓰지 않는다. 임의 opacity 곱도 금지(DESIGN §2).
+            // 채움(무채)이 배타적으로 "여기"를 말하고, 포커스 그룹은 맨 위로 정렬돼 위치가 한 채널 더 있다.
             ClaudeMark(size: IconSize.statusSlot)
-                .opacity(focused ? 1 : 0.45)
             Text(item.title)
                 .font(.muxa(.body, weight: item.group.unreadCount > 0 ? .bold : .medium))
                 // 전부 봤으면 제목이 흐려진다 — 훑을 때 굵은 제목만 남는다.
                 .foregroundStyle(item.group.unreadCount > 0 ? Color.pFg : Color.pMuted)
                 .lineLimit(1).truncationMode(.tail)
-            // 안 본 개수 롤업 — **0이면 배지 자체가 없다**(0이면 숨김).
-            if item.group.unreadCount > 0 {
-                Text("\(item.group.unreadCount)")
-                    .font(.muxaMono(.micro, weight: .bold))
-                    .foregroundStyle(Color.pBg)
-                    .padding(.horizontal, Space.xs)
-                    .frame(minWidth: 15, minHeight: 15)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.pFg))
+            // 안 본 개수 롤업 — **접혔을 때만.** 펼쳐져 있으면 굵은 행들이 곧 개수라
+            // 배지는 같은 말의 세 번째 반복이다. 0이면 당연히 없다.
+            if !open, item.group.unreadCount > 0 {
+                CountBadge(count: item.group.unreadCount)
             }
             Spacer(minLength: 0)
             Image(systemName: open ? "chevron.down" : "chevron.right")
                 .font(.muxa(.micro)).foregroundStyle(Color.pMuted)
         }
         .padding(.horizontal, Space.sm)
-        .frame(height: focused ? RowHeight.toolbar : RowHeight.row)   // 보는 세션은 머리를 한 단 키운다
+        .frame(height: RowHeight.toolbar) // **고정** — 가변이면 탭을 바꿀 때마다 아래 그룹이 밀린다
         .contentShape(Rectangle())
         // 행 클릭 = 펼침/접힘 (커밋 행과 같은 제스처 — 훑기와 정독이 제스처를 공유하지 않는다).
         .onTapGesture { onToggleCollapse(item.key) }
         .clickCursor()
+        .accessibilityRow(label: "\(item.title), 파일 \(item.group.rows.count)개"
+                          + (item.group.unreadCount > 0 ? ", 안 본 것 \(item.group.unreadCount)개" : ""),
+                          selected: focused,
+                          activate: { onToggleCollapse(item.key) })
+        .accessibilityValue(open ? "펼침" : "접힘")
     }
 
     @ViewBuilder
@@ -215,6 +214,8 @@ struct AgentPanel: View {
                 .contentShape(Rectangle())
                 .onTapGesture { onOpenReferences(item.tabId, item.title) }
                 .clickCursor()
+                .accessibilityRow(label: "참고한 것 \(item.referenceCount)개, 목록 열기",
+                                  activate: { onOpenReferences(item.tabId, item.title) })
             }
         }
     }
@@ -226,12 +227,14 @@ struct AgentPanel: View {
         HStack(spacing: Space.sm) {
             switch row.mark {
             case .git(let code):
-                GitStatusBadge(code: code)
+                GitStatusBadge(code: code, weight: row.isUnread ? .semibold : .regular)
             case .committed:
                 // git이 조용한데 디스크는 바뀌었다 = 커밋됐다. 무채 — git 축의 색을 빌리지 않는다.
                 Image(systemName: "checkmark")
-                    .font(.muxa(.micro)).foregroundStyle(Color.pMuted)
+                    .font(.muxa(.micro, weight: row.isUnread ? .semibold : .regular))
+                    .foregroundStyle(Color.pMuted)
                     .frame(width: IconSize.statusSlot)
+                    .accessibilityLabel("커밋됨") // 없으면 VO가 "checkmark"로 읽는다
             }
             // 굵기·색이 **안 봤음** 전용 채널이다(선택은 채움이 말한다).
             GitFileLabel(path: rel,
@@ -247,6 +250,20 @@ struct AgentPanel: View {
         .contentShape(Rectangle())
         .modifier(ListRowFill())
         .onTapGesture { open(rel, base: base, tabId: tabId, root: root) }
+        .help(rel) // 180pt에서 부모 경로가 사라지므로 전체 경로는 여기로 강등된다
+        .accessibilityRow(label: accessibilityLabel(row, rel: rel),
+                          activate: { open(rel, base: base, tabId: tabId, root: root) })
+    }
+
+    /// VO가 읽을 행 이름 — 굵기·색은 스크린리더에 존재하지 않으므로 **말로** 해야 한다.
+    private func accessibilityLabel(_ row: AgentChangeRow, rel: String) -> String {
+        var parts = [basename(rel)]
+        switch row.mark {
+        case .git(let code): parts.append(GitStatusStyle.label(code))
+        case .committed: parts.append("커밋됨")
+        }
+        if row.isUnread { parts.append("안 봄") }
+        return parts.joined(separator: ", ")
     }
 
     private func tail(_ text: String) -> some View {
@@ -271,6 +288,8 @@ struct AgentPanel: View {
         .contentShape(Rectangle())
         .onTapGesture { onOpenGitPanel() }
         .clickCursor()
+        .accessibilityRow(label: "이 패널이 모르는 변경 \(unknownToPanel)건, Git 패널 열기",
+                          activate: onOpenGitPanel)
         .padding(.horizontal, Space.xs)
     }
 

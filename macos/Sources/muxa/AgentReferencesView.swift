@@ -36,7 +36,6 @@ struct AgentReferencesView: View {
             if let set, !set.references.isEmpty {
                 VStack(spacing: 0) {
                     header
-                    HDivider()
                     ScrollView { list(set) }
                 }
             } else {
@@ -59,9 +58,7 @@ struct AgentReferencesView: View {
                 .lineLimit(1).truncationMode(.tail)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, Space.lg)
-        .frame(height: RowHeight.header)
-        .background(Color.pPanel)
+        .panelBar(height: RowHeight.panelHeader) // 구분선까지 합쳐 칸 탭바와 같은 높이
     }
 
     @ViewBuilder
@@ -106,11 +103,7 @@ struct AgentReferencesView: View {
                 .font(mono ? .muxaMono(.label, weight: .semibold) : .muxa(.label, weight: .semibold))
                 .foregroundStyle(Color.pFg)
                 .lineLimit(1).truncationMode(.head)
-            Text("\(count)")
-                .font(.muxaMono(.micro, weight: .semibold)).foregroundStyle(Color.pMuted)
-                .padding(.horizontal, Space.xs)
-                .frame(minWidth: 15, minHeight: 14)
-                .background(RoundedRectangle(cornerRadius: 4).fill(Color.pBtnHover))
+            CountBadge(count: count) // 손수 만든 배지는 반경 4·높이 14로 스케일을 벗어나 있었다
             Spacer(minLength: 0)
         }
         .padding(.horizontal, Space.lg)
@@ -144,6 +137,7 @@ struct AgentReferencesView: View {
         .modifier(ListRowFill())
         .padding(.horizontal, Space.xs)
         .onTapGesture(perform: action)
+        .accessibilityRow(label: title + (context.map { ", \($0)" } ?? ""), activate: action)
     }
 
     /// 스킴을 걷어낸 URL — `https://`는 모든 행에 똑같이 붙어 정보량이 0이다.
