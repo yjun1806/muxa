@@ -156,7 +156,9 @@ struct AgentPanel: View {
                     .font(.muxa(.micro)).foregroundStyle(Color.pMuted)
             }
         }
-        .padding(.horizontal, Space.sm)
+        // 인셋 10 — 헤더 제목(4+10+12+6=32)과 파일명(4+레인4+6+12+6=32)이 같은 세로선에서 시작한다.
+        // 6이면 4pt 어긋나 두 단이 미묘하게 삐뚤어 보인다(사이드바는 이 산수를 맞춰 뒀다).
+        .padding(.horizontal, Space.panelInset)
         .frame(height: RowHeight.toolbar) // **고정** — 가변이면 탭을 바꿀 때마다 아래 그룹이 밀린다
         // **채움을 쓰지 않는다.** 열려 있다는 사실이 곧 "지금 이 세션"이다 —
         // 아래에 파일이 달린 그룹은 하나뿐이라 색·채움으로 덧칠할 이유가 없다.
@@ -206,6 +208,7 @@ struct AgentPanel: View {
                         .font(.muxa(.micro)).foregroundStyle(Color.pMuted)
                 }
                 .padding(.horizontal, Space.sm)
+                .frame(maxWidth: .infinity)
                 .frame(height: RowHeight.row)
                 .padding(.top, Space.tight)
                 .contentShape(Rectangle())
@@ -237,12 +240,14 @@ struct AgentPanel: View {
             GitFileLabel(path: rel,
                          weight: row.isUnread ? .semibold : .regular,
                          tone: row.isUnread ? Color.pFg : Color.pMuted)
-            if case .committed = row.mark {
-                Text("커밋됨").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
-            }
+            // **오른쪽 가장자리를 세운다.** 없으면 시각이 파일명 뒤에 매달려 행마다 끝이 달라지고,
+            // 채움도 글자 길이만큼만 칠해진다 — 옆 `GitChangesSection`은 같은 자리에 이미 이걸 뒀다.
+            Spacer(minLength: Space.xs)
+            // "커밋됨" 텍스트는 뺀다 — 좌측 무채 ✓가 이미 같은 말을 하면서 시간 열을 밀어냈다.
             GitFileTime(mtime: row.mtime, now: tick)
         }
         .padding(.horizontal, Space.sm)
+        .frame(maxWidth: .infinity)
         .frame(height: RowHeight.row)
         .contentShape(Rectangle())
         .modifier(ListRowFill())

@@ -32,7 +32,10 @@ enum GitStatusStyle {
         switch code {
         case "A": return "plus.square.fill"          // 추가(추적됨)
         case "?": return "plus.square"               // 추적 안 됨 — 빈 사각형(git이 아직 모르는 파일)
-        case "M", "T": return "dot.square.fill"      // 수정·타입 변경
+        // 수정·타입 변경 — **통짜 사각형**. 예전 `dot.square.fill`은 11pt에서 점이 거의 안 보여
+        // `plus`/`minus`의 뚫림과 실루엣이 안 갈렸고, 그래서 색이 구분을 통째로 지고 있었다.
+        // 이제 셋이 뚫림 모양으로 갈린다: 십자(추가) · 통짜(수정) · 가로획(삭제).
+        case "M", "T": return "square.fill"
         case "D": return "minus.square.fill"         // 삭제
         case "R": return "arrow.right.square.fill"   // 이름 변경
         case "C": return "arrow.right.square"        // 복사 — 리네임과 채움으로 가른다
