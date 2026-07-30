@@ -34,8 +34,10 @@ struct TabGroupView: View {
     var onSelection: (IdeSelection) -> Void = { _ in }
     /// 이 그룹이 지금 포커스된 패인의 선택 탭인가 — 활성 문서만 IDE 컨텍스트를 재보고한다(그룹 전환 정확도).
     var isActiveGroup: Bool = true
-    /// 참고 목록(YJ-7)이 읽을 수집 집합 — 스토어를 직접 물지 않으려 클로저로 받는다.
-    var agentReferences: (TabID) -> AgentChangeSet? = { _ in nil }
+    /// 세션 상세(YJ-7)가 읽을 수집 집합 — 스토어를 직접 물지 않으려 클로저로 받는다.
+    var agentDetail: (TabID) -> AgentChangeSet? = { _ in nil }
+    /// 상세에서 변경 행을 눌렀을 때 — 패널과 같은 diff 대상을 연다.
+    var onOpenDiff: (GitDiffTarget) -> Void = { _ in }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -132,9 +134,10 @@ struct TabGroupView: View {
         case .web(let tab):
             BrowserView(tab: tab, shouldLoad: selected)
         case .references(let target):
-            AgentReferencesView(target: target, setProvider: agentReferences,
-                                root: dir.isEmpty ? nil : dir,
-                                onOpenFile: onOpenFile, onOpenURL: onOpenURL)
+            AgentDetailView(target: target, setProvider: agentDetail,
+                            root: dir.isEmpty ? nil : dir,
+                            onOpenFile: onOpenFile, onOpenURL: onOpenURL,
+                            onOpenDiff: onOpenDiff)
         }
     }
 

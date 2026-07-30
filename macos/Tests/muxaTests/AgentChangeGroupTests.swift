@@ -161,6 +161,38 @@ struct AgentChangeGroupTests {
 
     // MARK: 참고 목록
 
+    // MARK: 변경 폴더 그룹핑 (상세 탭)
+
+    /// 참고 목록(알파벳순)과 달리 변경은 **최근 순**이다 — 시각을 보여주는 작업 기록이라
+    /// "방금 어디를 고쳤나"가 먼저다.
+    @Test func 변경_폴더는_가장_최근_행의_순서를_따른다() {
+        var s = AgentChangeSet()
+        s.record(path: "/repo/zzz/late.swift", sessionId: nil, prompt: nil, at: t2)  // 최신
+        s.record(path: "/repo/aaa/early.swift", sessionId: nil, prompt: nil, at: t0)
+        let st = ["/repo/zzz/late.swift": Character("M"), "/repo/aaa/early.swift": "M"]
+        let rows = AgentChangeDisplay.group(from: s, status: st, mtimes: [:]).rows
+        let folders = AgentChangeDisplay.changeFolders(rows: rows, root: "/repo")
+        #expect(folders.map(\.label) == ["zzz", "aaa"], "알파벳순이 아니라 최근순")
+    }
+
+    @Test func 같은_폴더의_행은_한_묶음이고_원래_순서를_지킨다() {
+        var s = AgentChangeSet()
+        s.record(path: "/repo/src/b.swift", sessionId: nil, prompt: nil, at: t2)
+        s.record(path: "/repo/src/a.swift", sessionId: nil, prompt: nil, at: t1)
+        s.record(path: "/repo/docs/x.md", sessionId: nil, prompt: nil, at: t0)
+        let st = ["/repo/src/b.swift": Character("M"), "/repo/src/a.swift": "M", "/repo/docs/x.md": "M"]
+        let rows = AgentChangeDisplay.group(from: s, status: st, mtimes: [:]).rows
+        let folders = AgentChangeDisplay.changeFolders(rows: rows, root: "/repo")
+
+        #expect(folders.count == 2)
+        #expect(folders[0].label == "src")
+        #expect(folders[0].rows.map { basename($0.path) } == ["b.swift", "a.swift"])
+    }
+
+    @Test func 변경_폴더가_비면_빈_배열이다() {
+        #expect(AgentChangeDisplay.changeFolders(rows: [], root: "/repo").isEmpty)
+    }
+
     // MARK: 참고 폴더 그룹핑
 
     private func refSet(_ paths: [String]) -> AgentChangeSet {

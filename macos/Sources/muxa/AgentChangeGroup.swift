@@ -114,6 +114,29 @@ enum AgentChangeDisplay {
                                 baseline: set.baselineHead)
     }
 
+    /// 변경 파일 한 폴더 — 상세 탭이 쓴다(좁은 패널은 평평한 목록 그대로).
+    struct ChangeFolder: Equatable, Identifiable {
+        let label: String
+        let rows: [AgentChangeRow]
+        var id: String { label }
+    }
+
+    /// 변경 행을 **폴더별로** 묶는다. 넓은 화면에서 수십 개가 평평하면 "어디를 고쳤나"가 안 읽힌다.
+    ///
+    /// 폴더 순서는 **그 안에서 가장 최근에 만진 것** 기준이다 — 참고 목록(알파벳순)과 다른데,
+    /// 참고는 시각을 안 보여주는 색인이지만 변경은 시각을 보여주는 작업 기록이라 최근이 먼저다.
+    /// 폴더 안의 행 순서는 `group`이 정한 것(안 본 것 먼저 → 최근순)을 그대로 지킨다.
+    static func changeFolders(rows: [AgentChangeRow], root: String?) -> [ChangeFolder] {
+        var order: [String] = []
+        var buckets: [String: [AgentChangeRow]] = [:]
+        for row in rows {
+            let label = folderLabel(for: row.path, root: root)
+            if buckets[label] == nil { order.append(label) }   // 첫 등장 순 = 가장 최근 행의 순서
+            buckets[label, default: []].append(row)
+        }
+        return order.map { ChangeFolder(label: $0, rows: buckets[$0] ?? []) }
+    }
+
     /// 참고 파일 한 폴더.
     struct ReferenceFolder: Equatable, Identifiable {
         /// 표시용 폴더 이름 — 루트 상대이거나 `~` 축약. 루트 바로 아래면 "루트".

@@ -192,31 +192,29 @@ struct AgentPanel: View {
             }
             // 읽기·웹 조회는 편집 1건에 수십 건이라 같은 목록에 섞으면 바꾼 것이 파묻힌다.
             // 진입 한 줄만 두고 목록은 탭으로 보낸다. `⧉` = "여기서 펼치지 않고 탭으로 연다".
-            if item.referenceCount > 0 {
-                // 구분선 바로 아래 붙어 있으면 앞 행의 꼬리처럼 읽힌다 — 선 위아래로 숨을 준다.
-                HDivider().padding(.top, Space.sm)
-                HStack(spacing: Space.sm) {
-                    Image(systemName: "book")
-                        .font(.muxa(.micro)).foregroundStyle(Color.pMuted)
-                        .frame(width: IconSize.statusSlot)
-                    Text("참고한 것 \(item.referenceCount)")
-                        .font(.muxa(.label)).foregroundStyle(Color.pMuted)
-                    Spacer(minLength: 0)
-                    // `⧉`(square.on.square)는 이 저장소에서 **IDE 컨텍스트 공유** 표식이라
-                    // 용도가 겹치고, 시각적으로도 "복사"로 읽힌다. 여기는 탭으로 들어가는 동선이다.
-                    Image(systemName: "chevron.right")
-                        .font(.muxa(.micro)).foregroundStyle(Color.pMuted)
-                }
-                .padding(.horizontal, Space.sm)
-                .frame(maxWidth: .infinity)
-                .frame(height: RowHeight.row)
-                .padding(.top, Space.tight)
-                .contentShape(Rectangle())
-                .onTapGesture { onOpenReferences(item.tabId, item.title) }
-                .clickCursor()
-                .accessibilityRow(label: "참고한 것 \(item.referenceCount)개, 목록 열기",
-                                  activate: { onOpenReferences(item.tabId, item.title) })
+            // 구분선 바로 아래 붙어 있으면 앞 행의 꼬리처럼 읽힌다 — 선 위아래로 숨을 준다.
+            HDivider().padding(.top, Space.sm)
+            HStack(spacing: Space.sm) {
+                Image(systemName: "list.bullet.rectangle")
+                    .font(.muxa(.micro)).foregroundStyle(Color.pMuted)
+                    .frame(width: IconSize.statusSlot)
+                Text("이 세션 상세")
+                    .font(.muxa(.label)).foregroundStyle(Color.pMuted)
+                Spacer(minLength: 0)
+                // `⧉`(square.on.square)는 이 저장소에서 **IDE 컨텍스트 공유** 표식이라
+                // 용도가 겹치고, 시각적으로도 "복사"로 읽힌다. 여기는 탭으로 들어가는 동선이다.
+                Image(systemName: "chevron.right")
+                    .font(.muxa(.micro)).foregroundStyle(Color.pMuted)
             }
+            .padding(.horizontal, Space.sm)
+            .frame(maxWidth: .infinity)
+            .frame(height: RowHeight.row)
+            .padding(.top, Space.tight)
+            .contentShape(Rectangle())
+            .onTapGesture { onOpenReferences(item.tabId, item.title) }
+            .clickCursor()
+            .accessibilityRow(label: "이 세션 상세 열기",
+                              activate: { onOpenReferences(item.tabId, item.title) })
         }
     }
 
@@ -303,8 +301,6 @@ struct AgentPanel: View {
         let tabId: TabID
         let title: String
         let group: AgentChangeGroup
-        /// 참고한 것의 수 — 0이면 진입 행을 그리지 않는다.
-        let referenceCount: Int
         /// 그 탭이 도는 폴더 — 경로 라벨·diff 인자의 기준.
         let root: String?
         /// 이 그룹의 diff 기준 리비전. 없으면 열 때 HEAD로 떨어진다.
@@ -332,7 +328,6 @@ struct AgentPanel: View {
             guard !g.rows.isEmpty || !set.references.isEmpty else { return nil }
             return GroupItem(key: tabId.uuid.uuidString, tabId: tabId,
                              title: g.title ?? store.tabTitle(tabId), group: g,
-                             referenceCount: set.references.count,
                              root: store.effectiveCwds[tabId] ?? dir)
         }
         // 보는 세션이 먼저, 그다음 **안 본 개수가 많은 순**. 예전엔 제목 알파벳순이라

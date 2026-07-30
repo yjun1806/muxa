@@ -1946,7 +1946,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 에이전트가 더 읽는 동안 열려 있는 화면이 그대로 따라간다.
     @discardableResult
     func openReferences(tabId: TabID, title: String) -> TabID? {
-        let id = openInGroup(.references(AgentReferencesTarget(tabId: tabId, title: title)))
+        let id = openInGroup(.references(AgentDetailTarget(tabId: tabId, title: title)))
         if let id { pinReferencesFirst(id) }
         persist()
         return id

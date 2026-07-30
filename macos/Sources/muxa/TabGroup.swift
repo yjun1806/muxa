@@ -88,7 +88,7 @@ enum GroupItemContent: Identifiable {
     case web(BrowserTab)
     /// 참고 목록(YJ-7) — 그 탭이 읽은 것들. 내용을 복사해 담지 않고 **탭을 가리킨다**
     /// (스토어가 SSOT라 에이전트가 더 읽으면 화면이 따라간다).
-    case references(AgentReferencesTarget)
+    case references(AgentDetailTarget)
 
     var id: String {
         switch self {
@@ -107,7 +107,7 @@ enum GroupItemContent: Identifiable {
         case .web(let t): return t.initialURL.host ?? t.initialURL.absoluteString
         // 서브탭 라벨은 **짧게** — 세션 제목(첫 프롬프트 전문)을 여기 쓰면 스트립을 통째로 먹는다.
         // 어느 세션인지는 패널 안 헤더가 말한다.
-        case .references: return "참고"
+        case .references: return "상세"
         }
     }
 
