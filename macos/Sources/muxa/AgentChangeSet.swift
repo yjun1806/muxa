@@ -74,6 +74,24 @@ struct AgentChangeSet: Equatable, Codable {
 
     init() {}
 
+    // MARK: 관대한 디코딩 — 필드가 늘어도 예전 파일이 안 깨진다
+    //
+    // **자동 생성 `Codable`은 키가 없으면 기본값을 쓰지 않고 던진다.** non-optional 필드를 하나
+    // 추가하는 순간 이전에 저장된 파일이 전부 디코드에 실패하고, 호출부의 `try?`가 그걸 nil로
+    // 삼켜 **기록이 통째로 사라진 것처럼 보인다**(실제로 그렇게 터졌다 — `detailWasOpen` 추가 때).
+    //
+    // 그래서 전부 `decodeIfPresent`로 읽고 없으면 기본값을 쓴다. 앞으로 필드가 늘어도
+    // 여기만 한 줄 늘리면 되고, 예전 파일은 계속 읽힌다.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        originPrompt = try c.decodeIfPresent(String.self, forKey: .originPrompt)
+        baselineHead = try c.decodeIfPresent(String.self, forKey: .baselineHead)
+        entries = try c.decodeIfPresent([String: AgentChangeEntry].self, forKey: .entries) ?? [:]
+        references = try c.decodeIfPresent([String: AgentReference].self, forKey: .references) ?? [:]
+        truncatedCount = try c.decodeIfPresent(Int.self, forKey: .truncatedCount) ?? 0
+        detailWasOpen = try c.decodeIfPresent(Bool.self, forKey: .detailWasOpen) ?? false
+    }
+
     // MARK: 수집 판정 (순수)
 
     /// 편집 도구가 만진 절대 경로. 대상 도구가 아니거나 경로를 확정할 수 없으면 nil.
