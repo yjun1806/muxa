@@ -2828,6 +2828,9 @@ final class AppState {
     /// 세션 정상 종료 — 마지막 레이아웃을 저장하고 크래시 마커를 지운다(disarm).
     /// applicationWillTerminate가 호출한다. 이 경로를 못 타면(크래시) 마커가 남아 다음 시작에 더티로 잡힌다.
     func endSession() {
+        // 수집 파일은 디바운스(≤1.5s)를 거쳐 쓰이므로, 종료 직전에 대기분을 강제로 흘린다(YJ-7).
+        // 안 하면 마지막 편집 몇 건이 유실된다.
+        for store in stores.values { store.flushAgentChanges() }
         save(captureScrollback: true) // 종료 시 1회만 스크롤백을 최신 화면으로 갱신 — 복원이 이걸 재출력한다
         ideServers.stopAll() // 모든 CC 서버 종료 + 락파일 정리(고아 방지)
         CrashMarker.disarm()

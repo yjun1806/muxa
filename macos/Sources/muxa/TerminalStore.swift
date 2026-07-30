@@ -1879,7 +1879,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         case .group(.media): return 4
         case .group(.diffs): return 5
         case .group(.agent): return 6
-        case .group(.browser): return 7
+        case .group(.references): return 7
+        case .group(.browser): return 8
         }
     }
 
@@ -1906,6 +1907,15 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         let id = openInGroup(.file(FileViewTarget(path: path)))
         lastOpenedFilePath = path
         revealSeq += 1 // 익스플로러 reveal 트리거(같은 파일 재-open도 반영)
+        persist()
+        return id
+    }
+
+    /// 참고 목록을 **참고 그룹** 서브탭으로 연다(YJ-7). 내용이 아니라 탭을 가리키므로
+    /// 에이전트가 더 읽는 동안 열려 있는 화면이 그대로 따라간다.
+    @discardableResult
+    func openReferences(tabId: TabID, title: String) -> TabID? {
+        let id = openInGroup(.references(AgentReferencesTarget(tabId: tabId, title: title)))
         persist()
         return id
     }
@@ -2283,6 +2293,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         case .file(let t): return ItemSnapshot(file: t.path, commit: nil, commitSubject: nil)
         case .web(let t): return ItemSnapshot(file: nil, commit: nil, commitSubject: nil,
                                               url: t.currentURL.absoluteString)
+        // 참고 목록은 복원 대상이 아니다 — 가리키는 TabID가 복원 때 재발급돼 빈 곳을 보게 된다.
+        case .references: return ItemSnapshot(file: nil, commit: nil, commitSubject: nil)
         case .diff(let target):
             switch target {
             case .commit(let hash, let subject):

@@ -74,7 +74,8 @@ struct InspectorContent: View {
                 AgentPanel(store: store,
                            dir: t.project.path ?? t.ws.path,
                            onOpenDiff: { _ = store.openDiff($0) },
-                           onOpenGitPanel: { state.openInspector(.git) })
+                           onOpenGitPanel: { state.openInspector(.git) },
+                           onOpenReferences: { _ = store.openReferences(tabId: $0, title: $1) })
             } else {
                 emptyProject
             }

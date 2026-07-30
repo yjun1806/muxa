@@ -1,3 +1,4 @@
+import Bonsplit
 import SwiftUI
 
 /// 그룹 탭의 2단째 — 상단 서브탭 바(개별 문서/커밋) + 선택한 항목의 뷰어.
@@ -33,6 +34,8 @@ struct TabGroupView: View {
     var onSelection: (IdeSelection) -> Void = { _ in }
     /// 이 그룹이 지금 포커스된 패인의 선택 탭인가 — 활성 문서만 IDE 컨텍스트를 재보고한다(그룹 전환 정확도).
     var isActiveGroup: Bool = true
+    /// 참고 목록(YJ-7)이 읽을 수집 집합 — 스토어를 직접 물지 않으려 클로저로 받는다.
+    var agentReferences: (TabID) -> AgentChangeSet? = { _ in nil }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -128,6 +131,9 @@ struct TabGroupView: View {
             DiffView(target: target, dir: dir, chrome: false, onClose: {})
         case .web(let tab):
             BrowserView(tab: tab, shouldLoad: selected)
+        case .references(let target):
+            AgentReferencesView(target: target, setProvider: agentReferences,
+                                onOpenFile: onOpenFile, onOpenURL: onOpenURL)
         }
     }
 

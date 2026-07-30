@@ -91,7 +91,8 @@ struct BonsplitWorkspaceView: View {
                     onSelection: { store.reportDocSelection($0) },
                     // 이 그룹이 포커스된 패인의 선택 탭인가 — 활성 문서만 IDE 컨텍스트를 재보고(그룹 전환 정확도).
                     isActiveGroup: store.controller.focusedPaneId?.id == paneId.id
-                        && store.controller.selectedTabId(inPane: paneId) == tabId
+                        && store.controller.selectedTabId(inPane: paneId) == tabId,
+                    agentReferences: { store.agentChangeSet(for: $0) }
                 )
             }
         }

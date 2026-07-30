@@ -12,6 +12,9 @@ enum TabGroupKind: Equatable {
     /// 비교 기준이 다르다(탭 기준선 ↔ HEAD). 한 그룹에 섞으면 같은 파일의 서브탭 두 개가
     /// **라벨이 똑같은데 내용이 다른** 상태가 된다 — 어느 쪽이 무엇인지 알 방법이 없어진다.
     case agent
+    /// **참고**(YJ-7) — 에이전트가 읽기만 한 것들의 목록. 변경과 섞지 않는다
+    /// (편집 1건에 읽기 수십 건이라 섞으면 바꾼 것이 파묻힌다).
+    case references
     case browser // 인앱 웹 브라우저
 
     var title: String {
@@ -22,6 +25,7 @@ enum TabGroupKind: Equatable {
         case .media: return "미디어"
         case .diffs: return "변경"
         case .agent: return "에이전트 변경"
+        case .references: return "참고"
         case .browser: return "웹"
         }
     }
@@ -36,6 +40,7 @@ enum TabGroupKind: Equatable {
         // Bonsplit `createTab`은 SF Symbol 이름만 받는다 — ClaudeMark(이미지)를 못 넘긴다.
         // 이 저장소가 이미 쓰는 ClaudeMark 폴백 심볼을 그대로 쓴다(탭 액션 레인과 같은 어휘).
         case .agent: return "sparkle"
+        case .references: return "book"
         case .browser: return "globe"
         }
     }
@@ -49,6 +54,7 @@ enum TabGroupKind: Equatable {
         case .media: return "media"
         case .diffs: return "diffs"
         case .agent: return "agent"
+        case .references: return "references"
         case .browser: return "browser"
         }
     }
@@ -61,6 +67,7 @@ enum TabGroupKind: Equatable {
         case "media": self = .media
         case "diffs": self = .diffs
         case "agent": self = .agent
+        case "references": self = .references
         case "browser": self = .browser
         default: return nil
         }
@@ -72,12 +79,16 @@ enum GroupItemContent: Identifiable {
     case file(FileViewTarget)
     case diff(GitDiffTarget)
     case web(BrowserTab)
+    /// 참고 목록(YJ-7) — 그 탭이 읽은 것들. 내용을 복사해 담지 않고 **탭을 가리킨다**
+    /// (스토어가 SSOT라 에이전트가 더 읽으면 화면이 따라간다).
+    case references(AgentReferencesTarget)
 
     var id: String {
         switch self {
         case .file(let t): return t.id
         case .diff(let t): return "diff:\(t.id)"
         case .web(let t): return t.id
+        case .references(let t): return t.id
         }
     }
 
@@ -87,6 +98,7 @@ enum GroupItemContent: Identifiable {
         case .diff(let t): return t.tabTitle
         // 서브탭 라벨은 nonisolated 컨텍스트라 불변 initialURL(let)로만 잡는다(페이지 제목 실시간 반영은 안 함).
         case .web(let t): return t.initialURL.host ?? t.initialURL.absoluteString
+        case .references(let t): return t.title
         }
     }
 
@@ -95,6 +107,7 @@ enum GroupItemContent: Identifiable {
         case .file(let t): return t.tabIcon
         case .diff(let t): return t.tabIcon
         case .web: return "globe"
+        case .references: return "book"
         }
     }
 
@@ -110,6 +123,7 @@ enum GroupItemContent: Identifiable {
         case .diff(.baselineFile): return .agent
         case .diff: return .diffs
         case .web: return .browser
+        case .references: return .references
         }
     }
 
@@ -120,7 +134,7 @@ enum GroupItemContent: Identifiable {
         case .file(let target): return target.path
         case .diff(.file(let change)): return dir.isEmpty ? nil : (dir as NSString).appendingPathComponent(change.path)
         case .diff(.baselineFile(_, let path)): return dir.isEmpty ? nil : (dir as NSString).appendingPathComponent(path)
-        case .diff, .web: return nil
+        case .diff, .web, .references: return nil
         }
     }
 }

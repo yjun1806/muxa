@@ -18,6 +18,8 @@ struct AgentPanel: View {
     var onOpenDiff: (GitDiffTarget) -> Void
     /// 리포의 진실로 보내기 — 귀속 안 된 변경은 Git 패널이 답한다.
     var onOpenGitPanel: () -> Void
+    /// 참고 목록 열기 — 패널엔 한 줄만 두고 목록은 탭으로 보낸다(읽기가 편집을 압도한다).
+    var onOpenReferences: (TabID, String) -> Void
 
     /// 절대경로 → git 상태 문자. 30초 tick과 함께 갱신한다.
     @State private var status: [String: Character] = [:]
@@ -152,6 +154,23 @@ struct AgentPanel: View {
             if item.group.truncatedCount > 0 {
                 tail("오래된 항목 \(item.group.truncatedCount)건은 기록이 잘렸습니다")
             }
+            // 읽기·웹 조회는 편집 1건에 수십 건이라 같은 목록에 섞으면 바꾼 것이 파묻힌다.
+            // 진입 한 줄만 두고 목록은 탭으로 보낸다. `⧉` = "여기서 펼치지 않고 탭으로 연다".
+            if item.referenceCount > 0 {
+                HStack(spacing: Space.sm) {
+                    Text("참고한 것 \(item.referenceCount)")
+                        .font(.muxa(.label)).foregroundStyle(Color.pMuted)
+                    Spacer(minLength: 0)
+                    Image(systemName: "square.on.square")
+                        .font(.muxa(.micro)).foregroundStyle(Color.pMuted)
+                }
+                .padding(.horizontal, Space.sm)
+                .frame(height: RowHeight.tight)
+                .overlay(alignment: .top) { HDivider() }
+                .contentShape(Rectangle())
+                .onTapGesture { onOpenReferences(item.tabId, item.title) }
+                .clickCursor()
+            }
         }
     }
 
@@ -218,6 +237,8 @@ struct AgentPanel: View {
         let tabId: TabID
         let title: String
         let group: AgentChangeGroup
+        /// 참고한 것의 수 — 0이면 진입 행을 그리지 않는다.
+        let referenceCount: Int
         /// 이 그룹의 diff 기준 리비전. 없으면 열 때 HEAD로 떨어진다.
         var baseline: String? { group.baseline }
     }
@@ -228,7 +249,8 @@ struct AgentPanel: View {
             let g = AgentChangeDisplay.group(from: set, status: status, mtimes: mtimes)
             guard !g.rows.isEmpty else { return nil } // 0이면 그룹째 렌더하지 않는다
             return GroupItem(key: tabId.uuid.uuidString, tabId: tabId,
-                             title: g.title ?? store.tabTitle(tabId), group: g)
+                             title: g.title ?? store.tabTitle(tabId), group: g,
+                             referenceCount: set.references.count)
         }
         .sorted { lhs, rhs in
             let l = lhs.tabId == store.currentTabId, r = rhs.tabId == store.currentTabId
