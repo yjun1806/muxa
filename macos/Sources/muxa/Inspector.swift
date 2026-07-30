@@ -76,8 +76,7 @@ struct InspectorContent: View {
                            onOpenDiff: { _ = store.openDiff($0) },
                            onOpenGitPanel: { state.openInspector(.git) },
                            onOpenReferences: { _ = store.openReferences(tabId: $0, title: $1) },
-                           isCollapsed: { state.isAgentGroupCollapsed($0) },
-                           onToggleCollapse: { state.toggleAgentGroup($0) })
+                           onFocusSession: { store.revealTab($0) })
             } else {
                 emptyProject
             }

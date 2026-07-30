@@ -20,9 +20,9 @@ struct AgentPanel: View {
     var onOpenGitPanel: () -> Void
     /// 참고 목록 열기 — 패널엔 한 줄만 두고 목록은 탭으로 보낸다(읽기가 편집을 압도한다).
     var onOpenReferences: (TabID, String) -> Void
-    /// 그룹 접힘 조회·토글 — 상태는 상위(AppState)가 소유하고 여기는 위임만 한다.
-    var isCollapsed: (String) -> Bool
-    var onToggleCollapse: (String) -> Void
+    /// 그 세션의 터미널 탭으로 이동 — 패널이 곧 **세션 스위처**다.
+    /// 접힘 상태를 따로 두지 않는다: **포커스된 세션이 열린 세션**이므로 이동이 곧 펼침이다.
+    var onFocusSession: (TabID) -> Void
 
     /// 절대경로 → git 상태 문자. 30초 tick과 함께 갱신한다.
     @State private var status: [String: Character] = [:]
@@ -114,10 +114,12 @@ struct AgentPanel: View {
 
     @ViewBuilder
     private func group(_ item: GroupItem) -> some View {
-        let focused = item.tabId == store.currentTabId
-        let open = !isCollapsed(item.key)
+        // **아코디언 하나만** — 이 저장소가 같은 폭에서 이미 내린 결정이다
+        // (`DESIGN.md:365` "폭이 180pt까지 좁아지면 여럿 펼침이 위계를 무너뜨린다").
+        // 열린 것이 곧 활성이라 강조를 위한 채움·색이 따로 필요 없다.
+        let open = item.key == openKey
         VStack(alignment: .leading, spacing: 0) {
-            groupHeader(item, focused: focused, open: open)
+            groupHeader(item, open: open)
             if open {
                 // 자식은 **늘** 레인 위에 앉는다 — 소속을 그리는 건 레인의 일이고,
                 // 포커스는 헤더 행이 말한다. 두 역할을 섞지 않는다.
@@ -132,43 +134,42 @@ struct AgentPanel: View {
     }
 
     @ViewBuilder
-    private func groupHeader(_ item: GroupItem, focused: Bool, open: Bool) -> some View {
+    private func groupHeader(_ item: GroupItem, open: Bool) -> some View {
         HStack(spacing: Space.sm) {
-            // 마크는 **정체성(WHO)**이라 상태로 쓰지 않는다. 임의 opacity 곱도 금지(DESIGN §2).
-            // 채움(무채)이 배타적으로 "여기"를 말하고, 포커스 그룹은 맨 위로 정렬돼 위치가 한 채널 더 있다.
+            // 마크는 **정체성(WHO)**이라 상태로 쓰지 않는다(임의 opacity 곱도 금지 — DESIGN §2).
+            // 지금 보고 있는 세션은 "열려 있다"가 말하므로 마크를 건드릴 이유가 없다.
             ClaudeMark(size: IconSize.statusSlot)
             Text(item.title)
-                .font(.muxa(.body, weight: focused ? .semibold
-                                          : (item.group.unreadCount > 0 ? .medium : .regular)))
-                // 전부 봤으면 제목이 흐려진다 — 훑을 때 굵은 제목만 남는다.
-                .foregroundStyle(item.group.unreadCount > 0 ? Color.pFg : Color.pMuted)
+                .font(.muxa(.body, weight: open ? .semibold : .regular))
+                .foregroundStyle(open ? Color.pFg : Color.pMuted)
                 .lineLimit(1).truncationMode(.tail)
-            // 안 본 개수 롤업 — **접혔을 때만.** 펼쳐져 있으면 굵은 행들이 곧 개수라
-            // 배지는 같은 말의 세 번째 반복이다. 0이면 당연히 없다.
+            // 접힌 세션은 내용이 안 보이므로 **숫자가 유일한 단서**다. 펼쳐진 쪽은 행들이 곧 개수라
+            // 배지가 같은 말의 세 번째 반복이 된다 — 그래서 접혔을 때만.
             if !open, item.group.unreadCount > 0 {
                 CountBadge(count: item.group.unreadCount)
             }
             Spacer(minLength: 0)
-            Image(systemName: open ? "chevron.down" : "chevron.right")
-                .font(.muxa(.micro)).foregroundStyle(Color.pMuted)
+            // 접힌 세션은 "누르면 간다"는 뜻이므로 이동 어포던스(›)를 쓴다.
+            // 열린 것엔 아무것도 안 붙인다 — 접을 수 있는 게 아니라 지금 보고 있는 것이다.
+            if !open {
+                Image(systemName: "chevron.right")
+                    .font(.muxa(.micro)).foregroundStyle(Color.pMuted)
+            }
         }
         .padding(.horizontal, Space.sm)
         .frame(height: RowHeight.toolbar) // **고정** — 가변이면 탭을 바꿀 때마다 아래 그룹이 밀린다
-        // 보고 있는 세션 = **헤더 행 채움**. 블록 전체를 칠하면 덩어리로 뭉툭해진다 —
-        // 사이드바 프로젝트 행이 쓰는 문법 그대로 "행 하나"를 채운다(`SidebarProjectRow`).
-        // 게다가 포커스 그룹은 늘 맨 위로 정렬되므로 위치가 이미 한 채널을 대고 있다.
-        .background {
-            if focused { RoundedRectangle(cornerRadius: Radius.sm).fill(Color.pBtnActive) }
-        }
+        // **채움을 쓰지 않는다.** 열려 있다는 사실이 곧 "지금 이 세션"이다 —
+        // 아래에 파일이 달린 그룹은 하나뿐이라 색·채움으로 덧칠할 이유가 없다.
         .contentShape(Rectangle())
-        // 행 클릭 = 펼침/접힘 (커밋 행과 같은 제스처 — 훑기와 정독이 제스처를 공유하지 않는다).
-        .onTapGesture { onToggleCollapse(item.key) }
+        // 행 클릭 = **그 세션으로 이동**. 접힌 걸 누르면 터미널이 그 칸으로 옮겨가고,
+        // 포커스를 따라 이 그룹이 열린다 — 펼침은 이동의 결과지 별도 조작이 아니다.
+        .onTapGesture { if !open { onFocusSession(item.tabId) } }
         .clickCursor()
         .accessibilityRow(label: "\(item.title), 파일 \(item.group.rows.count)개"
-                          + (item.group.unreadCount > 0 ? ", 안 본 것 \(item.group.unreadCount)개" : ""),
-                          selected: focused,
-                          activate: { onToggleCollapse(item.key) })
-        .accessibilityValue(open ? "펼침" : "접힘")
+                          + (item.group.unreadCount > 0 ? ", 안 본 것 \(item.group.unreadCount)개" : "")
+                          + (open ? ", 보는 중" : ", 눌러서 이 세션으로 이동"),
+                          selected: open,
+                          activate: { onFocusSession(item.tabId) })
     }
 
     @ViewBuilder
@@ -305,7 +306,19 @@ struct AgentPanel: View {
         var baseline: String? { group.baseline }
     }
 
-    /// 보고 있는 세션을 **맨 위**에 세운다 — 목록에서 찾는 데 시간이 들면 안 된다.
+    /// 지금 펼칠 그룹. 포커스된 탭의 세션이 원칙이되, **그 탭이 세션이 아닐 때**
+    /// (뷰어 탭·일반 터미널을 보고 있을 때) 맨 위 그룹으로 떨어진다 —
+    /// 안 그러면 접힌 행만 남아 패널이 죽은 화면이 된다. 맨 위는 정렬상 가장 안 본 게 많은 세션이다.
+    private var openKey: String? {
+        let items = groups
+        if let cur = store.currentTabId, items.contains(where: { $0.tabId == cur }) {
+            return cur.uuid.uuidString
+        }
+        return items.first?.key
+    }
+
+    /// 열린 세션(= 보고 있는 것)을 **맨 위**에 세운다 — 유일하게 내용이 달린 그룹이라
+    /// 아래에 있으면 접힌 행들을 지나 스크롤해야 한다.
     private var groups: [GroupItem] {
         store.agentChanges.compactMap { tabId, set -> GroupItem? in
             let g = AgentChangeDisplay.group(from: set, status: status, mtimes: mtimes)
