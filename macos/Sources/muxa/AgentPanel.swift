@@ -119,24 +119,13 @@ struct AgentPanel: View {
         VStack(alignment: .leading, spacing: 0) {
             groupHeader(item, focused: focused, open: open)
             if open {
-                // **보고 있는 그룹 안에서는 레인 면을 그리지 않는다** — 강조 면이 이미
-                // "한 묶음"을 말하므로 같은 말을 두 번 하지 않는다.
+                // 자식은 **늘** 레인 위에 앉는다 — 소속을 그리는 건 레인의 일이고,
+                // 포커스는 헤더 행이 말한다. 두 역할을 섞지 않는다.
                 rows(item)
                     .padding(Space.xs)
                     .background {
-                        if !focused {
-                            RoundedRectangle(cornerRadius: Radius.lg).fill(Color.pLane)
-                        }
+                        RoundedRectangle(cornerRadius: Radius.lg).fill(Color.pLane)
                     }
-            }
-        }
-        // 보고 있는 세션 = **선택 채움**(btnActive) — 사이드바가 "지금 보고 있는 탭"에 쓰는 그 채움이다.
-        // 이 패널엔 '선택된 행' 상태가 없으므로(행 클릭 = diff 열기) 안쪽과 충돌하지 않는다.
-        // 배경을 bg로 올린 뒤 btnHover는 대비가 모자랐다.
-        .padding(.bottom, focused ? Space.xs : 0)
-        .background {
-            if focused {
-                RoundedRectangle(cornerRadius: Radius.lg).fill(Color.pBtnActive)
             }
         }
         .padding(.horizontal, Space.xs)
@@ -149,7 +138,8 @@ struct AgentPanel: View {
             // 채움(무채)이 배타적으로 "여기"를 말하고, 포커스 그룹은 맨 위로 정렬돼 위치가 한 채널 더 있다.
             ClaudeMark(size: IconSize.statusSlot)
             Text(item.title)
-                .font(.muxa(.body, weight: item.group.unreadCount > 0 ? .bold : .medium))
+                .font(.muxa(.body, weight: focused ? .semibold
+                                          : (item.group.unreadCount > 0 ? .medium : .regular)))
                 // 전부 봤으면 제목이 흐려진다 — 훑을 때 굵은 제목만 남는다.
                 .foregroundStyle(item.group.unreadCount > 0 ? Color.pFg : Color.pMuted)
                 .lineLimit(1).truncationMode(.tail)
@@ -164,6 +154,12 @@ struct AgentPanel: View {
         }
         .padding(.horizontal, Space.sm)
         .frame(height: RowHeight.toolbar) // **고정** — 가변이면 탭을 바꿀 때마다 아래 그룹이 밀린다
+        // 보고 있는 세션 = **헤더 행 채움**. 블록 전체를 칠하면 덩어리로 뭉툭해진다 —
+        // 사이드바 프로젝트 행이 쓰는 문법 그대로 "행 하나"를 채운다(`SidebarProjectRow`).
+        // 게다가 포커스 그룹은 늘 맨 위로 정렬되므로 위치가 이미 한 채널을 대고 있다.
+        .background {
+            if focused { RoundedRectangle(cornerRadius: Radius.sm).fill(Color.pBtnActive) }
+        }
         .contentShape(Rectangle())
         // 행 클릭 = 펼침/접힘 (커밋 행과 같은 제스처 — 훑기와 정독이 제스처를 공유하지 않는다).
         .onTapGesture { onToggleCollapse(item.key) }
