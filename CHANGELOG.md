@@ -6,6 +6,35 @@ All notable changes to muxa are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-30
+
+### Added
+- **Agent panel** — a new tool panel (left rail, Claude mark) that answers a question the Git panel
+  structurally cannot: *which claude session changed this?* A workspace often runs several sessions
+  at once, and until now their edits all landed in one undifferentiated pile of working-tree changes.
+  The panel groups them **by session**, titled with the prompt that started the session's first
+  collected turn. One group is open at a time; clicking another session **moves you to that terminal
+  tab**, so the panel doubles as a session switcher. Every row opens as a **diff** against the HEAD
+  captured when that session first touched anything — not against the branch base, so unrelated work
+  in the repo doesn't leak into the comparison. Files the session *created* render as documents with
+  a header badge instead of a wall of green. Rows you haven't opened are **bold**; opening one mutes
+  it, and the agent touching it again makes it bold once more. A residual row counts changes the
+  panel doesn't know about (your own edits, or the agent's `Bash`-driven ones) and hands you off to
+  the Git panel — the panel never claims to be the whole truth.
+- **Session detail** — a per-session view with two regions: **변경** (what it edited) and **참고**
+  (what it read, and which URLs it fetched), both grouped by folder and annotated with the
+  instruction that led there. Opening it fills the group; clicking a file narrows it to a resizable
+  sidebar with the diff alongside. It can be widened, expanded to full width, or collapsed to a rail,
+  and it comes back where you left it after a restart.
+
+  This costs Claude Code nothing new: it reads the `PreToolUse` hook muxa already subscribes to, so
+  no hook is installed, no extra process is spawned per tool call, and `settings.json` is untouched.
+
+### Fixed
+- **`make test` no longer fails on a renamed target** — a test asserted the presence of a Makefile
+  target that had been renamed, so a clean checkout failed its own suite.
+
+
 ## [0.6.1] - 2026-07-29
 
 ### Fixed
@@ -121,7 +150,8 @@ First tagged release — a macOS agent terminal with a built-in document viewer 
 ### Notes
 - Status and notifications are tuned to Claude Code. macOS 14+. Build from source — no prebuilt binary; install with the one-line script or `make`.
 
-[Unreleased]: https://github.com/yjun1806/muxa/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/yjun1806/muxa/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/yjun1806/muxa/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/yjun1806/muxa/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/yjun1806/muxa/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/yjun1806/muxa/compare/v0.5.1...v0.5.2
