@@ -2289,8 +2289,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                 // 커밋 안 파일도 불변이라 복원 대상이다(워크트리 파일 diff와 달리 내용이 안 변한다).
                 return ItemSnapshot(file: nil, commit: hash, commitSubject: nil,
                                     commitFile: path, commitFileOldPath: oldPath)
-            case .file, .all:
-                return ItemSnapshot(file: nil, commit: nil, commitSubject: nil) // 워크트리 diff는 복원 대상 아님
+            case .file, .all, .baselineFile:
+                // 워크트리 diff는 복원 대상 아님. 기준선 diff도 마찬가지다 —
+                // 기준선 해시는 그 세션에 종속된 값이라 다음 실행에서 되살리면 엉뚱한 걸 비교한다.
+                return ItemSnapshot(file: nil, commit: nil, commitSubject: nil)
             }
         }
     }

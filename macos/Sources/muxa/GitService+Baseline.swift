@@ -23,4 +23,22 @@ extension GitService {
         return BaselineResolve.decide(baseline: baseline, exists: true,
                                       isAncestor: isAncestor, mergeBase: mergeBase)
     }
+
+    /// 기준선 ↔ 워킹트리의 파일 하나 diff. 기준선을 먼저 검증하므로 **거짓 diff가 나오지 않는다**.
+    /// 강등됐으면 그 사실도 함께 돌려준다 — 화면이 사유를 말할 수 있어야 한다.
+    static func baselineFileDiff(base: String, path: String,
+                                 in dir: String) async -> (text: String,
+                                                           decision: BaselineResolve.Decision) {
+        let decision = await resolveBaseline(base, in: dir)
+        let rev = BaselineResolve.revision(for: decision)
+
+        // 추적 안 되는 파일은 어느 리비전에도 없다 — `--no-index`로 /dev/null 대비로 그린다
+        // (기존 `worktreeDiff`가 untracked를 담는 방식과 같은 경로).
+        let tracked = await run(["ls-files", "--error-unmatch", "--", path], in: dir).exitCode == 0
+        if !tracked {
+            let out = await run(["diff", "--no-color", "--no-index", "--", "/dev/null", path], in: dir)
+            return (out.stdout, decision)
+        }
+        return (await run(["diff", "--no-color", rev, "--", path], in: dir).stdout, decision)
+    }
 }
