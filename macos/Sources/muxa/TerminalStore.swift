@@ -698,6 +698,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         resumeBlocks[tabId] = nil // 재개 차단 사유도 해제
         resumeTabs.remove(tabId) // 재개 배너 표시 상태도 해제
         tabContent[tabId] = nil
+        // 에이전트 그룹이 닫혔다 = 그 세션의 상세를 닫은 것 — 재시작 때 되살리지 않는다.
+        if case .group(.agent(let session)) = content(for: tabId) { markDetailOpen(session, false) }
         groups[tabId] = nil // 그룹 탭이면 서브탭 상태도 해제
         badgedTabs.remove(tabId)
         clearAgentActivity(tabId) // 에이전트 추정 상태·추정기 해제(+ idle 타이머 재동기화)
@@ -1957,6 +1959,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 에이전트가 더 읽는 동안 열려 있는 화면이 그대로 따라간다.
     @discardableResult
     func openReferences(tabId: TabID, title: String) -> TabID? {
+        markDetailOpen(tabId, true)
         let id = openInGroup(.references(AgentDetailTarget(tabId: tabId, title: title)))
         if let id { pinReferencesFirst(id) }
         persist()
@@ -1977,6 +1980,29 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         let tab = BrowserTab(url: url)
         tab.onNavigated = { [weak self] in self?.persist() }
         return tab
+    }
+
+    /// "이 세션의 상세가 열려 있다"를 세션 파일에 적는다 — 재시작 후 되살릴 근거.
+    private func markDetailOpen(_ tabId: TabID, _ open: Bool) {
+        guard var set = agentChanges[tabId], set.detailWasOpen != open else { return }
+        set.detailWasOpen = open
+        mutateAgentChanges { $0[tabId] = set }
+        scheduleAgentChangePersist(tabId)
+    }
+
+    /// 복원이 끝난 뒤 — **상세가 열려 있던 세션의 탭을 되살린다.**
+    ///
+    /// 그룹 자체를 스냅샷에서 복원하지 않는 이유: 그룹은 세션을 `TabID`로 가리키는데
+    /// 그건 복원 때 재발급돼 되짚을 수가 없다. 대신 세션 파일(키가 안정적이다)에 적어둔
+    /// 표식을 보고 **다시 연다** — 결과는 같고 식별자 모델을 안 건드린다.
+    /// 개별 diff는 되살리지 않는다(기준선이 그새 밀렸을 수 있다 — 상세에서 한 번에 다시 연다).
+    private func restoreOpenAgentDetails() {
+        for tabId in controller.allTabIds {
+            guard let set = agentChangeSnapshot(for: tabId) ?? AgentChangeStore.load(key: agentChangeKey(for: tabId)),
+                  set.detailWasOpen else { continue }
+            hydrateAgentChanges(tabId)
+            _ = openReferences(tabId: tabId, title: set.originPrompt ?? tabTitle(tabId))
+        }
     }
 
     /// 참고 서브탭을 **맨 앞**에 세운다. 개별 diff와 맥락이 다르니 자리도 다르다.
@@ -2395,6 +2421,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         restoreFocus = nil
         realize(snap, into: controller.allPaneIds.first)
         restoring = false
+        // 열려 있던 세션 상세를 되살린다(그룹은 스냅샷으로 못 살린다 — 위 주석).
+        restoreOpenAgentDetails()
         // 활성 칸 복원 — 선택 탭이 있으면 selectTab(그 칸 포커스+탭 선택), 없으면 칸만 포커스.
         if let rf = restoreFocus {
             restoreFocus = nil
