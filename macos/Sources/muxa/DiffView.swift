@@ -93,6 +93,8 @@ struct DiffView: View {
     @State private var stageError: String?
     /// 기준선이 강등됐을 때의 사유(YJ-7) — 정상이면 nil이라 아무것도 그리지 않는다.
     @State private var baselineNotice: String?
+    /// 옛쪽이 없는 파일인가(YJ-7) — 초록 벽 대신 본문을 그대로 렌더한다.
+    @State private var isNewFile = false
     @State private var watcher: FileWatcher? // 파일 diff만 디스크 변경 감시(커밋 diff는 불변이라 nil)
     @State private var lastMTime: Date?      // 이 파일 실제 변경만 재로드(FSEvents 재귀 소음·스테이지 무시)
     /// 현재 파일의 최신 변경 상태 — 스테이지/언스테이지로 index·worktree가 바뀌므로 target의
@@ -121,7 +123,9 @@ struct DiffView: View {
                 HDivider()
             }
             toolbar
-            if viewMode == .document {
+            if let path = newFilePath {
+                newFileBody(path)
+            } else if viewMode == .document {
                 documentBody
             } else if !loaded {
                 centerLabel("불러오는 중…")
@@ -156,6 +160,40 @@ struct DiffView: View {
         .onChange(of: watcher?.changeSeq) { _, _ in Task { await reloadIfChanged() } }
         .sheet(item: $draft) { d in
             ReviewCommentSheet(draft: d, onSubmit: { addComment(d, body: $0) }, onCancel: { draft = nil })
+        }
+    }
+
+    // MARK: 새 파일 — 초록 벽을 걷어낸다 (YJ-7)
+
+    /// 새 파일로 **렌더할** 절대 경로. 새 파일이 아니거나 문서로 그릴 수 없으면 nil이다.
+    ///
+    /// 이미지·영상은 여기서 걸러 기존 diff 경로에 맡긴다 — 문서로 렌더할 문법이 없고,
+    /// git이 "Binary files differ"로 정직하게 답하는 게 낫다.
+    private var newFilePath: String? {
+        guard isNewFile else { return nil }
+        let rel: String?
+        switch target {
+        case .baselineFile(_, let path): rel = path
+        case .file(let change): rel = change.opPath
+        case .commit, .commitFile, .all: rel = nil
+        }
+        guard let rel else { return nil }
+        let abs = absolutePath(rel)
+        switch FileViewTarget(path: abs).kind {
+        case .markdown, .code, .html: return abs
+        case .image, .video: return nil
+        }
+    }
+
+    /// 새 파일 본문 — **diff가 아니라 문서**다. 이전이 없으니 비교할 게 없다.
+    /// 마크다운은 렌더된 문서로, 그 밖은 문법 하이라이트로. 둘 다 이미 있는 뷰를 그대로 쓴다.
+    @ViewBuilder
+    private func newFileBody(_ path: String) -> some View {
+        let t = FileViewTarget(path: path)
+        if t.kind == .markdown {
+            MarkdownView(target: t, chrome: false, onClose: onClose)
+        } else {
+            CodeView(target: t, chrome: false, onClose: onClose)
         }
     }
 
@@ -338,8 +376,9 @@ struct DiffView: View {
     /// 거부는 줄에 코멘트를 달아 에이전트에게 보낸다.
     @ViewBuilder
     private var toolbar: some View {
-        let showToggle = viewMode == .document || (loaded && !lines.isEmpty)
-        if fileChange != nil || showToggle {
+        // 새 파일엔 [통합|나란히|문서] 토글이 의미 없다 — 비교할 옛쪽이 없다.
+        let showToggle = newFilePath == nil && (viewMode == .document || (loaded && !lines.isEmpty))
+        if fileChange != nil || showToggle || newFilePath != nil {
             HStack(spacing: 8) {
                 if viewMode == .document, let r = docResult, r.ok {
                     docStats(r)
@@ -347,6 +386,11 @@ struct DiffView: View {
                 if let stageError {
                     Text(stageError)
                         .font(.muxa(.caption)).foregroundStyle(Color.pDanger).lineLimit(1).truncationMode(.middle)
+                }
+                // 새 파일임을 **한 번만** 말한다 — 42줄에 42번 칠할 일이 아니다.
+                if newFilePath != nil {
+                    Text("새 파일 · \(NewFileDiff.addedLineCount(lines))줄")
+                        .font(.muxa(.caption)).foregroundStyle(Color.pGitAdded)
                 }
                 // 기준선 강등(YJ-7) — 에러가 아니라 안내라 앰버다(`borderActivity`와 같은 축).
                 // 정상이면 nil이라 아무것도 그리지 않는다(모르면 침묵, 강등은 말한다).
@@ -508,6 +552,8 @@ struct DiffView: View {
             text = resolved.text
         }
         lines = text.components(separatedBy: "\n")
+        // 옛쪽이 없으면 초록 벽 대신 본문을 렌더한다(YJ-7). 커밋 diff는 대상이 아니다.
+        isNewFile = !target.isCommitted && NewFileDiff.isNewFile(lines)
         loaded = true
     }
 }
