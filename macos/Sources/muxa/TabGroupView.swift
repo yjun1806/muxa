@@ -133,6 +133,7 @@ struct TabGroupView: View {
             BrowserView(tab: tab, shouldLoad: selected)
         case .references(let target):
             AgentReferencesView(target: target, setProvider: agentReferences,
+                                root: dir.isEmpty ? nil : dir,
                                 onOpenFile: onOpenFile, onOpenURL: onOpenURL)
         }
     }

@@ -9,6 +9,11 @@ struct AgentReference: Equatable, Codable {
     /// (진행 표시용 `ToolActivity`는 호스트만 쓰지만, 이건 여는 데 쓴다).
     let value: String
     var lastSeenAt: Date
+    /// **무엇을 하다가 이걸 열었나** — 그 턴의 사용자 프롬프트.
+    /// 목록만으로는 "왜 이걸 봤지"가 안 풀린다. 비용은 0이다(탭별 프롬프트가 이미 메모리에 있다).
+    /// 같은 것을 여러 번 보면 **가장 최근 맥락**이 남는다.
+    /// 옵셔널이라 예전 저장분도 그대로 디코드된다(없으면 nil).
+    var context: String?
 
     /// 중복 제거 키 — 종류가 다르면 값이 같아도 다른 항목이다.
     var key: String { "\(kind.rawValue):\(value)" }
@@ -74,17 +79,17 @@ struct AgentChangeSet: Equatable, Codable {
 
     /// 참고 항목(읽기·웹 조회). **열 수 있는 것만** 받는다 —
     /// `Grep` 패턴·`WebSearch` 질의·`Bash` 명령은 클릭할 대상이 없어 목록에 넣지 않는다.
-    static func reference(toolName: String?, input: [String: String],
-                          cwd: String?, at now: Date) -> AgentReference? {
+    static func reference(toolName: String?, input: [String: String], cwd: String?,
+                          context: String? = nil, at now: Date) -> AgentReference? {
         switch toolName {
         case "Read":
             guard let path = absolute(input["file_path"], cwd: cwd) else { return nil }
-            return AgentReference(kind: .file, value: path, lastSeenAt: now)
+            return AgentReference(kind: .file, value: path, lastSeenAt: now, context: context)
         case "WebFetch":
             // 스킴 화이트리스트 — `MarkdownLinkSchemes.external`과 같은 태도.
             guard let raw = input["url"], let scheme = URL(string: raw)?.scheme?.lowercased(),
                   scheme == "http" || scheme == "https" else { return nil }
-            return AgentReference(kind: .web, value: raw, lastSeenAt: now)
+            return AgentReference(kind: .web, value: raw, lastSeenAt: now, context: context)
         default:
             return nil
         }
@@ -133,6 +138,8 @@ struct AgentChangeSet: Equatable, Codable {
     mutating func record(reference: AgentReference, at now: Date) {
         var ref = reference
         ref.lastSeenAt = now
+        // 맥락은 **비어 있지 않을 때만** 덮는다 — 프롬프트를 못 읽은 턴이 이미 아는 맥락을 지우면 안 된다.
+        if ref.context == nil { ref.context = references[ref.key]?.context }
         references[ref.key] = ref
     }
 

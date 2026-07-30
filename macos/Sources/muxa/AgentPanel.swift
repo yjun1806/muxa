@@ -24,8 +24,11 @@ struct AgentPanel: View {
     /// 절대경로 → git 상태 문자. 30초 tick과 함께 갱신한다.
     @State private var status: [String: Character] = [:]
     @State private var mtimes: [String: Date] = [:]
-    /// 수집에 귀속되지 않은 변경 수 — 훅이 못 보는 `Bash` 경유 변경(sed·스크립트·git mv).
-    @State private var unattributed = 0
+    /// **이 패널이 모르는** 변경 수 — git은 아는데 수집엔 없는 것.
+    /// 훅이 못 보는 `Bash` 경유 에이전트 변경(sed·스크립트·git mv)이 여기 들어오지만,
+    /// **사용자가 직접 고친 파일도 함께 들어온다** — 그래서 "에이전트가 몰래 한 것"이라고
+    /// 말하지 않는다. 이 패널의 목록이 전부가 아님을 알리는 게 이 행의 일이다.
+    @State private var unknownToPanel = 0
     @State private var collapsed: Set<String> = []
     @State private var tick = Date()
 
@@ -36,14 +39,21 @@ struct AgentPanel: View {
             if groups.isEmpty {
                 empty
             } else {
-                ScrollView { body_ }
+                ScrollView { groupList }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.pPanel)
-        .task(id: dir) { await refresh() }
+        // 탐색기·Git은 `panel`(크롬)인데 여기는 **`bg`(콘텐츠)**를 쓴다 — 훑어 읽는 목록이라
+        // 밝은 면이 낫고, 그룹 강조(`btnHover`)와의 대비도 커진다.
+        .background(Color.pBg)
+        .task(id: dir) {
+            // 재시작 후 지속 세션의 기록은 파일엔 있어도 메모리엔 없다 — 한 번 올린다(②).
+            store.hydrateAgentChangesForLiveTabs()
+            await refresh()
+        }
         // 수집이 바뀌면(에이전트가 또 만졌다) 상태·mtime을 다시 읽는다.
-        .onChange(of: store.agentChanges.count) { _, _ in Task { await refresh() } }
+        // **리비전을 본다** — 개수는 기존 탭에 파일이 하나 더 붙는 걸 놓친다(①).
+        .onChange(of: store.agentChangesRevision) { _, _ in Task { await refresh() } }
         .tick(every: 30, into: $tick)
         .onChange(of: tick) { _, _ in Task { await refresh() } }
     }
@@ -70,12 +80,12 @@ struct AgentPanel: View {
     }
 
     @ViewBuilder
-    private var body_: some View {
+    private var groupList: some View {
         VStack(alignment: .leading, spacing: Space.tight) {
             ForEach(groups, id: \.key) { item in
                 group(item)
             }
-            if unattributed > 0 { residual }
+            if unknownToPanel > 0 { residual }
         }
         .padding(.vertical, Space.sm)
     }
@@ -145,7 +155,7 @@ struct AgentPanel: View {
     private func rows(_ item: GroupItem) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(item.group.rows) { row in
-                fileRow(row, base: item.group.baseline, tabId: item.tabId)
+                fileRow(row, base: item.group.baseline, tabId: item.tabId, root: item.root)
             }
             if item.group.hiddenCount > 0 {
                 tail("그 외 \(item.group.hiddenCount)개")
@@ -175,8 +185,9 @@ struct AgentPanel: View {
     }
 
     @ViewBuilder
-    private func fileRow(_ row: AgentChangeRow, base: String?, tabId: TabID) -> some View {
-        let rel = relative(row.path)
+    private func fileRow(_ row: AgentChangeRow, base: String?, tabId: TabID,
+                         root: String?) -> some View {
+        let rel = relative(row.path, root: root)
         HStack(spacing: Space.sm) {
             switch row.mark {
             case .git(let code):
@@ -200,7 +211,7 @@ struct AgentPanel: View {
         .frame(height: RowHeight.row)
         .contentShape(Rectangle())
         .modifier(ListRowFill())
-        .onTapGesture { open(rel, base: base, tabId: tabId) }
+        .onTapGesture { open(rel, base: base, tabId: tabId, root: root) }
     }
 
     private func tail(_ text: String) -> some View {
@@ -210,12 +221,12 @@ struct AgentPanel: View {
             .frame(height: RowHeight.tight, alignment: .leading)
     }
 
-    /// 귀속 안 된 변경 — 이 패널이 **완전성을 참칭하지 않게** 하는 유일한 방어다.
+    /// 이 패널이 모르는 변경 — **완전성을 참칭하지 않게** 하는 유일한 방어다.
     /// 훅은 `Bash`(sed·스크립트·git mv) 경유 변경을 원리상 못 본다. Git 패널과 나란히 있었다면
     /// 리포의 진실이 늘 옆에 보였는데, 패널을 가른 대가로 그 방어가 사라졌다.
     private var residual: some View {
         HStack(spacing: Space.sm) {
-            Text("귀속 안 된 변경 \(unattributed)건")
+            Text("이 패널이 모르는 변경 \(unknownToPanel)건")
                 .font(.muxa(.label)).foregroundStyle(Color.pMuted)
             Spacer(minLength: 0)
             Text("Git 패널 →").font(.muxa(.caption, weight: .semibold)).foregroundStyle(Color.pBrand)
@@ -239,6 +250,8 @@ struct AgentPanel: View {
         let group: AgentChangeGroup
         /// 참고한 것의 수 — 0이면 진입 행을 그리지 않는다.
         let referenceCount: Int
+        /// 그 탭이 도는 폴더 — 경로 라벨·diff 인자의 기준.
+        let root: String?
         /// 이 그룹의 diff 기준 리비전. 없으면 열 때 HEAD로 떨어진다.
         var baseline: String? { group.baseline }
     }
@@ -250,7 +263,8 @@ struct AgentPanel: View {
             guard !g.rows.isEmpty else { return nil } // 0이면 그룹째 렌더하지 않는다
             return GroupItem(key: tabId.uuid.uuidString, tabId: tabId,
                              title: g.title ?? store.tabTitle(tabId), group: g,
-                             referenceCount: set.references.count)
+                             referenceCount: set.references.count,
+                             root: store.effectiveCwds[tabId] ?? dir)
         }
         .sorted { lhs, rhs in
             let l = lhs.tabId == store.currentTabId, r = rhs.tabId == store.currentTabId
@@ -264,46 +278,62 @@ struct AgentPanel: View {
     }
 
     /// 저장소 루트 기준 상대경로 — 행 라벨·diff 인자가 쓴다(git은 상대경로로 말한다).
-    private func relative(_ absolute: String) -> String {
-        guard let dir else { return absolute }
-        let root = dir.hasSuffix("/") ? dir : dir + "/"
-        return absolute.hasPrefix(root) ? String(absolute.dropFirst(root.count)) : absolute
+    /// 그 탭의 cwd(없으면 패널 dir) 기준 상대경로 — 라벨과 diff 인자가 함께 쓴다.
+    /// 기준이 틀리면 라벨이 `…sandbox/docs`처럼 머리부터 잘려 읽을 수 없게 된다.
+    private func relative(_ absolute: String, root: String?) -> String {
+        guard let base = root ?? dir else { return absolute }
+        let prefix = base.hasSuffix("/") ? base : base + "/"
+        return absolute.hasPrefix(prefix) ? String(absolute.dropFirst(prefix.count)) : absolute
     }
 
-    private func open(_ rel: String, base: String?, tabId: TabID) {
+    private func open(_ rel: String, base: String?, tabId: TabID, root: String?) {
         // 기준선이 없으면(아직 못 읽었다) HEAD로 떨어진다 — 열리지 않는 행을 만들지 않는다.
         onOpenDiff(.baselineFile(base: base ?? "HEAD", path: rel))
         // "봤음"은 **그 그룹의 탭**에 찍는다 — 포커스 탭에 찍으면 남의 기록을 건드린다.
-        guard let dir else { return }
+        guard let base = root ?? dir else { return }
         store.markAgentChangeSeen(tabId: tabId,
-                                  path: (dir as NSString).appendingPathComponent(rel))
+                                  path: (base as NSString).appendingPathComponent(rel))
     }
 
     // MARK: 새로 고치기
 
-    /// git status·mtime을 한 번에 읽어 절대경로 키로 맞춘다. 수집 경로는 절대, git은 상대라
-    /// 여기서 맞추지 않으면 **모든 행이 "흔적 없음"으로 억제된다**.
+    /// git status·mtime을 읽어 **절대경로 키**로 맞춘다. 수집 경로는 절대, git은 상대라
+    /// 여기서 맞추지 않으면 상태가 통째로 nil이 되어 모든 행이 "커밋됨"으로 뜬다(실측 버그).
+    ///
+    /// 기준을 패널의 `dir`이 아니라 **탭별 cwd**로 잡는다. 프로젝트 폴더가 저장소 루트가
+    /// 아닐 수 있고(워크스페이스만 열어둔 경우), 탭마다 다른 저장소에서 돌 수도 있다.
     private func refresh() async {
         let paths = Set(store.agentChanges.values.flatMap { $0.entries.keys })
-        guard let dir else { status = [:]; mtimes = [:]; unattributed = 0; return }
-        let st = await GitService.status(in: dir)
+
+        // 수집이 있는 탭들의 cwd를 모아 중복을 없앤다 — 저장소마다 status 한 번씩.
+        var roots = Set(store.agentChanges.keys.compactMap { store.effectiveCwds[$0] })
+        if let dir { roots.insert(dir) }
+        guard !roots.isEmpty else { status = [:]; mtimes = [:]; unknownToPanel = 0; return }
 
         var map: [String: Character] = [:]
-        for change in st?.changes ?? [] {
-            let abs = (dir as NSString).appendingPathComponent(change.opPath)
-            // 인덱스·워크트리 중 의미 있는 쪽 — 미추적은 `?`.
-            map[abs] = change.isUntracked ? "?" : (change.worktree != " " ? change.worktree : change.index)
+        for root in roots {
+            guard let st = await GitService.status(in: root) else { continue }
+            for change in st.changes {
+                let abs = (root as NSString).appendingPathComponent(change.opPath)
+                // 인덱스·워크트리 중 의미 있는 쪽 — 미추적은 `?`.
+                map[abs] = change.isUntracked ? "?" : (change.worktree != " " ? change.worktree : change.index)
+            }
         }
         status = map
 
-        var times: [String: Date] = [:]
-        for path in paths {
-            times[path] = (try? FileManager.default
-                .attributesOfItem(atPath: path)[.modificationDate]) as? Date
-        }
-        mtimes = times
+        // stat은 메인을 막지 않게 떼어낸다 — 수백 파일이면 30초마다 그만큼의 syscall이다.
+        let targets = paths
+        mtimes = await Task.detached(priority: .utility) {
+            var times: [String: Date] = [:]
+            for path in targets {
+                times[path] = (try? FileManager.default
+                    .attributesOfItem(atPath: path)[.modificationDate]) as? Date
+            }
+            return times
+        }.value
 
-        // 귀속 = 수집된 경로. git이 아는 변경에서 그걸 빼면 훅이 못 본 것만 남는다.
-        unattributed = map.keys.filter { !paths.contains($0) }.count
+        // git이 아는 변경 − 수집된 경로. 에이전트의 Bash 변경뿐 아니라 **사용자 본인의 편집도**
+        // 여기 들어온다 — 그래서 라벨이 "귀속 안 된"이 아니라 "이 패널이 모르는"이다.
+        unknownToPanel = map.keys.filter { !paths.contains($0) }.count
     }
 }

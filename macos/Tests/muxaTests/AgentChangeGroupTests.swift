@@ -65,13 +65,11 @@ struct AgentChangeGroupTests {
     @Test func 커밋된_변경은_억제하지_않는다() {
         #expect(!AgentChangeDisplay.isSuppressed(entry: entry("/a", first: t0, last: t1),
                                                  status: nil, mtime: t1))
-        #expect(AgentChangeDisplay.mark(status: nil, entry: entry("/a", first: t0, last: t1),
-                                        mtime: t1) == .committed)
+        #expect(AgentChangeDisplay.mark(status: nil) == .committed)
     }
 
     @Test func git_상태가_있으면_그_문자를_쓴다() {
-        #expect(AgentChangeDisplay.mark(status: "A", entry: entry("/a", first: t0, last: t0),
-                                        mtime: t0) == .git("A"))
+        #expect(AgentChangeDisplay.mark(status: "A") == .git("A"))
     }
 
     // MARK: 그룹 조립
@@ -149,6 +147,66 @@ struct AgentChangeGroupTests {
     }
 
     // MARK: 참고 목록
+
+    // MARK: 참고 폴더 그룹핑
+
+    private func refSet(_ paths: [String]) -> AgentChangeSet {
+        var s = AgentChangeSet()
+        for p in paths {
+            s.record(reference: AgentReference(kind: .file, value: p, lastSeenAt: t0), at: t0)
+        }
+        return s
+    }
+
+    @Test func 폴더별로_묶고_알파벳순으로_세운다() {
+        let s = refSet(["/repo/src/b.js", "/repo/docs/a.md", "/repo/src/a.js"])
+        let folders = AgentChangeDisplay.referenceFolders(from: s, root: "/repo")
+        #expect(folders.map(\.label) == ["docs", "src"])
+        #expect(folders[1].files.map { basename($0.value) } == ["a.js", "b.js"])
+    }
+
+    @Test func 루트_바로_아래는_루트로_적는다() {
+        #expect(AgentChangeDisplay.folderLabel(for: "/repo/README.md", root: "/repo") == "루트")
+        #expect(AgentChangeDisplay.folderLabel(for: "/repo/docs/x.md", root: "/repo/") == "docs")
+    }
+
+    /// 저장소 밖(설정·임시 파일)도 읽는다 — 홈은 `~`로 접어 길이를 줄인다.
+    @Test func 저장소_밖은_홈을_접는다() {
+        let home = NSHomeDirectory()
+        #expect(AgentChangeDisplay.folderLabel(for: "\(home)/notes/x.md", root: "/repo") == "~/notes")
+        #expect(AgentChangeDisplay.folderLabel(for: "/etc/hosts", root: "/repo") == "/etc")
+    }
+
+    @Test func 루트를_모르면_절대경로로_적는다() {
+        #expect(AgentChangeDisplay.folderLabel(for: "/a/b/c.md", root: nil) == "/a/b")
+    }
+
+    /// 웹 항목은 폴더 그룹핑 대상이 아니다.
+    @Test func 폴더_그룹핑은_파일만_담는다() {
+        var s = refSet(["/repo/a.md"])
+        s.record(reference: AgentReference(kind: .web, value: "https://x.test/", lastSeenAt: t0), at: t0)
+        let folders = AgentChangeDisplay.referenceFolders(from: s, root: "/repo")
+        #expect(folders.flatMap(\.files).count == 1)
+    }
+
+    // MARK: 맥락
+
+    /// 목록만으로는 "왜 이걸 봤지"가 안 풀린다 — 그 턴의 프롬프트를 함께 남긴다.
+    @Test func 맥락이_함께_기록된다() {
+        let ref = AgentChangeSet.reference(toolName: "Read", input: ["file_path": "/a/x.md"],
+                                           cwd: nil, context: "초록 벽 걷어내줘", at: t0)
+        #expect(ref?.context == "초록 벽 걷어내줘")
+    }
+
+    /// 프롬프트를 못 읽은 턴이 이미 아는 맥락을 지우면 안 된다.
+    @Test func 맥락_없는_재방문은_기존_맥락을_지우지_않는다() {
+        var s = AgentChangeSet()
+        s.record(reference: AgentReference(kind: .file, value: "/a.md", lastSeenAt: t0,
+                                           context: "첫 맥락"), at: t0)
+        s.record(reference: AgentReference(kind: .file, value: "/a.md", lastSeenAt: t1,
+                                           context: nil), at: t1)
+        #expect(s.references.values.first?.context == "첫 맥락")
+    }
 
     @Test func 참고는_종류별로_갈라_최근순이다() {
         var s = AgentChangeSet()

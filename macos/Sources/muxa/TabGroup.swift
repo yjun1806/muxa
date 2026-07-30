@@ -11,10 +11,10 @@ enum TabGroupKind: Equatable {
     /// **에이전트 변경**(YJ-7) — 에이전트 패널이 연 기준선 diff. `.diffs`와 갈라 두는 이유:
     /// 비교 기준이 다르다(탭 기준선 ↔ HEAD). 한 그룹에 섞으면 같은 파일의 서브탭 두 개가
     /// **라벨이 똑같은데 내용이 다른** 상태가 된다 — 어느 쪽이 무엇인지 알 방법이 없어진다.
+    /// **에이전트**(YJ-7) — 그 세션이 만진 파일의 기준선 diff와 참고 목록을 함께 담는다.
+    /// `.diffs`와 갈라 두는 이유: 비교 기준이 다르다(탭 기준선 ↔ HEAD). 한 그룹에 섞으면
+    /// 같은 파일의 서브탭 두 개가 라벨이 똑같은데 내용이 다른 상태가 된다.
     case agent
-    /// **참고**(YJ-7) — 에이전트가 읽기만 한 것들의 목록. 변경과 섞지 않는다
-    /// (편집 1건에 읽기 수십 건이라 섞으면 바꾼 것이 파묻힌다).
-    case references
     case browser // 인앱 웹 브라우저
 
     var title: String {
@@ -24,8 +24,7 @@ enum TabGroupKind: Equatable {
         case .code: return "코드"
         case .media: return "미디어"
         case .diffs: return "변경"
-        case .agent: return "에이전트 변경"
-        case .references: return "참고"
+        case .agent: return "에이전트"
         case .browser: return "웹"
         }
     }
@@ -37,11 +36,19 @@ enum TabGroupKind: Equatable {
         case .code: return "curlybraces"
         case .media: return "photo"
         case .diffs: return "plusminus"
-        // Bonsplit `createTab`은 SF Symbol 이름만 받는다 — ClaudeMark(이미지)를 못 넘긴다.
-        // 이 저장소가 이미 쓰는 ClaudeMark 폴백 심볼을 그대로 쓴다(탭 액션 레인과 같은 어휘).
+        // 래스터화 실패 시에만 쓰이는 폴백 — 평소엔 `iconImageData`(ClaudeMark)가 이긴다.
         case .agent: return "sparkle"
-        case .references: return "book"
         case .browser: return "globe"
+        }
+    }
+
+    /// 탭 아이콘 **이미지**(있으면 SF Symbol보다 우선). 정체성 마크는 원본색을 지켜야 해서
+    /// 템플릿 심볼로 그릴 수 없다 — Bonsplit `createTab(iconImageData:)`에 넘긴다.
+    /// 나중에 Codex 같은 다른 에이전트가 붙으면 여기서 갈린다.
+    var iconImageData: Data? {
+        switch self {
+        case .agent: return ClaudeMark.pngData()
+        default: return nil
         }
     }
 
@@ -54,7 +61,6 @@ enum TabGroupKind: Equatable {
         case .media: return "media"
         case .diffs: return "diffs"
         case .agent: return "agent"
-        case .references: return "references"
         case .browser: return "browser"
         }
     }
@@ -67,7 +73,8 @@ enum TabGroupKind: Equatable {
         case "media": self = .media
         case "diffs": self = .diffs
         case "agent": self = .agent
-        case "references": self = .references
+        // 예전 저장분 — 참고는 에이전트 그룹으로 병합됐다.
+        case "references": self = .agent
         case "browser": self = .browser
         default: return nil
         }
@@ -111,6 +118,13 @@ enum GroupItemContent: Identifiable {
         }
     }
 
+    /// 서브탭 스트립에서 **앞자리를 가지는가** — 참고 목록은 개별 diff와 맥락이 달라
+    /// 있을 때 항상 맨 앞에 선다. (상시 고정이 아니라 **정렬**이다 — 0건이면 아예 없다.)
+    var pinsFirst: Bool {
+        if case .references = self { return true }
+        return false
+    }
+
     var kind: TabGroupKind {
         switch self {
         case .file(let t):
@@ -123,7 +137,7 @@ enum GroupItemContent: Identifiable {
         case .diff(.baselineFile): return .agent
         case .diff: return .diffs
         case .web: return .browser
-        case .references: return .references
+        case .references: return .agent
         }
     }
 

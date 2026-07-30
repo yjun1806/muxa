@@ -353,6 +353,10 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 탭별 **에이전트가 만진 파일·참고한 것**(관측 대상 — 에이전트 패널이 읽는다).
     /// 진행 표시(`agentDetail`)가 같은 신호를 한 줄로 쓰고 버리는 것을 여기서 **누적**한다.
     private(set) var agentChanges: [TabID: AgentChangeSet] = [:]
+    /// 수집 맵이 바뀔 때마다 오른다. **개수(`count`)를 관측하면 안 된다** — 기존 탭에 파일이
+    /// 하나 더 붙는 흔한 경우에 개수가 그대로라 화면이 갱신되지 않고, 그러면 새 경로는 mtime이
+    /// 없어 "흔적 없음"으로 억제돼 **행이 통째로 사라진다**(빈 화면 = 기능이 죽은 것으로 보인다).
+    private(set) var agentChangesRevision = 0
     /// 기준선 HEAD 조회가 날아간 탭 — 같은 탭에 셸아웃을 겹쳐 쏘지 않는다.
     @ObservationIgnored private var baselineInFlight: Set<TabID> = []
     /// 디바운스 대기 중인 탭들. 파일 쓰기는 `FileWatcher`와 같은 수치로 모아 흘린다.
@@ -689,11 +693,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         if tmuxSessions[tabId] == nil { AgentChangeStore.delete(key: tabId.uuid.uuidString) }
         pendingChangePersist.remove(tabId)
         baselineInFlight.remove(tabId)
-        if agentChanges[tabId] != nil { // 관측 맵은 immutable 교체
-            var map = agentChanges
-            map[tabId] = nil
-            agentChanges = map
-        }
+        if agentChanges[tabId] != nil { mutateAgentChanges { $0[tabId] = nil } }
         resumeBindings[tabId] = nil // 에이전트 재개 바인딩 해제
         resumeBlocks[tabId] = nil // 재개 차단 사유도 해제
         resumeTabs.remove(tabId) // 재개 배너 표시 상태도 해제
@@ -1110,23 +1110,49 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         tmuxSessions[tabId] ?? tabId.uuid.uuidString
     }
 
-    /// 그 탭이 만진 파일 집합(없으면 디스크에서 한 번 올려본다 — 재시작 후 첫 조회).
-    func agentChangeSet(for tabId: TabID) -> AgentChangeSet? {
-        if let set = agentChanges[tabId] { return set }
-        guard let loaded = AgentChangeStore.load(key: agentChangeKey(for: tabId)) else { return nil }
+    /// 수집 맵 변이의 **단일 경로** — 관측 맵이라 immutable 교체가 필요하고, 리비전 증가를
+    /// 여기 묶어 호출부가 빠뜨릴 수 없게 한다.
+    private func mutateAgentChanges(_ body: (inout [TabID: AgentChangeSet]) -> Void) {
         var map = agentChanges
-        map[tabId] = loaded
+        body(&map)
         agentChanges = map
+        agentChangesRevision &+= 1
+    }
+
+    /// 맵에 없으면 디스크에서 **한 번만** 올려 캐시한다. 이후엔 메모리만 본다.
+    ///
+    /// 캐시가 핵심이다 — 예전엔 기록할 게 없는 도구 호출(`Bash`·`Grep`…)에서 조기 반환하며
+    /// 맵에 아무것도 안 넣어, 복원된 탭에서 **도구 호출마다 JSON 전체를 다시 디코드**했다.
+    @discardableResult
+    private func hydrateAgentChanges(_ tabId: TabID) -> AgentChangeSet {
+        if let set = agentChanges[tabId] { return set }
+        let loaded = AgentChangeStore.load(key: agentChangeKey(for: tabId)) ?? AgentChangeSet()
+        mutateAgentChanges { $0[tabId] = loaded }
         return loaded
+    }
+
+    /// 살아 있는 탭의 기록을 디스크에서 올린다 — 패널이 뜰 때 1회.
+    /// 없으면 재시작 후 지속 세션의 목록이 **새 훅이 올 때까지 화면에 없다**(파일엔 있는데).
+    func hydrateAgentChangesForLiveTabs() {
+        for tabId in controller.allTabIds where agentChanges[tabId] == nil {
+            hydrateAgentChanges(tabId)
+        }
+    }
+
+    /// 그 탭의 수집 집합 — **읽기 전용**. 뷰의 body에서 불리므로 절대 상태를 바꾸지 않는다
+    /// (SwiftUI 렌더 중 관측 상태를 바꾸면 정의되지 않은 동작이고, 리비전을 올리면 갱신이 순환한다).
+    /// 디스크 하이드레이션은 `.task` 경로(`hydrateAgentChangesForLiveTabs`)가 맡는다.
+    func agentChangeSnapshot(for tabId: TabID) -> AgentChangeSet? {
+        guard let set = agentChanges[tabId],
+              !(set.entries.isEmpty && set.references.isEmpty) else { return nil }
+        return set
     }
 
     /// 사용자가 그 파일의 diff를 열었다 — "봤음"을 찍는다.
     func markAgentChangeSeen(tabId: TabID, path: String) {
         guard var set = agentChanges[tabId] else { return }
         set.markSeen(path: path, at: Date())
-        var map = agentChanges
-        map[tabId] = set
-        agentChanges = map
+        mutateAgentChanges { $0[tabId] = set }
         scheduleAgentChangePersist(tabId)
     }
 
@@ -1134,7 +1160,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     private func recordAgentChange(_ tabId: TabID, payload: ClaudeHookPayload) {
         let cwd = effectiveCwds[tabId]
         let now = Date()
-        var set = agentChanges[tabId] ?? AgentChangeStore.load(key: agentChangeKey(for: tabId)) ?? AgentChangeSet()
+        var set = hydrateAgentChanges(tabId)   // 디스크는 여기서 한 번만 (③)
         let before = set
 
         if let path = AgentChangeSet.touchedPath(toolName: payload.toolName,
@@ -1143,14 +1169,13 @@ final class TerminalStore: NSObject, BonsplitDelegate {
                        prompt: agentPrompts[tabId]?.oneLine, at: now)
         }
         if let ref = AgentChangeSet.reference(toolName: payload.toolName,
-                                             input: payload.toolInput, cwd: cwd, at: now) {
+                                             input: payload.toolInput, cwd: cwd,
+                                             context: agentPrompts[tabId]?.oneLine, at: now) {
             set.record(reference: ref, at: now)
         }
         guard set != before else { return }
 
-        var map = agentChanges
-        map[tabId] = set
-        agentChanges = map
+        mutateAgentChanges { $0[tabId] = set }
 
         // 첫 수집 순간의 HEAD가 diff의 base다 — 한 번만 조회한다.
         if set.baselineHead == nil, let cwd { captureAgentBaseline(tabId, cwd: cwd) }
@@ -1168,9 +1193,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             // 그 사이 탭이 닫혔거나 이미 채워졌으면 손대지 않는다.
             guard var set = self.agentChanges[tabId], set.baselineHead == nil, let head else { return }
             set.baselineHead = head
-            var map = self.agentChanges
-            map[tabId] = set
-            self.agentChanges = map
+            self.mutateAgentChanges { $0[tabId] = set }
             self.scheduleAgentChangePersist(tabId)
         }
     }
@@ -1879,8 +1902,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         case .group(.media): return 4
         case .group(.diffs): return 5
         case .group(.agent): return 6
-        case .group(.references): return 7
-        case .group(.browser): return 8
+        case .group(.browser): return 7
         }
     }
 
@@ -1916,6 +1938,11 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     @discardableResult
     func openReferences(tabId: TabID, title: String) -> TabID? {
         let id = openInGroup(.references(AgentReferencesTarget(tabId: tabId, title: title)))
+        // 참고는 개별 diff와 맥락이 달라 **맨 앞**에 세운다(상시 고정이 아니라 정렬 — 0건이면 없다).
+        // `TabGroupState`는 참조 타입이라 제자리에서 고친다.
+        if let id, let g = groups[id] {
+            g.items.sort { a, b in a.pinsFirst && !b.pinsFirst }
+        }
         persist()
         return id
     }
@@ -2000,7 +2027,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     /// 튀므로, **원래 선택을 복원**해 만든 패인의 앞 탭을 안 흔든다. 호출부는 마지막에 원하는 탭을 selectTab한다.
     private func createGroupTab(with item: GroupItemContent, inPane pane: PaneID) -> TabID? {
         let prevSelected = controller.selectedTabId(inPane: pane)
-        guard let tab = controller.createTab(title: item.kind.title, icon: item.kind.icon, inPane: pane) else { return nil }
+        guard let tab = controller.createTab(title: item.kind.title, icon: item.kind.icon,
+                                             iconImageData: item.kind.iconImageData, inPane: pane) else { return nil }
         tabContent[tab] = .group(item.kind)
         groups[tab] = TabGroupState(first: item)
         if let prevSelected { controller.selectTab(prevSelected) } // 만든 패인의 앞 탭 보존(∞ 튐 방지)
@@ -2129,7 +2157,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             return tabId
         }
         // 2) 없으면 포커스 패인에 새 그룹 탭 생성.
-        guard let tabId = controller.createTab(title: kind.title, icon: kind.icon, inPane: pane) else { return nil }
+        guard let tabId = controller.createTab(title: kind.title, icon: kind.icon,
+                                            iconImageData: kind.iconImageData, inPane: pane) else { return nil }
         tabContent[tabId] = .group(kind)
         groups[tabId] = TabGroupState(first: item)
         regroup(tabId, inPane: pane)
@@ -2410,7 +2439,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
             guard let content = itemContent(s) else { continue }
             if let id = gid {
                 groups[id]?.add(content)
-            } else if let id = controller.createTab(title: kind.title, icon: kind.icon, inPane: pane) {
+            } else if let id = controller.createTab(title: kind.title, icon: kind.icon,
+                                            iconImageData: kind.iconImageData, inPane: pane) {
                 tabContent[id] = .group(kind)
                 groups[id] = TabGroupState(first: content)
                 gid = id

@@ -64,8 +64,8 @@ enum AgentChangeDisplay {
         return mtime < entry.firstTouchedAt               // 우리가 만지기 전 그대로다
     }
 
-    /// 표식 판정. git이 조용한데 디스크는 바뀐 파일은 **커밋된 것**이다.
-    static func mark(status: Character?, entry: AgentChangeEntry, mtime: Date?) -> AgentChangeMark {
+    /// 표식 판정. git이 조용한데 (억제를 통과했으니) 디스크는 바뀐 파일은 **커밋된 것**이다.
+    static func mark(status: Character?) -> AgentChangeMark {
         if let status { return .git(status) }
         return .committed
     }
@@ -86,8 +86,7 @@ enum AgentChangeDisplay {
 
         let shown = visible.prefix(limit).map { entry in
             AgentChangeRow(path: entry.path,
-                           mark: mark(status: status[entry.path], entry: entry,
-                                      mtime: mtimes[entry.path]),
+                           mark: mark(status: status[entry.path]),
                            isUnread: isUnread(entry: entry, mtime: mtimes[entry.path]),
                            mtime: mtimes[entry.path])
         }
@@ -100,6 +99,41 @@ enum AgentChangeDisplay {
                                 hiddenCount: max(0, visible.count - shown.count),
                                 truncatedCount: set.truncatedCount,
                                 baseline: set.baselineHead)
+    }
+
+    /// 참고 파일 한 폴더.
+    struct ReferenceFolder: Equatable, Identifiable {
+        /// 표시용 폴더 이름 — 루트 상대이거나 `~` 축약. 루트 바로 아래면 "루트".
+        let label: String
+        let files: [AgentReference]
+        var id: String { label }
+    }
+
+    /// 참고 파일을 **폴더별로** 묶는다. 수십 개가 평평하게 나열되면 "어디를 봤나"가 안 읽힌다.
+    ///
+    /// 정렬은 **알파벳순**이다 — 나머지 화면의 "최근 순" 문법과 다른데, 여기엔 시각을 안 보여주므로
+    /// 최근 순이면 근거 없이 뒤섞인 것처럼 보인다. 참고 목록은 색인이고, 색인은 안정적이어야 훑힌다.
+    static func referenceFolders(from set: AgentChangeSet, root: String?) -> [ReferenceFolder] {
+        let files = set.references.values.filter { $0.kind == .file }
+        let grouped = Dictionary(grouping: files) { folderLabel(for: $0.value, root: root) }
+        return grouped
+            .map { ReferenceFolder(label: $0.key,
+                                   files: $0.value.sorted { basename($0.value) < basename($1.value) }) }
+            .sorted { $0.label < $1.label }
+    }
+
+    /// 폴더 경로를 사람이 읽을 꼴로. 루트 아래면 상대경로, 홈 아래면 `~/…`, 그 밖은 절대경로.
+    static func folderLabel(for path: String, root: String?) -> String {
+        let dir = (path as NSString).deletingLastPathComponent
+        if let root, !root.isEmpty {
+            let base = root.hasSuffix("/") ? String(root.dropLast()) : root
+            if dir == base { return "루트" }
+            if dir.hasPrefix(base + "/") { return String(dir.dropFirst(base.count + 1)) }
+        }
+        let home = NSHomeDirectory()
+        if dir == home { return "~" }
+        if dir.hasPrefix(home + "/") { return "~/" + String(dir.dropFirst(home.count + 1)) }
+        return dir
     }
 
     /// 참고 목록 — 종류별로 갈라 최근 본 순. 탭에서 "뭘 봤나"만 답하므로 통계는 붙이지 않는다.
