@@ -13,5 +13,8 @@ struct ListRowFill: ViewModifier {
             .background(selected ? Color.pBtnActive : (hovered ? Color.pBtnHover : Color.clear))
             .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
             .onHover { hovered = $0 }
+            // 채움만 바뀌고 커서가 그대로면 "눌러도 되나"가 안 읽힌다 — 이 문법을 쓰는
+            // 모든 목록(사이드바 에이전트 목록·주의 큐 카드·에이전트 패널)이 함께 얻는다.
+            .clickCursor()
     }
 }

@@ -1868,7 +1868,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
     // 탭바에서 "문서는 문서끼리, diff는 diff끼리" 인접하도록 종류별 rank로 정렬 위치를 잡는다.
     // 복원 중엔 저장된 순서를 존중하므로 건너뛴다.
 
-    /// 탭 종류 정렬 순위 — 터미널(0) < 문서(1) < HTML(2) < 코드(3) < 미디어(4) < 변경(5). 같은 순위는 생성 순서 유지.
+    /// 탭 종류 정렬 순위 — 터미널(0) < 문서(1) < HTML(2) < 코드(3) < 미디어(4) < 변경(5) < 에이전트(6).
+    /// 같은 순위는 생성 순서 유지. 에이전트 변경은 **변경 바로 뒤**에 붙는다 — 성격이 가장 가깝다.
     private func groupRank(_ content: TabContent) -> Int {
         switch content {
         case .terminal, .worktreeLink: return 0 // 링크 탭은 터미널과 같은 자리(맨 앞 무리)
@@ -1877,7 +1878,8 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         case .group(.code): return 3
         case .group(.media): return 4
         case .group(.diffs): return 5
-        case .group(.browser): return 6
+        case .group(.agent): return 6
+        case .group(.browser): return 7
         }
     }
 

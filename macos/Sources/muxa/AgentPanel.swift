@@ -136,6 +136,7 @@ struct AgentPanel: View {
         .contentShape(Rectangle())
         // 행 클릭 = 펼침/접힘 (커밋 행과 같은 제스처 — 훑기와 정독이 제스처를 공유하지 않는다).
         .onTapGesture { toggle(item.key) }
+        .clickCursor()
     }
 
     @ViewBuilder
@@ -205,6 +206,7 @@ struct AgentPanel: View {
         .overlay(alignment: .top) { HDivider() }
         .contentShape(Rectangle())
         .onTapGesture { onOpenGitPanel() }
+        .clickCursor()
         .padding(.horizontal, Space.xs)
     }
 
