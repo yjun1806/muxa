@@ -189,6 +189,30 @@ struct AgentChangeGroupTests {
         #expect(folders.flatMap(\.files).count == 1)
     }
 
+    /// 읽기만 한 세션도 제목이 있어야 한다 — 예전엔 편집 기록에서만 얼려서 이름이 없었다.
+    @Test func 읽기만_해도_제목이_얼린다() {
+        var s = AgentChangeSet()
+        s.freezeOrigin("이 저장소 구조 파악해줘")
+        s.record(reference: AgentReference(kind: .file, value: "/a.md", lastSeenAt: t0), at: t0)
+        #expect(s.originPrompt == "이 저장소 구조 파악해줘")
+        #expect(s.entries.isEmpty, "읽기는 변경 목록을 채우지 않는다")
+    }
+
+    @Test func 제목은_한_번만_얼린다() {
+        var s = AgentChangeSet()
+        s.freezeOrigin("첫 지시")
+        s.freezeOrigin("나중 지시")
+        #expect(s.originPrompt == "첫 지시")
+    }
+
+    @Test func 빈_프롬프트는_제목을_차지하지_않는다() {
+        var s = AgentChangeSet()
+        s.freezeOrigin(nil)
+        s.freezeOrigin("")
+        s.freezeOrigin("진짜 지시")
+        #expect(s.originPrompt == "진짜 지시")
+    }
+
     // MARK: 맥락
 
     /// 목록만으로는 "왜 이걸 봤지"가 안 풀린다 — 그 턴의 프롬프트를 함께 남긴다.

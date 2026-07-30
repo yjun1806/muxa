@@ -111,12 +111,18 @@ struct AgentChangeSet: Equatable, Codable {
 
     // MARK: upsert
 
+    /// 제목을 **한 번만** 얼린다 — 첫 수집 턴의 프롬프트.
+    /// 편집이든 읽기든 **처음 잡힌 신호**가 기준이다(읽기만 하는 세션도 제목이 있어야 한다).
+    /// 첫 신호에 프롬프트가 없었으면(훅 이전 세션) 다음 기회에 받는다 — 빈 제목을 고수하지 않는다.
+    mutating func freezeOrigin(_ prompt: String?) {
+        guard originPrompt == nil, let prompt, !prompt.isEmpty else { return }
+        originPrompt = prompt
+    }
+
     /// 편집 기록. 같은 경로는 항목을 늘리지 않고 갱신한다.
     mutating func record(path: String, sessionId: String?, prompt: String?,
                          at now: Date, ceiling: Int = Self.entryCeiling) {
-        // 제목은 한 번만 얼린다. 단 첫 기록에 프롬프트가 없었으면(훅 이전 세션) 다음 기회에 받는다 —
-        // 빈 제목을 고수하지 않는다.
-        if originPrompt == nil, let prompt, !prompt.isEmpty { originPrompt = prompt }
+        freezeOrigin(prompt)
 
         if var existing = entries[path] {
             existing.lastTouchedAt = now

@@ -75,7 +75,7 @@ struct AgentPanel: View {
     private var empty: some View {
         EmptyState(icon: "square.dashed",
                    title: "아직 만진 파일이 없습니다",
-                   subtitle: "claude가 파일을 편집하면 세션별로 여기 모입니다",
+                   subtitle: "claude가 파일을 편집하거나 읽으면 세션별로 여기 모입니다",
                    compact: true) { EmptyView() }
     }
 
@@ -162,6 +162,9 @@ struct AgentPanel: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(item.group.rows) { row in
                 fileRow(row, base: item.group.baseline, tabId: item.tabId, root: item.root)
+            }
+            if item.group.rows.isEmpty {
+                tail("바꾼 파일 없음 — 읽기만 했습니다")
             }
             if item.group.hiddenCount > 0 {
                 tail("그 외 \(item.group.hiddenCount)개")
@@ -272,7 +275,9 @@ struct AgentPanel: View {
     private var groups: [GroupItem] {
         store.agentChanges.compactMap { tabId, set -> GroupItem? in
             let g = AgentChangeDisplay.group(from: set, status: status, mtimes: mtimes)
-            guard !g.rows.isEmpty else { return nil } // 0이면 그룹째 렌더하지 않는다
+            // 변경이 없어도 **참고가 있으면 세운다** — 읽기만 한 세션(탐색·리뷰)도 한 일이 있고,
+            // 그걸 안 세우면 수집해둔 참고 목록에 닿을 방법이 아예 없다.
+            guard !g.rows.isEmpty || !set.references.isEmpty else { return nil }
             return GroupItem(key: tabId.uuid.uuidString, tabId: tabId,
                              title: g.title ?? store.tabTitle(tabId), group: g,
                              referenceCount: set.references.count,

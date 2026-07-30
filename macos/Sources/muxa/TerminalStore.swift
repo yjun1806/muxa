@@ -1162,6 +1162,12 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         let now = Date()
         var set = hydrateAgentChanges(tabId)   // 디스크는 여기서 한 번만 (③)
         let before = set
+        // 제목은 편집이 아니라 **첫 수집 신호**에 얼린다 — 읽기만 하는 세션도 이름이 있어야 한다.
+        if AgentChangeSet.touchedPath(toolName: payload.toolName, input: payload.toolInput, cwd: cwd) != nil
+            || AgentChangeSet.reference(toolName: payload.toolName, input: payload.toolInput,
+                                        cwd: cwd, at: now) != nil {
+            set.freezeOrigin(agentPrompts[tabId]?.oneLine)
+        }
 
         if let path = AgentChangeSet.touchedPath(toolName: payload.toolName,
                                                  input: payload.toolInput, cwd: cwd) {
