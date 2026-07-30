@@ -182,7 +182,7 @@ struct TabGroupView: View {
         Rectangle().fill(Color.pBorder).frame(width: 1)
             .overlay {
                 Color.clear.frame(width: 11).contentShape(Rectangle())
-                    .onHover { NSCursor.resizeLeftRight.set(); if !$0 { NSCursor.arrow.set() } }
+                    .cursor(.resizeLeftRight) // onHover는 몇 픽셀만 움직여도 풀린다(`Cursor.swift`)
                     .gesture(
                         DragGesture(minimumDistance: 1, coordinateSpace: .global)
                             .onChanged { g in

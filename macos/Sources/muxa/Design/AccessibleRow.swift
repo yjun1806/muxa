@@ -33,6 +33,11 @@ private struct AccessibleRow: ViewModifier {
                 .accessibilityLabel(label)
                 .accessibilityAddTraits(selected ? [.isButton, .isSelected] : [.isButton])
                 .accessibilityAction { activate() }
+                // **조작 가능하다고 선언했으면 커서도 그렇게 보여야 한다.**
+                // 커서는 지금까지 호출부가 각자 `.clickCursor()`를 기억해야 했고 — 그래서 빠졌다.
+                // 여기 묶으면 "이 행은 누를 수 있다"는 선언 하나로 접근성과 커서가 함께 따라온다.
+                // `ListRowFill`과 겹쳐도 무해하다(`set`은 스택을 안 쌓는다, `Cursor.swift`).
+                .clickCursor()
         } else {
             content
                 .accessibilityLabel(label)

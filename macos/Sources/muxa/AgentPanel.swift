@@ -166,7 +166,6 @@ struct AgentPanel: View {
         // 행 클릭 = **그 세션으로 이동**. 접힌 걸 누르면 터미널이 그 칸으로 옮겨가고,
         // 포커스를 따라 이 그룹이 열린다 — 펼침은 이동의 결과지 별도 조작이 아니다.
         .onTapGesture { if !open { onFocusSession(item.tabId) } }
-        .clickCursor()
         .accessibilityRow(label: "\(item.title), 파일 \(item.group.rows.count)개"
                           + (item.group.unreadCount > 0 ? ", 안 본 것 \(item.group.unreadCount)개" : "")
                           + (open ? ", 보는 중" : ", 눌러서 이 세션으로 이동"),
@@ -287,7 +286,6 @@ struct AgentPanel: View {
         .frame(height: RowHeight.row)
         .contentShape(Rectangle())
         .onTapGesture { onOpenGitPanel() }
-        .clickCursor()
         .accessibilityRow(label: "이 패널이 모르는 변경 \(unknownToPanel)건, Git 패널 열기",
                           activate: onOpenGitPanel)
         .padding(.horizontal, Space.xs)
