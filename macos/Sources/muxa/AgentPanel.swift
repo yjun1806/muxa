@@ -85,7 +85,10 @@ struct AgentPanel: View {
             ForEach(groups, id: \.key) { item in
                 group(item)
             }
-            if unknownToPanel > 0 { residual }
+            if unknownToPanel > 0 {
+                HDivider().padding(.horizontal, Space.xs).padding(.top, Space.sm)
+                residual
+            }
         }
         .padding(.vertical, Space.sm)
     }
@@ -110,12 +113,13 @@ struct AgentPanel: View {
                     }
             }
         }
-        // 보고 있는 세션 = 무채 채움 **한 단**. 선택 채움(btnActive)을 쓰면 그 안의 선택 행이
-        // 사라지므로 한 칸 아래(btnHover)를 쓴다 — panel → lane → 보는 그룹 → 선택 행.
+        // 보고 있는 세션 = **선택 채움**(btnActive) — 사이드바가 "지금 보고 있는 탭"에 쓰는 그 채움이다.
+        // 이 패널엔 '선택된 행' 상태가 없으므로(행 클릭 = diff 열기) 안쪽과 충돌하지 않는다.
+        // 배경을 bg로 올린 뒤 btnHover는 대비가 모자랐다.
         .padding(.bottom, focused ? Space.xs : 0)
         .background {
             if focused {
-                RoundedRectangle(cornerRadius: Radius.lg).fill(Color.pBtnHover)
+                RoundedRectangle(cornerRadius: Radius.lg).fill(Color.pBtnActive)
             }
         }
         .padding(.horizontal, Space.xs)
@@ -124,7 +128,9 @@ struct AgentPanel: View {
     @ViewBuilder
     private func groupHeader(_ item: GroupItem, focused: Bool, open: Bool) -> some View {
         HStack(spacing: Space.sm) {
+            // 안 보고 있는 세션은 마크를 죽인다 — 채움(색)만으로 말하지 않는다(색맹 안전).
             ClaudeMark(size: IconSize.statusSlot)
+                .opacity(focused ? 1 : 0.45)
             Text(item.title)
                 .font(.muxa(.body, weight: item.group.unreadCount > 0 ? .bold : .medium))
                 // 전부 봤으면 제목이 흐려진다 — 훑을 때 굵은 제목만 남는다.
@@ -144,7 +150,7 @@ struct AgentPanel: View {
                 .font(.muxa(.micro)).foregroundStyle(Color.pMuted)
         }
         .padding(.horizontal, Space.sm)
-        .frame(height: RowHeight.row)
+        .frame(height: focused ? RowHeight.toolbar : RowHeight.row)   // 보는 세션은 머리를 한 단 키운다
         .contentShape(Rectangle())
         // 행 클릭 = 펼침/접힘 (커밋 행과 같은 제스처 — 훑기와 정독이 제스처를 공유하지 않는다).
         .onTapGesture { toggle(item.key) }
@@ -167,16 +173,23 @@ struct AgentPanel: View {
             // 읽기·웹 조회는 편집 1건에 수십 건이라 같은 목록에 섞으면 바꾼 것이 파묻힌다.
             // 진입 한 줄만 두고 목록은 탭으로 보낸다. `⧉` = "여기서 펼치지 않고 탭으로 연다".
             if item.referenceCount > 0 {
+                // 구분선 바로 아래 붙어 있으면 앞 행의 꼬리처럼 읽힌다 — 선 위아래로 숨을 준다.
+                HDivider().padding(.top, Space.sm)
                 HStack(spacing: Space.sm) {
+                    Image(systemName: "book")
+                        .font(.muxa(.micro)).foregroundStyle(Color.pMuted)
+                        .frame(width: IconSize.statusSlot)
                     Text("참고한 것 \(item.referenceCount)")
                         .font(.muxa(.label)).foregroundStyle(Color.pMuted)
                     Spacer(minLength: 0)
-                    Image(systemName: "square.on.square")
+                    // `⧉`(square.on.square)는 이 저장소에서 **IDE 컨텍스트 공유** 표식이라
+                    // 용도가 겹치고, 시각적으로도 "복사"로 읽힌다. 여기는 탭으로 들어가는 동선이다.
+                    Image(systemName: "chevron.right")
                         .font(.muxa(.micro)).foregroundStyle(Color.pMuted)
                 }
                 .padding(.horizontal, Space.sm)
-                .frame(height: RowHeight.tight)
-                .overlay(alignment: .top) { HDivider() }
+                .frame(height: RowHeight.row)
+                .padding(.top, Space.tight)
                 .contentShape(Rectangle())
                 .onTapGesture { onOpenReferences(item.tabId, item.title) }
                 .clickCursor()
@@ -233,7 +246,6 @@ struct AgentPanel: View {
         }
         .padding(.horizontal, Space.sm)
         .frame(height: RowHeight.row)
-        .overlay(alignment: .top) { HDivider() }
         .contentShape(Rectangle())
         .onTapGesture { onOpenGitPanel() }
         .clickCursor()
