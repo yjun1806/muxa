@@ -111,15 +111,64 @@ struct TabGroupView: View {
     }
 
     /// 서브탭 뷰어들 — 전부 살려두고 선택된 것만 표시(전환 시 상태·스크롤 유지).
+    /// 상세 사이드바 폭 — 도구 패널(기본 340)보다 좁다. 탭 안이라 diff에 자리를 더 줘야 한다.
+    private static let detailSidebarWidth: CGFloat = 320
+
+    /// 이 그룹의 상세 항목(에이전트 그룹에만 있다).
+    private var detailItem: AgentDetailTarget? {
+        for item in group.items { if case .references(let t) = item { return t } }
+        return nil
+    }
+
+    /// 지금 열려 있는 기준선 diff의 경로 — 사이드바가 그 행을 선택 표시한다.
+    private var openDiffPath: String? {
+        if case .diff(.baselineFile(_, let path)) = group.selected { return path }
+        return nil
+    }
+
+    /// **에이전트 그룹은 마스터-디테일이다.** 상세를 고르면 풀너비, 파일을 고르면
+    /// 상세가 사이드바로 좁아지고 오른쪽에 diff가 선다.
+    ///
+    /// 상세 뷰는 **한 인스턴스로 유지**한다(폭만 바꾼다) — 두 자리에 각각 그리면 전환할 때마다
+    /// 상태가 리셋되고 git 조회가 두 번 돈다.
     private var content: some View {
-        ZStack {
-            ForEach(group.items) { item in
-                itemView(item, selected: item.id == group.selectedId)
-                    .opacity(item.id == group.selectedId ? 1 : 0)
-                    .allowsHitTesting(item.id == group.selectedId)
+        HStack(spacing: 0) {
+            if let detail = detailItem {
+                let full = group.selectedId == GroupItemContent.references(detail).id
+                AgentDetailView(target: detail, setProvider: agentDetail,
+                                root: dir.isEmpty ? nil : dir,
+                                selectedPath: openDiffPath,
+                                compact: !full,
+                                onOpenFile: onOpenFile, onOpenURL: onOpenURL,
+                                onOpenDiff: onOpenDiff)
+                    .frame(width: full ? nil : Self.detailSidebarWidth)
+                    .frame(maxWidth: full ? .infinity : nil, maxHeight: .infinity)
+                if !full { Rectangle().fill(Color.pBorder).frame(width: 1) }
+            }
+            if detailItem == nil || openDiffPath != nil || !isDetailSelected {
+                ZStack {
+                    ForEach(group.items) { item in
+                        if !isDetailItem(item) {
+                            itemView(item, selected: item.id == group.selectedId)
+                                .opacity(item.id == group.selectedId ? 1 : 0)
+                                .allowsHitTesting(item.id == group.selectedId)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var isDetailSelected: Bool {
+        guard let d = detailItem else { return false }
+        return group.selectedId == GroupItemContent.references(d).id
+    }
+
+    private func isDetailItem(_ item: GroupItemContent) -> Bool {
+        if case .references = item { return true }
+        return false
     }
 
     @ViewBuilder
@@ -133,11 +182,9 @@ struct TabGroupView: View {
             DiffView(target: target, dir: dir, chrome: false, onClose: {})
         case .web(let tab):
             BrowserView(tab: tab, shouldLoad: selected)
-        case .references(let target):
-            AgentDetailView(target: target, setProvider: agentDetail,
-                            root: dir.isEmpty ? nil : dir,
-                            onOpenFile: onOpenFile, onOpenURL: onOpenURL,
-                            onOpenDiff: onOpenDiff)
+        case .references:
+            // 상세는 `content`가 마스터-디테일로 직접 그린다(여기 오지 않는다).
+            EmptyView()
         }
     }
 

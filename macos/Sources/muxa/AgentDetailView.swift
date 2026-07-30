@@ -27,6 +27,10 @@ struct AgentDetailView: View {
     var setProvider: (TabID) -> AgentChangeSet?
     /// 그 세션이 도는 폴더 — 경로 라벨·git 조회의 기준.
     var root: String?
+    /// 지금 오른쪽에 열려 있는 파일 — 사이드바 모드에서 그 행을 선택 표시한다.
+    var selectedPath: String?
+    /// 사이드바 모드(diff와 나란히) — 폭이 좁아 **지시·영역 여백**을 접는다.
+    var compact: Bool = false
     var onOpenFile: (String) -> Void
     var onOpenURL: (URL) -> Void
     /// 변경 행 클릭 = diff. 패널과 **같은 대상**(`.baselineFile`)을 연다.
@@ -68,8 +72,8 @@ struct AgentDetailView: View {
                 .font(.muxa(.body, weight: .semibold)).foregroundStyle(Color.pFg)
                 .lineLimit(1).truncationMode(.tail)
             Spacer(minLength: Space.lg)
-            // 기준선은 diff가 **무엇과 비교되는지**를 말한다. 모르면 침묵한다.
-            if let base = set.baselineHead {
+            // 기준선은 diff가 **무엇과 비교되는지**를 말한다. 모르면(그리고 좁으면) 침묵한다.
+            if !compact, let base = set.baselineHead {
                 Text("기준선 \(String(base.prefix(7)))")
                     .font(.muxaMono(.caption)).foregroundStyle(Color.pMuted)
             }
@@ -77,7 +81,7 @@ struct AgentDetailView: View {
         .panelBar(height: RowHeight.panelHeader)
     }
 
-    // MARK: 두 영역 — 바꾼 것 / 본 것
+    // MARK: 두 영역 — 변경 / 참고
 
     @ViewBuilder
     private func content(_ set: AgentChangeSet) -> some View {
@@ -90,7 +94,7 @@ struct AgentDetailView: View {
 
         VStack(alignment: .leading, spacing: Space.groupGap) {
             if !folders.isEmpty {
-                region("바꾼 것", count: group.rows.count, unread: group.unreadCount)
+                region("변경", count: group.rows.count, unread: group.unreadCount)
                 ForEach(folders) { folder in
                     folderHeader(folder.label, count: folder.rows.count)
                     ForEach(folder.rows) { row in
@@ -99,7 +103,7 @@ struct AgentDetailView: View {
                 }
             }
             if !refFolders.isEmpty || !webs.isEmpty {
-                region("본 것", count: set.references.count, unread: 0)
+                region("참고", count: set.references.count, unread: 0)
                 ForEach(refFolders) { folder in
                     folderHeader(folder.label, count: folder.files.count)
                     ForEach(folder.files, id: \.key) { ref in
@@ -125,14 +129,16 @@ struct AgentDetailView: View {
     /// 영역 머리 — 이 화면의 두 덩어리를 가른다. 패널의 섹션보다 한 단 크다(정독하는 화면).
     private func region(_ title: String, count: Int, unread: Int) -> some View {
         HStack(spacing: Space.sm) {
-            Text(title).font(.muxa(.title, weight: .semibold)).foregroundStyle(Color.pFg)
+            Text(title)
+                .font(.muxa(compact ? .body : .title, weight: .semibold))
+                .foregroundStyle(Color.pFg)
             CountBadge(count: count)
             if unread > 0 {
                 Text("\(unread) 안 봄").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, Space.lg)
+        .padding(.horizontal, compact ? Space.panelInset : Space.lg)
         .frame(height: RowHeight.toolbar)
     }
 
@@ -148,7 +154,7 @@ struct AgentDetailView: View {
             CountBadge(count: count)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, Space.lg)
+        .padding(.horizontal, compact ? Space.panelInset : Space.lg)
         .frame(height: RowHeight.tight)
         .padding(.top, Space.sm)
     }
@@ -178,19 +184,21 @@ struct AgentDetailView: View {
                     .font(.muxaMono(.caption)).foregroundStyle(Color.pMuted)
             }
             GitFileTime(mtime: row.mtime, now: tick)
-            // 이 화면의 값 — "어느 지시로 건드렸나". 좁은 패널엔 자리가 없어 여기서만 보인다.
-            if let context = row.context, !context.isEmpty {
+            // 이 화면의 값 — "어느 지시로 건드렸나". **사이드바 모드에선 접는다** —
+            // 320pt에 넣으면 파일명을 밀어낸다(폭이 열을 정한다).
+            if !compact, let context = row.context, !context.isEmpty {
                 Text(context)
                     .font(.muxa(.caption)).foregroundStyle(Color.pMuted)
                     .lineLimit(1).truncationMode(.tail)
                     .frame(maxWidth: 220, alignment: .leading)
             }
         }
-        .padding(.horizontal, Space.lg)
+        .padding(.horizontal, compact ? Space.sm : Space.lg)
         .frame(maxWidth: .infinity)
         .frame(height: RowHeight.row)
         .contentShape(Rectangle())
-        .modifier(ListRowFill())
+        // 지금 오른쪽에 열려 있는 파일 = 선택 채움(마스터-디테일의 기본 문법).
+        .modifier(ListRowFill(selected: rel == selectedPath))
         .padding(.horizontal, Space.xs)
         .onTapGesture(perform: open)
         .accessibilityRow(label: changeLabel(row, rel: rel), activate: open)
@@ -206,14 +214,14 @@ struct AgentDetailView: View {
                 .foregroundStyle(Color.pFg)
                 .lineLimit(1).truncationMode(mono ? .tail : .middle)
                 .layoutPriority(1)
-            if let context, !context.isEmpty {
+            if !compact, let context, !context.isEmpty {
                 Text(context)
                     .font(.muxa(.caption)).foregroundStyle(Color.pMuted)
                     .lineLimit(1).truncationMode(.tail)
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, Space.lg)
+        .padding(.horizontal, compact ? Space.sm : Space.lg)
         .frame(maxWidth: .infinity)
         .frame(height: RowHeight.row)
         .contentShape(Rectangle())
