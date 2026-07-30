@@ -1139,6 +1139,17 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         }
     }
 
+    /// **지금 보고 있는 에이전트 세션.**
+    ///
+    /// 포커스 탭이 세션(터미널) 자체면 그것이고, **에이전트 그룹 탭**(상세·기준선 diff)이면
+    /// 그 그룹이 속한 세션으로 되짚는다 — 상세를 보고 있는데 패널이 엉뚱한 세션을 활성으로
+    /// 그리면 안 된다. 그 밖(문서·웹 탭)이면 nil이고, 호출부가 마지막 세션을 유지한다.
+    var currentAgentSession: TabID? {
+        guard let cur = currentTabId else { return nil }
+        if case .group(.agent(let session)) = content(for: cur) { return session }
+        return agentChanges[cur] != nil ? cur : nil
+    }
+
     /// 그 탭의 수집 집합 — **읽기 전용**. 뷰의 body에서 불리므로 절대 상태를 바꾸지 않는다
     /// (SwiftUI 렌더 중 관측 상태를 바꾸면 정의되지 않은 동작이고, 리비전을 올리면 갱신이 순환한다).
     /// 디스크 하이드레이션은 `.task` 경로(`hydrateAgentChangesForLiveTabs`)가 맡는다.

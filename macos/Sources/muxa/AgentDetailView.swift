@@ -205,7 +205,8 @@ struct AgentDetailView: View {
             // 파일명은 **항상 `pFg`** — 다 봤다고 목록이 회색으로 죽지 않게(안 봤음은 굵기가 말한다).
             GitFileLabel(path: rel, weight: row.isUnread ? .medium : .regular, tone: Color.pFg)
             if case .committed = row.mark {
-                Text("커밋됨").font(.muxa(.caption)).foregroundStyle(Color.pMuted)
+                // 상태 꼬리표는 배지다 — 평문이면 파일명의 일부처럼 읽힌다.
+                Pill(color: .pMuted) { Text("커밋됨").font(.muxa(.caption)) }
             }
             Spacer(minLength: Space.md)
             // **여러 번 고친 파일 = 헤맨 자리.** 1회면 침묵한다(대부분의 행에 안 뜬다).

@@ -35,6 +35,8 @@ struct AgentPanel: View {
     // 접힘은 **AppState가 소유**한다(영속) — 뷰 로컬 @State면 패널을 닫았다 열 때마다
     // 전부 다시 펼쳐진다. 사이드바가 같은 실수를 이미 겪고 고쳤다(`SidebarProjectRow` 주석).
     @State private var tick = Date()
+    /// 마지막으로 본 세션 — 문서·웹 탭으로 옮겨가도 패널이 그 세션을 계속 연 채로 둔다.
+    @State private var lastSession: TabID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -73,6 +75,8 @@ struct AgentPanel: View {
         .onChange(of: store.agentChangesRevision) { _, _ in Task { await refresh() } }
         .tick(every: 30, into: $tick)
         .onChange(of: tick) { _, _ in Task { await refresh() } }
+        .onChange(of: store.currentAgentSession) { _, cur in if let cur { lastSession = cur } }
+        .onAppear { lastSession = store.currentAgentSession }
     }
 
     // MARK: 헤더
@@ -306,13 +310,20 @@ struct AgentPanel: View {
         var baseline: String? { group.baseline }
     }
 
-    /// 지금 펼칠 그룹. 포커스된 탭의 세션이 원칙이되, **그 탭이 세션이 아닐 때**
-    /// (뷰어 탭·일반 터미널을 보고 있을 때) 맨 위 그룹으로 떨어진다 —
-    /// 안 그러면 접힌 행만 남아 패널이 죽은 화면이 된다. 맨 위는 정렬상 가장 안 본 게 많은 세션이다.
+    /// 지금 펼칠 그룹. **상세·diff 탭을 보고 있어도 그 그룹의 세션이 활성이다** —
+    /// 그러지 않으면 상세를 여는 순간 패널이 엉뚱한(비활성) 세션으로 튄다.
+    /// 문서·웹처럼 세션과 무관한 탭을 볼 땐 마지막으로 본 세션을 유지하고,
+    /// 그것도 없으면 맨 위(정렬상 가장 안 본 게 많은 세션)로 떨어진다.
     private var openKey: String? {
         let items = groups
-        if let cur = store.currentTabId, items.contains(where: { $0.tabId == cur }) {
+        // 상세·diff 탭을 보고 있어도 그 그룹의 세션이 활성이다(스토어가 되짚어준다).
+        if let cur = store.currentAgentSession, items.contains(where: { $0.tabId == cur }) {
             return cur.uuid.uuidString
+        }
+        // 문서·웹 탭을 보는 중 — **마지막으로 본 세션을 유지한다.** 여기서 맨 위로 떨어뜨리면
+        // 문서를 여는 순간 패널이 엉뚱한(비활성) 세션으로 튄다.
+        if let last = lastSession, items.contains(where: { $0.tabId == last }) {
+            return last.uuid.uuidString
         }
         return items.first?.key
     }
