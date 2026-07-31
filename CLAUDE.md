@@ -5,7 +5,7 @@ muxa는 macOS 전용 터미널 기반 에이전틱 개발 환경 (Swift/SwiftUI 
 **문서 3종 — 바꾸면 함께 갱신한다.**
 | 문서 | 무엇 | 언제 읽나 |
 |---|---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | **왜 이렇게 만들었나** — 결정 로그(D1~D19)·아키텍처·서브시스템·마일스톤·리스크 | 구조를 바꾸기 전 |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | **왜 이렇게 만들었나** — 결정 로그(D1~)·아키텍처·서브시스템·마일스톤·리스크 | 구조를 바꾸기 전 |
 | [docs/DESIGN.md](docs/DESIGN.md) | **어떻게 보이나** — 색·타이포·간격·컴포넌트·레이아웃·영역 용어(SSOT) | **UI를 만들거나 고치기 전** |
 | [docs/STATUS.md](docs/STATUS.md) | 현재 상태·다음 할 일·미검증 항목(★) | 세션 시작 시 |
 
@@ -25,6 +25,8 @@ muxa는 macOS 전용 터미널 기반 에이전틱 개발 환경 (Swift/SwiftUI 
 - **하드코딩·매직값 금지, 값은 한 곳에.** 색은 `Palette.swift`, 크기·간격은 `Design/Tokens.swift`,
   그 밖의 상수는 명명된 `let`. 같은 hex·숫자를 여러 곳에 흩뿌리지 않는다. → [DESIGN.md](docs/DESIGN.md)
 - **작은 파일 여러 개 > 큰 파일 하나.** 도메인·기능별로 분리, 파일당 200~300줄 유지.
+  현재 `AppState.swift`(3,000줄)·`TerminalStore.swift`(2,600줄)는 이 기준을 한참 넘는다 —
+  **여기에 새 기능을 얹지 말고, 손대는 김에 떼어낸다.**
 - **파괴적 동작은 판정을 좁게, 보존을 넓게.** 지우는 판정은 순수 함수로 뽑아 테스트하고,
   삭제 자체는 경계에만 둔다. **의심되면 안 지운다** (`ScrollbackStore.orphans`·`ServiceSession.orphans`).
 
@@ -56,7 +58,8 @@ muxa는 macOS 전용 터미널 기반 에이전틱 개발 환경 (Swift/SwiftUI 
 임베딩한다. `vendor/`는 gitignore(리포에 안 넣음)이고, **새 머신은 `./scripts/bootstrap.sh`가 SHA 고정으로
 내려받아 설치**한다(zig 불필요). 세팅 절차는 [docs/SETUP.md](docs/SETUP.md).
 
-**런타임 외부 의존**: `git`(필수) · `tmux`(서비스 기능, 없으면 안내) · `gh`(PR 배지, 선택).
+**런타임 외부 의존**: `git`(필수) · `tmux`(서비스 기능, 없으면 안내) · `gh`(PR 배지, 선택) ·
+`claude`(에이전트 탭·훅·사용량 표시, 선택).
 
 ## 검증 · 빌드
 
@@ -70,7 +73,11 @@ make whoami            # 이 워크트리 앱의 이름·번들 id·프로세스
 make dev-kill              # 이 워크트리 개발 앱만 종료
 make dev-relaunch          # 종료 → 재빌드 → 실행 (안전한 테스트 루프)
 make release-install           # 프로덕션(release) 빌드 → /Applications 설치 (재시작해야 반영)
+make release-dmg               # 배포용 dmg
+make icons · integrate · changelog · clean   # 아이콘 재생성 · 훅 설치 · 체인지로그 · 산출물 정리
 ```
+
+전체 목록은 `make help`가 뽑는다(각 타깃의 `## 설명`이 단일 출처다).
 
 **새 워크트리는 `make worktree`로 만든다 (`git worktree add`만 쓰면 빌드가 깨진다).**
 추적되는 심링크 `macos/GhosttyKit.xcframework → ../vendor/ghostty/…`가 gitignore된 `vendor/`를
@@ -79,6 +86,18 @@ make release-install           # 프로덕션(release) 빌드 → /Applications 
 `.build/`는 워크트리마다 따로여야 하므로 안 건드린다(첫 빌드 콜드는 정상).
 
 - **순수 로직은 테스트로 못 박는다.** 파싱·판정·정리 같은 순수 함수는 UI 없이 검증된다 — 먼저 여기까지 끝낸다.
+- **테스트는 swift-testing으로만 쓴다 — `import XCTest` 금지 (CRITICAL).** `XCTest` 모듈은 전체
+  Xcode에만 있고 Command Line Tools에는 없다. `testTarget`이 `muxaTests` 하나뿐이라 **한 파일만
+  XCTest를 써도 CLT 환경에서 전체 테스트가 컴파일조차 안 된다** — 문서(`README`·`docs/SETUP.md`)가
+  CLT만으로 충분하다고 안내하므로 그 약속이 깨진다. 형태는 `import Testing` + `struct` +
+  `@Test func` + `#expect(...)` 하나뿐이다.
+  - `Date`·`UserDefaults` 같은 Foundation 타입을 쓰면 **`import Foundation`을 명시한다** —
+    XCTest와 달리 Testing은 Foundation을 끌어오지 않는다.
+  - **테스트끼리 상태를 공유하지 않는다.** swift-testing은 기본이 **병렬**이다(XCTest는 순차였다).
+    `static var` 캐시나 전역에 입력을 넣고 평가하는 식은 서로를 밟는다 — 실제로 그렇게 24건이
+    깨졌다(`DocDiffCoreTests`). `.serialized`로 덮기 전에 **공유 자체를 없앨 수 있는지** 먼저 본다.
+  - CLT에서 실행되게 하는 프레임워크 경로 주입은 `Makefile`의 `DEVELOPER_ROOT`→`CLT_DEV`→`TEST_FLAGS`가
+    맡는다. `swift test`를 직접 부르면 그게 빠지므로 **`make test`로 돈다.**
 - **UI·PTY 변경은 재빌드+재실행으로 확인한다.** 자동 검증을 통과해도 실제 화면에서 깨지는 게 있다
   (셸을 거치는 명령의 인용, 뷰 교체 시 서피스 레이스 등). 육안 확인이 안 된 것은 STATUS에 **★로 남긴다**.
 

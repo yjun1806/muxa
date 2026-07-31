@@ -1,53 +1,53 @@
-import XCTest
+import Testing
 @testable import muxa
 
 /// FuzzyMatch 순수 스코어링 검증 — ⌘K 랭킹의 단일 진실 원천.
-final class FuzzyMatchTests: XCTestCase {
-    func testEmptyQueryAlwaysMatchesWithZero() {
-        XCTAssertEqual(FuzzyMatch.score(query: "", in: "anything"), 0)
+struct FuzzyMatchTests {
+    @Test func emptyQueryAlwaysMatchesWithZero() {
+        #expect(FuzzyMatch.score(query: "", in: "anything") == 0)
     }
 
-    func testSubsequenceMatches() {
-        XCTAssertNotNil(FuzzyMatch.score(query: "abc", in: "aXbXc"))
-        XCTAssertNotNil(FuzzyMatch.score(query: "gs", in: "GitService"))
+    @Test func subsequenceMatches() {
+        #expect(FuzzyMatch.score(query: "abc", in: "aXbXc") != nil)
+        #expect(FuzzyMatch.score(query: "gs", in: "GitService") != nil)
     }
 
-    func testNonSubsequenceFails() {
-        XCTAssertNil(FuzzyMatch.score(query: "xyz", in: "abc"))
-        XCTAssertNil(FuzzyMatch.score(query: "cba", in: "abc")) // 순서 어긋나면 실패
+    @Test func nonSubsequenceFails() {
+        #expect(FuzzyMatch.score(query: "xyz", in: "abc") == nil)
+        #expect(FuzzyMatch.score(query: "cba", in: "abc") == nil) // 순서 어긋나면 실패
     }
 
-    func testQueryLongerThanTextFails() {
-        XCTAssertNil(FuzzyMatch.score(query: "abcd", in: "abc"))
+    @Test func queryLongerThanTextFails() {
+        #expect(FuzzyMatch.score(query: "abcd", in: "abc") == nil)
     }
 
-    func testCaseInsensitive() {
-        XCTAssertNotNil(FuzzyMatch.score(query: "GIT", in: "gitservice"))
-        XCTAssertNotNil(FuzzyMatch.score(query: "git", in: "GITSERVICE"))
+    @Test func caseInsensitive() {
+        #expect(FuzzyMatch.score(query: "GIT", in: "gitservice") != nil)
+        #expect(FuzzyMatch.score(query: "git", in: "GITSERVICE") != nil)
     }
 
-    func testPrefixScoresHigherThanMidMatch() {
+    @Test func prefixScoresHigherThanMidMatch() {
         let prefix = FuzzyMatch.score(query: "git", in: "gitservice")
         let mid = FuzzyMatch.score(query: "git", in: "my-gitservice")
-        XCTAssertNotNil(prefix)
-        XCTAssertNotNil(mid)
-        XCTAssertGreaterThan(prefix!, mid!) // 맨 앞 매치가 더 높은 점수
+        #expect(prefix != nil)
+        #expect(mid != nil)
+        #expect(prefix! > mid!) // 맨 앞 매치가 더 높은 점수
     }
 
-    func testContiguousScoresHigherThanScattered() {
+    @Test func contiguousScoresHigherThanScattered() {
         let contiguous = FuzzyMatch.score(query: "abc", in: "abcxyz")
         let scattered = FuzzyMatch.score(query: "abc", in: "aXbXcX")
-        XCTAssertNotNil(contiguous)
-        XCTAssertNotNil(scattered)
-        XCTAssertGreaterThan(contiguous!, scattered!) // 연속 매치가 유리
+        #expect(contiguous != nil)
+        #expect(scattered != nil)
+        #expect(contiguous! > scattered!) // 연속 매치가 유리
     }
 
-    func testWordBoundaryBonus() {
+    @Test func wordBoundaryBonus() {
         // 단어 경계(구분자 뒤) 매치가 경계 아닌 매치보다 유리
         let boundary = FuzzyMatch.score(query: "s", in: "git-service")
         let nonBoundary = FuzzyMatch.score(query: "s", in: "gitservice")
-        XCTAssertNotNil(boundary)
-        XCTAssertNotNil(nonBoundary)
-        XCTAssertGreaterThan(boundary!, nonBoundary!)
+        #expect(boundary != nil)
+        #expect(nonBoundary != nil)
+        #expect(boundary! > nonBoundary!)
     }
 }

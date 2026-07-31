@@ -1,74 +1,75 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import muxa
 
 /// transcript 꼬리에서 **마지막 진짜 user 프롬프트**를 뽑는 경로 —
 /// 백그라운드 팝오버(❯ 내 지시)와 사이드바 hover 팝오버(이미지 포함)가 공용으로 쓴다.
 /// 핵심은 오염 차단이다: tool_result·meta·사이드체인·슬래시 명령 배관은 user 줄이어도 프롬프트가 아니다.
-final class TranscriptUserTailTests: XCTestCase {
+struct TranscriptUserTailTests {
     private func line(role: String, text: String) -> String {
         #"{"type":"\#(role)","message":{"content":[{"type":"text","text":"\#(text)"}]}}"#
     }
 
     // MARK: 텍스트
 
-    func testFindsLastUserPrompt() {
+    @Test func findsLastUserPrompt() {
         let tail = [
             line(role: "user", text: "첫 지시"),
             line(role: "assistant", text: "답했다"),
             line(role: "user", text: "마지막 지시"),
             line(role: "assistant", text: "또 답했다"),
         ].joined(separator: "\n")
-        XCTAssertEqual(TranscriptTail.lastUserMessage(inTail: tail)?.text, "마지막 지시")
+        #expect(TranscriptTail.lastUserMessage(inTail: tail)?.text == "마지막 지시")
     }
 
     /// 도구 결과는 user 줄로 들어오지만 사람의 지시가 아니다 — 건너뛴다.
-    func testSkipsToolResultUserLines() {
+    @Test func skipsToolResultUserLines() {
         let tail = [
             line(role: "user", text: "진짜 지시"),
             #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"파일 내용"}]}}"#,
         ].joined(separator: "\n")
-        XCTAssertEqual(TranscriptTail.lastUserMessage(inTail: tail)?.text, "진짜 지시")
+        #expect(TranscriptTail.lastUserMessage(inTail: tail)?.text == "진짜 지시")
     }
 
     /// meta 줄(시스템 삽입)·사이드체인(서브에이전트 대화)은 내 프롬프트가 아니다.
-    func testSkipsMetaAndSidechainLines() {
+    @Test func skipsMetaAndSidechainLines() {
         let tail = [
             line(role: "user", text: "내 지시"),
             #"{"type":"user","isMeta":true,"message":{"content":[{"type":"text","text":"Caveat: 시스템 안내"}]}}"#,
             #"{"type":"user","isSidechain":true,"message":{"content":[{"type":"text","text":"서브에이전트 프롬프트"}]}}"#,
         ].joined(separator: "\n")
-        XCTAssertEqual(TranscriptTail.lastUserMessage(inTail: tail)?.text, "내 지시")
+        #expect(TranscriptTail.lastUserMessage(inTail: tail)?.text == "내 지시")
     }
 
     /// 슬래시 명령 배관(`<command-name>…`)은 지시가 아니라 로그다.
-    func testSkipsSlashCommandPlumbing() {
+    @Test func skipsSlashCommandPlumbing() {
         let tail = [
             line(role: "user", text: "리뷰 돌려줘"),
             #"{"type":"user","message":{"content":[{"type":"text","text":"<command-name>/clear</command-name>"}]}}"#,
             #"{"type":"user","message":{"content":[{"type":"text","text":"<local-command-stdout>done</local-command-stdout>"}]}}"#,
         ].joined(separator: "\n")
-        XCTAssertEqual(TranscriptTail.lastUserMessage(inTail: tail)?.text, "리뷰 돌려줘")
+        #expect(TranscriptTail.lastUserMessage(inTail: tail)?.text == "리뷰 돌려줘")
     }
 
-    func testContentAsPlainString() {
+    @Test func contentAsPlainString() {
         let tail = #"{"type":"user","message":{"content":"문자열 지시"}}"#
-        XCTAssertEqual(TranscriptTail.lastUserMessage(inTail: tail)?.text, "문자열 지시")
+        #expect(TranscriptTail.lastUserMessage(inTail: tail)?.text == "문자열 지시")
     }
 
     /// 거대 붙여넣기 프롬프트는 표시 상한에서 잘라야 한다 — 안 자르면 hover 카드가 화면보다 커진다.
     /// 상한은 훅 경로와 같은 한 곳(`AgentPrompt.textMax`)이다.
-    func testClampsHugePastedPrompt() {
+    @Test func clampsHugePastedPrompt() {
         let huge = String(repeating: "가", count: AgentPrompt.textMax + 200)
         let text = TranscriptTail.lastUserMessage(inTail: line(role: "user", text: huge))?.text
-        XCTAssertEqual(text?.count, AgentPrompt.textMax + 1) // +1 = 말줄임표
-        XCTAssertEqual(text?.hasSuffix("…"), true)
+        #expect(text?.count == AgentPrompt.textMax + 1) // +1 = 말줄임표
+        #expect(text?.hasSuffix("…") == true)
     }
 
-    func testEmptyAndGarbageReturnNil() {
-        XCTAssertNil(TranscriptTail.lastUserMessage(inTail: ""))
-        XCTAssertNil(TranscriptTail.lastUserMessage(inTail: "쓰레기"))
-        XCTAssertNil(TranscriptTail.lastUserMessage(inTail: line(role: "assistant", text: "나뿐")))
+    @Test func emptyAndGarbageReturnNil() {
+        #expect(TranscriptTail.lastUserMessage(inTail: "") == nil)
+        #expect(TranscriptTail.lastUserMessage(inTail: "쓰레기") == nil)
+        #expect(TranscriptTail.lastUserMessage(inTail: line(role: "assistant", text: "나뿐")) == nil)
     }
 
     // MARK: 이미지
@@ -80,41 +81,41 @@ final class TranscriptUserTailTests: XCTestCase {
         #"{"type":"user","message":{"content":[{"type":"text","text":"이 스크린샷 봐줘"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"\#(pngBase64)"}}]}}"#
     }
 
-    func testCountsImagesInLastUserMessage() {
+    @Test func countsImagesInLastUserMessage() {
         let message = TranscriptTail.lastUserMessage(inTail: imageLine)
-        XCTAssertEqual(message?.text, "이 스크린샷 봐줘")
-        XCTAssertEqual(message?.imageCount, 1)
+        #expect(message?.text == "이 스크린샷 봐줘")
+        #expect(message?.imageCount == 1)
     }
 
     /// 이미지만 있는 프롬프트도 유효하다(팝오버가 이미지를 보여주면 된다).
-    func testImageOnlyUserMessageSurvives() {
+    @Test func imageOnlyUserMessageSurvives() {
         let tail = #"{"type":"user","message":{"content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"\#(pngBase64)"}}]}}"#
         let message = TranscriptTail.lastUserMessage(inTail: tail)
-        XCTAssertEqual(message?.text, "")
-        XCTAssertEqual(message?.imageCount, 1)
+        #expect(message?.text == "")
+        #expect(message?.imageCount == 1)
     }
 
-    func testExtractsImageDataFromLastUserMessage() {
+    @Test func extractsImageDataFromLastUserMessage() {
         let images = TranscriptTail.lastUserImages(inTail: imageLine, limit: 3)
-        XCTAssertEqual(images.count, 1)
-        XCTAssertEqual(images.first, Data(base64Encoded: pngBase64))
+        #expect(images.count == 1)
+        #expect(images.first == Data(base64Encoded: pngBase64))
     }
 
     /// 이미지는 마지막 user 메시지의 것만 — 이전 턴의 이미지가 새면 "그 스크린샷"이 뒤바뀐다.
-    func testImagesComeFromLastUserMessageOnly() {
+    @Test func imagesComeFromLastUserMessageOnly() {
         let tail = [imageLine, line(role: "user", text: "이미지 없는 새 지시")].joined(separator: "\n")
-        XCTAssertTrue(TranscriptTail.lastUserImages(inTail: tail, limit: 3).isEmpty)
+        #expect(TranscriptTail.lastUserImages(inTail: tail, limit: 3).isEmpty)
     }
 
-    func testImageLimitIsRespected() {
+    @Test func imageLimitIsRespected() {
         let block = #"{"type":"image","source":{"type":"base64","media_type":"image/png","data":"\#(pngBase64)"}}"#
         let tail = #"{"type":"user","message":{"content":[\#(block),\#(block),\#(block)]}}"#
-        XCTAssertEqual(TranscriptTail.lastUserImages(inTail: tail, limit: 2).count, 2)
+        #expect(TranscriptTail.lastUserImages(inTail: tail, limit: 2).count == 2)
     }
 
     // MARK: 파일 경계
 
-    func testReadsFromFile() async throws {
+    @Test func readsFromFile() async throws {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("muxa-usertail-\(UUID().uuidString).jsonl")
         let content = [line(role: "user", text: "옛 지시"), line(role: "user", text: "새 지시")]
@@ -123,11 +124,11 @@ final class TranscriptUserTailTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let message = await TranscriptTail.lastUserMessage(atPath: url.path)
-        XCTAssertEqual(message?.text, "새 지시")
+        #expect(message?.text == "새 지시")
     }
 
-    func testMissingFileReturnsNil() async {
+    @Test func missingFileReturnsNil() async {
         let message = await TranscriptTail.lastUserMessage(atPath: "/nonexistent/muxa/none.jsonl")
-        XCTAssertNil(message)
+        #expect(message == nil)
     }
 }
