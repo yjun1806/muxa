@@ -24,8 +24,21 @@ worktree: ## 새 개발 워크트리 생성 (vendor 연결까지) — 예: make 
 build: ## 빌드
 	cd $(MACOS) && swift build
 
+# 전체 Xcode 없이 Command Line Tools만 있는 환경 지원.
+# CLT에는 Testing.framework와 lib_TestingInterop.dylib가 **서로 다른 경로**에 흩어져 있고
+# SwiftPM이 자동으로 잡지 않는다 — 주입하지 않으면 `no such module 'Testing'`으로 죽는다.
+# Xcode 환경에서는 CLT_DEV가 비어 TEST_FLAGS도 비므로 아무것도 바뀌지 않는다.
+# XCTest는 CLT에 모듈 자체가 없어 구제할 방법이 없다 — 테스트를 전부 swift-testing으로 쓰는 이유다(AGENTS.md).
+CLT_DEV := $(shell xcode-select -p 2>/dev/null | grep -q CommandLineTools && echo /Library/Developer/CommandLineTools/Library/Developer)
+TEST_FLAGS := $(if $(CLT_DEV),-Xswiftc -F -Xswiftc $(CLT_DEV)/Frameworks -Xlinker -rpath -Xlinker $(CLT_DEV)/Frameworks -Xlinker -rpath -Xlinker $(CLT_DEV)/usr/lib)
+
 test: ## 단위 테스트 (순수 로직)
-	cd $(MACOS) && swift test
+	@if [ -n "$(CLT_DEV)" ] && [ ! -d "$(CLT_DEV)/Frameworks/Testing.framework" ]; then \
+		echo "CLT에 Testing.framework가 없다 ($(CLT_DEV)/Frameworks)."; \
+		echo "툴체인 배치가 바뀐 것 — 전체 Xcode를 쓰거나 Makefile의 CLT_DEV를 고쳐야 한다."; \
+		exit 1; \
+	fi
+	cd $(MACOS) && swift test $(TEST_FLAGS)
 
 whoami: ## 이 워크트리 개발 앱의 이름·번들 id·프로세스명 출력 (무엇을 열고/죽일지 확인)
 	@./scripts/app-identity.sh debug
