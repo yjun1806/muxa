@@ -6,6 +6,19 @@ All notable changes to muxa are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-07-31
+
+### Fixed
+- **Agent panel diffs no longer come up blank** — the panel passed each file to the diff view as a
+  path relative to the *session's* working directory, but the diff ran `git` from the *project*
+  folder. Those agree only when the session never `cd`s, the project folder is the repository root,
+  and no worktree is involved. When they disagree git doesn't fail — a pathspec that matches nothing
+  exits 0 with no output — so the diff opened to an empty pane with nothing to explain it. Files are
+  now identified by absolute path and diffed in the worktree they actually live in; the relative form
+  is only used for the label. This also fixes the file watcher behind the diff, which had been
+  watching a path that didn't exist, so a file the agent edited again wouldn't refresh on screen.
+
+
 ## [0.7.0] - 2026-07-30
 
 ### Added
@@ -150,7 +163,8 @@ First tagged release — a macOS agent terminal with a built-in document viewer 
 ### Notes
 - Status and notifications are tuned to Claude Code. macOS 14+. Build from source — no prebuilt binary; install with the one-line script or `make`.
 
-[Unreleased]: https://github.com/yjun1806/muxa/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/yjun1806/muxa/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/yjun1806/muxa/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/yjun1806/muxa/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/yjun1806/muxa/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/yjun1806/muxa/compare/v0.5.2...v0.6.0
