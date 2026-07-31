@@ -11,22 +11,22 @@ struct StatusBarSettingsTests {
         return d
     }
 
-    @Test func testDefaultsPreserveExistingBehavior() {
+    @Test func defaultsPreserveExistingBehavior() {
         let s = StatusBarSettings(defaults: suite())
         #expect(s.showSessionReset)   // 세션 리셋만 표시(기존 동작)
-        #expect(!(s.showWeeklyReset))
-        #expect(!(s.showFable))
+        #expect(!s.showWeeklyReset)
+        #expect(!s.showFable)
         #expect(s.position == .footerLeft)
         // 갱신 주기 설정은 없앴다 — 폴링 주기는 사용자가 아니라 엔드포인트 예산이 정하는 상수다(UsagePolicy).
     }
 
-    @Test func testUnknownPositionFallsBackToFooterLeft() {
+    @Test func unknownPositionFallsBackToFooterLeft() {
         let d = suite()
         d.set("nonsense", forKey: "muxa.statusbar.position")
         #expect(StatusBarSettings(defaults: d).position == .footerLeft)
     }
 
-    @Test func testTogglesPersistAndReload() {
+    @Test func togglesPersistAndReload() {
         let d = suite()
         let s = StatusBarSettings(defaults: d)
         s.showWeeklyReset = true
@@ -40,23 +40,23 @@ struct StatusBarSettingsTests {
 
     // MARK: - Position 판정
 
-    @Test func testPositionFooterVsHeader() {
+    @Test func positionFooterVsHeader() {
         #expect(StatusBarSettings.Position.footerLeft.inFooter)
         #expect(StatusBarSettings.Position.footerRight.inFooter)
-        #expect(!(StatusBarSettings.Position.headerLeft.inFooter))
-        #expect(!(StatusBarSettings.Position.headerRight.inFooter))
+        #expect(!StatusBarSettings.Position.headerLeft.inFooter)
+        #expect(!StatusBarSettings.Position.headerRight.inFooter)
     }
 
-    @Test func testPositionLeadingVsTrailing() {
+    @Test func positionLeadingVsTrailing() {
         #expect(StatusBarSettings.Position.footerLeft.isLeading)
         #expect(StatusBarSettings.Position.headerLeft.isLeading)
-        #expect(!(StatusBarSettings.Position.footerRight.isLeading))
-        #expect(!(StatusBarSettings.Position.headerRight.isLeading))
+        #expect(!StatusBarSettings.Position.footerRight.isLeading)
+        #expect(!StatusBarSettings.Position.headerRight.isLeading)
     }
 
-    @Test func testAllPositionsHaveLabels() {
+    @Test func allPositionsHaveLabels() {
         for p in StatusBarSettings.Position.allCases {
-            #expect(!(p.label.isEmpty))
+            #expect(!p.label.isEmpty)
         }
     }
 }

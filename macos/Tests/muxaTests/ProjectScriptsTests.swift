@@ -7,38 +7,38 @@ import Testing
 struct ProjectScriptsTests {
     // MARK: 패키지 매니저 판별 — **추측하지 않는다**. lock 파일이 진실이다.
 
-    @Test func testDetectsPnpmFromLockfile() {
+    @Test func detectsPnpmFromLockfile() {
         #expect(PackageManager.detect(files: ["package.json", "pnpm-lock.yaml"]) == .pnpm)
     }
 
-    @Test func testDetectsYarnFromLockfile() {
+    @Test func detectsYarnFromLockfile() {
         #expect(PackageManager.detect(files: ["yarn.lock"]) == .yarn)
     }
 
-    @Test func testDetectsBunFromLockfile() {
+    @Test func detectsBunFromLockfile() {
         #expect(PackageManager.detect(files: ["bun.lockb"]) == .bun)
         #expect(PackageManager.detect(files: ["bun.lock"]) == .bun)
     }
 
-    @Test func testDetectsNpmFromLockfile() {
+    @Test func detectsNpmFromLockfile() {
         #expect(PackageManager.detect(files: ["package-lock.json"]) == .npm)
     }
 
     /// lock 파일이 없으면 npm으로 **가정하지 않는다** — 모르면 nil이고, UI는 사용자가 고르게 한다.
     /// (pnpm 프로젝트에 `npm run`을 넣으면 lock이 깨지거나 엉뚱한 의존성이 깔린다.)
-    @Test func testNoLockfileMeansUnknown() {
+    @Test func noLockfileMeansUnknown() {
         #expect(PackageManager.detect(files: ["package.json", "README.md"]) == nil)
         #expect(PackageManager.detect(files: []) == nil)
     }
 
     /// lock 파일이 여러 개면(모노레포 이관 중 등) 우선순위가 높은 하나를 고른다 — 흔들리지 않게 고정한다.
-    @Test func testMultipleLockfilesUsePriority() {
+    @Test func multipleLockfilesUsePriority() {
         #expect(PackageManager.detect(files: ["package-lock.json", "pnpm-lock.yaml"]) == .pnpm)
     }
 
     /// bun.lock + yarn.lock 공존 → **bun**. bun.lock은 bun install만 만드는 확실한 신호,
     /// yarn.lock은 잔재로 남을 수 있는 약한 신호다(실측: aha-db-wiki가 정확히 이 구성이었다).
-    @Test func testBunBeatsYarnWhenBothPresent() {
+    @Test func bunBeatsYarnWhenBothPresent() {
         #expect(PackageManager.detect(files: ["bun.lock", "yarn.lock", "package.json"]) == .bun)
         #expect(PackageManager.detect(files: ["bun.lockb", "yarn.lock"]) == .bun)
         // 진짜 yarn 레포(bun lock 없음)는 그대로 yarn — bun 신호가 있을 때만 이긴다.
@@ -47,7 +47,7 @@ struct ProjectScriptsTests {
 
     // MARK: 실행 명령 조립
 
-    @Test func testRunCommand() {
+    @Test func runCommand() {
         #expect(PackageManager.pnpm.runCommand("dev") == "pnpm run dev")
         #expect(PackageManager.npm.runCommand("dev") == "npm run dev")
         #expect(PackageManager.yarn.runCommand("dev") == "yarn run dev")
@@ -56,7 +56,7 @@ struct ProjectScriptsTests {
 
     // MARK: package.json scripts 파싱
 
-    @Test func testParsesScripts() {
+    @Test func parsesScripts() {
         let json = """
         {"name":"app","scripts":{"dev":"vite","build":"vite build","test":"vitest"}}
         """
@@ -67,19 +67,19 @@ struct ProjectScriptsTests {
         #expect(scripts.first { $0.name == "dev" }?.body == "vite")
     }
 
-    @Test func testParsesEmptyOrMissingScripts() {
+    @Test func parsesEmptyOrMissingScripts() {
         #expect(ProjectScripts.parsePackageScripts(#"{"name":"app"}"#).isEmpty)
         #expect(ProjectScripts.parsePackageScripts(#"{"scripts":{}}"#).isEmpty)
     }
 
     /// 깨진 JSON에 죽지 않는다 — 스크립트가 없는 것으로 본다(추측하지 않는다).
-    @Test func testParseBrokenJSONIsEmpty() {
+    @Test func parseBrokenJSONIsEmpty() {
         #expect(ProjectScripts.parsePackageScripts("{not json").isEmpty)
         #expect(ProjectScripts.parsePackageScripts("").isEmpty)
     }
 
     /// scripts 값이 문자열이 아닌 이상한 형태면 그 항목만 버린다.
-    @Test func testParseIgnoresNonStringValues() {
+    @Test func parseIgnoresNonStringValues() {
         let json = #"{"scripts":{"dev":"vite","weird":{"nested":true}}}"#
         let scripts = ProjectScripts.parsePackageScripts(json)
         #expect(scripts.map(\.name) == ["dev"])
@@ -88,7 +88,7 @@ struct ProjectScriptsTests {
     // MARK: 설명(주석) — package.json은 JSON이라 진짜 주석이 없다. 실제로 쓰이는 두 관례를 읽는다.
 
     /// npm은 `//`로 시작하는 키를 무시하므로, `"//dev"`를 주석으로 쓰는 관례가 있다.
-    @Test func testReadsSlashSlashCommentKeys() {
+    @Test func readsSlashSlashCommentKeys() {
         let json = """
         {"scripts":{"//dev":"개발 서버(HMR)","dev":"vite","build":"vite build"}}
         """
@@ -100,13 +100,13 @@ struct ProjectScriptsTests {
     }
 
     /// 공백을 넣은 `"// dev"` 형태도 흔하다.
-    @Test func testReadsSpacedCommentKeys() {
+    @Test func readsSpacedCommentKeys() {
         let json = #"{"scripts":{"// dev":"개발 서버","dev":"vite"}}"#
         #expect(ProjectScripts.parsePackageScripts(json).first?.note == "개발 서버")
     }
 
     /// npm-scripts-info 관례 — 최상위 `scripts-info` 필드.
-    @Test func testReadsScriptsInfoField() {
+    @Test func readsScriptsInfoField() {
         let json = """
         {"scripts":{"dev":"vite"},"scripts-info":{"dev":"개발 서버를 띄웁니다"}}
         """
@@ -114,7 +114,7 @@ struct ProjectScriptsTests {
     }
 
     /// 둘 다 있으면 `scripts-info`가 이긴다(명시적으로 설명하려고 만든 필드다).
-    @Test func testScriptsInfoWinsOverCommentKey() {
+    @Test func scriptsInfoWinsOverCommentKey() {
         let json = """
         {"scripts":{"//dev":"주석","dev":"vite"},"scripts-info":{"dev":"명시적 설명"}}
         """
@@ -124,7 +124,7 @@ struct ProjectScriptsTests {
     // MARK: Makefile — package.json이 없는 생태계(Go·Rust·C)의 사실상 표준
 
     /// self-documenting makefile 관례: `target: ## 설명`. 설명이 있는 타깃을 먼저 보여준다.
-    @Test func testParsesMakefileTargets() {
+    @Test func parsesMakefileTargets() {
         let make = """
         .PHONY: dev build
 
@@ -144,7 +144,7 @@ struct ProjectScriptsTests {
     }
 
     /// `.PHONY`·변수 대입·패턴 규칙은 타깃이 아니다.
-    @Test func testMakefileIgnoresNonTargets() {
+    @Test func makefileIgnoresNonTargets() {
         let make = """
         .PHONY: all
         CC = gcc
@@ -157,14 +157,14 @@ struct ProjectScriptsTests {
         #expect(ProjectScripts.parseMakefile(make).map(\.name) == ["run"])
     }
 
-    @Test func testMakefileEmpty() {
+    @Test func makefileEmpty() {
         #expect(ProjectScripts.parseMakefile("").isEmpty)
         #expect(ProjectScripts.parseMakefile("# 주석만 있다").isEmpty)
     }
 
     // MARK: 셸 스크립트 — 상단 주석을 설명으로 읽는다
 
-    @Test func testShellScriptDescription() {
+    @Test func shellScriptDescription() {
         let sh = """
         #!/usr/bin/env bash
         # 개발 서버를 띄운다 (포트 3000)
@@ -175,7 +175,7 @@ struct ProjectScriptsTests {
     }
 
     /// shebang 뒤 첫 주석만 설명으로 본다 — `set -e` 이후의 주석은 코드 설명이지 스크립트 설명이 아니다.
-    @Test func testShellScriptNoteStopsAtFirstCode() {
+    @Test func shellScriptNoteStopsAtFirstCode() {
         let sh = """
         #!/bin/sh
         set -e
@@ -185,14 +185,14 @@ struct ProjectScriptsTests {
         #expect(ProjectScripts.shellScriptNote(sh) == nil)
     }
 
-    @Test func testShellScriptNoteAbsent() {
+    @Test func shellScriptNoteAbsent() {
         #expect(ProjectScripts.shellScriptNote("#!/bin/sh\necho hi") == nil)
         #expect(ProjectScripts.shellScriptNote("") == nil)
     }
 
     // MARK: discover — 실제 디렉터리를 읽는 경계
 
-    @Test func testDiscoverReadsRealDirectory() throws {
+    @Test func discoverReadsRealDirectory() throws {
         let dir = NSTemporaryDirectory() + "muxa-scripts-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: dir) }
@@ -210,7 +210,7 @@ struct ProjectScriptsTests {
     }
 
     /// package.json이 없는 프로젝트(Swift·Go 등)에서도 죽지 않는다 — 빈 목록이고 UI는 직접 입력만 보여준다.
-    @Test func testDiscoverWithoutPackageJSON() throws {
+    @Test func discoverWithoutPackageJSON() throws {
         let dir = NSTemporaryDirectory() + "muxa-noscripts-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(atPath: dir) }
@@ -220,7 +220,7 @@ struct ProjectScriptsTests {
         #expect(found.manager == nil)
     }
 
-    @Test func testDiscoverNilDirectory() {
+    @Test func discoverNilDirectory() {
         let found = ProjectScripts.discover(in: nil)
         #expect(found.scripts.isEmpty)
         #expect(found.manager == nil)
@@ -230,7 +230,7 @@ struct ProjectScriptsTests {
 
     /// **muxa 자신을 읽는다.** 합성 픽스처만으로는 "현실의 파일에서 되는가"를 증명하지 못한다.
     /// muxa는 package.json이 없는 프로젝트(Swift/SPM)라 Makefile·scripts/ 경로를 검증한다.
-    @Test func testDiscoverFindsOurOwnMakefileAndScripts() {
+    @Test func discoverFindsOurOwnMakefileAndScripts() {
         // .../macos/Tests/muxaTests/ProjectScriptsTests.swift → 리포 루트
         let repo = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent() // muxaTests

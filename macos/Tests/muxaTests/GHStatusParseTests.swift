@@ -3,19 +3,19 @@ import Testing
 
 /// GitService.parseGHStatus 순수 JSON 파싱 + CI 롤업 분류 검증.
 struct GHStatusParseTests {
-    @Test func testParsesNumberAndState() {
+    @Test func parsesNumberAndState() {
         let s = GitService.parseGHStatus(#"{"number":42,"state":"OPEN","url":"http://x"}"#)
         #expect(s?.prNumber == 42)
         #expect(s?.state == "OPEN")
         #expect(s?.url == "http://x")
     }
 
-    @Test func testMalformedIsNil() {
+    @Test func malformedIsNil() {
         #expect(GitService.parseGHStatus("not json") == nil)
         #expect(GitService.parseGHStatus(#"{"state":"OPEN"}"#) == nil) // number 없음
     }
 
-    @Test func testRollupClassification() {
+    @Test func rollupClassification() {
         let json = #"""
         {"number":1,"state":"OPEN","statusCheckRollup":[
           {"status":"COMPLETED","conclusion":"SUCCESS"},
@@ -30,7 +30,7 @@ struct GHStatusParseTests {
         #expect(s?.pending == 1)  // IN_PROGRESS (status != COMPLETED)
     }
 
-    @Test func testRollupPrioritizesFailing() {
+    @Test func rollupPrioritizesFailing() {
         let s = GitService.GHStatus(prNumber: 1, state: "OPEN", url: "", passing: 3, failing: 1, pending: 2)
         #expect(s.rollup == .failing) // 실패 우선
         let pendingOnly = GitService.GHStatus(prNumber: 1, state: "OPEN", url: "", passing: 3, failing: 0, pending: 2)

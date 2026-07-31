@@ -3,7 +3,7 @@ import Testing
 
 /// SideBySideDiff 순수 2열 행 재구성 검증.
 struct SideBySideDiffTests {
-    @Test func testFileAndHunkHeaders() {
+    @Test func fileAndHunkHeaders() {
         let rows = SideBySideDiff.rows([
             "diff --git a/foo.swift b/foo.swift",
             "--- a/foo.swift",
@@ -16,7 +16,7 @@ struct SideBySideDiffTests {
         #expect(rows.contains { if case .hunk = $0 { return true } else { return false } })
     }
 
-    @Test func testContextLinePairsBothSides() {
+    @Test func contextLinePairsBothSides() {
         let rows = SideBySideDiff.rows(["@@ -5,1 +8,1 @@", " keep"])
         // hunk 시작이 old=5, new=8 → context 줄은 좌 5 / 우 8
         let pair = rows.compactMap { row -> (SideBySideDiff.Cell?, SideBySideDiff.Cell?)? in
@@ -28,7 +28,7 @@ struct SideBySideDiffTests {
         #expect(pair?.0?.kind == .context)
     }
 
-    @Test func testDelAddPairedTogether() {
+    @Test func delAddPairedTogether() {
         let rows = SideBySideDiff.rows(["@@ -1,1 +1,1 @@", "-old", "+new"])
         let pairs = rows.compactMap { row -> (SideBySideDiff.Cell?, SideBySideDiff.Cell?)? in
             if case .pair(let l, let r) = row { return (l, r) } else { return nil }
@@ -40,7 +40,7 @@ struct SideBySideDiffTests {
         #expect(pairs[0].1?.text == "new")
     }
 
-    @Test func testUnevenDelLeavesRightEmpty() {
+    @Test func unevenDelLeavesRightEmpty() {
         // 삭제 2 + 추가 1 → 첫 짝은 좌우, 둘째 짝은 좌만(우 nil)
         let rows = SideBySideDiff.rows(["@@ -1,2 +1,1 @@", "-a", "-b", "+c"])
         let pairs = rows.compactMap { row -> (SideBySideDiff.Cell?, SideBySideDiff.Cell?)? in

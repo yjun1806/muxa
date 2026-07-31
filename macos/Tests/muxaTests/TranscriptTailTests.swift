@@ -8,7 +8,7 @@ struct TranscriptTailTests {
         #"{"type":"\#(role)","message":{"content":[{"type":"text","text":"\#(text)"}]}}"#
     }
 
-    @Test func testFindsLastAssistantMessage() {
+    @Test func findsLastAssistantMessage() {
         let tail = [
             line(role: "assistant", text: "첫 응답"),
             line(role: "user", text: "그 다음은?"),
@@ -18,7 +18,7 @@ struct TranscriptTailTests {
     }
 
     /// 사용자 메시지가 마지막이어도 그건 assistant 메시지가 아니다 — 거슬러 올라가야 한다.
-    @Test func testSkipsTrailingUserMessage() {
+    @Test func skipsTrailingUserMessage() {
         let tail = [
             line(role: "assistant", text: "내 답"),
             line(role: "user", text: "다시 해줘"),
@@ -27,19 +27,19 @@ struct TranscriptTailTests {
     }
 
     /// 꼬리만 읽으므로 첫 줄은 청크 경계에서 잘려 있다 — 파싱 실패해도 무시하고 넘어가야 한다.
-    @Test func testIgnoresTruncatedFirstLine() {
+    @Test func ignoresTruncatedFirstLine() {
         let tail = "sage\":{\"content\":[{\"type\":\"text\"...\n" + line(role: "assistant", text: "온전한 줄")
         #expect(TranscriptTail.lastAssistantMessage(inTail: tail) == "온전한 줄")
     }
 
     /// content 블록에 tool_use가 섞이면 text만 추린다(도구 호출 JSON이 알림 본문에 새면 안 된다).
-    @Test func testExtractsTextBlocksOnly() {
+    @Test func extractsTextBlocksOnly() {
         let tail = #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit"},{"type":"text","text":"고쳤다"}]}}"#
         #expect(TranscriptTail.lastAssistantMessage(inTail: tail) == "고쳤다")
     }
 
     /// 도구 호출만 있는 턴은 보여줄 텍스트가 없다 — 더 거슬러 올라간다.
-    @Test func testSkipsToolOnlyAssistantTurn() {
+    @Test func skipsToolOnlyAssistantTurn() {
         let tail = [
             line(role: "assistant", text: "실제 할 말"),
             #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash"}]}}"#,
@@ -47,19 +47,19 @@ struct TranscriptTailTests {
         #expect(TranscriptTail.lastAssistantMessage(inTail: tail) == "실제 할 말")
     }
 
-    @Test func testContentAsPlainString() {
+    @Test func contentAsPlainString() {
         let tail = #"{"type":"assistant","message":{"content":"문자열 본문"}}"#
         #expect(TranscriptTail.lastAssistantMessage(inTail: tail) == "문자열 본문")
     }
 
-    @Test func testEmptyAndGarbageTailsReturnNil() {
+    @Test func emptyAndGarbageTailsReturnNil() {
         #expect(TranscriptTail.lastAssistantMessage(inTail: "") == nil)
         #expect(TranscriptTail.lastAssistantMessage(inTail: "쓰레기\n더 많은 쓰레기") == nil)
         #expect(TranscriptTail.lastAssistantMessage(inTail: line(role: "user", text: "나뿐이다")) == nil)
     }
 
     /// 실제 파일에서 읽는 경계 경로도 한 번은 태운다(꼬리 seek + 재시도 포함).
-    @Test func testReadsFromFile() async throws {
+    @Test func readsFromFile() async throws {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("muxa-transcript-\(UUID().uuidString).jsonl")
         let content = [line(role: "assistant", text: "옛 응답"), line(role: "assistant", text: "새 응답")]
@@ -71,7 +71,7 @@ struct TranscriptTailTests {
         #expect(message == "새 응답")
     }
 
-    @Test func testMissingFileReturnsNil() async {
+    @Test func missingFileReturnsNil() async {
         let message = await TranscriptTail.lastAssistantMessage(atPath: "/nonexistent/muxa/none.jsonl")
         #expect(message == nil)
     }

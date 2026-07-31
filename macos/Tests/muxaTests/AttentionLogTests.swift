@@ -4,7 +4,7 @@ import Testing
 /// AttentionLog 시스템 경고 기록(키맵 진단·크래시 복원) 검증 — 전역 컨텍스트 + 제목 기준 dedup.
 @MainActor
 struct AttentionLogTests {
-    @Test func testRecordSystemAddsGlobalEntry() {
+    @Test func recordSystemAddsGlobalEntry() {
         let log = AttentionLog()
         log.recordSystem(title: "직전에 비정상 종료됐습니다 — 세션을 복원했습니다.")
         #expect(log.entries.count == 1)
@@ -17,14 +17,14 @@ struct AttentionLogTests {
         #expect(log.unreadCount == 1) // 안 읽음으로 뜬다(벨 배지)
     }
 
-    @Test func testRecordSystemDedupsSameMessage() {
+    @Test func recordSystemDedupsSameMessage() {
         let log = AttentionLog()
         log.recordSystem(title: "같은 경고")
         log.recordSystem(title: "같은 경고") // 라이브 리로드로 동일 진단 재검출 — 중복 안 쌓임
         #expect(log.entries.count == 1)
     }
 
-    @Test func testRecordSystemKeepsDistinctMessages() {
+    @Test func recordSystemKeepsDistinctMessages() {
         let log = AttentionLog()
         log.recordSystem(title: "경고 A")
         log.recordSystem(title: "경고 B")
@@ -33,7 +33,7 @@ struct AttentionLogTests {
         #expect(log.entries.map(\.title) == ["경고 A", "경고 B"])
     }
 
-    @Test func testTabRecordNotDedupedBySystem() {
+    @Test func tabRecordNotDedupedBySystem() {
         // 탭 활동 기록(record)은 서로 다른 종류라 시스템 dedup에 영향받지 않는다.
         let log = AttentionLog()
         log.recordSystem(title: "시스템 경고")
@@ -47,25 +47,25 @@ struct AttentionLogTests {
 /// 화면 위치마다 다르게 보였다. 렌더는 StatusStyle이 이 톤에서 파생하므로 여기만 지키면 어휘가 하나로 남는다.
 @MainActor
 struct AttentionToneTests {
-    @Test func test훅_카테고리가_대기와_완료를_가른다() {
+    @Test func 훅_카테고리가_대기와_완료를_가른다() {
         // 둘 다 kind는 .notify다 — category만이 유일한 구분 근거다(이게 유실되면 인박스는 "뭔가 왔다"까지만 말한다).
         #expect(AttentionKind.notify.tone(category: .needsPermission) == .attention)
         #expect(AttentionKind.notify.tone(category: .turnComplete) == .success)
         #expect(AttentionKind.notify.tone(category: .idleReminder) == .quiet)
     }
 
-    @Test func test자동신호는_부른_쪽으로_본다() {
+    @Test func 자동신호는_부른_쪽으로_본다() {
         // OSC 9/777은 category가 없다 — 무슨 일인지 모르므로 조용히 넘기지 않는다.
         #expect(AttentionKind.notify.tone(category: nil) == .attention)
     }
 
-    @Test func test카테고리없는_종류는_자기_의미를_따른다() {
+    @Test func 카테고리없는_종류는_자기_의미를_따른다() {
         #expect(AttentionKind.done.tone(category: nil) == .success)
         #expect(AttentionKind.system.tone(category: nil) == .failure)
         #expect(AttentionKind.bell.tone(category: nil) == .attention)
     }
 
-    @Test func test기록된_엔트리가_톤을_보존한다() {
+    @Test func 기록된_엔트리가_톤을_보존한다() {
         // category는 발사 순간에만 있다 — 인박스는 나중에 그리므로 엔트리가 톤을 들고 있어야 한다.
         let log = AttentionLog()
         log.record(workspaceId: "w", projectId: "p", tabId: "t",
@@ -73,7 +73,7 @@ struct AttentionToneTests {
         #expect(log.entries.last?.tone == .attention)
     }
 
-    @Test func test시스템경고는_실패톤이다() {
+    @Test func 시스템경고는_실패톤이다() {
         let log = AttentionLog()
         log.recordSystem(title: "키맵 충돌")
         #expect(log.entries.last?.tone == .failure)

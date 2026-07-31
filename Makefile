@@ -29,7 +29,9 @@ build: ## 빌드
 # SwiftPM이 자동으로 잡지 않는다 — 주입하지 않으면 `no such module 'Testing'`으로 죽는다.
 # Xcode 환경에서는 CLT_DEV가 비어 TEST_FLAGS도 비므로 아무것도 바뀌지 않는다.
 # XCTest는 CLT에 모듈 자체가 없어 구제할 방법이 없다 — 테스트를 전부 swift-testing으로 쓰는 이유다(AGENTS.md).
-CLT_DEV := $(shell xcode-select -p 2>/dev/null | grep -q CommandLineTools && echo /Library/Developer/CommandLineTools/Library/Developer)
+# 판별에 쓴 경로를 그대로 쓴다 — 하드코딩하면 "CLT라고 판정했는데 경로는 딴 데"가 성립한다.
+DEVELOPER_ROOT := $(shell xcode-select -p 2>/dev/null)
+CLT_DEV := $(if $(findstring CommandLineTools,$(DEVELOPER_ROOT)),$(DEVELOPER_ROOT)/Library/Developer)
 TEST_FLAGS := $(if $(CLT_DEV),-Xswiftc -F -Xswiftc $(CLT_DEV)/Frameworks -Xlinker -rpath -Xlinker $(CLT_DEV)/Frameworks -Xlinker -rpath -Xlinker $(CLT_DEV)/usr/lib)
 
 test: ## 단위 테스트 (순수 로직)

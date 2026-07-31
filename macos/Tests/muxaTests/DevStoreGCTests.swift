@@ -14,7 +14,7 @@ struct DevStoreGCTests {
     private let grace: TimeInterval = 7 * 86_400
 
     /// 출처 워크트리가 사라졌고 유예도 지났다 — 진짜 고아다.
-    @Test func testMissingWorktreeAfterGraceIsOrphan() {
+    @Test func missingWorktreeAfterGraceIsOrphan() {
         let now = Date()
         let s = store("muxa-dev-gone-abc123", origin: "/repo/gone", ageDays: 10, now: now)
         let result = MuxaSupportDir.orphans([s], now: now, graceInterval: grace,
@@ -23,7 +23,7 @@ struct DevStoreGCTests {
     }
 
     /// 워크트리가 아직 있으면 절대 안 지운다 — 지금 쓰고 있는 개발빌드의 세션이다.
-    @Test func testExistingWorktreeIsKept() {
+    @Test func existingWorktreeIsKept() {
         let now = Date()
         let s = store("muxa-dev-live-abc123", origin: "/repo/live", ageDays: 999, now: now)
         let result = MuxaSupportDir.orphans([s], now: now, graceInterval: grace,
@@ -33,7 +33,7 @@ struct DevStoreGCTests {
 
     /// 워크트리가 없어도 **유예 안쪽이면 남긴다** — 방금 지운 워크트리를 되살릴 수도 있고,
     /// 경로가 일시적으로 안 보일 수도 있다(외장 디스크 등). 의심되면 안 지운다.
-    @Test func testMissingButRecentIsKept() {
+    @Test func missingButRecentIsKept() {
         let now = Date()
         let s = store("muxa-dev-fresh-abc123", origin: "/repo/gone", ageDays: 1, now: now)
         let result = MuxaSupportDir.orphans([s], now: now, graceInterval: grace,
@@ -43,7 +43,7 @@ struct DevStoreGCTests {
 
     /// 출처를 모르는 저장소는 **건드리지 않는다** — 판단 근거가 없으면 지우지 않는다
     /// (옛 버전이 만든 것이거나 사람이 손으로 넣은 것일 수 있다).
-    @Test func testUnknownOriginIsKept() {
+    @Test func unknownOriginIsKept() {
         let now = Date()
         let s = store("muxa-dev-mystery", origin: nil, ageDays: 999, now: now)
         let result = MuxaSupportDir.orphans([s], now: now, graceInterval: grace,
@@ -53,7 +53,7 @@ struct DevStoreGCTests {
 
     /// **릴리스 저장소(`muxa`)는 판정 대상이 아니다** — 사용자의 실사용 데이터다.
     /// (스캔이 `muxa-dev-` 접두사만 모으지만, 판정에서도 한 번 더 막는다.)
-    @Test func testReleaseStoreIsNeverOrphan() {
+    @Test func releaseStoreIsNeverOrphan() {
         let now = Date()
         let s = MuxaSupportDir.DevStore(path: "/support/muxa", origin: nil,
                                         modified: now.addingTimeInterval(-999 * 86_400))
@@ -63,7 +63,7 @@ struct DevStoreGCTests {
     }
 
     /// 자기 자신은 절대 안 지운다(지금 이 프로세스가 쓰고 있다).
-    @Test func testCurrentStoreIsKept() {
+    @Test func currentStoreIsKept() {
         let now = Date()
         let mine = store("muxa-dev-mine-abc123", origin: "/repo/mine", ageDays: 999, now: now)
         let result = MuxaSupportDir.orphans([mine], now: now, graceInterval: grace,

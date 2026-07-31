@@ -19,7 +19,7 @@ struct ClaudeHookSettingsTests {
         }
     }
 
-    @Test func testMergeRegistersEveryEvent() throws {
+    @Test func mergeRegistersEveryEvent() throws {
         let merged = try ClaudeHookSettings.merged(into: [:], executable: exe)
         for event in ClaudeHookEvent.allCases {
             #expect(commands(merged, event: event).contains(ClaudeHookSettings.command(for: event, executable: exe)), "\(event.rawValue) 훅이 등록되지 않았다")
@@ -27,13 +27,13 @@ struct ClaudeHookSettingsTests {
         #expect(ClaudeHookSettings.isInstalled(in: merged, executable: exe))
     }
 
-    @Test func testMergePreservesUserHooks() throws {
+    @Test func mergePreservesUserHooks() throws {
         let merged = try ClaudeHookSettings.merged(into: userHook, executable: exe)
         #expect(commands(merged, event: .stop).contains("say done"), "사용자 훅이 사라졌다")
         #expect(commands(merged, event: .stop).count == 2)
     }
 
-    @Test func testMergePreservesUnrelatedKeys() throws {
+    @Test func mergePreservesUnrelatedKeys() throws {
         let root: [String: Any] = ["model": "opus", "permissions": ["allow": ["Bash"]]]
         let merged = try ClaudeHookSettings.merged(into: root, executable: exe)
         #expect(merged["model"] as? String == "opus")
@@ -41,14 +41,14 @@ struct ClaudeHookSettingsTests {
     }
 
     /// 재설치가 멱등해야 한다 — 앱을 열 때마다 훅이 중복으로 불어나면 안 된다.
-    @Test func testMergeIsIdempotent() throws {
+    @Test func mergeIsIdempotent() throws {
         let once = try ClaudeHookSettings.merged(into: [:], executable: exe)
         let twice = try ClaudeHookSettings.merged(into: once, executable: exe)
         #expect(commands(twice, event: .stop).count == 1, "재설치가 훅을 중복시켰다")
     }
 
     /// 앱 경로가 바뀌면 옛 muxa 훅은 지우고 새 경로로 갈아끼운다(찌꺼기 훅이 남으면 조용히 실패한다).
-    @Test func testMergeReplacesStaleMuxaPath() throws {
+    @Test func mergeReplacesStaleMuxaPath() throws {
         let old = try ClaudeHookSettings.merged(into: [:], executable: "/old/muxa-notify")
         let new = try ClaudeHookSettings.merged(into: old, executable: exe)
         let stop = commands(new, event: .stop)
@@ -57,7 +57,7 @@ struct ClaudeHookSettingsTests {
         #expect(!(stop[0].contains("/old/")), "옛 경로 훅이 남았다")
     }
 
-    @Test func testRemoveKeepsUserHooksAndDropsMuxa() throws {
+    @Test func removeKeepsUserHooksAndDropsMuxa() throws {
         let merged = try ClaudeHookSettings.merged(into: userHook, executable: exe)
         let removed = try ClaudeHookSettings.removed(from: merged)
         #expect(commands(removed, event: .stop) == ["say done"], "제거 후 사용자 훅만 남아야 한다")
@@ -65,14 +65,14 @@ struct ClaudeHookSettingsTests {
     }
 
     /// muxa 훅만 있던 설정은 제거 후 hooks 키까지 사라져야 한다(빈 껍데기를 남기지 않는다).
-    @Test func testRemoveDropsEmptyHooksKey() throws {
+    @Test func removeDropsEmptyHooksKey() throws {
         let merged = try ClaudeHookSettings.merged(into: [:], executable: exe)
         let removed = try ClaudeHookSettings.removed(from: merged)
         #expect(removed["hooks"] == nil, "빈 hooks 껍데기가 남았다")
     }
 
     /// 일부 이벤트만 남은 상태는 미설치로 본다 — 재설치로 멱등 복구된다.
-    @Test func testPartialInstallIsNotInstalled() throws {
+    @Test func partialInstallIsNotInstalled() throws {
         var merged = try ClaudeHookSettings.merged(into: [:], executable: exe)
         var hooks = merged["hooks"] as! [String: Any]
         hooks.removeValue(forKey: ClaudeHookEvent.stop.rawValue)
@@ -82,7 +82,7 @@ struct ClaudeHookSettingsTests {
 
     /// 예전 방식(integrate.sh가 심던 `muxa-notify --state done`)이 남아 있으면 Stop 한 번에
     /// 알림이 두 번 울린다. 형식이 달라도 muxa-notify를 부르는 훅은 전부 새 형식으로 갈아끼워야 한다.
-    @Test func testMergeReplacesLegacyStateStyleHooks() throws {
+    @Test func mergeReplacesLegacyStateStyleHooks() throws {
         let legacy: [String: Any] = ["hooks": [
             "Stop": [["hooks": [["type": "command", "command": "muxa-notify --state done --category turn-complete"]]]],
             "Notification": [["hooks": [["type": "command", "command": "muxa-notify --state waiting"]]]],
@@ -97,14 +97,14 @@ struct ClaudeHookSettingsTests {
     /// Claude Code는 command를 `/bin/sh -c`로 실행한다. 안정 경로에는 공백이 있으므로
     /// (`~/Library/Application Support/…`) 따옴표가 없으면 sh가 경로를 잘라 읽고 훅이 통째로 죽는다.
     /// 그리고 muxa를 지웠을 때 모든 claude 세션이 sh 에러를 뱉지 않도록 존재 가드로 감싼다.
-    @Test func testCommandQuotesPathAndGuardsExistence() throws {
+    @Test func commandQuotesPathAndGuardsExistence() throws {
         let command = ClaudeHookSettings.command(for: .stop, executable: exe)
         #expect(command == "if [ -x '\(exe)' ]; then '\(exe)' hook --event Stop; fi")
         #expect(!(command.contains("\(exe) hook")), "인용되지 않은 경로가 남았다")
     }
 
     /// 생성한 command가 실제 POSIX 셸에서 문법 오류 없이 파싱되는가(이 버그의 본질은 셸 문법이었다).
-    @Test func testCommandIsValidShellSyntax() throws {
+    @Test func commandIsValidShellSyntax() throws {
         for event in ClaudeHookEvent.allCases {
             let command = ClaudeHookSettings.command(for: event, executable: "/tmp/muxa test/muxa-notify")
             let process = Process()
@@ -117,19 +117,19 @@ struct ClaudeHookSettingsTests {
     }
 
     /// 경로에 작은따옴표가 있어도 셸 문법이 깨지지 않는다.
-    @Test func testCommandEscapesSingleQuoteInPath() throws {
+    @Test func commandEscapesSingleQuoteInPath() throws {
         let quoted = ClaudeHookSettings.shellQuoted("/Users/o'brien/bin/muxa-notify")
         #expect(quoted == "'/Users/o'\\''brien/bin/muxa-notify'")
     }
 
     /// 인용된 command도 설치 감지에 잡혀야 한다(멱등 재설치가 깨지지 않게).
-    @Test func testQuotedCommandIsDetectedAsInstalled() throws {
+    @Test func quotedCommandIsDetectedAsInstalled() throws {
         let merged = try ClaudeHookSettings.merged(into: [:], executable: exe)
         #expect(ClaudeHookSettings.isInstalled(in: merged, executable: exe))
     }
 
     /// 따옴표 없이 깨져 설치됐던 훅(이 버그의 산물)도 재설치가 멱등하게 교체한다.
-    @Test func testMergeReplacesUnquotedBrokenHooks() throws {
+    @Test func mergeReplacesUnquotedBrokenHooks() throws {
         let broken: [String: Any] = ["hooks": [
             "Stop": [["hooks": [["type": "command", "command": "\(exe) hook --event Stop"]]]],
         ]]
@@ -139,21 +139,21 @@ struct ClaudeHookSettingsTests {
         #expect(stop[0] == ClaudeHookSettings.command(for: .stop, executable: exe), "인용·가드가 붙은 새 형식으로 교체되지 않았다")
     }
 
-    @Test func testPreToolUseGetsWildcardMatcher() throws {
+    @Test func preToolUseGetsWildcardMatcher() throws {
         #expect(ClaudeHookSettings.matcher(for: .preToolUse) == "*")
         #expect(ClaudeHookSettings.matcher(for: .stop) == nil, "Stop에 matcher는 의미가 없다")
     }
 
     /// 훅은 전역 settings.json에 등록돼 muxa 밖의 모든 claude 세션에서도 도구 호출마다 프로세스를 띄운다.
     /// PreToolUse만으로 진행 표시가 되므로 PostToolUse까지 구독하면 그 비용을 두 배로 낸다.
-    @Test func testPostToolUseIsNotSubscribed() throws {
+    @Test func postToolUseIsNotSubscribed() throws {
         #expect(ClaudeHookEvent(rawValue: "PostToolUse") == nil, "PostToolUse는 구독하지 않는다(비용 2배)")
     }
 
     // MARK: 사용자 훅 파괴 방지 — 모르는 구조를 만나면 아무것도 쓰지 않는다
 
     /// hooks 값이 우리가 아는 배열이 아니면(사용자가 손으로 넣었거나 새 스키마), 덮어써 지우지 말고 던진다.
-    @Test func testMergeThrowsOnUnexpectedEventShape() {
+    @Test func mergeThrowsOnUnexpectedEventShape() {
         let odd: [String: Any] = ["hooks": ["Stop": ["hooks": ["이건 배열이 아니라 객체다"]]]]
         #expect(throws: ClaudeHookSettings.UnexpectedShape.self) {
             try ClaudeHookSettings.merged(into: odd, executable: exe)
@@ -161,14 +161,14 @@ struct ClaudeHookSettingsTests {
     }
 
     /// hooks 자체가 객체가 아니면 손대지 않는다.
-    @Test func testMergeThrowsWhenHooksIsNotAnObject() {
+    @Test func mergeThrowsWhenHooksIsNotAnObject() {
         let odd: [String: Any] = ["hooks": ["배열이다"]]
         #expect(throws: (any Error).self) { try ClaudeHookSettings.merged(into: odd, executable: exe) }
         #expect(throws: (any Error).self) { try ClaudeHookSettings.removed(from: odd) }
     }
 
     /// command 키가 없는 훅(type:http 등 실존)도 보존된다 — 크래시도, 삭제도 없어야 한다.
-    @Test func testNonCommandHooksArePreserved() throws {
+    @Test func nonCommandHooksArePreserved() throws {
         let httpHook: [String: Any] = ["hooks": ["Stop": [["hooks": [["type": "http", "url": "https://x"]]]]]]
         let merged = try ClaudeHookSettings.merged(into: httpHook, executable: exe)
         let entries = (merged["hooks"] as? [String: Any])?["Stop"] as? [[String: Any]] ?? []

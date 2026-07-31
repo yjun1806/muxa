@@ -12,7 +12,7 @@ struct CommandHistoryTests {
     }
 
     /// 새 명령은 맨 앞에 추가된다.
-    @Test func testRecordAddsNewAtFront() {
+    @Test func recordAddsNewAtFront() {
         let h = CommandHistory.record([], command: "ls", name: "ls", cwd: nil, now: t0)
         #expect(h.map(\.command) == ["ls"])
         #expect(h.first?.runCount == 1)
@@ -20,7 +20,7 @@ struct CommandHistoryTests {
     }
 
     /// 같은 명령 재실행 — 갱신하며 맨 앞으로, runCount 증가, 중복 없음.
-    @Test func testRecordMergesDuplicateToFront() {
+    @Test func recordMergesDuplicateToFront() {
         var h = CommandHistory.record([], command: "a", name: "a", cwd: nil, now: at(0))
         h = CommandHistory.record(h, command: "b", name: "b", cwd: nil, now: at(1))
         h = CommandHistory.record(h, command: "a", name: "a", cwd: nil, now: at(2)) // a 재실행
@@ -30,7 +30,7 @@ struct CommandHistoryTests {
     }
 
     /// 마지막 실행 기준으로 name·cwd가 갱신된다.
-    @Test func testRecordUpdatesNameAndCwd() {
+    @Test func recordUpdatesNameAndCwd() {
         var h = CommandHistory.record([], command: "cmd", name: "old", cwd: "/a", now: at(0))
         h = CommandHistory.record(h, command: "cmd", name: "new", cwd: "/b", now: at(1))
         #expect(h.first?.name == "new")
@@ -38,7 +38,7 @@ struct CommandHistoryTests {
     }
 
     /// 100개 상한 — 101번째를 넣으면 가장 오래된 것이 밀려난다.
-    @Test func testRecordCapsAtLimit() {
+    @Test func recordCapsAtLimit() {
         var h: [CommandHistoryEntry] = []
         for i in 0..<CommandHistory.limit {
             h = CommandHistory.record(h, command: "c\(i)", name: "c\(i)", cwd: nil, now: at(TimeInterval(i)))
@@ -51,7 +51,7 @@ struct CommandHistoryTests {
     }
 
     /// 섹션 분류 — 등록은 등록 섹션(+lastRun), 미등록만 히스토리.
-    @Test func testSectionsSplitRegisteredAndHistory() {
+    @Test func sectionsSplitRegisteredAndHistory() {
         let history = [
             CommandHistoryEntry(command: "make build", name: "build", cwd: nil, lastRunAt: at(2), runCount: 3),
             CommandHistoryEntry(command: "pnpm i", name: "pnpm i", cwd: nil, lastRunAt: at(1), runCount: 1),
@@ -66,7 +66,7 @@ struct CommandHistoryTests {
     }
 
     /// 등록됐지만 한 번도 안 돌린 명령은 lastRunAt이 nil.
-    @Test func testRegisteredNeverRunHasNilLastRun() {
+    @Test func registeredNeverRunHasNilLastRun() {
         let (reg, _) = CommandHistory.sections(registered: [script("test", "make test")], history: [])
         #expect(reg.first?.lastRunAt == nil)
     }
@@ -77,7 +77,7 @@ struct CommandHistoryTests {
     }
 
     /// 명령의 실행 상태 — 그 command로 실행된 인스턴스 중 가장 최근 run.
-    @Test func testRunStateMatchesLatestInstance() {
+    @Test func runStateMatchesLatestInstance() {
         let instances = [located("i1", "pnpm i"), located("i2", "pnpm i"), located("x", "ls")]
         let runs: [String: ScriptRun] = [
             "i1": ScriptRun(scriptId: "i1", projectId: "p", name: "pnpm i", startedAt: at(1), state: .running),
@@ -89,7 +89,7 @@ struct CommandHistoryTests {
     }
 
     /// 그 명령의 실행 인스턴스가 없으면 nil(재시작 후·과거 기록만).
-    @Test func testRunStateNilWhenNoInstance() {
+    @Test func runStateNilWhenNoInstance() {
         #expect(CommandHistory.runState(command: "make build",
                                              instances: [located("i", "pnpm i")], runs: [:]) == nil)
     }

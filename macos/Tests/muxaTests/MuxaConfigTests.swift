@@ -3,11 +3,11 @@ import Testing
 
 /// MuxaConfig 순수 파서 검증 — 설정 표면의 단일 진실 원천.
 struct MuxaConfigTests {
-    @Test func testEmptyIsDefaults() {
+    @Test func emptyIsDefaults() {
         #expect(MuxaConfig.parse("") == MuxaConfig.defaults)
     }
 
-    @Test func testParsePairsSkipsCommentsBlanksAndNoEquals() {
+    @Test func parsePairsSkipsCommentsBlanksAndNoEquals() {
         let pairs = MuxaConfig.parsePairs("""
         # comment
         confirm_quit = false
@@ -21,11 +21,11 @@ struct MuxaConfigTests {
         #expect(pairs["# comment"] == nil)
     }
 
-    @Test func testParsePairsLastWins() {
+    @Test func parsePairsLastWins() {
         #expect(MuxaConfig.parsePairs("k = 1\nk = 2")["k"] == "2")
     }
 
-    @Test func testBoolLenientParsing() {
+    @Test func boolLenientParsing() {
         for on in ["true", "yes", "on", "1"] {
             #expect(!(MuxaConfig.parse("confirm_quit = \(on)").confirmQuit == false), "\(on) → true")
         }
@@ -36,27 +36,27 @@ struct MuxaConfigTests {
         #expect(MuxaConfig.parse("confirm_quit = maybe").confirmQuit)
     }
 
-    @Test func testThresholdParsingAndNsConversion() {
+    @Test func thresholdParsingAndNsConversion() {
         #expect(MuxaConfig.parse("command_finished_threshold_sec = 2.5").commandFinishedThresholdSec == 2.5)
         #expect(MuxaConfig.parse("command_finished_threshold_sec = 2").commandFinishedThresholdNs == 2_000_000_000)
         // 음수는 0으로 클램프
         #expect(MuxaConfig.parse("command_finished_threshold_sec = -5").commandFinishedThresholdNs == 0)
     }
 
-    @Test func testExtractKeybindings() {
+    @Test func extractKeybindings() {
         let kb = MuxaConfig.parse("keybind.new_terminal = cmd+t\nkeybind. = ignored\nconfirm_quit = true").keybindings
         #expect(kb["new_terminal"] == "cmd+t")
         #expect(kb[""] == nil)            // 빈 액션 무시
         #expect(kb["confirm_quit"] == nil) // keybind. 접두 아닌 건 제외
     }
 
-    @Test func testAgentResumeParsing() {
+    @Test func agentResumeParsing() {
         #expect(MuxaConfig.parse("agent_resume = auto").agentResume == .auto)
         #expect(MuxaConfig.parse("agent_resume = off").agentResume == .off)
         #expect(MuxaConfig.parse("agent_resume = bogus").agentResume == .manual) // 기본
     }
 
-    @Test func testExpandingPaths() {
+    @Test func expandingPaths() {
         let c = MuxaConfig.parse("default_workspace_path = ~/proj").expandingPaths(home: "/Users/x")
         #expect(c.defaultWorkspacePath == "/Users/x/proj")
         let bare = MuxaConfig.parse("default_workspace_path = ~").expandingPaths(home: "/Users/x")

@@ -19,36 +19,36 @@ struct UsageSourceSelectorTests {
     }
 
     /// 신선하고 창이 유효하면 A-1 값을 쓰고 API를 건너뛴다.
-    @Test func testFreshStatusLineIsUsed() {
+    @Test func freshStatusLineIsUsed() {
         let sl = snapshot(ageSeconds: 60, resetsAt: now.addingTimeInterval(3600))
         #expect(UsageSourceSelector.pick(statusLine: sl, now: now, freshFor: freshFor) == .statusLine(sl.limits))
     }
 
     /// 스냅샷이 없으면(콜드스타트·미설치) API로.
-    @Test func testNilFallsBackToApi() {
+    @Test func nilFallsBackToApi() {
         #expect(UsageSourceSelector.pick(statusLine: nil, now: now, freshFor: freshFor) == .api)
     }
 
     /// 한도가 비어 오면(첫 응답 전) API로.
-    @Test func testEmptyLimitsFallsBackToApi() {
+    @Test func emptyLimitsFallsBackToApi() {
         let sl = UsageSourceSelector.StatusLine(observedAt: now, limits: [])
         #expect(UsageSourceSelector.pick(statusLine: sl, now: now, freshFor: freshFor) == .api)
     }
 
     /// observedAt이 freshFor보다 오래되면(긴 유휴) API로 교차확인.
-    @Test func testStaleFallsBackToApi() {
+    @Test func staleFallsBackToApi() {
         let sl = snapshot(ageSeconds: 601, resetsAt: now.addingTimeInterval(3600))
         #expect(UsageSourceSelector.pick(statusLine: sl, now: now, freshFor: freshFor) == .api)
     }
 
     /// 리셋 시각이 지난 창이 있으면(창 리셋됨, percent는 옛값) API로 실측.
-    @Test func testExpiredWindowFallsBackToApi() {
+    @Test func expiredWindowFallsBackToApi() {
         let sl = snapshot(ageSeconds: 60, resetsAt: now.addingTimeInterval(-1))
         #expect(UsageSourceSelector.pick(statusLine: sl, now: now, freshFor: freshFor) == .api)
     }
 
     /// resets_at이 nil이어도(파싱 실패) percent는 유효 — A-1을 쓴다.
-    @Test func testNilResetIsStillUsed() {
+    @Test func nilResetIsStillUsed() {
         let sl = snapshot(ageSeconds: 60, resetsAt: nil)
         #expect(UsageSourceSelector.pick(statusLine: sl, now: now, freshFor: freshFor) == .statusLine(sl.limits))
     }

@@ -15,20 +15,20 @@ struct ReviewCommentScopeTests {
     }
 
     /// 커밋 코멘트는 해시를 지시문에 싣는다 — 에이전트가 amend·fixup 대상을 스스로 판단하게.
-    @Test func testInstructionCarriesCommitHash() {
+    @Test func instructionCarriesCommitHash() {
         let text = ReviewCommentFormat.instruction([comment("이름 바꿔", commit: "a3f9c2b1d4e5")])
         #expect(text.contains("a3f9c2b"), "짧은 해시가 들어가야 한다: \(text)")
         #expect(text.contains("이름 바꿔"))
     }
 
     /// 워크트리 코멘트만 있으면 스코프 머리글은 소음이라 안 붙인다.
-    @Test func testWorktreeOnlyHasNoScopeHeader() {
+    @Test func worktreeOnlyHasNoScopeHeader() {
         let text = ReviewCommentFormat.instruction([comment("고쳐")])
         #expect(!(text.contains("===")), "스코프가 하나면 머리글을 안 붙인다: \(text)")
     }
 
     /// 섞여 있으면 갈라서 보여준다 — 어느 게 커밋 수정이고 어느 게 미커밋인지.
-    @Test func testMixedScopesAreSeparated() {
+    @Test func mixedScopesAreSeparated() {
         let text = ReviewCommentFormat.instruction([
             comment("미커밋 것", seq: 0),
             comment("커밋 것", seq: 1, commit: "abc1234def"),
@@ -37,12 +37,12 @@ struct ReviewCommentScopeTests {
         #expect(text.contains("abc1234"))
     }
 
-    @Test func testEmptyStaysEmpty() {
+    @Test func emptyStaysEmpty() {
         #expect(ReviewCommentFormat.instruction([]) == "")
     }
 
     /// **하위호환** — commit 필드가 없던 저장분이 그대로 디코드되고 워크트리 코멘트로 읽힌다.
-    @Test func testLegacyCommentDecodesWithoutCommitField() throws {
+    @Test func legacyCommentDecodesWithoutCommitField() throws {
         let legacy = """
         [{"id":"1","file":"a.swift","side":"add","line":3,"lineText":"x",
           "body":"고쳐","seq":0,"createdAt":760000000}]
@@ -52,7 +52,7 @@ struct ReviewCommentScopeTests {
         #expect(decoded[0].commit == nil, "구 저장분은 워크트리 코멘트다")
     }
 
-    @Test func testCommentRoundTripsWithCommit() throws {
+    @Test func commentRoundTripsWithCommit() throws {
         let original = comment("고쳐", commit: "deadbeef")
         let data = try JSONEncoder().encode([original])
         let decoded = try JSONDecoder().decode([ReviewComment].self, from: data)

@@ -8,19 +8,19 @@ struct CommandStoreTests {
     private func at(_ s: TimeInterval) -> Date { t0.addingTimeInterval(s) }
 
     /// 새 명령은 엔트리를 만들고 실행 하나를 얹는다(favorite=false).
-    @Test func testRecordStartCreatesEntry() {
+    @Test func recordStartCreatesEntry() {
         let (e, dropped) = CommandStore.recordStart([], command: "pnpm dev", cwd: "/p", name: nil,
                                                     execId: "x1", now: at(0))
         #expect(e.count == 1)
         #expect(e[0].command == "pnpm dev")
         #expect(e[0].cwd == "/p")
-        #expect(!(e[0].favorite))
+        #expect(!e[0].favorite)
         #expect(e[0].executions.map(\.id) == ["x1"])
         #expect(dropped.isEmpty)
     }
 
     /// 같은 명령 재실행 — 같은 엔트리에 실행이 앞으로 쌓이고 cwd가 갱신된다.
-    @Test func testRecordStartMergesSameCommand() {
+    @Test func recordStartMergesSameCommand() {
         var (e, _) = CommandStore.recordStart([], command: "a", cwd: "/x", name: nil, execId: "1", now: at(0))
         (e, _) = CommandStore.recordStart(e, command: "a", cwd: "/y", name: nil, execId: "2", now: at(1))
         #expect(e.count == 1, "같은 명령은 한 엔트리")
@@ -30,7 +30,7 @@ struct CommandStoreTests {
     }
 
     /// 명령당 10개 상한 — 11번째 실행 시 가장 오래된 것이 dropped로 빠진다.
-    @Test func testExecLimitDropsOldest() {
+    @Test func execLimitDropsOldest() {
         var e: [CommandEntry] = []
         for i in 0..<CommandStore.execLimit {
             (e, _) = CommandStore.recordStart(e, command: "a", cwd: nil, name: nil, execId: "e\(i)", now: at(TimeInterval(i)))
@@ -42,26 +42,26 @@ struct CommandStoreTests {
     }
 
     /// 완료 반영 — execId의 실행에 exitCode·duration이 채워진다.
-    @Test func testRecordFinish() {
+    @Test func recordFinish() {
         var (e, _) = CommandStore.recordStart([], command: "a", cwd: nil, name: nil, execId: "1", now: at(0))
         e = CommandStore.recordFinish(e, execId: "1", exitCode: 0, duration: 2.5)
         #expect(e[0].executions[0].exitCode == 0)
         #expect(e[0].executions[0].duration == 2.5)
         #expect(e[0].executions[0].isFinished)
-        #expect(!(e[0].executions[0].isFailure))
+        #expect(!e[0].executions[0].isFailure)
     }
 
     /// 실패 확정은 code≠0만 — nil(미상)은 실패로 단정 안 함.
-    @Test func testFailureOnlyWhenNonZero() {
+    @Test func failureOnlyWhenNonZero() {
         var (e, _) = CommandStore.recordStart([], command: "a", cwd: nil, name: nil, execId: "1", now: at(0))
         e = CommandStore.recordFinish(e, execId: "1", exitCode: 2, duration: nil)
         #expect(e[0].executions[0].isFailure)
         let running = CommandExecution(id: "r", startedAt: at(0), exitCode: nil, duration: nil)
-        #expect(!(running.isFailure), "미상은 실패 아님")
+        #expect(!running.isFailure, "미상은 실패 아님")
     }
 
     /// 즐겨찾기 토글 — 켜면 favorites, 끄면 history.
-    @Test func testToggleFavoriteMovesSections() {
+    @Test func toggleFavoriteMovesSections() {
         var (e, _) = CommandStore.recordStart([], command: "a", cwd: nil, name: nil, execId: "1", now: at(0))
         #expect(CommandStore.sections(e).history.map(\.command) == ["a"])
         e = CommandStore.toggleFavorite(e, command: "a")
@@ -71,7 +71,7 @@ struct CommandStoreTests {
     }
 
     /// 실행 안 한 발견 스크립트를 ☆ 하면 엔트리가 없으므로 즐겨찾기로 새로 만든다.
-    @Test func testToggleFavoriteCreatesForDiscovered() {
+    @Test func toggleFavoriteCreatesForDiscovered() {
         let e = CommandStore.toggleFavorite([], command: "pnpm dev", name: "dev", cwd: "/p")
         #expect(e.count == 1)
         #expect(e[0].favorite)
@@ -84,7 +84,7 @@ struct CommandStoreTests {
     }
 
     /// 세 섹션 — 한 명령은 한 섹션에만(즐겨찾기 > 발견 > 히스토리 우선, 중복 제거).
-    @Test func testPanelSectionsDedup() {
+    @Test func panelSectionsDedup() {
         var e: [CommandEntry] = []
         (e, _) = CommandStore.recordStart(e, command: "brew install jq", cwd: nil, name: nil, execId: "1", now: at(3)) // 즉석
         (e, _) = CommandStore.recordStart(e, command: "pnpm dev", cwd: nil, name: nil, execId: "2", now: at(2))       // 발견 명령을 실행함
@@ -98,7 +98,7 @@ struct CommandStoreTests {
     }
 
     /// 발견 스크립트를 아직 안 돌렸어도 프로젝트 스크립트 섹션에 전부 나온다(요구 1).
-    @Test func testPanelSectionsShowsAllDiscovered() {
+    @Test func panelSectionsShowsAllDiscovered() {
         let s = CommandStore.panelSections([], discovered: [disc("dev", "pnpm dev"), disc("test", "pnpm test")])
         #expect(s.projectScripts.map(\.name) == ["dev", "test"])
         #expect(s.favorites.isEmpty)
@@ -106,7 +106,7 @@ struct CommandStoreTests {
     }
 
     /// 발견 스크립트를 실행하면 카탈로그(상시)와 히스토리(실행 내역) 양쪽에 나온다.
-    @Test func testDiscoveredRunAppearsInCatalogAndHistory() {
+    @Test func discoveredRunAppearsInCatalogAndHistory() {
         var (e, _) = CommandStore.recordStart([], command: "pnpm dev", cwd: nil, name: nil, execId: "1", now: at(0))
         let s = CommandStore.panelSections(e, discovered: [disc("dev", "pnpm dev")])
         #expect(s.projectScripts.map(\.command) == ["pnpm dev"], "카탈로그에 상시")
@@ -115,14 +115,14 @@ struct CommandStoreTests {
     }
 
     /// 히스토리는 최근 실행순.
-    @Test func testHistorySortedByRecency() {
+    @Test func historySortedByRecency() {
         var (e, _) = CommandStore.recordStart([], command: "old", cwd: nil, name: nil, execId: "1", now: at(0))
         (e, _) = CommandStore.recordStart(e, command: "new", cwd: nil, name: nil, execId: "2", now: at(10))
         #expect(CommandStore.sections(e).history.map(\.command) == ["new", "old"])
     }
 
     /// v1→v2 이관 — 등록 스크립트=favorite, 히스토리=비favorite, 둘 다 비면 nil.
-    @Test func testMigrate() {
+    @Test func migrate() {
         let scripts = [Script(id: "s1", name: "web", command: "pnpm dev", cwd: "/p")]
         let history = [CommandHistoryEntry(command: "pnpm test", name: "pnpm test", cwd: nil,
                                            lastRunAt: at(5), runCount: 2)]
@@ -134,7 +134,7 @@ struct CommandStoreTests {
     }
 
     /// 같은 명령이 등록·히스토리 양쪽이면 한 엔트리로 묶고 favorite을 켠다.
-    @Test func testMigrateMergesSameCommand() {
+    @Test func migrateMergesSameCommand() {
         let scripts = [Script(id: "s", name: "build", command: "make build", cwd: nil)]
         let history = [CommandHistoryEntry(command: "make build", name: "make build", cwd: nil,
                                            lastRunAt: at(1), runCount: 1)]
@@ -144,7 +144,7 @@ struct CommandStoreTests {
     }
 
     /// cwd 변경·명령 삭제(로그 dropped 반환).
-    @Test func testSetCwdAndRemove() {
+    @Test func setCwdAndRemove() {
         var (e, _) = CommandStore.recordStart([], command: "a", cwd: "/x", name: nil, execId: "1", now: at(0))
         e = CommandStore.setCwd(e, command: "a", cwd: "/new")
         #expect(e[0].cwd == "/new")

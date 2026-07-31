@@ -10,7 +10,7 @@ struct ClaudeUsageStatusLineTests {
     }
 
     /// 두 창이 다 오면 session·weekly_all 두 한도로 정규화된다.
-    @Test func testParsesBothWindows() {
+    @Test func parsesBothWindows() {
         let limits = parse("""
         { "rate_limits": {
             "five_hour": { "used_percentage": 23.5, "resets_at": 1770000000 },
@@ -27,7 +27,7 @@ struct ClaudeUsageStatusLineTests {
     }
 
     /// 창은 독립적으로 없을 수 있다 — five_hour만 오면 그것만 나온다.
-    @Test func testMissingWindowIsOmitted() {
+    @Test func missingWindowIsOmitted() {
         let limits = parse("""
         { "rate_limits": { "five_hour": { "used_percentage": 10, "resets_at": 1770000000 } } }
         """)
@@ -35,14 +35,14 @@ struct ClaudeUsageStatusLineTests {
     }
 
     /// rate_limits 자체가 없으면(콜드스타트·API키 사용자) 빈 배열 — 앱 동작에 영향 없다.
-    @Test func testNoRateLimitsYieldsEmpty() {
+    @Test func noRateLimitsYieldsEmpty() {
         #expect(parse("""
         { "session_id": "abc", "cost": { "total_cost_usd": 0.1 } }
         """).isEmpty)
     }
 
     /// used_percentage가 없는 창은 버린다(부분 응답 방어).
-    @Test func testWindowWithoutPercentIsDropped() {
+    @Test func windowWithoutPercentIsDropped() {
         let limits = parse("""
         { "rate_limits": {
             "five_hour": { "resets_at": 1770000000 },
@@ -53,7 +53,7 @@ struct ClaudeUsageStatusLineTests {
     }
 
     /// resets_at이 없어도 percent는 살린다(리셋 시각만 nil).
-    @Test func testWindowWithoutResetKeepsPercent() {
+    @Test func windowWithoutResetKeepsPercent() {
         let limits = parse("""
         { "rate_limits": { "five_hour": { "used_percentage": 55 } } }
         """)
@@ -62,7 +62,7 @@ struct ClaudeUsageStatusLineTests {
     }
 
     /// 깨진 JSON도 조용히 빈 배열 — 비공식 stdin이라 실패를 정상 경로로 취급한다.
-    @Test func testMalformedYieldsEmpty() {
+    @Test func malformedYieldsEmpty() {
         #expect(parse("not json at all").isEmpty)
     }
 }

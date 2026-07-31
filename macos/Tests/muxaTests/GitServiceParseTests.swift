@@ -3,21 +3,21 @@ import Testing
 
 /// GitService 순수 파싱 검증 — porcelain v1 --branch, log unit-separator 포맷.
 struct GitServiceParseTests {
-    @Test func testParseStatusBranchAndAheadBehind() {
+    @Test func parseStatusBranchAndAheadBehind() {
         let s = GitService.parseStatus("## main...origin/main [ahead 1, behind 2]")
         #expect(s.branch == "main")
         #expect(s.ahead == 1)
         #expect(s.behind == 2)
     }
 
-    @Test func testParseStatusBranchNoUpstream() {
+    @Test func parseStatusBranchNoUpstream() {
         let s = GitService.parseStatus("## feature/x")
         #expect(s.branch == "feature/x")
         #expect(s.ahead == 0)
         #expect(s.behind == 0)
     }
 
-    @Test func testParseStatusChanges() {
+    @Test func parseStatusChanges() {
         let s = GitService.parseStatus("""
         ## main
          M src/a.swift
@@ -32,13 +32,13 @@ struct GitServiceParseTests {
         #expect(s.staged.contains { $0.path == "src/b.swift" } == true)
     }
 
-    @Test func testParseStatusRenameOpPath() {
+    @Test func parseStatusRenameOpPath() {
         let s = GitService.parseStatus("## main\nR  old.txt -> new.txt")
         let renamed = s.changes.first
         #expect(renamed?.opPath == "new.txt") // add/restore 대상은 새 경로
     }
 
-    @Test func testParseLogUnitSeparator() {
+    @Test func parseLogUnitSeparator() {
         let us = "\u{1f}"
         let line = ["abc123", "abc", "커밋 제목", "홍길동", "2 hours ago"].joined(separator: us)
         let commits = GitService.parseLog(line)
@@ -50,7 +50,7 @@ struct GitServiceParseTests {
         #expect(commits[0].date == "2 hours ago")
     }
 
-    @Test func testParseLogSkipsMalformed() {
+    @Test func parseLogSkipsMalformed() {
         #expect(GitService.parseLog("only\u{1f}three\u{1f}fields").count == 0)
     }
 }

@@ -13,7 +13,7 @@ struct PaneIndicatorSettingsTests {
 
     // MARK: - 상태별 기본값
 
-    @Test func testDefaultsPerState() {
+    @Test func defaultsPerState() {
         let s = PaneIndicatorSettings(defaults: suite())
         #expect(s.working.form == .top)       // 진행중 = 상단 진행바
         #expect(s.working.motion == .flow)
@@ -21,19 +21,19 @@ struct PaneIndicatorSettingsTests {
         #expect(s.waiting.motion == .pulse)
         #expect(s.done.form == .ring)         // 완료 = 정적 링
         #expect(s.done.motion == .none)
-        #expect(!(s.clearOnFocus))             // 기본 = 포커스해도 유지
+        #expect(!s.clearOnFocus)             // 기본 = 포커스해도 유지
     }
 
-    @Test func testEveryStateHasDefaultStyleAndColor() {
+    @Test func everyStateHasDefaultStyleAndColor() {
         for state in PaneIndicatorState.allCases {
-            #expect(!(state.label.isEmpty), "\(state.rawValue) 라벨 누락")
+            #expect(!state.label.isEmpty, "\(state.rawValue) 라벨 누락")
             _ = state.color // 크래시 없이 색을 낸다
         }
     }
 
     // MARK: - 로드 / 클램프 / 영속
 
-    @Test func testOutOfRangeStoredValuesClampOnLoad() {
+    @Test func outOfRangeStoredValuesClampOnLoad() {
         let d = suite()
         d.set(999, forKey: "muxa.paneindicator.working.thickness")
         d.set(-5, forKey: "muxa.paneindicator.working.glowSpread")
@@ -42,13 +42,13 @@ struct PaneIndicatorSettingsTests {
         #expect(s.working.glowSpread == PaneIndicatorSettings.glowSpreadRange.lowerBound)
     }
 
-    @Test func testUnknownFormFallsBackToStateDefault() {
+    @Test func unknownFormFallsBackToStateDefault() {
         let d = suite()
         d.set("nonsense", forKey: "muxa.paneindicator.waiting.form")
         #expect(PaneIndicatorSettings(defaults: d).waiting.form == PaneIndicatorState.waiting.defaultStyle.form)
     }
 
-    @Test func testWritePersistsPerStateIndependently() {
+    @Test func writePersistsPerStateIndependently() {
         let d = suite()
         let s = PaneIndicatorSettings(defaults: d)
         s.setStyle(PaneIndicatorStyle(form: .bracket, motion: .glow, thickness: 4,
@@ -66,19 +66,19 @@ struct PaneIndicatorSettingsTests {
 
     // MARK: - 모션 resolved(형태별 유효성) — 순수 판정
 
-    @Test func testFlowStaysOnBars() {
+    @Test func flowStaysOnBars() {
         for form in [PaneIndicatorForm.top, .bottom, .left] {
             #expect(PaneMotion.flow.resolved(for: form) == .flow, "\(form.rawValue)엔 흐름이 있어야 한다")
         }
     }
 
-    @Test func testFlowFallsBackToPulseOffBars() {
+    @Test func flowFallsBackToPulseOffBars() {
         for form in [PaneIndicatorForm.ring, .bracket, .corner] {
             #expect(PaneMotion.flow.resolved(for: form) == .pulse, "\(form.rawValue)에선 흐름→펄스")
         }
     }
 
-    @Test func testNonFlowMotionsPassThroughUnchanged() {
+    @Test func nonFlowMotionsPassThroughUnchanged() {
         for motion in [PaneMotion.none, .pulse, .glow] {
             for form in PaneIndicatorForm.allCases {
                 #expect(motion.resolved(for: form) == motion)
@@ -86,8 +86,8 @@ struct PaneIndicatorSettingsTests {
         }
     }
 
-    @Test func testEveryFormAndMotionHasLabel() {
-        for form in PaneIndicatorForm.allCases { #expect(!(form.label.isEmpty)) }
-        for motion in PaneMotion.allCases { #expect(!(motion.label.isEmpty)) }
+    @Test func everyFormAndMotionHasLabel() {
+        for form in PaneIndicatorForm.allCases { #expect(!form.label.isEmpty) }
+        for motion in PaneMotion.allCases { #expect(!motion.label.isEmpty) }
     }
 }

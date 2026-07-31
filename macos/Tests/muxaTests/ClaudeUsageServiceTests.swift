@@ -40,7 +40,7 @@ struct ClaudeUsageServiceTests {
     }
 
     /// A-1(statusLine)이 신선하면 API를 건드리지 않는다 — 429 회피의 핵심.
-    @Test func testFreshStatusLineSkipsApi() async {
+    @Test func freshStatusLineSkipsApi() async {
         let clock = Clock()
         let a1 = UsageSourceSelector.StatusLine(observedAt: clock.now, limits: sample)
         let service = makeService(clock, results: [.ok([])], statusLine: { a1 })
@@ -52,7 +52,7 @@ struct ClaudeUsageServiceTests {
     }
 
     /// A-1이 낡으면(긴 유휴) 기존 A-2 경로로 조회한다.
-    @Test func testStaleStatusLineFallsBackToApi() async {
+    @Test func staleStatusLineFallsBackToApi() async {
         let clock = Clock()
         let old = UsageSourceSelector.StatusLine(
             observedAt: clock.now.addingTimeInterval(-601), limits: sample)
@@ -63,7 +63,7 @@ struct ClaudeUsageServiceTests {
 
     /// A-1은 five_hour/seven_day만 준다 — Fable(모델 스코프)은 마지막 A-2 캐시에서 병합해 보존한다.
     /// 안 그러면 A-1이 신선한 동안 팝오버에서 Fable이 사라진다(회귀).
-    @Test func testFreshStatusLineMergesCachedFable() async {
+    @Test func freshStatusLineMergesCachedFable() async {
         let clock = Clock()
         let store = MemoryStore()
         let fable = UsageLimit(kind: "weekly_scoped", label: "Fable", percent: 30,
@@ -80,7 +80,7 @@ struct ClaudeUsageServiceTests {
 
     /// A-1이 신선해도 **Fable 캐시가 낡으면**(1h+) A-2를 딱 한 번 태워 Fable만 되살린다 —
     /// 안 그러면 A-1이 계속 신선한 동안 Fable이 마지막 A-2 값에 굳는다(사용자 신고 버그).
-    @Test func testFreshStatusLineRefreshesStaleFable() async {
+    @Test func freshStatusLineRefreshesStaleFable() async {
         let clock = Clock()
         let store = MemoryStore()
         let oldFable = UsageLimit(kind: "weekly_scoped", label: "Fable", percent: 10,
@@ -101,7 +101,7 @@ struct ClaudeUsageServiceTests {
     }
 
     /// Fable 캐시가 신선하면(1h 이내) A-1만으로 끝낸다 — 429 회피를 지킨다(위 갱신이 매번 도는 게 아님).
-    @Test func testFreshStatusLineWithFreshFableSkipsApi() async {
+    @Test func freshStatusLineWithFreshFableSkipsApi() async {
         let clock = Clock()
         let store = MemoryStore()
         let fable = UsageLimit(kind: "weekly_scoped", label: "Fable", percent: 30,
@@ -118,7 +118,7 @@ struct ClaudeUsageServiceTests {
     // MARK: 수동 갱신 — TTL만 우회, 429·연타는 막는다
 
     /// 수동 갱신은 캐시 TTL(15분)을 우회해 지금 조회한다 — 자동은 아직 안 돌 때라도.
-    @Test func testManualRefreshBypassesCacheTTL() async {
+    @Test func manualRefreshBypassesCacheTTL() async {
         let clock = Clock()
         let service = makeService(clock, results: [.ok(sample), .ok(sample)])
         await service.refreshIfStale()
@@ -131,7 +131,7 @@ struct ClaudeUsageServiceTests {
     }
 
     /// 연타 방지 — 마지막 성공이 디바운스(30초) 안이면 수동 갱신을 무시한다.
-    @Test func testManualRefreshDebouncesRapidClicks() async {
+    @Test func manualRefreshDebouncesRapidClicks() async {
         let clock = Clock()
         let service = makeService(clock, results: [.ok(sample), .ok(sample)])
         await service.refreshIfStale()
@@ -139,12 +139,12 @@ struct ClaudeUsageServiceTests {
 
         clock.now.addTimeInterval(29) // 30초 디바운스 안
         let did = await service.manualRefresh()
-        #expect(!(did), "디바운스 안에서는 무시")
+        #expect(!did, "디바운스 안에서는 무시")
         #expect(clock.calls == 1, "연타해도 API를 안 때린다")
     }
 
     /// 429 백오프 창은 절대 안 뚫는다 — 수동으로 뚫으면 리밋이 연장된다(팀이 강제 버튼을 뺀 이유).
-    @Test func testManualRefreshHonorsRateLimitBackoff() async {
+    @Test func manualRefreshHonorsRateLimitBackoff() async {
         let clock = Clock()
         let service = makeService(clock, results: [.rateLimited(retryAfter: 600), .ok(sample)])
         await service.refreshIfStale()
@@ -152,14 +152,14 @@ struct ClaudeUsageServiceTests {
 
         clock.now.addTimeInterval(60) // 백오프(600초) 한참 안
         let did = await service.manualRefresh()
-        #expect(!(did), "429 창 안에서는 수동도 조회하지 않는다")
+        #expect(!did, "429 창 안에서는 수동도 조회하지 않는다")
         #expect(clock.calls == 1, "리밋을 연장시키지 않는다")
         #expect(service.manualBlockedUntil != nil, "버튼을 회색으로 둘 근거가 있다")
     }
 
     /// A-1 표시 시각은 **관찰 시각(observedAt)** 이어야 한다 — 파일을 읽은 지금이 아니라.
     /// 안 그러면 낡은 A-1도 "방금 갱신"으로 보여 데스크탑과의 차이가 설명되지 않는다.
-    @Test func testStatusLineReportsObservedTimeNotReadTime() async {
+    @Test func statusLineReportsObservedTimeNotReadTime() async {
         let clock = Clock()
         let observed = clock.now.addingTimeInterval(-200) // 3분여 전 관찰(신선 창 600초 안)
         let a1 = UsageSourceSelector.StatusLine(observedAt: observed, limits: sample)
@@ -168,18 +168,18 @@ struct ClaudeUsageServiceTests {
         #expect(service.lastSuccess == observed, "표시 시각 = 관찰 시각(읽은 지금이 아니라)")
     }
 
-    @Test func testSuccessPopulatesLimits() async {
+    @Test func successPopulatesLimits() async {
         let clock = Clock()
         let service = makeService(clock, results: [.ok(sample)])
         await service.refresh()
         #expect(service.limits == sample)
         #expect(service.state == .ok)
-        #expect(!(service.failed))
+        #expect(!service.failed)
         #expect(service.lastSuccess == clock.now)
     }
 
     /// 성공 뒤 15분 안에는 다시 안 때린다 — `/api/oauth/usage`는 예산이 빡빡해 자주 두드리면 429가 난다.
-    @Test func testSuccessIsCachedForFifteenMinutes() async {
+    @Test func successIsCachedForFifteenMinutes() async {
         let clock = Clock()
         let service = makeService(clock, results: [.ok(sample)])
         await service.refreshIfStale()
@@ -195,7 +195,7 @@ struct ClaudeUsageServiceTests {
     }
 
     /// 실패는 성공과 같은 15분을 기다리면 안 된다 — 순단 한 번이 15분간의 "—"로 굳는다.
-    @Test func testFailureRetriesSoonerThanSuccess() async {
+    @Test func failureRetriesSoonerThanSuccess() async {
         let clock = Clock()
         let service = makeService(clock, results: [.failure, .ok(sample)])
         await service.refreshIfStale()
@@ -213,7 +213,7 @@ struct ClaudeUsageServiceTests {
     }
 
     /// 연속 실패는 백오프가 지수로 늘어난다(120 → 240 → …) — 순단 루프가 예산을 갉지 않게.
-    @Test func testConsecutiveFailuresBackOffExponentially() async {
+    @Test func consecutiveFailuresBackOffExponentially() async {
         let clock = Clock()
         let service = makeService(clock, results: [.failure, .failure, .ok(sample)])
         await service.refreshIfStale()            // 1차 실패 → 120초 백오프
@@ -235,7 +235,7 @@ struct ClaudeUsageServiceTests {
 
     /// 라이브 claude 세션이 도는 동안엔 15분이 지나도 곧장 재조회하지 않는다(busyInterval까지 유예) —
     /// 그 세션들이 같은 엔드포인트 예산을 나눠 쓰므로 겹쳐 두드리지 않게. 단 상한이 있어 영영 굳지는 않는다.
-    @Test func testBusyDefersReprobeUntilBusyInterval() async {
+    @Test func busyDefersReprobeUntilBusyInterval() async {
         let clock = Clock()
         let service = makeService(clock, results: [.ok(sample), .ok(sample)])
         await service.refreshIfStale()
@@ -251,7 +251,7 @@ struct ClaudeUsageServiceTests {
     }
 
     /// 실패해도 이전 값은 남는다 — 일시적 오류로 화면이 비면 오히려 불안하다.
-    @Test func testFailureKeepsPreviousLimits() async {
+    @Test func failureKeepsPreviousLimits() async {
         let clock = Clock()
         let service = makeService(clock, results: [.ok(sample), .failure])
         await service.refresh()
@@ -265,7 +265,7 @@ struct ClaudeUsageServiceTests {
 
     /// 429는 서버가 "기다려라"고 말한 것 — retry-after를 존중한다. 45초 재시도로 두드리면
     /// 리밋 창이 계속 연장돼 스스로 벗어나지 못한다(실측: retry-after 3068초를 무시하고 두드렸다).
-    @Test func testRateLimitHonorsRetryAfter() async {
+    @Test func rateLimitHonorsRetryAfter() async {
         let clock = Clock()
         let service = makeService(clock, results: [.rateLimited(retryAfter: 3068), .ok(sample)])
         await service.refreshIfStale()
@@ -286,7 +286,7 @@ struct ClaudeUsageServiceTests {
     }
 
     /// retry-after 헤더가 없으면 기본 15분을 기다린다(45초 루프보다 훨씬 보수적으로).
-    @Test func testRateLimitWithoutHeaderWaitsDefault() async {
+    @Test func rateLimitWithoutHeaderWaitsDefault() async {
         let clock = Clock()
         let service = makeService(clock, results: [.rateLimited(retryAfter: nil), .ok(sample)])
         await service.refreshIfStale()
@@ -301,7 +301,7 @@ struct ClaudeUsageServiceTests {
     }
 
     /// 서버가 터무니없는 retry-after를 줘도 1시간 상한 — "영영 안 물어봄"으로 굳지 않게.
-    @Test func testRateLimitWaitIsCappedAtOneHour() async {
+    @Test func rateLimitWaitIsCappedAtOneHour() async {
         let clock = Clock()
         let service = makeService(clock, results: [.rateLimited(retryAfter: 90_000), .ok(sample)])
         await service.refreshIfStale()
@@ -312,7 +312,7 @@ struct ClaudeUsageServiceTests {
     }
 
     /// 레이트리밋도 이전 값은 유지한다(실패와 동일) — 화면이 비면 오히려 불안하다.
-    @Test func testRateLimitKeepsPreviousLimits() async {
+    @Test func rateLimitKeepsPreviousLimits() async {
         let clock = Clock()
         let service = makeService(clock, results: [.ok(sample), .rateLimited(retryAfter: 60)])
         await service.refresh()
@@ -324,7 +324,7 @@ struct ClaudeUsageServiceTests {
     }
 
     /// 강제 프로브(refresh)는 백오프를 무시한다 — 테스트·진단용 프리미티브(UI 버튼은 제거됐다).
-    @Test func testManualRefreshBypassesRateLimitBackoff() async {
+    @Test func manualRefreshBypassesRateLimitBackoff() async {
         let clock = Clock()
         let service = makeService(clock, results: [.rateLimited(retryAfter: 3068), .ok(sample)])
         await service.refreshIfStale()
@@ -337,20 +337,20 @@ struct ClaudeUsageServiceTests {
     }
 
     /// 200인데 항목이 0개(스키마 변경 의심)는 실패와 구분된다 — 원인 진단이 가능해야 한다.
-    @Test func testEmptyResponseIsNotFailure() async {
+    @Test func emptyResponseIsNotFailure() async {
         let clock = Clock()
         let service = makeService(clock, results: [.empty])
         await service.refresh()
 
         #expect(service.state == .empty)
-        #expect(!(service.failed), "서버는 정상 응답했다 — 네트워크 실패와 같게 취급하면 진단이 막힌다")
+        #expect(!service.failed, "서버는 정상 응답했다 — 네트워크 실패와 같게 취급하면 진단이 막힌다")
         #expect(service.limits.isEmpty)
     }
 
     // MARK: 인스턴스 간 공유 — 한 저장소를 두 서비스가 함께 본다
 
     /// 인스턴스 A가 성공하면, B는 프로브 없이 공유 캐시에서 값을 읽는다 — 전체 요청률이 한 인스턴스분으로 준다.
-    @Test func testSharedCacheServedToOtherInstance() async {
+    @Test func sharedCacheServedToOtherInstance() async {
         let store = MemoryStore()
         let clockA = Clock()
         let serviceA = makeService(clockA, results: [.ok(sample)], store: store)
@@ -366,7 +366,7 @@ struct ClaudeUsageServiceTests {
     }
 
     /// 인스턴스 A가 429를 받으면, B는 같은 백오프 창을 존중한다 — 서로 리밋을 연장시키지 않는다(핵심 목적).
-    @Test func testRateLimitBackoffSharedAcrossInstances() async {
+    @Test func rateLimitBackoffSharedAcrossInstances() async {
         let store = MemoryStore()
         let clockA = Clock()
         let serviceA = makeService(clockA, results: [.rateLimited(retryAfter: 1800)], store: store)
@@ -381,7 +381,7 @@ struct ClaudeUsageServiceTests {
     }
 
     /// 429 백오프 중인 인스턴스가 갓 떠도(idle) 공유 캐시의 이전 값을 화면에 보여준다 — "—"로 비지 않게.
-    @Test func testFreshInstanceShowsCachedLimitsWhileRateLimited() async {
+    @Test func freshInstanceShowsCachedLimitsWhileRateLimited() async {
         let store = MemoryStore()
         let seed = Clock()
         // 먼저 한 번 성공시켜 공유 캐시에 값을 심는다.

@@ -22,21 +22,21 @@ struct ClaudeUsageTests {
     }
     """.utf8)
 
-    @Test func testParsesThreeLimitsWithLabels() {
+    @Test func parsesThreeLimitsWithLabels() {
         let limits = ClaudeUsage.parse(real)
         #expect(limits.map(\.label) == ["5h", "wk", "Fable"])
         #expect(limits.map(\.percent) == [9, 54, 17])
     }
 
     /// 상태바는 계정 전체 한도(세션·주간)만 — 모델 전용(Fable)은 팝오버 몫이다.
-    @Test func testStatusBarHidesModelScopedLimits() {
+    @Test func statusBarHidesModelScopedLimits() {
         let shown = ClaudeUsage.statusBar(ClaudeUsage.parse(real))
         #expect(shown.map(\.label) == ["5h", "wk"])
         #expect(!(shown.contains { $0.isModelScoped }))
     }
 
     /// 모델 스코프 판단은 kind 이름이 아니라 scope.model 유무로 — 서버가 새 스코프를 추가해도 상태바가 조용하다.
-    @Test func testModelScopeDetectedByScopeNotKindName() {
+    @Test func modelScopeDetectedByScopeNotKindName() {
         let data = Data(#"""
         {"limits":[{"kind":"daily_scoped","percent":5,
                     "scope":{"model":{"display_name":"Opus"}}}]}
@@ -47,12 +47,12 @@ struct ClaudeUsageTests {
     }
 
     /// 세션 한도만 상태바에 리셋 카운트다운을 띄운다 — 그 판단이 라벨이 아닌 kind에 붙어 있어야 한다.
-    @Test func testSessionFlagComesFromKind() {
+    @Test func sessionFlagComesFromKind() {
         let limits = ClaudeUsage.parse(real)
         #expect(limits.filter(\.isSession).map(\.label) == ["5h"])
     }
 
-    @Test func testModelScopedLimitUsesDisplayName() {
+    @Test func modelScopedLimitUsesDisplayName() {
         #expect(ClaudeUsage.label(kind: "weekly_scoped",
                                          scope: ["model": ["display_name": "Fable"]]) == "Fable")
         // 스코프가 비면 모델명을 못 만드니 일반 라벨로 떨어진다(항목이 사라지진 않는다).
@@ -60,7 +60,7 @@ struct ClaudeUsageTests {
     }
 
     /// 서버가 항목을 늘려도 조용히 사라지지 않아야 한다 — 모르는 kind는 그대로 보여준다.
-    @Test func testUnknownKindIsKeptNotDropped() {
+    @Test func unknownKindIsKeptNotDropped() {
         let data = Data(#"{"limits":[{"kind":"monthly_new","percent":3,"severity":"normal"}]}"#.utf8)
         let limits = ClaudeUsage.parse(data)
         #expect(limits.count == 1)
@@ -68,25 +68,25 @@ struct ClaudeUsageTests {
     }
 
     /// percent가 정수(9)로 오든 실수(9.4)로 오든 받아야 한다.
-    @Test func testPercentAcceptsIntAndDouble() {
+    @Test func percentAcceptsIntAndDouble() {
         let data = Data(#"{"limits":[{"kind":"session","percent":9.6}]}"#.utf8)
         #expect(ClaudeUsage.parse(data).first?.percent == 10) // 반올림
     }
 
     /// 스키마가 바뀌거나 응답이 깨져도 크래시 없이 빈 배열 — 상태바만 비고 앱은 멀쩡하다.
-    @Test func testBrokenPayloadsYieldEmptyNotCrash() {
+    @Test func brokenPayloadsYieldEmptyNotCrash() {
         #expect(ClaudeUsage.parse(Data("not json".utf8)).isEmpty)
         #expect(ClaudeUsage.parse(Data("{}".utf8)).isEmpty)
         #expect(ClaudeUsage.parse(Data(#"{"limits":"nope"}"#.utf8)).isEmpty)
         #expect(ClaudeUsage.parse(Data(#"{"limits":[{"kind":"session"}]}"#.utf8)).isEmpty) // percent 없음
     }
 
-    @Test func testSeverityDrivesWarning() {
+    @Test func severityDrivesWarning() {
         let data = Data(#"{"limits":[{"kind":"session","percent":95,"severity":"warning"}]}"#.utf8)
         #expect(ClaudeUsage.parse(data).first?.isWarning == true)
     }
 
-    @Test func testResetTextCountsDownAndHidesPast() {
+    @Test func resetTextCountsDownAndHidesPast() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         #expect(ClaudeUsage.resetText(now.addingTimeInterval(3 * 3600 + 720), now: now) == "3시간 12분 후")
         #expect(ClaudeUsage.resetText(now.addingTimeInterval(300), now: now) == "5분 후")
@@ -95,14 +95,14 @@ struct ClaudeUsageTests {
     }
 
     /// 주간 한도는 남은 시간이 날 단위 — "27시간 후"가 아니라 "1일 3시간 후"로 읽혀야 한다.
-    @Test func testResetTextUsesDaysForWeeklyWindow() {
+    @Test func resetTextUsesDaysForWeeklyWindow() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         let inADayAndThreeHours = now.addingTimeInterval(86400 + 3 * 3600 + 60)
         #expect(ClaudeUsage.resetText(inADayAndThreeHours, now: now) == "1일 3시간 후")
         #expect(ClaudeUsage.resetShort(inADayAndThreeHours, now: now) == "1d 3h")
     }
 
-    @Test func testResetShortIsCompact() {
+    @Test func resetShortIsCompact() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         #expect(ClaudeUsage.resetShort(now.addingTimeInterval(3 * 3600 + 2280), now: now) == "3h 38m")
         #expect(ClaudeUsage.resetShort(now.addingTimeInterval(720), now: now) == "12m")
@@ -110,7 +110,7 @@ struct ClaudeUsageTests {
     }
 
     /// 리셋 실제 시각 — 같은 날이면 시각만, 다른 날이면 날짜까지. (로케일 의존이라 존재·차이만 확인)
-    @Test func testResetClockOmitsDateOnlyWhenSameDay() {
+    @Test func resetClockOmitsDateOnlyWhenSameDay() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         let sameDay = ClaudeUsage.resetClock(now.addingTimeInterval(3600), now: now)
         let nextDay = ClaudeUsage.resetClock(now.addingTimeInterval(86400 + 3600), now: now)
@@ -120,7 +120,7 @@ struct ClaudeUsageTests {
         #expect(ClaudeUsage.resetClock(now.addingTimeInterval(-1), now: now) == nil)
     }
 
-    @Test func testParsesIso8601WithAndWithoutFractionalSeconds() {
+    @Test func parsesIso8601WithAndWithoutFractionalSeconds() {
         #expect(ClaudeUsage.date(from: "2026-07-13T06:39:59.921992+00:00") != nil)
         #expect(ClaudeUsage.date(from: "2026-07-13T06:39:59Z") != nil)
         #expect(ClaudeUsage.date(from: 1_000_000 as NSNumber) == Date(timeIntervalSince1970: 1_000_000))

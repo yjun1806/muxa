@@ -12,7 +12,7 @@ struct ScrollbackGCTests {
 
     // MARK: orphans — 삭제 대상 판정
 
-    @Test func testLiveTabFileIsKept() {
+    @Test func liveTabFileIsKept() {
         let now = Date()
         let f = file("A", ageSeconds: 10_000, now: now) // 오래됐지만 살아있는 탭
         let result = ScrollbackStore.orphans(in: [f], liveTabIds: ["A"], referencedPaths: [],
@@ -20,7 +20,7 @@ struct ScrollbackGCTests {
         #expect(result.isEmpty)
     }
 
-    @Test func testReferencedFileIsKept() {
+    @Test func referencedFileIsKept() {
         let now = Date()
         let f = file("B", ageSeconds: 10_000, now: now) // 스냅샷이 참조하는 경로(미개방 lazy 프로젝트)
         let result = ScrollbackStore.orphans(in: [f], liveTabIds: [], referencedPaths: [f.path],
@@ -28,7 +28,7 @@ struct ScrollbackGCTests {
         #expect(result.isEmpty)
     }
 
-    @Test func testRecentUnreferencedFileIsKept() {
+    @Test func recentUnreferencedFileIsKept() {
         let now = Date()
         let f = file("C", ageSeconds: 60, now: now) // 유예(3600초) 안쪽 — 방금 쓰인 파일 방어
         let result = ScrollbackStore.orphans(in: [f], liveTabIds: [], referencedPaths: [],
@@ -36,7 +36,7 @@ struct ScrollbackGCTests {
         #expect(result.isEmpty)
     }
 
-    @Test func testOldUnreferencedFileIsOrphan() {
+    @Test func oldUnreferencedFileIsOrphan() {
         let now = Date()
         let f = file("D", ageSeconds: 10_000, now: now) // 참조 없음 + 유예 초과 → 고아
         let result = ScrollbackStore.orphans(in: [f], liveTabIds: [], referencedPaths: [],
@@ -44,7 +44,7 @@ struct ScrollbackGCTests {
         #expect(result == [f.path])
     }
 
-    @Test func testMixedSetSelectsOnlyTrueOrphans() {
+    @Test func mixedSetSelectsOnlyTrueOrphans() {
         let now = Date()
         let live = file("L", ageSeconds: 10_000, now: now)
         let ref = file("R", ageSeconds: 10_000, now: now)
@@ -57,7 +57,7 @@ struct ScrollbackGCTests {
         #expect(Set(result) == Set([orphan1.path, orphan2.path]))
     }
 
-    @Test func testExactlyAtGraceIsOrphan() {
+    @Test func exactlyAtGraceIsOrphan() {
         let now = Date()
         let f = file("E", ageSeconds: 3600, now: now) // now-modified == grace → 유예 밖(삭제)
         let result = ScrollbackStore.orphans(in: [f], liveTabIds: [], referencedPaths: [],
@@ -67,7 +67,7 @@ struct ScrollbackGCTests {
 
     // MARK: PaneSnapshot.scrollbackPaths — 참조 경로 수집
 
-    @Test func testLeafCollectsScrollbackPaths() {
+    @Test func leafCollectsScrollbackPaths() {
         let tabs = [
             TabSnapshot(group: nil, items: [], selectedItem: 0, scrollbackFile: "/tmp/scrollback/a.txt"),
             TabSnapshot(group: nil, items: [], selectedItem: 0, scrollbackFile: nil), // 파일 없는 탭
@@ -77,7 +77,7 @@ struct ScrollbackGCTests {
         #expect(snap.scrollbackPaths() == ["/tmp/scrollback/a.txt", "/tmp/scrollback/b.txt"])
     }
 
-    @Test func testSplitUnionsBothChildren() {
+    @Test func splitUnionsBothChildren() {
         let left = PaneSnapshot.leaf(
             tabs: [TabSnapshot(group: nil, items: [], selectedItem: 0, scrollbackFile: "/tmp/scrollback/x.txt")],
             selected: 0, focused: false)
@@ -88,7 +88,7 @@ struct ScrollbackGCTests {
         #expect(snap.scrollbackPaths() == ["/tmp/scrollback/x.txt", "/tmp/scrollback/y.txt"])
     }
 
-    @Test func testGroupTabHasNoScrollbackPath() {
+    @Test func groupTabHasNoScrollbackPath() {
         let snap = PaneSnapshot.leaf(
             tabs: [TabSnapshot(group: "diffs", items: [], selectedItem: 0)], selected: 0, focused: false)
         #expect(snap.scrollbackPaths().isEmpty)

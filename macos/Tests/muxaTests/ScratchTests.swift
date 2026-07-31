@@ -14,12 +14,12 @@ struct ScratchTests {
 
     // MARK: 상수 안정성 — 재시작 생존의 근거(랜덤 id면 layout/tmux 유실)
 
-    @Test func testWindowIdIsStableConstant() {
+    @Test func windowIdIsStableConstant() {
         #expect(Scratch.windowId.rawValue == "muxa.scratch.window")
-        #expect(!(Scratch.windowId.isMain)) // 메인이 아니라 독립 창(별도 창 전용)
+        #expect(!Scratch.windowId.isMain) // 메인이 아니라 독립 창(별도 창 전용)
     }
 
-    @Test func testProjectAndLabelConstants() {
+    @Test func projectAndLabelConstants() {
         #expect(Scratch.projectId == "muxa.scratch.home") // layout·tmux 키 — 절대 바뀌면 안 된다
         #expect(Scratch.label == "~")
         #expect(Scratch.workspaceId == "muxa.scratch") // 마이그레이션 전용으로 남는다
@@ -27,14 +27,14 @@ struct ScratchTests {
 
     // MARK: 레거시 마이그레이션 — 구 저장분의 스크래치 워크스페이스 스트립
 
-    @Test func testStripLegacyRemovesScratchWorkspace() {
+    @Test func stripLegacyRemovesScratchWorkspace() {
         let a = createWorkspace(path: "/a", name: "A")
         let result = Scratch.stripLegacyWorkspace([legacyScratch(), a], activeId: a.id)
         #expect(result.workspaces.map(\.id) == [a.id]) // 스크래치 제거
         #expect(result.activeId == a.id) // 활성은 그대로
     }
 
-    @Test func testStripLegacyFallsBackWhenScratchWasActive() {
+    @Test func stripLegacyFallsBackWhenScratchWasActive() {
         let a = createWorkspace(path: "/a", name: "A")
         let b = createWorkspace(path: "/b", name: "B")
         // activeId가 스크래치였으면 첫 실 워크스페이스로 폴백(빈 화면 방지).
@@ -43,7 +43,7 @@ struct ScratchTests {
         #expect(result.activeId == a.id)
     }
 
-    @Test func testStripLegacyIsIdempotentWhenNoScratch() {
+    @Test func stripLegacyIsIdempotentWhenNoScratch() {
         let a = createWorkspace(path: "/a", name: "A")
         let b = createWorkspace(path: "/b", name: "B")
         let once = Scratch.stripLegacyWorkspace([a, b], activeId: b.id)
@@ -53,7 +53,7 @@ struct ScratchTests {
         #expect(twice.workspaces.map(\.id) == once.workspaces.map(\.id)) // 멱등
     }
 
-    @Test func testStripLegacyEmptyResultClearsActive() {
+    @Test func stripLegacyEmptyResultClearsActive() {
         // 스크래치만 있던(=실 워크스페이스 0) 극단 케이스 — 폴백할 곳이 없으면 활성은 빈 문자열.
         let result = Scratch.stripLegacyWorkspace([legacyScratch()], activeId: Scratch.workspaceId)
         #expect(result.workspaces.isEmpty)
@@ -63,7 +63,7 @@ struct ScratchTests {
     // MARK: Persisted 왕복 — 스크래치는 workspaces 밖(일회용이라 창 상태·레이아웃을 지속하지 않는다)
 
     @MainActor
-    @Test func testPersistedRoundTripKeepsScratchOutOfWorkspaces() throws {
+    @Test func persistedRoundTripKeepsScratchOutOfWorkspaces() throws {
         let a = createWorkspace(path: "/a", name: "A")
         let snapshot = AppState.Persisted(
             workspaces: [a], activeId: a.id, sidebarMode: .expanded,

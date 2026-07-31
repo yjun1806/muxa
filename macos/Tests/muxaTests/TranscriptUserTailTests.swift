@@ -13,7 +13,7 @@ struct TranscriptUserTailTests {
 
     // MARK: 텍스트
 
-    @Test func testFindsLastUserPrompt() {
+    @Test func findsLastUserPrompt() {
         let tail = [
             line(role: "user", text: "첫 지시"),
             line(role: "assistant", text: "답했다"),
@@ -24,7 +24,7 @@ struct TranscriptUserTailTests {
     }
 
     /// 도구 결과는 user 줄로 들어오지만 사람의 지시가 아니다 — 건너뛴다.
-    @Test func testSkipsToolResultUserLines() {
+    @Test func skipsToolResultUserLines() {
         let tail = [
             line(role: "user", text: "진짜 지시"),
             #"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"파일 내용"}]}}"#,
@@ -33,7 +33,7 @@ struct TranscriptUserTailTests {
     }
 
     /// meta 줄(시스템 삽입)·사이드체인(서브에이전트 대화)은 내 프롬프트가 아니다.
-    @Test func testSkipsMetaAndSidechainLines() {
+    @Test func skipsMetaAndSidechainLines() {
         let tail = [
             line(role: "user", text: "내 지시"),
             #"{"type":"user","isMeta":true,"message":{"content":[{"type":"text","text":"Caveat: 시스템 안내"}]}}"#,
@@ -43,7 +43,7 @@ struct TranscriptUserTailTests {
     }
 
     /// 슬래시 명령 배관(`<command-name>…`)은 지시가 아니라 로그다.
-    @Test func testSkipsSlashCommandPlumbing() {
+    @Test func skipsSlashCommandPlumbing() {
         let tail = [
             line(role: "user", text: "리뷰 돌려줘"),
             #"{"type":"user","message":{"content":[{"type":"text","text":"<command-name>/clear</command-name>"}]}}"#,
@@ -52,21 +52,21 @@ struct TranscriptUserTailTests {
         #expect(TranscriptTail.lastUserMessage(inTail: tail)?.text == "리뷰 돌려줘")
     }
 
-    @Test func testContentAsPlainString() {
+    @Test func contentAsPlainString() {
         let tail = #"{"type":"user","message":{"content":"문자열 지시"}}"#
         #expect(TranscriptTail.lastUserMessage(inTail: tail)?.text == "문자열 지시")
     }
 
     /// 거대 붙여넣기 프롬프트는 표시 상한에서 잘라야 한다 — 안 자르면 hover 카드가 화면보다 커진다.
     /// 상한은 훅 경로와 같은 한 곳(`AgentPrompt.textMax`)이다.
-    @Test func testClampsHugePastedPrompt() {
+    @Test func clampsHugePastedPrompt() {
         let huge = String(repeating: "가", count: AgentPrompt.textMax + 200)
         let text = TranscriptTail.lastUserMessage(inTail: line(role: "user", text: huge))?.text
         #expect(text?.count == AgentPrompt.textMax + 1) // +1 = 말줄임표
         #expect(text?.hasSuffix("…") == true)
     }
 
-    @Test func testEmptyAndGarbageReturnNil() {
+    @Test func emptyAndGarbageReturnNil() {
         #expect(TranscriptTail.lastUserMessage(inTail: "") == nil)
         #expect(TranscriptTail.lastUserMessage(inTail: "쓰레기") == nil)
         #expect(TranscriptTail.lastUserMessage(inTail: line(role: "assistant", text: "나뿐")) == nil)
@@ -81,33 +81,33 @@ struct TranscriptUserTailTests {
         #"{"type":"user","message":{"content":[{"type":"text","text":"이 스크린샷 봐줘"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"\#(pngBase64)"}}]}}"#
     }
 
-    @Test func testCountsImagesInLastUserMessage() {
+    @Test func countsImagesInLastUserMessage() {
         let message = TranscriptTail.lastUserMessage(inTail: imageLine)
         #expect(message?.text == "이 스크린샷 봐줘")
         #expect(message?.imageCount == 1)
     }
 
     /// 이미지만 있는 프롬프트도 유효하다(팝오버가 이미지를 보여주면 된다).
-    @Test func testImageOnlyUserMessageSurvives() {
+    @Test func imageOnlyUserMessageSurvives() {
         let tail = #"{"type":"user","message":{"content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"\#(pngBase64)"}}]}}"#
         let message = TranscriptTail.lastUserMessage(inTail: tail)
         #expect(message?.text == "")
         #expect(message?.imageCount == 1)
     }
 
-    @Test func testExtractsImageDataFromLastUserMessage() {
+    @Test func extractsImageDataFromLastUserMessage() {
         let images = TranscriptTail.lastUserImages(inTail: imageLine, limit: 3)
         #expect(images.count == 1)
         #expect(images.first == Data(base64Encoded: pngBase64))
     }
 
     /// 이미지는 마지막 user 메시지의 것만 — 이전 턴의 이미지가 새면 "그 스크린샷"이 뒤바뀐다.
-    @Test func testImagesComeFromLastUserMessageOnly() {
+    @Test func imagesComeFromLastUserMessageOnly() {
         let tail = [imageLine, line(role: "user", text: "이미지 없는 새 지시")].joined(separator: "\n")
         #expect(TranscriptTail.lastUserImages(inTail: tail, limit: 3).isEmpty)
     }
 
-    @Test func testImageLimitIsRespected() {
+    @Test func imageLimitIsRespected() {
         let block = #"{"type":"image","source":{"type":"base64","media_type":"image/png","data":"\#(pngBase64)"}}"#
         let tail = #"{"type":"user","message":{"content":[\#(block),\#(block),\#(block)]}}"#
         #expect(TranscriptTail.lastUserImages(inTail: tail, limit: 2).count == 2)
@@ -115,7 +115,7 @@ struct TranscriptUserTailTests {
 
     // MARK: 파일 경계
 
-    @Test func testReadsFromFile() async throws {
+    @Test func readsFromFile() async throws {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("muxa-usertail-\(UUID().uuidString).jsonl")
         let content = [line(role: "user", text: "옛 지시"), line(role: "user", text: "새 지시")]
@@ -127,7 +127,7 @@ struct TranscriptUserTailTests {
         #expect(message?.text == "새 지시")
     }
 
-    @Test func testMissingFileReturnsNil() async {
+    @Test func missingFileReturnsNil() async {
         let message = await TranscriptTail.lastUserMessage(atPath: "/nonexistent/muxa/none.jsonl")
         #expect(message == nil)
     }

@@ -6,14 +6,14 @@ import Carbon.HIToolbox
 struct KeymapResolverTests {
     private let r = KeymapResolver.default
 
-    @Test func testDefaultBindingResolves() {
+    @Test func defaultBindingResolves() {
         // ⌘T → 새 터미널
         if case .newTerminal = r.resolve(keyCode: kVK_ANSI_T, characters: "t", flags: [.command])! {} else {
             Issue.record("⌘T가 newTerminal로 안 풀림")
         }
     }
 
-    @Test func testScratchTerminalBinding() {
+    @Test func scratchTerminalBinding() {
         // ⌘⌥T → 스크래치 터미널
         if case .newScratchTerminal = r.resolve(keyCode: kVK_ANSI_T, characters: "t",
                                                 flags: [.command, .option])! {} else {
@@ -25,30 +25,30 @@ struct KeymapResolverTests {
         }
     }
 
-    @Test func testScratchTerminalNamedOverride() {
+    @Test func scratchTerminalNamedOverride() {
         if case .newScratchTerminal = KeymapAction.named("new_scratch_terminal")! {} else {
             Issue.record("new_scratch_terminal 이름이 newScratchTerminal로 안 풀림")
         }
     }
 
-    @Test func testCommandDigitSwitchesWorkspace() {
+    @Test func commandDigitSwitchesWorkspace() {
         if case .switchWorkspace(let n) = r.resolve(keyCode: kVK_ANSI_3, characters: "3", flags: [.command])! {
             #expect(n == 3)
         } else { Issue.record("⌘3이 switchWorkspace로 안 풀림") }
     }
 
-    @Test func testUnmappedReturnsNil() {
+    @Test func unmappedReturnsNil() {
         #expect(r.resolve(keyCode: kVK_ANSI_Z, characters: "z", flags: [.command]) == nil) // ⌘Z 미매핑 → 터미널 통과
         #expect(r.resolve(keyCode: kVK_ANSI_T, characters: "t", flags: []) == nil) // 수정자 없음
     }
 
-    @Test func testParseCombo() {
+    @Test func parseCombo() {
         #expect(KeymapResolver.parseCombo("cmd+shift+e") == KeymapResolver.Binding(keyCode: kVK_ANSI_E, mods: .init(command: true, shift: true)))
         #expect(KeymapResolver.parseCombo("cmd+") == nil)          // 키 없음
         #expect(KeymapResolver.parseCombo("hyper+z") == nil)       // 미인식 수정자
     }
 
-    @Test func testOverrideRemapsAction() {
+    @Test func overrideRemapsAction() {
         let r2 = KeymapResolver(overrides: ["new_terminal": "cmd+opt+n"])
         if case .newTerminal = r2.resolve(keyCode: kVK_ANSI_N, characters: "n", flags: [.command, .option])! {} else {
             Issue.record("재정의된 ⌘⌥N이 newTerminal로 안 풀림")
@@ -56,23 +56,23 @@ struct KeymapResolverTests {
         #expect(r2.diagnostics.isEmpty)
     }
 
-    @Test func testDiagnosticUnknownAction() {
+    @Test func diagnosticUnknownAction() {
         let d = KeymapResolver(overrides: ["zoom": "cmd+z"]).diagnostics
         #expect(d == [.unknownAction(name: "zoom", combo: "cmd+z")])
     }
 
-    @Test func testDiagnosticParseFailed() {
+    @Test func diagnosticParseFailed() {
         let d = KeymapResolver(overrides: ["find": "cmd+"]).diagnostics
         #expect(d == [.parseFailed(name: "find", combo: "cmd+")])
     }
 
-    @Test func testDiagnosticReserved() {
+    @Test func diagnosticReserved() {
         // ⌘K는 예약(빠른 전환기) — 재정의 거부 + 진단
         let d = KeymapResolver(overrides: ["find": "cmd+k"]).diagnostics
         #expect(d == [.reserved(name: "find", combo: "cmd+k")])
     }
 
-    @Test func testDiagnosticConflict() {
+    @Test func diagnosticConflict() {
         // 두 동작이 같은 조합을 노리면 conflict(정렬된 처리 순서라 결정론적)
         let d = KeymapResolver(overrides: ["find": "cmd+opt+p", "new_terminal": "cmd+opt+p"]).diagnostics
         #expect(d.contains { if case .conflict(let combo, _) = $0 { return combo == "cmd+opt+p" } else { return false } })
