@@ -92,22 +92,41 @@ struct TerminalSessionTests {
 
     /// runCommand 없으면 new-session은 baked 명령 없이 기본 셸로 뜬다(일반/복원 탭 불변).
     @Test func runCommand가_없으면_baked_명령을_안_붙인다() {
-        #expect(!startCmd().contains("-lc"))
+        #expect(!startCmd().contains("-lic"))
     }
 
-    /// Claude 버튼 경로 — runCommand는 new-session에 **로그인 셸(`-lc`)로 실행 + 이후 대화형 셸**로 굽힌다.
-    /// 로그인 셸이라야 .zprofile이 PATH를 세워 `~/.local/bin`의 claude를 찾는다(.app 빈약 PATH 대응).
-    /// 프롬프트 타이핑이 아니라 pane 프로세스라 send-keys·타이밍이 전혀 없다.
-    @Test func runCommand는_로그인셸로_굽고_이후_대화형셸로_떨어진다() {
+    /// Claude 버튼 경로 — runCommand는 new-session에 **로그인 + 대화형 셸(`-lic`)로 실행 + 이후
+    /// 대화형 셸**로 굽힌다. 프롬프트 타이핑이 아니라 pane 프로세스라 send-keys·타이밍이 전혀 없다.
+    ///
+    /// **`-i`가 빠지면 안 된다(gh#2).** `-lc`만 쓰면 zsh가 `.zshenv`·`.zprofile`까지만 읽고
+    /// `.zshrc`를 건너뛴다 — PATH를 `.zshrc`에만 두는 흔한 구성에서 `command not found`로 죽는다.
+    @Test func runCommand는_로그인_대화형셸로_굽고_이후_대화형셸로_떨어진다() {
         let cmd = TerminalSession.startCommand(
             tmux: "/opt/homebrew/bin/tmux", socket: "muxa",
             session: TerminalSession.name(projectId: "p1", tabId: "t1"),
             cwd: "/repo", runCommand: "claude")
-        // 로그인 셸로 실행 + 끝나면 대화형 셸(탭 생존)
-        #expect(cmd.contains(#"-lc '\''claude'\''; exec -l "${SHELL:-/bin/zsh}"#))
+        // 로그인 + 대화형으로 실행 + 끝나면 대화형 셸(탭 생존)
+        #expect(cmd.contains(#"-lic '\''claude'\''; exec -l "${SHELL:-/bin/zsh}"#))
         // baked 명령은 new-session에 붙고 attach는 그대로다.
         #expect(cmd.contains("new-session -d -A -s 'muxa__p1__term__t1'"))
         #expect(cmd.contains("attach -t '=muxa__p1__term__t1'"))
+    }
+
+    /// **gh#2의 근본 원인은 한 앱 안의 비대칭이었다.** 서비스 세션은 `-l -i -c`로 명령을 실행하는데
+    /// 터미널 탭만 `-lc`여서 Claude 버튼에서만 PATH가 안 섰다. 두 경로가 다시 갈리지 않게 못 박는다.
+    @Test func 탭과_서비스세션은_같은_셸_조건을_쓴다() {
+        let tab = TerminalSession.startCommand(
+            tmux: "/opt/homebrew/bin/tmux", socket: "muxa",
+            session: TerminalSession.name(projectId: "p1", tabId: "t1"),
+            cwd: "/repo", runCommand: "claude")
+        let service = TmuxService.startArgs(session: "muxa__p1__svc__s1", cwd: "/repo",
+                                            shell: "/bin/zsh", command: "pnpm dev")
+        // 탭: 한 토큰(-lic). 서비스: 분리된 인자(-l -i -c). 형태는 달라도 조건은 같아야 한다.
+        //
+        // 서비스는 **인접 시퀀스**로 본다 — startArgs에는 `-c`가 두 번(cwd용, 셸 명령용) 나오므로
+        // 낱개 contains로는 cwd용 `-c` 하나에 걸려 조건이 깨져도 초록불이 뜬다.
+        #expect(tab.contains("-lic"))
+        #expect(service.joined(separator: " ").contains("/bin/zsh -l -i -c"))
     }
 
     /// 전역은 `on`이다(서비스가 죽은 뒤 로그를 읽어야 하므로). 터미널에 그대로 두면 `exit`를 쳐도
