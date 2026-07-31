@@ -79,6 +79,15 @@ make release-install           # 프로덕션(release) 빌드 → /Applications 
 `.build/`는 워크트리마다 따로여야 하므로 안 건드린다(첫 빌드 콜드는 정상).
 
 - **순수 로직은 테스트로 못 박는다.** 파싱·판정·정리 같은 순수 함수는 UI 없이 검증된다 — 먼저 여기까지 끝낸다.
+- **테스트는 swift-testing으로만 쓴다 — `import XCTest` 금지 (CRITICAL).** `XCTest` 모듈은 전체
+  Xcode에만 있고 Command Line Tools에는 없다. `testTarget`이 `muxaTests` 하나뿐이라 **한 파일만
+  XCTest를 써도 CLT 환경에서 전체 테스트가 컴파일조차 안 된다** — 문서(`README`·`docs/SETUP.md`)가
+  CLT만으로 충분하다고 안내하므로 그 약속이 깨진다. 형태는 `import Testing` + `struct` +
+  `@Test func` + `#expect(...)` 하나뿐이다.
+  - `Date`·`UserDefaults` 같은 Foundation 타입을 쓰면 **`import Foundation`을 명시한다** —
+    XCTest와 달리 Testing은 Foundation을 끌어오지 않는다.
+  - CLT에서 실행되게 하는 프레임워크 경로 주입은 `Makefile`의 `CLT_DEV`·`TEST_FLAGS`가 맡는다.
+    `swift test`를 직접 부르면 그게 빠지므로 **`make test`로 돈다.**
 - **UI·PTY 변경은 재빌드+재실행으로 확인한다.** 자동 검증을 통과해도 실제 화면에서 깨지는 게 있다
   (셸을 거치는 명령의 인용, 뷰 교체 시 서피스 레이스 등). 육안 확인이 안 된 것은 STATUS에 **★로 남긴다**.
 

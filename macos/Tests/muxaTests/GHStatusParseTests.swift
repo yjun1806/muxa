@@ -1,21 +1,21 @@
-import XCTest
+import Testing
 @testable import muxa
 
 /// GitService.parseGHStatus 순수 JSON 파싱 + CI 롤업 분류 검증.
-final class GHStatusParseTests: XCTestCase {
-    func testParsesNumberAndState() {
+struct GHStatusParseTests {
+    @Test func testParsesNumberAndState() {
         let s = GitService.parseGHStatus(#"{"number":42,"state":"OPEN","url":"http://x"}"#)
-        XCTAssertEqual(s?.prNumber, 42)
-        XCTAssertEqual(s?.state, "OPEN")
-        XCTAssertEqual(s?.url, "http://x")
+        #expect(s?.prNumber == 42)
+        #expect(s?.state == "OPEN")
+        #expect(s?.url == "http://x")
     }
 
-    func testMalformedIsNil() {
-        XCTAssertNil(GitService.parseGHStatus("not json"))
-        XCTAssertNil(GitService.parseGHStatus(#"{"state":"OPEN"}"#)) // number 없음
+    @Test func testMalformedIsNil() {
+        #expect(GitService.parseGHStatus("not json") == nil)
+        #expect(GitService.parseGHStatus(#"{"state":"OPEN"}"#) == nil) // number 없음
     }
 
-    func testRollupClassification() {
+    @Test func testRollupClassification() {
         let json = #"""
         {"number":1,"state":"OPEN","statusCheckRollup":[
           {"status":"COMPLETED","conclusion":"SUCCESS"},
@@ -25,19 +25,19 @@ final class GHStatusParseTests: XCTestCase {
         ]}
         """#
         let s = GitService.parseGHStatus(json)
-        XCTAssertEqual(s?.passing, 2)  // SUCCESS conclusion + SUCCESS state
-        XCTAssertEqual(s?.failing, 1)  // FAILURE
-        XCTAssertEqual(s?.pending, 1)  // IN_PROGRESS (status != COMPLETED)
+        #expect(s?.passing == 2)  // SUCCESS conclusion + SUCCESS state
+        #expect(s?.failing == 1)  // FAILURE
+        #expect(s?.pending == 1)  // IN_PROGRESS (status != COMPLETED)
     }
 
-    func testRollupPrioritizesFailing() {
+    @Test func testRollupPrioritizesFailing() {
         let s = GitService.GHStatus(prNumber: 1, state: "OPEN", url: "", passing: 3, failing: 1, pending: 2)
-        XCTAssertEqual(s.rollup, .failing) // 실패 우선
+        #expect(s.rollup == .failing) // 실패 우선
         let pendingOnly = GitService.GHStatus(prNumber: 1, state: "OPEN", url: "", passing: 3, failing: 0, pending: 2)
-        XCTAssertEqual(pendingOnly.rollup, .pending)
+        #expect(pendingOnly.rollup == .pending)
         let passingOnly = GitService.GHStatus(prNumber: 1, state: "OPEN", url: "", passing: 3, failing: 0, pending: 0)
-        XCTAssertEqual(passingOnly.rollup, .passing)
+        #expect(passingOnly.rollup == .passing)
         let none = GitService.GHStatus(prNumber: 1, state: "OPEN", url: "", passing: 0, failing: 0, pending: 0)
-        XCTAssertNil(none.rollup)
+        #expect(none.rollup == nil)
     }
 }

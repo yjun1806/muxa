@@ -1,8 +1,9 @@
-import XCTest
+import Foundation
+import Testing
 @testable import muxa
 
 /// 탭 스타일 설정 — 순수 로직(스타일→knob 매핑)과 로드/클램프. 뷰 없이 못 박는다.
-final class TabStyleSettingsTests: XCTestCase {
+struct TabStyleSettingsTests {
 
     // MARK: - knobs 매핑 불변식
 
@@ -11,73 +12,73 @@ final class TabStyleSettingsTests: XCTestCase {
         TabStyleSettings.knobs(for: style, radius: radius, thickness: thickness)
     }
 
-    func testCardIsFilledCardWithBottomRule() {
+    @Test func testCardIsFilledCardWithBottomRule() {
         let k = knobs(.card, radius: 8, thickness: 2)
-        XCTAssertTrue(k.filled)                       // 면(콘텐츠색)으로 채운다
-        XCTAssertEqual(k.tabCornerRadius, 8)          // 반경 슬라이더가 카드 모서리로
-        XCTAssertEqual(k.tabTopInset, 3)
-        XCTAssertTrue(k.indicatorAtBottom)
-        XCTAssertEqual(k.activeIndicatorHeight, 2)    // 두께 슬라이더가 지시선으로
-        XCTAssertNil(k.fillCornerRadius)              // pill 아님
+        #expect(k.filled)                       // 면(콘텐츠색)으로 채운다
+        #expect(k.tabCornerRadius == 8)          // 반경 슬라이더가 카드 모서리로
+        #expect(k.tabTopInset == 3)
+        #expect(k.indicatorAtBottom)
+        #expect(k.activeIndicatorHeight == 2)    // 두께 슬라이더가 지시선으로
+        #expect(k.fillCornerRadius == nil)              // pill 아님
     }
 
-    func testUnderlineHasNoFillBottomRule() {
+    @Test func testUnderlineHasNoFillBottomRule() {
         let k = knobs(.underline, thickness: 2)
-        XCTAssertFalse(k.filled)                      // 면 없음
-        XCTAssertTrue(k.indicatorAtBottom)
-        XCTAssertEqual(k.activeIndicatorHeight, 2)
-        XCTAssertEqual(k.tabCornerRadius, 0)
-        XCTAssertNil(k.fillCornerRadius)
+        #expect(!(k.filled))                      // 면 없음
+        #expect(k.indicatorAtBottom)
+        #expect(k.activeIndicatorHeight == 2)
+        #expect(k.tabCornerRadius == 0)
+        #expect(k.fillCornerRadius == nil)
     }
 
-    func testTopRuleDrawsAtTop() {
-        XCTAssertFalse(knobs(.topRule).indicatorAtBottom)
-        XCTAssertFalse(knobs(.topRule).filled)
+    @Test func testTopRuleDrawsAtTop() {
+        #expect(!(knobs(.topRule).indicatorAtBottom))
+        #expect(!(knobs(.topRule).filled))
     }
 
-    func testInsetBarIsInsetAndRounded() {
+    @Test func testInsetBarIsInsetAndRounded() {
         let k = knobs(.insetBar, thickness: 2)
         let h = max(CGFloat(2), 3)                    // 최소 3
-        XCTAssertEqual(k.indicatorInset, 10)          // 좌우로 물린다
-        XCTAssertEqual(k.activeIndicatorHeight, h)
-        XCTAssertEqual(k.indicatorCornerRadius, h / 2) // 끝이 둥글다
-        XCTAssertFalse(k.filled)
+        #expect(k.indicatorInset == 10)          // 좌우로 물린다
+        #expect(k.activeIndicatorHeight == h)
+        #expect(k.indicatorCornerRadius == h / 2) // 끝이 둥글다
+        #expect(!(k.filled))
     }
 
-    func testPillIsFloatingCapsuleNoIndicator() {
+    @Test func testPillIsFloatingCapsuleNoIndicator() {
         let k = knobs(.pill, radius: 7)
-        XCTAssertNotNil(k.fillCornerRadius)           // 네 모서리 둥근 면
-        XCTAssertTrue(k.filled)
-        XCTAssertEqual(k.activeIndicatorHeight, 0)    // 지시선 없음
-        XCTAssertGreaterThan(k.fillVInset, 0)         // 위아래로 떠 있어야 캡슐로 읽힌다
+        #expect(k.fillCornerRadius != nil)           // 네 모서리 둥근 면
+        #expect(k.filled)
+        #expect(k.activeIndicatorHeight == 0)    // 지시선 없음
+        #expect(k.fillVInset > 0)         // 위아래로 떠 있어야 캡슐로 읽힌다
     }
 
-    func testPillFillRadiusClampedTo4Through9() {
-        XCTAssertEqual(knobs(.pill, radius: 0).fillCornerRadius, 4)   // 하한
-        XCTAssertEqual(knobs(.pill, radius: 100).fillCornerRadius, 9) // 상한
-        XCTAssertEqual(knobs(.pill, radius: 6).fillCornerRadius, 6)
+    @Test func testPillFillRadiusClampedTo4Through9() {
+        #expect(knobs(.pill, radius: 0).fillCornerRadius == 4)   // 하한
+        #expect(knobs(.pill, radius: 100).fillCornerRadius == 9) // 상한
+        #expect(knobs(.pill, radius: 6).fillCornerRadius == 6)
     }
 
-    func testBlockIsSquareFilledNoLine() {
+    @Test func testBlockIsSquareFilledNoLine() {
         let k = knobs(.block)
-        XCTAssertTrue(k.filled)
-        XCTAssertEqual(k.activeIndicatorHeight, 0)
-        XCTAssertNil(k.fillCornerRadius)
+        #expect(k.filled)
+        #expect(k.activeIndicatorHeight == 0)
+        #expect(k.fillCornerRadius == nil)
     }
 
-    func testMinimalHasOnlyWeightSignal() {
+    @Test func testMinimalHasOnlyWeightSignal() {
         let k = knobs(.minimal)
-        XCTAssertFalse(k.filled)                      // 면 없음
-        XCTAssertEqual(k.activeIndicatorHeight, 0)    // 선 없음
-        XCTAssertNil(k.fillCornerRadius)
-        XCTAssertTrue(k.bold)                         // 굵기만이 유일한 신호
+        #expect(!(k.filled))                      // 면 없음
+        #expect(k.activeIndicatorHeight == 0)    // 선 없음
+        #expect(k.fillCornerRadius == nil)
+        #expect(k.bold)                         // 굵기만이 유일한 신호
     }
 
-    func testEveryStyleMapsWithoutTrap() {
+    @Test func testEveryStyleMapsWithoutTrap() {
         // 모든 스타일이 유효한 knob을 낸다(누락 case 방지) — inactive ≤ active 두께.
         for style in TabStyleSettings.ActiveStyle.allCases {
             let k = knobs(style, thickness: 1)
-            XCTAssertLessThanOrEqual(k.inactiveIndicatorHeight, max(k.activeIndicatorHeight, 3))
+            #expect(k.inactiveIndicatorHeight <= max(k.activeIndicatorHeight, 3))
         }
     }
 
@@ -89,37 +90,37 @@ final class TabStyleSettingsTests: XCTestCase {
         return d
     }
 
-    func testDefaultsMatchCurrentLook() {
+    @Test func testDefaultsMatchCurrentLook() {
         let s = TabStyleSettings(defaults: suite())
-        XCTAssertEqual(s.activeStyle, .card)
-        XCTAssertEqual(s.horizontalPadding, 4)
-        XCTAssertEqual(s.cornerRadius, 10)
-        XCTAssertEqual(s.indicatorThickness, 2)
+        #expect(s.activeStyle == .card)
+        #expect(s.horizontalPadding == 4)
+        #expect(s.cornerRadius == 10)
+        #expect(s.indicatorThickness == 2)
     }
 
-    func testOutOfRangeStoredValuesClampOnLoad() {
+    @Test func testOutOfRangeStoredValuesClampOnLoad() {
         let d = suite()
         d.set(999, forKey: "muxa.tabstyle.hPadding")
         d.set(-5, forKey: "muxa.tabstyle.cornerRadius")
         let s = TabStyleSettings(defaults: d)
-        XCTAssertEqual(s.horizontalPadding, TabStyleSettings.paddingRange.upperBound)
-        XCTAssertEqual(s.cornerRadius, TabStyleSettings.radiusRange.lowerBound)
+        #expect(s.horizontalPadding == TabStyleSettings.paddingRange.upperBound)
+        #expect(s.cornerRadius == TabStyleSettings.radiusRange.lowerBound)
     }
 
-    func testUnknownStyleFallsBackToCard() {
+    @Test func testUnknownStyleFallsBackToCard() {
         let d = suite()
         d.set("nonsense", forKey: "muxa.tabstyle.activeStyle")
-        XCTAssertEqual(TabStyleSettings(defaults: d).activeStyle, .card)
+        #expect(TabStyleSettings(defaults: d).activeStyle == .card)
     }
 
-    func testWritePersistsAndReloads() {
+    @Test func testWritePersistsAndReloads() {
         let d = suite()
         let s = TabStyleSettings(defaults: d)
         s.activeStyle = .pill
         s.horizontalPadding = 8
         // 새 인스턴스가 같은 저장소에서 읽으면 값이 살아 있다.
         let reloaded = TabStyleSettings(defaults: d)
-        XCTAssertEqual(reloaded.activeStyle, .pill)
-        XCTAssertEqual(reloaded.horizontalPadding, 8)
+        #expect(reloaded.activeStyle == .pill)
+        #expect(reloaded.horizontalPadding == 8)
     }
 }

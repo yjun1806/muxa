@@ -1,42 +1,41 @@
-import XCTest
+import Foundation
+import Testing
 @testable import muxa
 
-final class BrowserAddressTests: XCTestCase {
-    func testHTTPSPassthrough() {
-        XCTAssertEqual(normalizeBrowserAddress("https://a.com"), URL(string: "https://a.com"))
+struct BrowserAddressTests {
+    @Test func testHTTPSPassthrough() {
+        #expect(normalizeBrowserAddress("https://a.com") == URL(string: "https://a.com"))
     }
 
-    func testHTTPPassthrough() {
-        XCTAssertEqual(normalizeBrowserAddress("http://a.com"), URL(string: "http://a.com"))
+    @Test func testHTTPPassthrough() {
+        #expect(normalizeBrowserAddress("http://a.com") == URL(string: "http://a.com"))
     }
 
-    func testBareHostGetsHTTPS() {
-        XCTAssertEqual(normalizeBrowserAddress("example.com"), URL(string: "https://example.com"))
+    @Test func testBareHostGetsHTTPS() {
+        #expect(normalizeBrowserAddress("example.com") == URL(string: "https://example.com"))
     }
 
-    func testHostWithPathAndQuery() {
-        XCTAssertEqual(normalizeBrowserAddress("example.com/x?q=1"),
-                       URL(string: "https://example.com/x?q=1"))
+    @Test func testHostWithPathAndQuery() {
+        #expect(normalizeBrowserAddress("example.com/x?q=1") == URL(string: "https://example.com/x?q=1"))
     }
 
-    func testLocalhostWithPort() {
-        XCTAssertEqual(normalizeBrowserAddress("localhost:3000"),
-                       URL(string: "https://localhost:3000"))
+    @Test func testLocalhostWithPort() {
+        #expect(normalizeBrowserAddress("localhost:3000") == URL(string: "https://localhost:3000"))
     }
 
-    func testWhitespaceTrimmed() {
-        XCTAssertEqual(normalizeBrowserAddress("  https://a.com  "), URL(string: "https://a.com"))
+    @Test func testWhitespaceTrimmed() {
+        #expect(normalizeBrowserAddress("  https://a.com  ") == URL(string: "https://a.com"))
     }
 
-    func testEmptyIsNil() {
-        XCTAssertNil(normalizeBrowserAddress("   "))
+    @Test func testEmptyIsNil() {
+        #expect(normalizeBrowserAddress("   ") == nil)
     }
 
-    func testSearchPhraseIsNil() {
-        XCTAssertNil(normalizeBrowserAddress("hello world foo"))
+    @Test func testSearchPhraseIsNil() {
+        #expect(normalizeBrowserAddress("hello world foo") == nil)
     }
 
-    func testUppercaseSchemeAccepted() {
-        XCTAssertEqual(normalizeBrowserAddress("HTTPS://A.com"), URL(string: "HTTPS://A.com"))
+    @Test func testUppercaseSchemeAccepted() {
+        #expect(normalizeBrowserAddress("HTTPS://A.com") == URL(string: "HTTPS://A.com"))
     }
 }
