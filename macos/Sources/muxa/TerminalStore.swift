@@ -1165,12 +1165,6 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         return set
     }
 
-    /// 세션 기준 절대경로. 수집 키는 절대경로인데 diff 인자는 상대경로라 여기서 되돌린다.
-    func absoluteInSession(_ path: String, _ session: TabID) -> String {
-        guard !path.hasPrefix("/"), let cwd = effectiveCwds[session] else { return path }
-        return (cwd as NSString).appendingPathComponent(path)
-    }
-
     /// 사용자가 그 파일의 diff를 열었다 — "봤음"을 찍는다.
     func markAgentChangeSeen(tabId: TabID, path: String) {
         guard var set = agentChanges[tabId] else { return }
@@ -1952,7 +1946,7 @@ final class TerminalStore: NSObject, BonsplitDelegate {
         // **"봤음"은 여기서 찍는다.** 예전엔 패널의 행 클릭에만 달려 있어, 상세에서 연 파일은
         // 아무리 열어도 계속 "안 봄"으로 남았다. diff를 여는 길이 늘 때마다 빠뜨릴 자리다.
         if case .baselineFile(_, let path, let session) = target {
-            markAgentChangeSeen(tabId: session, path: absoluteInSession(path, session))
+            markAgentChangeSeen(tabId: session, path: path)   // 수집 키와 같은 절대경로
         }
         let id = openInGroup(.diff(target))
         if let id { pinReferencesFirst(id) } // 새 diff가 붙어도 참고는 맨 앞에 남는다

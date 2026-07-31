@@ -26,6 +26,18 @@ extension GitService {
 
     /// 기준선 ↔ 워킹트리의 파일 하나 diff. 기준선을 먼저 검증하므로 **거짓 diff가 나오지 않는다**.
     /// 강등됐으면 그 사실도 함께 돌려준다 — 화면이 사유를 말할 수 있어야 한다.
+    /// 이 경로가 속한 워크트리 루트. **`repoRoot`와 다르다** — 저건 링크 워크트리에서도
+    /// 메인을 가리키지만, diff는 그 파일이 실제로 사는 워크트리에서 돌아야 한다.
+    /// 경로가 저장소 밖이면 nil.
+    static func worktreeRoot(containing path: String) async -> String? {
+        let parent = (path as NSString).deletingLastPathComponent
+        guard !parent.isEmpty else { return nil }
+        let r = await run(["rev-parse", "--show-toplevel"], in: parent)
+        guard r.exitCode == 0 else { return nil }
+        let root = r.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return root.isEmpty ? nil : root
+    }
+
     static func baselineFileDiff(base: String, path: String,
                                  in dir: String) async -> (text: String,
                                                            decision: BaselineResolve.Decision) {

@@ -300,7 +300,9 @@ struct DiffView: View {
 
     /// 절대 경로(repo dir + 상대경로). status의 opPath는 repo 루트 기준 상대경로다.
     private func absolutePath(_ rel: String) -> String {
-        (dir as NSString).appendingPathComponent(rel)
+        // 기준선 diff는 절대경로로 온다 — `dir`을 앞에 붙이면 없는 경로가 되어
+        // 파일 감시(mtime 비교)가 통째로 헛돈다.
+        rel.hasPrefix("/") ? rel : (dir as NSString).appendingPathComponent(rel)
     }
 
     /// 감시 대상 결정 — 파일 diff는 부모 디렉토리, 통합 diff는 워크트리 루트를 감시한다.
@@ -550,7 +552,10 @@ struct DiffView: View {
             change = nil // 기준선 대비는 스테이지 축을 쓰지 않는다(패널이 리뷰 창구다)
             lastMTime = (try? FileManager.default
                 .attributesOfItem(atPath: absolutePath(path))[.modificationDate]) as? Date
-            let resolved = await GitService.baselineFileDiff(base: base, path: path, in: dir)
+            // **파일이 사는 저장소에서 돌린다.** 세션이 프로젝트 폴더 밖에서(또는 다른
+            // 워크트리에서) 작업하면 `dir` 기준 diff는 오류 없이 빈 결과를 준다.
+            let repo = await GitService.worktreeRoot(containing: path) ?? dir
+            let resolved = await GitService.baselineFileDiff(base: base, path: path, in: repo)
             baselineNotice = BaselineResolve.notice(for: resolved.decision)
             text = resolved.text
         }

@@ -184,7 +184,9 @@ struct AgentDetailView: View {
     /// 변경 한 줄 — 패널과 같은 어휘에 **횟수·지시** 두 열을 더한다.
     private func changeRow(_ row: AgentChangeRow, base: String?) -> some View {
         let rel = relative(row.path)
-        let open = { onOpenDiff(.baselineFile(base: base ?? "HEAD", path: rel,
+        // 절대경로를 넘긴다 — 상대경로의 기준(세션 cwd)과 diff 실행 기준(프로젝트 폴더)이
+        // 어긋나면 git이 조용히 빈 결과를 준다. 상대화는 **라벨에만** 쓴다.
+        let open = { onOpenDiff(.baselineFile(base: base ?? "HEAD", path: row.path,
                                               session: target.tabId)) }
         // **`Button`으로 감싼다** — 저장소의 목록 행 패턴이다(`GitChangesSection`·`GitFileRow`·
         // `SidebarProjectRow`). `onTapGesture`만 쓰면 안쪽 `Text`가 마우스를 받아 커서가
@@ -236,7 +238,7 @@ struct AgentDetailView: View {
         }
         .buttonStyle(.plain)
         // 지금 오른쪽에 열려 있는 파일 = 선택 채움(마스터-디테일의 기본 문법).
-        .modifier(ListRowFill(selected: rel == selectedPath))
+        .modifier(ListRowFill(selected: row.path == selectedPath))
         .padding(.horizontal, Space.xs)
         .accessibilityRow(label: changeLabel(row, rel: rel))
     }

@@ -256,10 +256,10 @@ struct AgentPanel: View {
         .frame(height: RowHeight.row)
         .contentShape(Rectangle())
         .modifier(ListRowFill())
-        .onTapGesture { open(rel, base: base, tabId: tabId, root: root) }
+        .onTapGesture { open(row.path, base: base, tabId: tabId, root: root) }
         .help(rel) // 180pt에서 부모 경로가 사라지므로 전체 경로는 여기로 강등된다
         .accessibilityRow(label: accessibilityLabel(row, rel: rel),
-                          activate: { open(rel, base: base, tabId: tabId, root: root) })
+                          activate: { open(row.path, base: base, tabId: tabId, root: root) })
     }
 
     /// VO가 읽을 행 이름 — 굵기·색은 스크린리더에 존재하지 않으므로 **말로** 해야 한다.
@@ -369,10 +369,13 @@ struct AgentPanel: View {
         return absolute.hasPrefix(prefix) ? String(absolute.dropFirst(prefix.count)) : absolute
     }
 
-    private func open(_ rel: String, base: String?, tabId: TabID, root: String?) {
+    /// **절대경로를 넘긴다.** 상대경로면 "무엇 기준이냐"가 따라붙는데, 그 기준(세션 cwd)은
+    /// `cd` 한 번에 바뀌고 diff를 실행하는 쪽이 아는 기준(프로젝트 폴더)과도 다르다.
+    /// 어긋나면 git이 **오류 없이 빈 diff**를 돌려줘 화면이 조용히 비었다(실측).
+    private func open(_ abs: String, base: String?, tabId: TabID, root: String?) {
         // 기준선이 없으면(아직 못 읽었다) HEAD로 떨어진다 — 열리지 않는 행을 만들지 않는다.
         // "봤음"은 스토어가 diff를 열 때 찍는다 — 여기서도 찍으면 두 곳이 같은 규칙을 갖는다.
-        onOpenDiff(.baselineFile(base: base ?? "HEAD", path: rel, session: tabId))
+        onOpenDiff(.baselineFile(base: base ?? "HEAD", path: abs, session: tabId))
     }
 
     // MARK: 새로 고치기
