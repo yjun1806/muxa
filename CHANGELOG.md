@@ -6,6 +6,49 @@ All notable changes to muxa are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-07-31
+
+All three items came from outside bug reports ([#1], [#2], [#3]) — the first this project has had.
+
+### Fixed
+- **The Claude button no longer dies with `command not found`** ([#2]) — the tab opened but `claude`
+  never ran, while the prompt and theme rendered fine, which made it look like the shell *had* read
+  your config. It had not. The command was wrapped in `$SHELL -lc`: a **login but non-interactive**
+  shell, which zsh answers by reading `.zshenv` and `.zprofile` and **skipping `.zshrc`**. If your
+  PATH is exported from `.zshrc` — the common case — the lookup failed. The prompt looked normal
+  because the `exec -l $SHELL` that follows *is* interactive. The real defect was an asymmetry inside
+  the app: service sessions already ran commands under `-l -i -c` while terminal tabs used `-lc`.
+  Tabs now match, and a test pins the two paths together so they can't drift apart again.
+
+### Documentation
+- **GitHub identifies the license as MIT again** ([#1]) — it had been showing `Other` /
+  `NOASSERTION`. The MIT text was verbatim, but four lines of third-party notice appended to
+  `LICENSE` (151 of 1,223 characters) pushed the file below licensee's similarity threshold. That
+  kept the repo out of `license:mit` searches and made scanners like FOSSA and Snyk treat it as an
+  unknown license — which triggers manual legal review instead of an automatic pass. The notice moved
+  to a separate `NOTICE` file; `LICENSE` now holds the canonical MIT text alone.
+
+### Testing
+- **`make test` works with Command Line Tools alone** ([#3]) — the docs said CLT was enough, and it
+  was for building, but not for testing: `XCTest` ships only with full Xcode. With a single
+  `muxaTests` target, 47 files importing `XCTest` failed to compile and took the 63 files already on
+  swift-testing down with them, so a contributor who followed the setup guide could not verify their
+  own change. Those 47 files moved to swift-testing (1,161 assertions), and `make test` now injects
+  the framework search paths CLT needs — the pieces are all present there, but scattered across two
+  directories that SwiftPM does not pick up on its own. Migrating alone would not have been enough.
+
+  Two latent problems surfaced during the move. Twenty-four tests had been relying on XCTest's
+  serial execution: they shared one JavaScriptCore context through a `static` and passed input via
+  globals, so swift-testing's parallel default let them overwrite each other. That context is now
+  built per test. Separately, `XCTSkip` has no equivalent in swift-testing — where the JS harness
+  used to be skipped when it failed to load, it now **fails**, since those resources are read
+  straight from the source tree and a missing one is a real problem rather than a reason to pass.
+
+[#1]: https://github.com/yjun1806/muxa/issues/1
+[#2]: https://github.com/yjun1806/muxa/issues/2
+[#3]: https://github.com/yjun1806/muxa/issues/3
+
+
 ## [0.7.1] - 2026-07-31
 
 ### Fixed
@@ -163,7 +206,8 @@ First tagged release — a macOS agent terminal with a built-in document viewer 
 ### Notes
 - Status and notifications are tuned to Claude Code. macOS 14+. Build from source — no prebuilt binary; install with the one-line script or `make`.
 
-[Unreleased]: https://github.com/yjun1806/muxa/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/yjun1806/muxa/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/yjun1806/muxa/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/yjun1806/muxa/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/yjun1806/muxa/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/yjun1806/muxa/compare/v0.6.0...v0.6.1

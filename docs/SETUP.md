@@ -21,8 +21,12 @@ make dev          # 2. .app 번들로 빌드·실행 (권장 — 아이콘·시�
 
 ```bash
 make build        # = cd macos && swift build
-make test         # 순수 로직 단위 테스트
+make test         # 순수 로직 단위 테스트 (1,114개)
 ```
+
+**테스트는 `make test`로 돈다 — `swift test`를 직접 부르면 안 된다.** 전체 Xcode 없이 Command Line
+Tools만 있으면 SwiftPM이 swift-testing 프레임워크 경로를 못 잡아 `no such module 'Testing'`으로 죽는다.
+`Makefile`이 그 경로를 주입한다(gh#3). Xcode가 깔린 환경에서는 아무 차이가 없다.
 
 ## 앱 번들(.app)로 빌드
 

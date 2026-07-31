@@ -1,4 +1,4 @@
-# muxa 진행 상태 · 인수인계 (2026-07-24 · rev16)
+# muxa 진행 상태 · 인수인계 (2026-07-31 · rev17)
 
 > 다음 세션이 여기서 이어간다. 아키텍처·결정은 [ARCHITECTURE.md](ARCHITECTURE.md), UI 디자인 시스템은
 > [DESIGN.md](DESIGN.md). 이 문서는 **현재 상태·다음 할 일**만.
@@ -9,7 +9,9 @@
 ./scripts/bootstrap.sh      # (새 머신 최초 1회) GhosttyKit 설치 — docs/SETUP.md
 cd macos
 swift build                 # 빌드 (SPM)
-swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 링크 포함)
+# 테스트는 리포 루트에서 `make test`로 돈다 (1,114개, 전부 swift-testing).
+# 전체 Xcode 없이 Command Line Tools만 있는 환경에선 Makefile이 프레임워크 경로를 주입하므로
+# `swift test`를 직접 부르면 `no such module 'Testing'`으로 죽는다 — gh#3.
 .build/debug/muxa           # bare 실행 (창 뜸, 아이콘 런타임 적용·시스템 알림은 Dock 바운스 폴백)
 # 정식 아이콘·시스템 알림: ./scripts/build-app.sh && open macos/.build/debug/muxa.app  (.app 번들 = bundleId 생김)
 # UI 변경은 재빌드+재실행. pkill로 죽이면 세션 저장(applicationWillTerminate) 안 됨 — ⌘Q로 정상 종료해야 복원됨.
@@ -105,6 +107,41 @@ swift test                  # 순수 로직 단위 테스트 (94개, GhosttyKit 
 **데이터 준비(전부 있음):** 라이브 활동 = `ToolActivity`(편집/실행/검색) + 탭 제목(Claude OSC) · 경과/대기시간 =
 추정기 `lastOutputAt`(systemUptime 경과) · 에이전트 판정 = `hookedTabs`. **경량 가드**: 접힘 기본 + 유휴 접기로 절제
 (muxa 우위=가벼움, [[muxa-vs-orca-positioning]]).
+
+## 최근 완료 (2026-07-31) — 외부 이슈 3건 (gh#1·#2·#3, v0.7.2)
+
+**이 프로젝트의 첫 외부 제보다.** 셋 다 진단이 정확했고 재현 절차까지 담겨 있었다. 다만 **제안된
+수정은 두 건에서 그대로 쓸 수 없었다** — 아래.
+
+- **gh#1 라이선스** ([YJ-9](../../muxa-waymark/waymark/done/YJ-9-license-not-detected-as-mit.md)) —
+  `LICENSE` 끝의 서드파티 고지 4줄(1,223자 중 151자)이 licensee 임계를 깨 GitHub이 `other`로 봤다.
+  고지를 `NOTICE`로 옮겼다. `spdx_id`가 `MIT`로 복구됐고 `license:mit` 검색에도 잡힌다.
+- **gh#2 Claude 버튼** ([YJ-11](../../muxa-waymark/waymark/in-progress/YJ-11-claude-button-command-not-found.md)) —
+  탭이 명령을 `$SHELL -lc`(로그인이지만 **비대화형**)로 실행해 `.zshrc`를 건너뛰었다. PATH를 거기 두는
+  흔한 구성에서 죽는다. **제보가 지목한 `resolve()` 프로브는 애초에 타지도 않는 경로였다** — 진짜
+  원인은 서비스 세션(`-l -i -c`)과 터미널 탭(`-lc`)의 조건이 달랐던 것. 탭을 `-lic`로 맞췄다.
+- **gh#3 CLT 테스트** ([YJ-10](../../muxa-waymark/waymark/done/YJ-10-clt-swift-testing-migration.md)) —
+  `XCTest` 47개가 CLT에서 컴파일이 안 돼 swift-testing으로 옮긴 63개까지 막았다. 47개를 이전하고
+  `Makefile`이 CLT 프레임워크 경로를 주입하게 했다. **이전만으로는 안 고쳐진다** — 5,330줄을 바꾸기
+  전에 최소 패키지로 확인한 사실이다.
+
+**테스트 94개 → 1,114개**가 아니라, 원래 있던 것이 CLT에서 안 돌던 것을 되살린 것이다(개수는 이번에
+세면서 바로잡았다). 이전 과정에서 **가려져 있던 결함 두 개**가 드러났다 — 24건이 XCTest의 순차 실행에
+기대고 있었고(JSContext 공유), `XCTSkip`으로 조용히 넘어가던 자리가 이제 실패로 잡힌다.
+
+### ★ 육안 검증 필요 (gh#2 — 제보자 환경 필요)
+
+- **개발 환경에서는 이 버그가 재현되지 않는다.** `~/.zprofile`이 PATH를 세워서 원래 잘 됐다.
+  실기동으로 확인한 것은 "고쳐짐"이 아니라 **`-i` 추가로 깨지지 않았다**는 것뿐이다(우려했던 rc
+  배너·셸 전환 부작용 없음). 제보자 회신이 유일한 최종 검증이다 — PR #5에 요청해 뒀다.
+- **`$SHELL`이 fish인 경우 미검증.** `bash -lic`·`sh -lic`는 실측했다.
+- **`.zshrc`에서 `exec fish` 같은 셸 전환을 하는 구성**에선 `claude` 대신 그 셸이 뜬다. `-lc`에선
+  `.zshrc`를 안 읽어 안 돌던 코드라, `-i`가 새로 여는 실패 모드다(서비스 세션은 이미 같은 위험).
+
+### ⚠ 남은 상위 문제 — CI 부재
+
+셋의 공통 배경이다. gh#1은 라이선스 체크 한 줄로, gh#2는 회귀 테스트로 잡히지만 **gh#3은 CI로도 안
+잡힌다** — `macos-*` 러너에는 전체 Xcode가 있어 경로 주입 없이 통과한다. CLT 전용 잡을 따로 둬야 한다.
 
 ## 최근 완료 (2026-07-24) — 터미널 탭 드래그 선택/복사 복원 (TMUX-MOUSE)
 
