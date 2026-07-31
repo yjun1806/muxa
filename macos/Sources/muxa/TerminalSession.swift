@@ -59,9 +59,14 @@ enum TerminalSession {
     ///
     /// - Parameter runCommand: 세션을 **새로 만들 때** 셸 대신 첫 프로세스로 실행할 명령(Claude 버튼의 "claude").
     ///   프롬프트에 타이핑하지 않고 pane의 프로세스로 직접 실행해 프롬프트 렌더 타이밍·잔상을 원천 차단한다.
-    ///   **로그인 셸(`$SHELL -lc`)로 감싼다** — .app은 launchd의 빈약한 PATH를 물려받는데, 로그인 셸이
-    ///   .zprofile을 읽어 PATH를 세워야 `~/.local/bin`의 claude를 찾는다(실측). 명령이 끝나면 `exec -l $SHELL`로
-    ///   대화형 셸에 떨어져 탭이 산다. 세션이 이미 있으면(-A 재부착·복원) tmux가 이 명령을 무시한다.
+    ///   **로그인 + 대화형 셸(`$SHELL -lic`)로 감싼다** — .app은 launchd의 빈약한 PATH를 물려받으므로
+    ///   셸이 사용자 rc를 읽어 PATH를 세워야 `~/.local/bin`의 claude를 찾는다. `-i` 없이 `-lc`만 쓰면
+    ///   zsh가 `.zshenv`·`.zprofile`까지만 읽고 **`.zshrc`를 건너뛰어**, PATH를 `.zshrc`에만 두는 흔한
+    ///   구성에서 `command not found`로 죽는다(gh#2 실측 — 뒤이은 `exec -l $SHELL`이 대화형 셸을 띄우니
+    ///   프롬프트만 멀쩡해 보여 더 헷갈린다). 서비스 세션(`TmuxService.startArgs`)이 이미 `-l -i -c`를
+    ///   쓰므로 조건을 그쪽에 맞춘 것이다 — 한 앱에서 두 실행 경로가 달랐던 게 원인이었다.
+    ///   명령이 끝나면 `exec -l $SHELL`로 대화형 셸에 떨어져 탭이 산다.
+    ///   세션이 이미 있으면(-A 재부착·복원) tmux가 이 명령을 무시한다.
     static func startCommand(tmux: String, socket: String, session: String, cwd: String,
                              env: [String: String] = [:], runCommand: String? = nil) -> String {
         // -e는 **세션을 새로 만들 때만** 적용된다(이미 있으면 무시). 복원된 세션의 셸에는 옛 tabId가
@@ -74,7 +79,7 @@ enum TerminalSession {
             let base = "new-session -d -A -s \(q) -c \(ShellQuote.single(cwd))\(envArgs)"
             guard let runCommand else { return base }
             let shell = "\"${SHELL:-/bin/zsh}\""
-            let inner = "\(shell) -lc \(ShellQuote.single(runCommand)); exec -l \(shell)"
+            let inner = "\(shell) -lic \(ShellQuote.single(runCommand)); exec -l \(shell)"
             return "\(base) \(ShellQuote.single(inner))"
         }()
         // tmux는 한 번의 실행에서 `;`로 여러 명령을 잇는다. `;`는 셸이 먹지 않게 인용한다.
