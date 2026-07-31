@@ -122,8 +122,11 @@ struct TerminalSessionTests {
         let service = TmuxService.startArgs(session: "muxa__p1__svc__s1", cwd: "/repo",
                                             shell: "/bin/zsh", command: "pnpm dev")
         // 탭: 한 토큰(-lic). 서비스: 분리된 인자(-l -i -c). 형태는 달라도 조건은 같아야 한다.
+        //
+        // 서비스는 **인접 시퀀스**로 본다 — startArgs에는 `-c`가 두 번(cwd용, 셸 명령용) 나오므로
+        // 낱개 contains로는 cwd용 `-c` 하나에 걸려 조건이 깨져도 초록불이 뜬다.
         #expect(tab.contains("-lic"))
-        #expect(service.contains("-l") && service.contains("-i") && service.contains("-c"))
+        #expect(service.joined(separator: " ").contains("/bin/zsh -l -i -c"))
     }
 
     /// 전역은 `on`이다(서비스가 죽은 뒤 로그를 읽어야 하므로). 터미널에 그대로 두면 `exit`를 쳐도
